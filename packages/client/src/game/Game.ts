@@ -19,12 +19,15 @@ import { Joystick } from "../ui/joystick.ts";
 import { Keyboard } from "../ui/keyboard.ts";
 import { toScene } from "./coords.ts";
 import { Effects } from "./effects.ts";
-import { createPlayerModel, disposeModel, setFlash } from "./models.ts";
+import { setFlash } from "./models.ts";
 import type { PalInstance, PalModelSet } from "./assets.ts";
+import type { AnimatedModel } from "./animated.ts";
+import { PlayerClip, type CharacterSet } from "./characters.ts";
 import { buildWorld, type World } from "./world.ts";
 
 interface Entity {
   model: THREE.Group;
+  anim: AnimatedModel;
   /** Displayed position in server pixels (interpolated or predicted). */
   pos: Vec2;
   /** Latest authoritative position from the server. */
@@ -33,27 +36,33 @@ interface Entity {
 }
 
 interface PalEntity extends Entity {
-  instance: PalInstance;
+  anim: PalInstance;
   hp: number;
   maxHp: number;
   hpFill: HTMLDivElement;
 }
 
 /** Pals are drawn a bit larger than life so they read well from the high camera. */
-const PAL_DISPLAY_SCALE = 1.3;
-/** Displayed speed (pixels/s) above which a pal plays its walk cycle. */
+const PAL_DISPLAY_SCALE = 1.0;
+/** Displayed speed (pixels/s) above which an entity plays its move cycle. */
 const WALK_THRESHOLD = 8;
+
+export interface GameAssets {
+  pals: PalModelSet;
+  characters: CharacterSet;
+  nature: Map<string, THREE.Object3D>;
+}
 
 /** Above this distance (pixels) the predicted local player snaps to the server. */
 const SNAP_DISTANCE = 64;
 /** Camera offset from the followed player, in scene units. */
-const CAMERA_OFFSET = new THREE.Vector3(0, 11, 8);
+const CAMERA_OFFSET = new THREE.Vector3(0, 8.5, 6.8);
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
   private labels: CSS2DRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+  private camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
   private world: World;
   private effects: Effects;
   private hud: Hud;
@@ -66,22 +75,24 @@ export class Game {
   private cameraTarget = new THREE.Vector3();
   private tmp = new THREE.Vector3();
 
-  constructor(private container: HTMLElement, private room: GameRoom, private palModels: PalModelSet) {
+  constructor(private container: HTMLElement, private room: GameRoom, private assets: GameAssets) {
     const dpr = Math.min(window.devicePixelRatio, 2);
     this.renderer = new THREE.WebGLRenderer({ antialias: dpr < 2, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(dpr);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.95;
     container.append(this.renderer.domElement);
 
     this.labels = new CSS2DRenderer();
     this.labels.domElement.className = "labels";
     container.append(this.labels.domElement);
 
-    this.world = buildWorld(this.scene);
+    const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+    this.world = buildWorld(this.scene, assets.nature, !isTouch);
     this.effects = new Effects(this.scene);
 
-    const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
     this.hud = new Hud(container, isTouch, { attack: () => this.attack(), capture: () => this.throwBall() });
     if (isTouch) this.joystick = new Joystick(this.hud.joystickZone);
     this.keyboard = new Keyboard({ " ": () => this.attack(), e: () => this.throwBall() });
@@ -107,12 +118,13 @@ export class Game {
 
     $.onAdd("players", (player, sessionId) => {
       const isMe = sessionId === this.room.sessionId;
-      const model = createPlayerModel(player.color);
+      const anim = this.assets.characters.create(player.color);
+      const model = anim.object;
       const label = makeLabel(player.name, isMe ? "label me" : "label");
-      label.position.y = 2.1;
+      label.position.y = 2.15;
       model.add(label);
       this.scene.add(model);
-      const entity: Entity = { model, label, pos: { x: player.x, y: player.y }, server: { x: player.x, y: player.y } };
+      const entity: Entity = { model, anim, label, pos: { x: player.x, y: player.y }, server: { x: player.x, y: player.y } };
       toScene(player.x, player.y, model.position);
       this.players.set(sessionId, entity);
       $.onChange(player, () => {
@@ -130,8 +142,8 @@ export class Game {
 
     $.onAdd("pals", (pal, id) => {
       const species = getSpecies(pal.speciesId);
-      const instance = this.palModels.create(species.id);
-      const model = instance.object;
+      const anim = this.assets.pals.create(species.id);
+      const model = anim.object;
       model.scale.setScalar(PAL_DISPLAY_SCALE);
       const label = makeLabel(species.name, "label pal");
       const hpBar = document.createElement("div");
@@ -145,7 +157,7 @@ export class Game {
       toScene(pal.x, pal.y, model.position);
       this.scene.add(model);
       const entity: PalEntity = {
-        model, label, hpFill, instance,
+        model, label, hpFill, anim,
         pos: { x: pal.x, y: pal.y }, server: { x: pal.x, y: pal.y },
         hp: pal.hp, maxHp: pal.maxHp,
       };
@@ -162,18 +174,15 @@ export class Game {
 
     $.onRemove("pals", (_pal, id) => {
       const entity = this.pals.get(id);
-      if (entity) {
-        entity.label.element.remove();
-        this.scene.remove(entity.model);
-        entity.instance.dispose();
-      }
+      if (entity) this.removeEntity(entity);
       this.pals.delete(id);
     });
 
     this.room.onMessage(ServerMessage.Hit, (msg: HitMessage) => {
       const pal = this.pals.get(msg.palId);
+      if (msg.playerId !== this.room.sessionId) this.players.get(msg.playerId)?.anim.once(PlayerClip.Attack);
       if (!pal) return;
-      pal.instance.once("hurt");
+      pal.anim.once("hurt");
       setFlash(pal.model, true);
       setTimeout(() => setFlash(pal.model, false), 90);
     });
@@ -182,7 +191,11 @@ export class Game {
       const thrower = this.players.get(msg.playerId);
       const pal = this.pals.get(msg.palId);
       if (thrower && pal) this.effects.throwBall(thrower.model.position, pal.model.position);
-      if (msg.playerId !== this.room.sessionId) return;
+      if (msg.success && pal) this.effects.sparkle(pal.model.position, getSpecies(msg.speciesId).color);
+      if (msg.playerId !== this.room.sessionId) {
+        thrower?.anim.once(PlayerClip.Throw);
+        return;
+      }
       const name = getSpecies(msg.speciesId).name;
       const pct = Math.round(msg.chance * 100);
       this.hud.showToast(msg.success ? `Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${pct}%)`);
@@ -219,6 +232,7 @@ export class Game {
         entity.pos.y += (entity.server.y - entity.pos.y) * lerp;
       }
       this.placeModel(entity, prev, dtSec);
+      this.animate(entity, prev, dtSec, PlayerClip.Run, PlayerClip.Idle);
     });
 
     this.pals.forEach((pal) => {
@@ -226,16 +240,22 @@ export class Game {
       pal.pos.x += (pal.server.x - pal.pos.x) * lerp;
       pal.pos.y += (pal.server.y - pal.pos.y) * lerp;
       this.placeModel(pal, prev, dtSec);
-      const speed = dtSec > 0 ? distance(prev, pal.pos) / dtSec : 0;
-      pal.instance.loop(speed > WALK_THRESHOLD ? "walk" : "idle");
-      pal.instance.mixer?.update(dtSec);
+      this.animate(pal, prev, dtSec, "walk", "idle");
     });
 
     this.updateCamera(dtSec);
+    this.world.update(now / 1000, this.cameraTarget);
     this.effects.update(dtSec);
     this.updateHud();
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
+  }
+
+  /** Picks the move or idle loop from displayed speed and advances the mixer. */
+  private animate(entity: Entity, prev: Vec2, dtSec: number, move: string, idle: string) {
+    const speed = dtSec > 0 ? distance(prev, entity.pos) / dtSec : 0;
+    entity.anim.loop(speed > WALK_THRESHOLD ? move : idle);
+    entity.anim.mixer?.update(dtSec);
   }
 
   /** Moves a model to its displayed position and turns it to face its motion. */
@@ -274,7 +294,9 @@ export class Game {
   private attack() {
     this.room.send(ClientMessage.Attack);
     const me = this.players.get(this.room.sessionId);
-    if (me) this.effects.attackRing(me.model.position);
+    if (!me) return;
+    me.anim.once(PlayerClip.Attack);
+    this.effects.attackRing(me.model.position);
   }
 
   private throwBall() {
@@ -294,6 +316,10 @@ export class Game {
       return;
     }
     this.room.send(ClientMessage.Throw, { palId: targetId });
+    me.anim.once(PlayerClip.Throw);
+    // Face the target while throwing.
+    const target = this.pals.get(targetId)!;
+    me.model.rotation.y = Math.atan2(target.pos.x - me.pos.x, target.pos.y - me.pos.y);
   }
 
   private updateHpBar(pal: PalEntity) {
@@ -310,7 +336,7 @@ export class Game {
   private removeEntity(entity: Entity) {
     entity.label.element.remove();
     this.scene.remove(entity.model);
-    disposeModel(entity.model);
+    entity.anim.dispose();
   }
 }
 

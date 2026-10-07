@@ -22,6 +22,11 @@ Bạn là người phụ trách **đồ họa 3D (art pipeline)** của PetGame.
 - Tên animation: `idle`, `walk`, `attack`, `hurt` (thú có thêm `work` nếu biết làm việc).
 - Đường dẫn: `packages/client/public/assets/models/pal-<speciesId>.glb`, `player.glb`, `prop-<tên>.glb`.
 
+## Asset KayKit (CC0)
+- `assets/kaykit/manifest.ts` liệt kê model cây cỏ, nhân vật, animation đang dùng; `npm run assets:kaykit` tải (git blobless từ mirror công khai) và xuất GLB vào `public/assets/env` và `public/assets/characters`.
+- Thêm cây/đá/nhân vật: thêm tên vào manifest, chạy lại lệnh, rồi dùng trong `world.ts`/`characters.ts`. Test `assets/kaykit/assets.test.ts` kiểm tra kết quả.
+- Phong cách KayKit là chuẩn chung: model thú mới phải bo tròn, smooth shading, màu tươi cho hợp.
+
 ## Model hiện có
 - 5 thú được **dựng bằng code** trong `assets/pals/build.ts` (low-poly, animation theo bộ phận: `body`, `head`, `tail`, `ear_*`, `leg_*`, `fin_*`, `arm_*`). Chạy `npm run models:build` để xuất lại GLB.
 - Xem và kiểm tra animation: `npm run dev`, mở http://localhost:5173/model-viewer.html (`?clip=walk`).

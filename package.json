@@ -17,15 +17,18 @@
     "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/client && tsc -p assets",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "models:build": "tsx assets/pals/build.ts"
+    "models:build": "tsx assets/pals/build.ts",
+    "assets:kaykit": "tsx assets/kaykit/import.ts"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
     "@playwright/test": "1.56.1",
     "@types/node": "^22.0.0",
     "@types/three": "^0.186.0",
+    "tsx": "^4.20.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.3",
-    "vitest": "^5.0.3",
-    "tsx": "^4.20.0"
+    "vitest": "^5.0.3"
   }
 }

@@ -44,16 +44,16 @@ const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../packages/cl
 type V3 = [number, number, number];
 
 const materials = new Map<string, THREE.MeshStandardMaterial>();
-function mat(color: string, opts: { emissive?: string; smooth?: boolean } = {}): THREE.MeshStandardMaterial {
-  const key = `${color}|${opts.emissive ?? ""}|${opts.smooth ? 1 : 0}`;
+function mat(color: string, opts: { emissive?: string; flat?: boolean } = {}): THREE.MeshStandardMaterial {
+  const key = `${color}|${opts.emissive ?? ""}|${opts.flat ? 1 : 0}`;
   let m = materials.get(key);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0, name: key });
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.65, metalness: 0, name: key });
     if (opts.emissive) {
       m.emissive.set(opts.emissive);
       m.emissiveIntensity = 1;
     }
-    m.userData.smooth = !!opts.smooth;
+    m.userData.flat = !!opts.flat;
     materials.set(key, m);
   }
   return m;
@@ -84,15 +84,15 @@ function add(
   return m;
 }
 
-const sphere = (r: number, w = 10, h = 8) => new THREE.SphereGeometry(r, w, h);
+const sphere = (r: number, w = 16, h = 12) => new THREE.SphereGeometry(r, w, h);
 const ico = (r: number, detail = 1) => new THREE.IcosahedronGeometry(r, detail);
-const cone = (r: number, h: number, seg = 6) => new THREE.ConeGeometry(r, h, seg);
-const cyl = (rt: number, rb: number, h: number, seg = 6) => new THREE.CylinderGeometry(rt, rb, h, seg);
+const cone = (r: number, h: number, seg = 10) => new THREE.ConeGeometry(r, h, seg);
+const cyl = (rt: number, rb: number, h: number, seg = 10) => new THREE.CylinderGeometry(rt, rb, h, seg);
 
 /** Big glossy cartoon eyes on the +Z face. */
 function eyes(parent: THREE.Object3D, y: number, z: number, spread: number, r: number) {
-  const dark = mat("#1b1b2f", { smooth: true });
-  const shine = mat("#ffffff", { smooth: true });
+  const dark = mat("#1b1b2f");
+  const shine = mat("#ffffff");
   for (const side of [-1, 1]) {
     add(parent, sphere(r, 12, 10), dark, [side * spread, y, z], [1, 1.15, 0.6]);
     add(parent, sphere(r * 0.35, 8, 6), shine, [side * spread + r * 0.3, y + r * 0.4, z + r * 0.45]);
@@ -109,7 +109,7 @@ function leg(parent: THREE.Object3D, name: string, pos: V3, length: number, r: n
 
 /**
  * Merges each node's direct mesh children per material into one mesh, so a
- * pal is a handful of draw calls. Flat-shaded unless the material is smooth.
+ * pal is a handful of draw calls. Smooth-shaded unless the material is flat.
  */
 function bake(root: THREE.Object3D) {
   const nodes: THREE.Object3D[] = [];
@@ -121,11 +121,11 @@ function bake(root: THREE.Object3D) {
     const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
     for (const m of meshes) {
       m.updateMatrix();
-      const smooth = (m.material as THREE.Material).userData.smooth;
+      const flat = (m.material as THREE.Material).userData.flat;
       let g = m.geometry.clone().applyMatrix4(m.matrix);
       g = g.index ? g.toNonIndexed() : g;
       g.deleteAttribute("uv");
-      if (!smooth) g.computeVertexNormals();
+      if (flat) g.computeVertexNormals();
       const list = byMat.get(m.material as THREE.Material) ?? [];
       list.push(g);
       byMat.set(m.material as THREE.Material, list);
@@ -154,7 +154,7 @@ function leafkit(root: THREE.Group) {
   const head = group("head", body, [0, 0.22, 0.27]);
   add(head, sphere(0.25, 12, 10), mat(green), [0, 0, 0], [1.1, 0.95, 1]);
   add(head, sphere(0.11), mat(belly), [0, -0.07, 0.18], [1.3, 0.8, 0.8]);
-  add(head, sphere(0.025, 6, 4), mat("#e57373", { smooth: true }), [0, -0.03, 0.27]);
+  add(head, sphere(0.025, 6, 4), mat("#e57373"), [0, -0.03, 0.27]);
   eyes(head, 0.03, 0.2, 0.1, 0.055);
   for (const side of [-1, 1]) {
     const ear = group(side < 0 ? "ear_l" : "ear_r", head, [side * 0.13, 0.18, -0.02], [0, 0, -side * 0.45]);
@@ -184,9 +184,9 @@ function emberpup(root: THREE.Group) {
   const head = group("head", body, [0, 0.26, 0.3]);
   add(head, sphere(0.26, 12, 10), mat(orange), [0, 0, 0], [1.05, 0.95, 1]);
   add(head, sphere(0.13), mat(cream), [0, -0.06, 0.2], [1, 0.75, 1.1]);
-  add(head, sphere(0.04, 8, 6), mat("#2b1a12", { smooth: true }), [0, -0.01, 0.34]);
-  add(head, sphere(0.06, 8, 6), mat("#ffab91", { smooth: true }), [-0.15, -0.07, 0.17], [1, 0.6, 0.4]);
-  add(head, sphere(0.06, 8, 6), mat("#ffab91", { smooth: true }), [0.15, -0.07, 0.17], [1, 0.6, 0.4]);
+  add(head, sphere(0.04, 8, 6), mat("#2b1a12"), [0, -0.01, 0.34]);
+  add(head, sphere(0.06, 8, 6), mat("#ffab91"), [-0.15, -0.07, 0.17], [1, 0.6, 0.4]);
+  add(head, sphere(0.06, 8, 6), mat("#ffab91"), [0.15, -0.07, 0.17], [1, 0.6, 0.4]);
   eyes(head, 0.06, 0.2, 0.1, 0.055);
   // Small flame tuft on the forehead.
   add(head, cone(0.06, 0.16, 5), mat("#ffb300", { emissive: "#ff8f00" }), [0, 0.26, 0.04], [1, 1, 1], [0.3, 0, 0]);
@@ -210,12 +210,12 @@ function emberpup(root: THREE.Group) {
 function bubbloon(root: THREE.Group) {
   const blue = "#4dabf5", light = "#bbdefb", deep = "#1e88e5";
   const body = group("body", root, [0, 0.5, 0]);
-  add(body, ico(0.36, 2), mat(blue), [0, 0, 0], [1, 0.95, 1]);
-  add(body, ico(0.25, 1), mat(light), [0, -0.1, 0.16], [1, 0.8, 0.8]);
-  add(body, sphere(0.06, 8, 6), mat("#ffffff", { smooth: true }), [-0.16, 0.2, 0.22]);
-  add(body, sphere(0.03, 6, 4), mat("#ffffff", { smooth: true }), [-0.09, 0.26, 0.22]);
+  add(body, sphere(0.36, 24, 18), mat(blue), [0, 0, 0], [1, 0.95, 1]);
+  add(body, sphere(0.25), mat(light), [0, -0.1, 0.16], [1, 0.8, 0.8]);
+  add(body, sphere(0.06, 8, 6), mat("#ffffff"), [-0.16, 0.2, 0.22]);
+  add(body, sphere(0.03, 6, 4), mat("#ffffff"), [-0.09, 0.26, 0.22]);
   eyes(body, 0.06, 0.32, 0.12, 0.065);
-  add(body, sphere(0.04, 8, 6), mat("#0d47a1", { smooth: true }), [0, -0.06, 0.35], [1.4, 0.6, 0.5]);
+  add(body, sphere(0.04, 8, 6), mat("#0d47a1"), [0, -0.06, 0.35], [1.4, 0.6, 0.5]);
 
   const head = group("head", body, [0, 0.33, 0]);
   add(head, cone(0.1, 0.22, 6), mat(blue), [0, 0.08, 0]);
@@ -235,16 +235,16 @@ function bubbloon(root: THREE.Group) {
 function pebblet(root: THREE.Group) {
   const stone = "#a1887f", pale = "#bcaaa4", moss = "#689f38";
   const body = group("body", root, [0, 0.46, 0]);
-  add(body, new THREE.DodecahedronGeometry(0.4, 1), mat(stone), [0, 0, 0], [1, 0.9, 0.92]);
-  add(body, new THREE.DodecahedronGeometry(0.12, 0), mat(pale), [0.26, -0.12, 0.2]);
-  add(body, new THREE.DodecahedronGeometry(0.09, 0), mat(pale), [-0.3, 0.05, 0.12]);
-  add(body, new THREE.DodecahedronGeometry(0.1, 0), mat(pale), [0.1, 0.2, -0.3]);
+  add(body, new THREE.DodecahedronGeometry(0.4, 1), mat(stone, { flat: true }), [0, 0, 0], [1, 0.9, 0.92]);
+  add(body, new THREE.DodecahedronGeometry(0.12, 0), mat(pale, { flat: true }), [0.26, -0.12, 0.2]);
+  add(body, new THREE.DodecahedronGeometry(0.09, 0), mat(pale, { flat: true }), [-0.3, 0.05, 0.12]);
+  add(body, new THREE.DodecahedronGeometry(0.1, 0), mat(pale, { flat: true }), [0.1, 0.2, -0.3]);
   eyes(body, 0.06, 0.34, 0.13, 0.06);
   add(body, new THREE.BoxGeometry(0.34, 0.05, 0.08), mat("#6d4c41"), [0, 0.17, 0.33], [1, 1, 1], [0.25, 0, 0]);
-  add(body, sphere(0.05, 8, 6), mat("#6d4c41", { smooth: true }), [0, -0.08, 0.36], [1.5, 0.5, 0.4]);
+  add(body, sphere(0.05, 8, 6), mat("#6d4c41"), [0, -0.08, 0.36], [1.5, 0.5, 0.4]);
 
   const head = group("head", body, [0, 0.32, 0]);
-  add(head, ico(0.2, 0), mat(moss), [0, 0, 0], [1.3, 0.35, 1.2]);
+  add(head, ico(0.2, 0), mat(moss, { flat: true }), [0, 0, 0], [1.3, 0.35, 1.2]);
   add(head, ico(0.1, 0), mat("#7cb342"), [0.14, 0.04, 0.08], [1, 0.5, 1]);
   add(head, cyl(0.012, 0.015, 0.14, 4), mat("#558b2f"), [0, 0.1, 0]);
   add(head, cone(0.045, 0.12, 4), mat("#9ccc65"), [-0.04, 0.17, 0], [1, 1, 0.3], [0, 0, 1.0]);
@@ -252,7 +252,7 @@ function pebblet(root: THREE.Group) {
 
   for (const side of [-1, 1]) {
     const arm = group(side < 0 ? "arm_l" : "arm_r", body, [side * 0.38, 0, 0.04]);
-    add(arm, new THREE.DodecahedronGeometry(0.11, 0), mat(stone), [side * 0.04, -0.1, 0]);
+    add(arm, new THREE.DodecahedronGeometry(0.11, 0), mat(stone, { flat: true }), [side * 0.04, -0.1, 0]);
   }
   leg(root, "leg_l", [-0.17, 0.16, 0], 0.08, 0.09, stone, pale);
   leg(root, "leg_r", [0.17, 0.16, 0], 0.08, 0.09, stone, pale);
@@ -270,7 +270,7 @@ function voltmouse(root: THREE.Group) {
   const head = group("head", body, [0, 0.17, 0.22]);
   add(head, sphere(0.2, 12, 10), mat(yellow), [0, 0, 0], [1, 0.95, 1]);
   add(head, sphere(0.09), mat(cream), [0, -0.06, 0.13], [1.2, 0.8, 1]);
-  add(head, sphere(0.025, 6, 4), mat("#5d4037", { smooth: true }), [0, -0.03, 0.22]);
+  add(head, sphere(0.025, 6, 4), mat("#5d4037"), [0, -0.03, 0.22]);
   eyes(head, 0.03, 0.16, 0.085, 0.05);
   for (const side of [-1, 1]) {
     add(head, new THREE.BoxGeometry(0.16, 0.006, 0.006), mat("#5d4037"), [side * 0.14, -0.05, 0.18], [1, 1, 1], [0, side * 0.3, side * 0.15]);
@@ -285,7 +285,7 @@ function voltmouse(root: THREE.Group) {
 
   const tail = group("tail", body, [0, 0, -0.27], [-0.9, 0, 0]);
   add(tail, cyl(0.018, 0.022, 0.42, 5), mat(stripe), [0, 0.21, 0]);
-  add(tail, sphere(0.07, 10, 8), mat("#4dd0e1", { emissive: "#00bcd4", smooth: true }), [0, 0.45, 0]);
+  add(tail, sphere(0.07, 10, 8), mat("#4dd0e1", { emissive: "#00bcd4" }), [0, 0.45, 0]);
 
   const lx = 0.1, lz = 0.13;
   leg(root, "leg_fl", [-lx, 0.14, lz], 0.1, 0.04, yellow, cream);

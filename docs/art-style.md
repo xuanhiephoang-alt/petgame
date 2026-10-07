@@ -1,8 +1,8 @@
 # Phong cách đồ họa 3D
 
-> Bản nháp đầu tiên. art-pipeline và game-designer cùng chốt trước khi tạo asset hàng loạt.
+> **Chuẩn hiện tại: phong cách KayKit** (chibi, bo tròn, smooth shading, màu tươi, texture gradient). Mọi asset mới phải hợp với cây cỏ và nhân vật KayKit đang dùng (xem `assets/CREDITS.md`).
 
-- **Thể loại hình:** 3D **low-poly**, flat shading, camera phối cảnh nhìn chéo từ trên xuống (~50°).
+- **Thể loại hình:** 3D low-poly kiểu KayKit, **smooth shading** (chỉ đá/khoáng dùng flat), camera phối cảnh nhìn chéo từ trên xuống (~50°).
 - **Cảm giác:** dễ thương, tươi sáng; thú tròn trịa, mắt to, chân ngắn; màu bão hòa vừa phải.
 - **Tỉ lệ:** 1 đơn vị = 1 m = 32 px của server. Người chơi cao ~1,7; thú nhỏ 0,8–1,2; thú lớn/boss 2–4; cây 2,5–4.
 - **Ngân sách polygon:** thú nhỏ < 3k tam giác, nhân vật < 5k, boss < 10k, vật trang trí < 500.

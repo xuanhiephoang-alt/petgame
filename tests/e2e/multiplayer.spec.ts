@@ -1,4 +1,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { Client, type Room } from "@colyseus/sdk";
+
+const SERVER = "http://localhost:2567";
 
 async function join(browser: Browser, name: string, path = "/"): Promise<Page> {
   const page = await (await browser.newContext()).newPage();
@@ -20,18 +23,17 @@ test("5 players share one world and a 6th is turned away", async ({ browser }) =
   await waitForWorld(host);
   const roomId = await host.evaluate(() => (window as any).__petgame.room.roomId as string);
 
-  const guests: Page[] = [];
-  for (let i = 1; i <= 4; i++) {
-    const guest = await join(browser, `Guest${i}`, `/?room=${roomId}`);
-    await waitForWorld(guest);
-    guests.push(guest);
-  }
+  // Guests join through the SDK: rendering five WebGL pages in software is
+  // too slow for CI, and the room capacity is what this test checks.
+  const guests: Room[] = [];
+  for (let i = 1; i <= 4; i++) guests.push(await new Client(SERVER).joinById(roomId, { name: `Guest${i}` }));
 
   await expect.poll(() => playerCount(host)).toBe(5);
-  for (const guest of guests) await expect.poll(() => playerCount(guest)).toBe(5);
+  for (const guest of guests) await expect.poll(() => guest.state.players.size).toBe(5);
 
   const sixth = await join(browser, "TooMany", `/?room=${roomId}`);
   await expect(sixth.locator("#join-error")).toContainText("Không vào được");
+  await Promise.all(guests.map((g) => g.leave()));
 });
 
 test("movement is synced to other players", async ({ browser }) => {

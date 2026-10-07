@@ -13,9 +13,10 @@
       #game { position: relative; width: 100vw; height: 100vh; height: 100dvh; font-family: system-ui, sans-serif; }
       #game canvas { display: block; }
       .labels { position: absolute; inset: 0; pointer-events: none; }
-      .label { display: flex; flex-direction: column; align-items: center; gap: 2px;
-        font-size: 12px; color: #fff; text-shadow: 0 1px 2px #000, 0 0 4px #000; white-space: nowrap; }
-      .label.me { color: #fff59d; }
+      .label { display: flex; flex-direction: column; align-items: center; gap: 3px; white-space: nowrap; }
+      .label span { font-size: 12px; font-weight: 600; color: #fff; background: rgba(20,30,20,0.55);
+        padding: 1px 8px; border-radius: 10px; }
+      .label.me span { background: rgba(255,193,7,0.85); color: #3a2a00; }
       .label.pal span { font-size: 11px; opacity: 0; transition: opacity 0.2s; }
       .label.pal.hurt span { opacity: 1; }
       .hp-bar { width: 36px; height: 5px; background: rgba(0,0,0,0.6); border-radius: 3px; overflow: hidden; display: none; }

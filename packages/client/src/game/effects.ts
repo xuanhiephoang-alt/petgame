@@ -37,6 +37,30 @@ export class Effects {
     });
   }
 
+  /** Burst of glowing motes, used when a capture succeeds. */
+  sparkle(at: THREE.Vector3, color: THREE.ColorRepresentation) {
+    const group = new THREE.Group();
+    group.position.copy(at).setY(0.6);
+    const material = new THREE.MeshBasicMaterial({ color, transparent: true });
+    const white = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
+    const motes: { mesh: THREE.Mesh; dir: THREE.Vector3 }[] = [];
+    for (let i = 0; i < 16; i++) {
+      const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.07), i % 2 ? material : white);
+      const a = (i / 16) * Math.PI * 2;
+      const dir = new THREE.Vector3(Math.cos(a), 0.6 + Math.random() * 0.8, Math.sin(a)).multiplyScalar(1.2 + Math.random());
+      motes.push({ mesh, dir });
+      group.add(mesh);
+    }
+    this.add(group, 0.7, (t) => {
+      for (const m of motes) {
+        m.mesh.position.copy(m.dir).multiplyScalar(t);
+        m.mesh.position.y -= t * t * 0.8;
+        m.mesh.rotation.y = t * 8;
+      }
+      material.opacity = white.opacity = 1 - t * t;
+    });
+  }
+
   update(dtSec: number) {
     this.active = this.active.filter((e) => {
       e.elapsed += dtSec;
