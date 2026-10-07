@@ -140,11 +140,17 @@ export function createBallModel(): THREE.Group {
   return group;
 }
 
-/** Sets an emissive flash on every Lambert material in the model. */
+/** Sets a white emissive flash on every lit material, restoring glow afterwards. */
 export function setFlash(model: THREE.Object3D, on: boolean) {
   model.traverse((obj) => {
     const material = (obj as THREE.Mesh).material;
-    if (material instanceof THREE.MeshLambertMaterial) material.emissive.setHex(on ? 0xffffff : 0x000000);
+    if (!(material instanceof THREE.MeshLambertMaterial || material instanceof THREE.MeshStandardMaterial)) return;
+    if (on) {
+      material.userData.restEmissive ??= material.emissive.getHex();
+      material.emissive.setHex(0xffffff);
+    } else {
+      material.emissive.setHex(material.userData.restEmissive ?? 0x000000);
+    }
   });
 }
 

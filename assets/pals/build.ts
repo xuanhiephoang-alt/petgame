@@ -1,0 +1,414 @@
+/**
+ * Builds the pal models as GLB files with idle/walk/attack/hurt animations.
+ *
+ *   npm run models:build
+ *
+ * Models are authored in code (low-poly, rigid-part animation) so they are
+ * reproducible and editable. Output: packages/client/public/assets/models/pal-<id>.glb
+ * Conventions (see .claude/agents/art-pipeline.md): origin at the feet, facing +Z,
+ * 1 unit = 1 m = 32 server pixels.
+ */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import * as THREE from "three";
+import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { PAL_SPECIES } from "../../packages/shared/src/pals.ts";
+
+// GLTFExporter reads its output Blob with FileReader, which Node lacks.
+class NodeFileReader {
+  result: ArrayBuffer | string | null = null;
+  onloadend: (() => void) | null = null;
+  readAsArrayBuffer(blob: Blob) {
+    blob.arrayBuffer().then((buf) => {
+      this.result = buf;
+      this.onloadend?.();
+    });
+  }
+  readAsDataURL(blob: Blob) {
+    blob.arrayBuffer().then((buf) => {
+      this.result = `data:${blob.type};base64,${Buffer.from(buf).toString("base64")}`;
+      this.onloadend?.();
+    });
+  }
+}
+(globalThis as any).FileReader ??= NodeFileReader;
+
+const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../packages/client/public/assets/models");
+
+// ---------------------------------------------------------------------------
+// Modeling helpers
+// ---------------------------------------------------------------------------
+
+type V3 = [number, number, number];
+
+const materials = new Map<string, THREE.MeshStandardMaterial>();
+function mat(color: string, opts: { emissive?: string; smooth?: boolean } = {}): THREE.MeshStandardMaterial {
+  const key = `${color}|${opts.emissive ?? ""}|${opts.smooth ? 1 : 0}`;
+  let m = materials.get(key);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0, name: key });
+    if (opts.emissive) {
+      m.emissive.set(opts.emissive);
+      m.emissiveIntensity = 1;
+    }
+    m.userData.smooth = !!opts.smooth;
+    materials.set(key, m);
+  }
+  return m;
+}
+
+function group(name: string, parent: THREE.Object3D, pos: V3 = [0, 0, 0], rot: V3 = [0, 0, 0]): THREE.Group {
+  const g = new THREE.Group();
+  g.name = name;
+  g.position.set(...pos);
+  g.rotation.set(...rot);
+  parent.add(g);
+  return g;
+}
+
+function add(
+  parent: THREE.Object3D,
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  pos: V3 = [0, 0, 0],
+  scale: V3 = [1, 1, 1],
+  rot: V3 = [0, 0, 0],
+): THREE.Mesh {
+  const m = new THREE.Mesh(geometry, material);
+  m.position.set(...pos);
+  m.scale.set(...scale);
+  m.rotation.set(...rot);
+  parent.add(m);
+  return m;
+}
+
+const sphere = (r: number, w = 10, h = 8) => new THREE.SphereGeometry(r, w, h);
+const ico = (r: number, detail = 1) => new THREE.IcosahedronGeometry(r, detail);
+const cone = (r: number, h: number, seg = 6) => new THREE.ConeGeometry(r, h, seg);
+const cyl = (rt: number, rb: number, h: number, seg = 6) => new THREE.CylinderGeometry(rt, rb, h, seg);
+
+/** Big glossy cartoon eyes on the +Z face. */
+function eyes(parent: THREE.Object3D, y: number, z: number, spread: number, r: number) {
+  const dark = mat("#1b1b2f", { smooth: true });
+  const shine = mat("#ffffff", { smooth: true });
+  for (const side of [-1, 1]) {
+    add(parent, sphere(r, 12, 10), dark, [side * spread, y, z], [1, 1.15, 0.6]);
+    add(parent, sphere(r * 0.35, 8, 6), shine, [side * spread + r * 0.3, y + r * 0.4, z + r * 0.45]);
+  }
+}
+
+/** A leg whose pivot is at the hip; the mesh hangs below it. */
+function leg(parent: THREE.Object3D, name: string, pos: V3, length: number, r: number, color: string, paw: string) {
+  const g = group(name, parent, pos);
+  add(g, cyl(r, r * 0.9, length), mat(color), [0, -length / 2, 0]);
+  add(g, sphere(r * 1.25, 8, 6), mat(paw), [0, -length, r * 0.3], [1, 0.7, 1.2]);
+  return g;
+}
+
+/**
+ * Merges each node's direct mesh children per material into one mesh, so a
+ * pal is a handful of draw calls. Flat-shaded unless the material is smooth.
+ */
+function bake(root: THREE.Object3D) {
+  const nodes: THREE.Object3D[] = [];
+  root.traverse((o) => {
+    if (!(o as THREE.Mesh).isMesh) nodes.push(o);
+  });
+  for (const node of nodes) {
+    const meshes = node.children.filter((c): c is THREE.Mesh => (c as THREE.Mesh).isMesh);
+    const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    for (const m of meshes) {
+      m.updateMatrix();
+      const smooth = (m.material as THREE.Material).userData.smooth;
+      let g = m.geometry.clone().applyMatrix4(m.matrix);
+      g = g.index ? g.toNonIndexed() : g;
+      g.deleteAttribute("uv");
+      if (!smooth) g.computeVertexNormals();
+      const list = byMat.get(m.material as THREE.Material) ?? [];
+      list.push(g);
+      byMat.set(m.material as THREE.Material, list);
+      node.remove(m);
+    }
+    let i = 0;
+    for (const [material, geoms] of byMat) {
+      const merged = new THREE.Mesh(mergeGeometries(geoms), material);
+      merged.name = `${node.name}_mesh${i++}`;
+      node.add(merged);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Species
+// ---------------------------------------------------------------------------
+
+/** Leafkit: grass kitten with leaf ears and a curly vine tail. */
+function leafkit(root: THREE.Group) {
+  const green = "#7cc35a", belly = "#d4edbe", leaf = "#3f9b3a";
+  const body = group("body", root, [0, 0.36, 0]);
+  add(body, sphere(0.27), mat(green), [0, 0, 0], [1, 0.85, 1.25]);
+  add(body, sphere(0.2), mat(belly), [0, -0.06, 0.1], [1, 0.75, 1.1]);
+
+  const head = group("head", body, [0, 0.22, 0.27]);
+  add(head, sphere(0.25, 12, 10), mat(green), [0, 0, 0], [1.1, 0.95, 1]);
+  add(head, sphere(0.11), mat(belly), [0, -0.07, 0.18], [1.3, 0.8, 0.8]);
+  add(head, sphere(0.025, 6, 4), mat("#e57373", { smooth: true }), [0, -0.03, 0.27]);
+  eyes(head, 0.03, 0.2, 0.1, 0.055);
+  for (const side of [-1, 1]) {
+    const ear = group(side < 0 ? "ear_l" : "ear_r", head, [side * 0.13, 0.18, -0.02], [0, 0, -side * 0.45]);
+    add(ear, cone(0.09, 0.3, 4), mat(leaf), [0, 0.13, 0], [1, 1, 0.35]);
+    add(ear, cyl(0.008, 0.008, 0.26, 3), mat("#2e7d32"), [0, 0.12, 0.02]);
+  }
+
+  const tail = group("tail", body, [0, 0.05, -0.3], [-0.5, 0, 0]);
+  const curl: V3[] = [[0, 0, -0.04], [0, 0.07, -0.11], [0, 0.17, -0.14], [0, 0.25, -0.1]];
+  curl.forEach((p, i) => add(tail, sphere(0.055 - i * 0.006, 6, 4), mat(i % 2 ? leaf : green), p));
+  add(tail, cone(0.07, 0.18, 4), mat(leaf), [0, 0.32, -0.04], [1, 1, 0.35], [0.3, 0, 0]);
+
+  const lx = 0.13, lz = 0.16;
+  leg(root, "leg_fl", [-lx, 0.2, lz], 0.16, 0.055, green, belly);
+  leg(root, "leg_fr", [lx, 0.2, lz], 0.16, 0.055, green, belly);
+  leg(root, "leg_bl", [-lx, 0.2, -lz], 0.16, 0.055, green, belly);
+  leg(root, "leg_br", [lx, 0.2, -lz], 0.16, 0.055, green, belly);
+}
+
+/** Emberpup: fire puppy with floppy ears and a glowing flame tail. */
+function emberpup(root: THREE.Group) {
+  const orange = "#ff7043", cream = "#ffe0b2", dark = "#d84315";
+  const body = group("body", root, [0, 0.42, 0]);
+  add(body, sphere(0.3), mat(orange), [0, 0, 0], [0.95, 0.85, 1.3]);
+  add(body, sphere(0.22), mat(cream), [0, -0.07, 0.14], [1, 0.75, 1]);
+
+  const head = group("head", body, [0, 0.26, 0.3]);
+  add(head, sphere(0.26, 12, 10), mat(orange), [0, 0, 0], [1.05, 0.95, 1]);
+  add(head, sphere(0.13), mat(cream), [0, -0.06, 0.2], [1, 0.75, 1.1]);
+  add(head, sphere(0.04, 8, 6), mat("#2b1a12", { smooth: true }), [0, -0.01, 0.34]);
+  add(head, sphere(0.06, 8, 6), mat("#ffab91", { smooth: true }), [-0.15, -0.07, 0.17], [1, 0.6, 0.4]);
+  add(head, sphere(0.06, 8, 6), mat("#ffab91", { smooth: true }), [0.15, -0.07, 0.17], [1, 0.6, 0.4]);
+  eyes(head, 0.06, 0.2, 0.1, 0.055);
+  // Small flame tuft on the forehead.
+  add(head, cone(0.06, 0.16, 5), mat("#ffb300", { emissive: "#ff8f00" }), [0, 0.26, 0.04], [1, 1, 1], [0.3, 0, 0]);
+  for (const side of [-1, 1]) {
+    const ear = group(side < 0 ? "ear_l" : "ear_r", head, [side * 0.21, 0.1, -0.02], [0, 0, side * 0.5]);
+    add(ear, sphere(0.1, 8, 6), mat(dark), [0, -0.1, 0], [0.55, 1.2, 0.35]);
+  }
+
+  const tail = group("tail", body, [0, 0.12, -0.36], [-0.7, 0, 0]);
+  add(tail, cone(0.11, 0.38, 6), mat("#ff9800", { emissive: "#e65100" }), [0, 0.17, 0]);
+  add(tail, cone(0.065, 0.26, 6), mat("#ffee58", { emissive: "#ffc107" }), [0, 0.15, 0.03]);
+
+  const lx = 0.15, lz = 0.2;
+  leg(root, "leg_fl", [-lx, 0.24, lz], 0.18, 0.065, orange, dark);
+  leg(root, "leg_fr", [lx, 0.24, lz], 0.18, 0.065, orange, dark);
+  leg(root, "leg_bl", [-lx, 0.24, -lz], 0.18, 0.065, orange, dark);
+  leg(root, "leg_br", [lx, 0.24, -lz], 0.18, 0.065, orange, dark);
+}
+
+/** Bubbloon: floating water blob with fins, a fish tail and a droplet curl. */
+function bubbloon(root: THREE.Group) {
+  const blue = "#4dabf5", light = "#bbdefb", deep = "#1e88e5";
+  const body = group("body", root, [0, 0.5, 0]);
+  add(body, ico(0.36, 2), mat(blue), [0, 0, 0], [1, 0.95, 1]);
+  add(body, ico(0.25, 1), mat(light), [0, -0.1, 0.16], [1, 0.8, 0.8]);
+  add(body, sphere(0.06, 8, 6), mat("#ffffff", { smooth: true }), [-0.16, 0.2, 0.22]);
+  add(body, sphere(0.03, 6, 4), mat("#ffffff", { smooth: true }), [-0.09, 0.26, 0.22]);
+  eyes(body, 0.06, 0.32, 0.12, 0.065);
+  add(body, sphere(0.04, 8, 6), mat("#0d47a1", { smooth: true }), [0, -0.06, 0.35], [1.4, 0.6, 0.5]);
+
+  const head = group("head", body, [0, 0.33, 0]);
+  add(head, cone(0.1, 0.22, 6), mat(blue), [0, 0.08, 0]);
+  add(head, sphere(0.06, 8, 6), mat(blue), [0, 0.2, -0.04]);
+
+  for (const side of [-1, 1]) {
+    const fin = group(side < 0 ? "fin_l" : "fin_r", body, [side * 0.33, -0.02, 0.02], [0, 0, side * 1.1]);
+    add(fin, cone(0.1, 0.26, 4), mat(deep), [0, 0.12, 0], [1, 1, 0.3]);
+  }
+  const tail = group("tail", body, [0, -0.05, -0.32]);
+  for (const side of [-1, 1]) {
+    add(tail, cone(0.08, 0.24, 4), mat(deep), [side * 0.08, 0.02, -0.08], [1, 1, 0.3], [-1.3, 0, side * 0.6]);
+  }
+}
+
+/** Pebblet: sturdy boulder with stubby limbs, mossy top and a sprout. */
+function pebblet(root: THREE.Group) {
+  const stone = "#a1887f", pale = "#bcaaa4", moss = "#689f38";
+  const body = group("body", root, [0, 0.46, 0]);
+  add(body, new THREE.DodecahedronGeometry(0.4, 1), mat(stone), [0, 0, 0], [1, 0.9, 0.92]);
+  add(body, new THREE.DodecahedronGeometry(0.12, 0), mat(pale), [0.26, -0.12, 0.2]);
+  add(body, new THREE.DodecahedronGeometry(0.09, 0), mat(pale), [-0.3, 0.05, 0.12]);
+  add(body, new THREE.DodecahedronGeometry(0.1, 0), mat(pale), [0.1, 0.2, -0.3]);
+  eyes(body, 0.06, 0.34, 0.13, 0.06);
+  add(body, new THREE.BoxGeometry(0.34, 0.05, 0.08), mat("#6d4c41"), [0, 0.17, 0.33], [1, 1, 1], [0.25, 0, 0]);
+  add(body, sphere(0.05, 8, 6), mat("#6d4c41", { smooth: true }), [0, -0.08, 0.36], [1.5, 0.5, 0.4]);
+
+  const head = group("head", body, [0, 0.32, 0]);
+  add(head, ico(0.2, 0), mat(moss), [0, 0, 0], [1.3, 0.35, 1.2]);
+  add(head, ico(0.1, 0), mat("#7cb342"), [0.14, 0.04, 0.08], [1, 0.5, 1]);
+  add(head, cyl(0.012, 0.015, 0.14, 4), mat("#558b2f"), [0, 0.1, 0]);
+  add(head, cone(0.045, 0.12, 4), mat("#9ccc65"), [-0.04, 0.17, 0], [1, 1, 0.3], [0, 0, 1.0]);
+  add(head, cone(0.045, 0.12, 4), mat("#9ccc65"), [0.04, 0.17, 0], [1, 1, 0.3], [0, 0, -1.0]);
+
+  for (const side of [-1, 1]) {
+    const arm = group(side < 0 ? "arm_l" : "arm_r", body, [side * 0.38, 0, 0.04]);
+    add(arm, new THREE.DodecahedronGeometry(0.11, 0), mat(stone), [side * 0.04, -0.1, 0]);
+  }
+  leg(root, "leg_l", [-0.17, 0.16, 0], 0.08, 0.09, stone, pale);
+  leg(root, "leg_r", [0.17, 0.16, 0], 0.08, 0.09, stone, pale);
+}
+
+/** Voltmouse: round-eared mouse with a static-charged crest and a glowing orb tail. */
+function voltmouse(root: THREE.Group) {
+  const yellow = "#ffd54f", cream = "#fff8e1", stripe = "#8d6e63";
+  const body = group("body", root, [0, 0.28, 0]);
+  add(body, sphere(0.22), mat(yellow), [0, 0, 0], [1, 0.9, 1.25]);
+  add(body, sphere(0.16), mat(cream), [0, -0.05, 0.1], [1, 0.75, 1]);
+  add(body, new THREE.BoxGeometry(0.05, 0.03, 0.22), mat(stripe), [-0.07, 0.19, -0.04], [1, 1, 1], [0.15, 0, 0.2]);
+  add(body, new THREE.BoxGeometry(0.05, 0.03, 0.22), mat(stripe), [0.07, 0.19, -0.04], [1, 1, 1], [0.15, 0, -0.2]);
+
+  const head = group("head", body, [0, 0.17, 0.22]);
+  add(head, sphere(0.2, 12, 10), mat(yellow), [0, 0, 0], [1, 0.95, 1]);
+  add(head, sphere(0.09), mat(cream), [0, -0.06, 0.13], [1.2, 0.8, 1]);
+  add(head, sphere(0.025, 6, 4), mat("#5d4037", { smooth: true }), [0, -0.03, 0.22]);
+  eyes(head, 0.03, 0.16, 0.085, 0.05);
+  for (const side of [-1, 1]) {
+    add(head, new THREE.BoxGeometry(0.16, 0.006, 0.006), mat("#5d4037"), [side * 0.14, -0.05, 0.18], [1, 1, 1], [0, side * 0.3, side * 0.15]);
+    const ear = group(side < 0 ? "ear_l" : "ear_r", head, [side * 0.14, 0.15, -0.02], [0, 0, -side * 0.35]);
+    add(ear, cyl(0.12, 0.12, 0.035, 10), mat(yellow), [0, 0.09, 0], [1, 1, 1], [Math.PI / 2, 0, 0]);
+    add(ear, cyl(0.08, 0.08, 0.02, 10), mat("#ffab91"), [0, 0.09, 0.015], [1, 1, 1], [Math.PI / 2, 0, 0]);
+  }
+  // Static-charged crest of white fur.
+  [[-0.05, -0.3], [0, 0], [0.05, 0.3]].forEach(([x, rz]) =>
+    add(head, cone(0.03, 0.12, 4), mat("#fafafa"), [x, 0.22, -0.02], [1, 1, 1], [-0.2, 0, rz]),
+  );
+
+  const tail = group("tail", body, [0, 0, -0.27], [-0.9, 0, 0]);
+  add(tail, cyl(0.018, 0.022, 0.42, 5), mat(stripe), [0, 0.21, 0]);
+  add(tail, sphere(0.07, 10, 8), mat("#4dd0e1", { emissive: "#00bcd4", smooth: true }), [0, 0.45, 0]);
+
+  const lx = 0.1, lz = 0.13;
+  leg(root, "leg_fl", [-lx, 0.14, lz], 0.1, 0.04, yellow, cream);
+  leg(root, "leg_fr", [lx, 0.14, lz], 0.1, 0.04, yellow, cream);
+  leg(root, "leg_bl", [-lx, 0.14, -lz], 0.1, 0.04, yellow, cream);
+  leg(root, "leg_br", [lx, 0.14, -lz], 0.1, 0.04, yellow, cream);
+}
+
+const BUILDERS: Record<string, (root: THREE.Group) => void> = { leafkit, emberpup, bubbloon, pebblet, voltmouse };
+
+// ---------------------------------------------------------------------------
+// Animation
+// ---------------------------------------------------------------------------
+
+function find(root: THREE.Object3D, name: string) {
+  return root.getObjectByName(name);
+}
+
+function posTrack(node: THREE.Object3D, times: number[], offsets: V3[]) {
+  const b = node.position;
+  return new THREE.VectorKeyframeTrack(`${node.name}.position`, times, offsets.flatMap(([x, y, z]) => [b.x + x, b.y + y, b.z + z]));
+}
+
+function scaleTrack(node: THREE.Object3D, times: number[], scales: V3[]) {
+  return new THREE.VectorKeyframeTrack(`${node.name}.scale`, times, scales.flat());
+}
+
+/** Rotation keys as euler offsets applied on top of the node's rest rotation. */
+function rotTrack(node: THREE.Object3D, times: number[], eulers: V3[]) {
+  const rest = node.quaternion.clone();
+  const q = new THREE.Quaternion();
+  const values = eulers.flatMap(([x, y, z]) => {
+    q.setFromEuler(new THREE.Euler(x, y, z)).premultiply(rest);
+    return [q.x, q.y, q.z, q.w];
+  });
+  return new THREE.QuaternionKeyframeTrack(`${node.name}.quaternion`, times, values);
+}
+
+function buildClips(root: THREE.Object3D): THREE.AnimationClip[] {
+  const body = find(root, "body")!;
+  const head = find(root, "head");
+  const tail = find(root, "tail");
+  const ears = ["ear_l", "ear_r"].map((n) => find(root, n)).filter(Boolean) as THREE.Object3D[];
+  const fins = ["fin_l", "fin_r"].map((n) => find(root, n)).filter(Boolean) as THREE.Object3D[];
+  const arms = ["arm_l", "arm_r"].map((n) => find(root, n)).filter(Boolean) as THREE.Object3D[];
+  const quadA = ["leg_fl", "leg_br"].map((n) => find(root, n)).filter(Boolean) as THREE.Object3D[];
+  const quadB = ["leg_fr", "leg_bl"].map((n) => find(root, n)).filter(Boolean) as THREE.Object3D[];
+  const bipedL = find(root, "leg_l");
+  const bipedR = find(root, "leg_r");
+  const floats = !quadA.length && !bipedL;
+
+  // idle: breathing, tail sway, ear twitch.
+  const idle: THREE.KeyframeTrack[] = [
+    posTrack(body, [0, 1, 2], [[0, 0, 0], [0, floats ? 0.06 : 0.015, 0], [0, 0, 0]]),
+    scaleTrack(body, [0, 1, 2], [[1, 1, 1], [1.03, 0.97, 1.03], [1, 1, 1]]),
+  ];
+  if (head) idle.push(rotTrack(head, [0, 1, 2], [[0, 0, 0], [0.05, 0, 0.04], [0, 0, 0]]));
+  if (tail) idle.push(rotTrack(tail, [0, 0.5, 1, 1.5, 2], [[0, 0, 0], [0, 0, 0.25], [0, 0, 0], [0, 0, -0.25], [0, 0, 0]]));
+  ears.forEach((e, i) => idle.push(rotTrack(e, [0, 1.6, 1.7, 1.8, 2], [[0, 0, 0], [0, 0, 0], [0, 0, (i ? -1 : 1) * 0.3], [0, 0, 0], [0, 0, 0]])));
+  fins.forEach((f, i) => idle.push(rotTrack(f, [0, 1, 2], [[0, 0, 0], [0, 0, (i ? -1 : 1) * 0.25], [0, 0, 0]])));
+
+  // walk: legs swing in diagonal pairs, body bobs twice per cycle.
+  const T = 0.6;
+  const walk: THREE.KeyframeTrack[] = [
+    posTrack(body, [0, T / 4, T / 2, (3 * T) / 4, T], [[0, 0, 0], [0, 0.05, 0], [0, 0, 0], [0, 0.05, 0], [0, 0, 0]]),
+  ];
+  const swing = (n: THREE.Object3D, s: number) => rotTrack(n, [0, T / 2, T], [[s * 0.7, 0, 0], [-s * 0.7, 0, 0], [s * 0.7, 0, 0]]);
+  quadA.forEach((n) => walk.push(swing(n, 1)));
+  quadB.forEach((n) => walk.push(swing(n, -1)));
+  if (bipedL) walk.push(swing(bipedL, 1));
+  if (bipedR) walk.push(swing(bipedR, -1));
+  arms.forEach((a, i) => walk.push(swing(a, i ? 1 : -1)));
+  if (tail) walk.push(rotTrack(tail, [0, T / 2, T], [[0, 0, 0.35], [0, 0, -0.35], [0, 0, 0.35]]));
+  fins.forEach((f, i) => walk.push(rotTrack(f, [0, T / 2, T], [[0, 0, (i ? -1 : 1) * 0.5], [0, 0, (i ? 1 : -1) * 0.2], [0, 0, (i ? -1 : 1) * 0.5]])));
+  if (head) walk.push(rotTrack(head, [0, T / 2, T], [[0, 0, 0.06], [0, 0, -0.06], [0, 0, 0.06]]));
+
+  // attack: wind up, lunge forward, recover.
+  const attack: THREE.KeyframeTrack[] = [
+    posTrack(body, [0, 0.15, 0.28, 0.6], [[0, 0, 0], [0, -0.03, -0.08], [0, 0.06, 0.28], [0, 0, 0]]),
+    rotTrack(body, [0, 0.15, 0.28, 0.6], [[0, 0, 0], [-0.25, 0, 0], [0.2, 0, 0], [0, 0, 0]]),
+  ];
+  if (head) attack.push(rotTrack(head, [0, 0.15, 0.28, 0.6], [[0, 0, 0], [-0.2, 0, 0], [0.25, 0, 0], [0, 0, 0]]));
+  arms.forEach((a) => attack.push(rotTrack(a, [0, 0.15, 0.28, 0.6], [[0, 0, 0], [0.8, 0, 0], [-1.4, 0, 0], [0, 0, 0]])));
+
+  // hurt: squash and shake.
+  const hurt: THREE.KeyframeTrack[] = [
+    scaleTrack(body, [0, 0.08, 0.2, 0.4], [[1, 1, 1], [1.18, 0.78, 1.18], [0.94, 1.06, 0.94], [1, 1, 1]]),
+    rotTrack(body, [0, 0.08, 0.16, 0.24, 0.4], [[0, 0, 0], [0, 0, 0.2], [0, 0, -0.2], [0, 0, 0.1], [0, 0, 0]]),
+  ];
+  ears.forEach((e) => hurt.push(rotTrack(e, [0, 0.1, 0.4], [[0, 0, 0], [-0.6, 0, 0], [0, 0, 0]])));
+
+  return [
+    new THREE.AnimationClip("idle", 2, idle),
+    new THREE.AnimationClip("walk", T, walk),
+    new THREE.AnimationClip("attack", 0.6, attack),
+    new THREE.AnimationClip("hurt", 0.4, hurt),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+
+async function exportGlb(root: THREE.Object3D, clips: THREE.AnimationClip[]): Promise<ArrayBuffer> {
+  const exporter = new GLTFExporter();
+  const result = await exporter.parseAsync(root, { binary: true, animations: clips });
+  return result as ArrayBuffer;
+}
+
+mkdirSync(OUT_DIR, { recursive: true });
+for (const species of PAL_SPECIES) {
+  const build = BUILDERS[species.id];
+  if (!build) throw new Error(`No model builder for species "${species.id}"`);
+  const root = new THREE.Group();
+  root.name = species.id;
+  build(root);
+  const clips = buildClips(root);
+  bake(root);
+  let triangles = 0;
+  root.traverse((o) => {
+    const g = (o as THREE.Mesh).geometry;
+    if (g) triangles += g.attributes.position.count / 3;
+  });
+  const glb = await exportGlb(root, clips);
+  const file = join(OUT_DIR, `pal-${species.id}.glb`);
+  writeFileSync(file, Buffer.from(glb));
+  console.log(`${species.id.padEnd(10)} ${String(triangles).padStart(5)} tris  ${(glb.byteLength / 1024).toFixed(1)} kB`);
+}

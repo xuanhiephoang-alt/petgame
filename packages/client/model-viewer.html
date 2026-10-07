@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PetGame: xem model</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #8ecae6; font-family: system-ui, sans-serif; overflow: hidden; }
+      #bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 1; }
+      #bar button { font-size: 15px; padding: 8px 14px; border-radius: 8px; border: none; background: #fff; cursor: pointer; }
+      #bar button.active { background: #2e7d32; color: #fff; }
+      .name { color: #fff; font-size: 14px; font-weight: bold; text-shadow: 0 1px 3px #000; }
+    </style>
+  </head>
+  <body>
+    <div id="bar"></div>
+    <script type="module" src="/src/viewer.ts"></script>
+  </body>
+</html>

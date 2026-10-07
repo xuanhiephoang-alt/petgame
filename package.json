@@ -14,9 +14,10 @@
     "dev:server": "npm run dev --workspace=@petgame/server",
     "dev:client": "npm run dev --workspace=@petgame/client",
     "build": "npm run build --workspace=@petgame/client",
-    "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/client",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/client && tsc -p assets",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "models:build": "tsx assets/pals/build.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
@@ -24,6 +25,7 @@
     "@types/three": "^0.186.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.3",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "tsx": "^4.20.0"
   }
 }

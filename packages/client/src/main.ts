@@ -1,4 +1,5 @@
 import { Game } from "./game/Game.ts";
+import { loadPalModels, type PalModelSet } from "./game/assets.ts";
 import { connect, type GameRoom } from "./net/connection.ts";
 
 const lobby = document.getElementById("lobby")!;
@@ -10,6 +11,9 @@ const roomHint = document.getElementById("room-hint")!;
 
 const savedName = safeStorage(() => localStorage.getItem("petgame:name"));
 if (savedName) nameInput.value = savedName;
+// Start downloading models while the player types their name.
+const palModels = loadPalModels();
+
 if (new URLSearchParams(location.search).has("room")) roomHint.textContent = "Bạn được mời vào thế giới của bạn bè";
 
 form.addEventListener("submit", async (event) => {
@@ -19,9 +23,9 @@ form.addEventListener("submit", async (event) => {
   joinBtn.disabled = true;
   errorBox.textContent = "";
   try {
-    const room = await connect({ name });
+    const [room, models] = await Promise.all([connect({ name }), palModels]);
     lobby.remove();
-    startGame(room);
+    startGame(room, models);
   } catch (err) {
     console.error(err);
     errorBox.textContent = "Không vào được phòng (đầy 5 người hoặc server chưa chạy).";
@@ -29,8 +33,8 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-function startGame(room: GameRoom) {
-  const game = new Game(document.getElementById("game")!, room);
+function startGame(room: GameRoom, models: PalModelSet) {
+  const game = new Game(document.getElementById("game")!, room, models);
   // Expose for debugging and end-to-end tests.
   (window as any).__petgame = { game, room };
 }

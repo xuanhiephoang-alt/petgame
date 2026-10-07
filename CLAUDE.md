@@ -14,6 +14,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - `npm run dev`: chạy server (ws://localhost:2567) và client (http://localhost:5173)
 - `npm run typecheck`, `npm test` (Vitest), `npm run test:e2e` (Playwright, tự bật server)
 - `npm run build`: build client vào `packages/client/dist`
+- `npm run models:build`: dựng lại model GLB của thú từ `assets/pals/build.ts`; xem ở http://localhost:5173/model-viewer.html
 
 ## Quy tắc chung
 - Client chỉ gửi ý định; server quyết định vị trí, sát thương, kết quả bắt thú.

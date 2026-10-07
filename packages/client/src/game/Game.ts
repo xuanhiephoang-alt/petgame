@@ -19,7 +19,8 @@ import { Joystick } from "../ui/joystick.ts";
 import { Keyboard } from "../ui/keyboard.ts";
 import { toScene } from "./coords.ts";
 import { Effects } from "./effects.ts";
-import { createPalModel, createPlayerModel, disposeModel, palRadius, setFlash } from "./models.ts";
+import { createPlayerModel, disposeModel, setFlash } from "./models.ts";
+import type { PalInstance, PalModelSet } from "./assets.ts";
 import { buildWorld, type World } from "./world.ts";
 
 interface Entity {
@@ -32,11 +33,16 @@ interface Entity {
 }
 
 interface PalEntity extends Entity {
+  instance: PalInstance;
   hp: number;
   maxHp: number;
   hpFill: HTMLDivElement;
-  bobPhase: number;
 }
+
+/** Pals are drawn a bit larger than life so they read well from the high camera. */
+const PAL_DISPLAY_SCALE = 1.3;
+/** Displayed speed (pixels/s) above which a pal plays its walk cycle. */
+const WALK_THRESHOLD = 8;
 
 /** Above this distance (pixels) the predicted local player snaps to the server. */
 const SNAP_DISTANCE = 64;
@@ -60,7 +66,7 @@ export class Game {
   private cameraTarget = new THREE.Vector3();
   private tmp = new THREE.Vector3();
 
-  constructor(private container: HTMLElement, private room: GameRoom) {
+  constructor(private container: HTMLElement, private room: GameRoom, private palModels: PalModelSet) {
     const dpr = Math.min(window.devicePixelRatio, 2);
     this.renderer = new THREE.WebGLRenderer({ antialias: dpr < 2, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(dpr);
@@ -124,21 +130,24 @@ export class Game {
 
     $.onAdd("pals", (pal, id) => {
       const species = getSpecies(pal.speciesId);
-      const model = createPalModel(species);
+      const instance = this.palModels.create(species.id);
+      const model = instance.object;
+      model.scale.setScalar(PAL_DISPLAY_SCALE);
       const label = makeLabel(species.name, "label pal");
       const hpBar = document.createElement("div");
       hpBar.className = "hp-bar";
       const hpFill = document.createElement("div");
       hpBar.append(hpFill);
       label.element.append(hpBar);
-      label.position.y = palRadius(species) * 2.3 + 0.3;
+      // Label is a child of the scaled model, so convert the world height back.
+      label.position.y = new THREE.Box3().setFromObject(model).max.y / PAL_DISPLAY_SCALE + 0.2;
       model.add(label);
       toScene(pal.x, pal.y, model.position);
       this.scene.add(model);
       const entity: PalEntity = {
-        model, label, hpFill,
+        model, label, hpFill, instance,
         pos: { x: pal.x, y: pal.y }, server: { x: pal.x, y: pal.y },
-        hp: pal.hp, maxHp: pal.maxHp, bobPhase: Math.random() * Math.PI * 2,
+        hp: pal.hp, maxHp: pal.maxHp,
       };
       this.pals.set(id, entity);
       this.updateHpBar(entity);
@@ -153,13 +162,18 @@ export class Game {
 
     $.onRemove("pals", (_pal, id) => {
       const entity = this.pals.get(id);
-      if (entity) this.removeEntity(entity);
+      if (entity) {
+        entity.label.element.remove();
+        this.scene.remove(entity.model);
+        entity.instance.dispose();
+      }
       this.pals.delete(id);
     });
 
     this.room.onMessage(ServerMessage.Hit, (msg: HitMessage) => {
       const pal = this.pals.get(msg.palId);
       if (!pal) return;
+      pal.instance.once("hurt");
       setFlash(pal.model, true);
       setTimeout(() => setFlash(pal.model, false), 90);
     });
@@ -207,13 +221,14 @@ export class Game {
       this.placeModel(entity, prev, dtSec);
     });
 
-    const t = now / 1000;
     this.pals.forEach((pal) => {
       const prev = { x: pal.pos.x, y: pal.pos.y };
       pal.pos.x += (pal.server.x - pal.pos.x) * lerp;
       pal.pos.y += (pal.server.y - pal.pos.y) * lerp;
       this.placeModel(pal, prev, dtSec);
-      pal.model.position.y = Math.abs(Math.sin(t * 4 + pal.bobPhase)) * 0.12;
+      const speed = dtSec > 0 ? distance(prev, pal.pos) / dtSec : 0;
+      pal.instance.loop(speed > WALK_THRESHOLD ? "walk" : "idle");
+      pal.instance.mixer?.update(dtSec);
     });
 
     this.updateCamera(dtSec);
