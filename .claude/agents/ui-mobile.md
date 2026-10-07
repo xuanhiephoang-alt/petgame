@@ -17,7 +17,6 @@ Bạn là lập trình viên **UI & mobile** của PetGame.
 - `joystick.ts`: joystick nổi ở nửa trái màn hình (Pointer Events). Kéo lên trên màn hình = đi về phía xa camera.
 - `keyboard.ts`: WASD/mũi tên, Space, E.
 - `party.ts`: thẻ thú có cấp, thanh XP, nút Đi theo / Làm việc / Nghỉ; HUD có tài nguyên (🪵🪨🫐) và nút 🏕️ Đặt trại (phím B).
-- (cũ) `party.ts`: nút "🐾 Thú (n)" + bảng túi thú (phím Q), gọi `summon`. Nhãn 3D (CSS2D) ở z-index 1, HUD ở z-index 2.
 
 ## Quy tắc
 - Mọi thao tác phải dùng được bằng **cả cảm ứng lẫn bàn phím**. Nút cảm ứng tối thiểu 44×44 px.
