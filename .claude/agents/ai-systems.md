@@ -12,6 +12,7 @@ Bạn là kỹ sư **AI hệ thống** của PetGame.
 ## Kiến trúc hiện tại
 - `wander.ts`: `WanderBrain` + `stepWander()`, hàm thuần, mutate vị trí. `GameRoom` gọi mỗi tick.
 - `stepWander(..., { grid, radius })` trượt quanh vật cản và đổi mục tiêu khi bị chặn; `randomPoint(random, grid, r)` tránh sinh thú trong cây/đá. Grid lấy từ `defaultWorld()`.
+- `wildCombat.ts`: thú hoang chọn mục tiêu (`findNearestTarget` cho loài hung dữ) và đuổi đánh (`stepChase`). Trạng thái nổi giận (`WildAggro`) nằm trong `GameRoom.wildAggro`; `provoke` khi bị đánh.
 - `companion.ts`: `stepCompanion` bám chủ, lao vào thú hoang chủ vừa đánh (aggro `COMPANION_AGGRO_MS`), dịch chuyển về khi bị bỏ xa. Test tích hợp ở `rooms/GameRoom.test.ts` (`@colyseus/testing`).
 - Não AI (`brain`) chỉ tồn tại trên server, KHÔNG đồng bộ cho client.
 - Kỹ năng làm việc của thú lấy từ `workSkills` trong `packages/shared/src/data/pals.json`.

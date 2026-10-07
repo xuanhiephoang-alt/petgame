@@ -1,6 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { Room, type Client } from "colyseus";
 import {
+  AGGRESSIVE_SIGHT,
+  BERRY_HEAL,
+  DAY_LENGTH_MS,
+  DAY_START,
+  FAINT_REST_MS,
+  PLAYER_MAX_HP,
+  REGEN_DELAY_MS,
+  REGEN_PER_SECOND,
+  WILD_AGGRO_MS,
+  WILD_ATTACK_COOLDOWN_MS,
+  WILD_CHASE_SPEED_FACTOR,
+  biomeAt,
+  companionMaxHp,
+  isNight,
+  wildDamage,
+  type DamageMessage,
+  type FaintedMessage,
+  type PalSpecies,
   ATTACK_COOLDOWN_MS,
   ATTACK_DAMAGE,
   ATTACK_RANGE,
@@ -71,6 +89,7 @@ import {
 } from "@petgame/shared";
 import { newBrain, randomPoint, stepWander, type WanderBrain } from "../ai/wander.ts";
 import { stepCompanion, stepToward } from "../ai/companion.ts";
+import { findNearestTarget, stepChase, type CombatTarget, type WildAggro } from "../ai/wildCombat.ts";
 import { emptyProfile, isValidToken, openStore, type Profile, type ProfileStore } from "../persistence/store.ts";
 
 /** Server-only per-player data that is never synced. */
@@ -120,10 +139,21 @@ export class GameRoom extends Room<{ state: GameState }> {
   private companionTimers = new Map<string, CompanionTimers>();
   private nextPalId = 1;
   private respawnTimer = 0;
+  /** Wild pal id -> who it is fighting. */
+  private wildAggro = new Map<string, WildAggro>();
+  /** OwnedPal id -> time until which it is too tired to come out. */
+  private faintedUntil = new Map<string, number>();
+  /** "p:<session>" / "c:<owned id>" -> last time it took damage (regen waits). */
+  private lastDamagedAt = new Map<string, number>();
+  /** Precise time of day; state.dayTime is synced from it once a second. */
+  private dayTime = DAY_START;
+  private daySyncTimer = 0;
+  private wasNight = false;
   /** Trees, rocks and the campfire; shared with the client for prediction. */
   private obstacles = defaultWorld().grid;
 
   onCreate() {
+    this.state.dayTime = DAY_START;
     for (let i = 0; i < WILD_PAL_TARGET; i++) this.spawnPal();
 
     this.onMessage(ClientMessage.Input, (client, message: InputMessage) => {
@@ -147,6 +177,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage(ClientMessage.Craft, (client, message: CraftMessage) => {
       if (typeof message?.recipeId === "string") this.craft(client, message.recipeId);
     });
+    this.onMessage(ClientMessage.Eat, (client) => this.eat(client));
     this.onMessage(ClientMessage.Feed, (client, message: FeedMessage) => {
       if (typeof message?.palId === "string") this.feed(client, message.palId);
     });
@@ -160,6 +191,16 @@ export class GameRoom extends Room<{ state: GameState }> {
         const pal = this.state.pals.get(id)!;
         pal.hp = 1;
         this.brains.get(id)!.idleMs = 60_000;
+      });
+      this.onMessage("debug:setTime", (_client, message: { t?: number }) => {
+        if (typeof message?.t === "number") this.dayTime = ((message.t % 1) + 1) % 1;
+      });
+      this.onMessage("debug:teleport", (client, message: { x?: number; y?: number }) => {
+        const player = this.state.players.get(client.sessionId);
+        if (!player || typeof message?.x !== "number" || typeof message?.y !== "number") return;
+        const spot = this.obstacles.resolve({ x: message.x, y: message.y }, 14);
+        player.x = spot.x;
+        player.y = spot.y;
       });
       this.onMessage("debug:give", (client) => {
         const player = this.state.players.get(client.sessionId);
@@ -181,6 +222,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.x = WORLD_WIDTH / 2 + (index - 2) * 40;
     player.y = WORLD_HEIGHT / 2;
     player.color = this.pickColor();
+    player.maxHp = PLAYER_MAX_HP;
+    player.hp = PLAYER_MAX_HP;
     player.activePalId = "";
     player.hasBase = !!profile.base;
     player.baseX = profile.base?.x ?? 0;
@@ -229,6 +272,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
     this.state.players.delete(client.sessionId);
     this.controls.delete(client.sessionId);
+    this.lastDamagedAt.delete(`p:${client.sessionId}`);
+    this.calmPalsTargeting("player", client.sessionId);
   }
 
   // -------------------------------------------------------------------------
@@ -244,19 +289,37 @@ export class GameRoom extends Room<{ state: GameState }> {
       player.y = next.y;
     });
 
+    const now = this.clock.currentTime;
     this.state.pals.forEach((pal, id) => {
       const brain = this.brains.get(id);
       if (!brain) return;
       const pos = { x: pal.x, y: pal.y };
       const species = getSpecies(pal.speciesId);
+      const target = this.wildTarget(id, pal, species, now);
+      if (target) {
+        const aggro = this.wildAggro.get(id)!;
+        const step = stepChase(pos, target.pos, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, species.size, this.obstacles);
+        pal.x = step.pos.x;
+        pal.y = step.pos.y;
+        pal.angry = true;
+        if (step.inRange && now - aggro.lastAttackAt >= WILD_ATTACK_COOLDOWN_MS) {
+          aggro.lastAttackAt = now;
+          this.damage(target, wildDamage(species, pal.level), id);
+        }
+        return;
+      }
+      pal.angry = false;
       stepWander(pos, brain, species.speed, dtMs, Math.random, { grid: this.obstacles, radius: species.size });
       pal.x = pos.x;
       pal.y = pos.y;
     });
 
     this.tickCompanions(dtMs);
+    this.tickRegen(dtMs, now);
+    this.tickDay(dtMs);
 
-    if (this.state.pals.size < WILD_PAL_TARGET) {
+    const target = WILD_PAL_TARGET + (isNight(this.dayTime) ? 3 : 0);
+    if (this.state.pals.size < target) {
       this.respawnTimer += dtMs;
       if (this.respawnTimer >= PAL_RESPAWN_MS) {
         this.respawnTimer = 0;
@@ -313,6 +376,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       timers.lastAttackAt = now;
       const damage = companionDamage(owned.level);
       target.hp = Math.max(1, target.hp - damage);
+      this.provoke(targetId, { kind: "companion", id });
       const hit: HitMessage = { playerId: companion.ownerId, palId: targetId, damage, companionId: id };
       this.broadcast(ServerMessage.Hit, hit);
       this.grantXp(companion.ownerId, owned, XP_PER_HIT);
@@ -338,6 +402,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     pal.hp = Math.max(1, pal.hp - ATTACK_DAMAGE);
     control.targetPalId = palId;
     control.aggroUntil = now + COMPANION_AGGRO_MS;
+    this.provoke(palId, { kind: "player", id: client.sessionId });
     const hit: HitMessage = { playerId: client.sessionId, palId, damage: ATTACK_DAMAGE };
     this.broadcast(ServerMessage.Hit, hit);
   }
@@ -361,6 +426,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (success) {
       this.state.pals.delete(palId);
       this.brains.delete(palId);
+      this.wildAggro.delete(palId);
       if (player.pals.length < MAX_PARTY) {
         const owned = new OwnedPal();
         owned.id = randomUUID();
@@ -388,6 +454,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player) return;
     const owned = ownedId ? player.pals.find((p) => p.id === ownedId) : undefined;
     if (ownedId && !owned) return;
+    if (owned && this.tooTired(sessionId, owned)) return;
     if (player.activePalId) this.rest(sessionId, player.activePalId);
     if (!owned) return;
     if (owned.assignment === "work") this.despawnCompanion(owned.id);
@@ -402,6 +469,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const player = this.state.players.get(client.sessionId);
     const owned = player?.pals.find((p) => p.id === ownedId);
     if (!player || !owned || owned.assignment === "work") return;
+    if (this.tooTired(client.sessionId, owned)) return;
     if (!player.hasBase) return this.notify(client, "Hãy đặt trại trước (nút 🏕️ hoặc phím B)");
     const workers = player.pals.filter((p) => p.assignment === "work").length;
     const cap = workerCap(player.baseLevel);
@@ -488,6 +556,149 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.scheduleSave(client.sessionId);
   }
 
+  private eat(client: Client) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+    if (player.berries <= 0) return this.notify(client, "Hết 🫐 quả mọng");
+    if (player.hp >= player.maxHp) return this.notify(client, "Máu đang đầy");
+    player.berries -= 1;
+    player.hp = Math.min(player.maxHp, player.hp + BERRY_HEAL);
+    this.scheduleSave(client.sessionId);
+  }
+
+  // -------------------------------------------------------------------------
+  // Combat, health and the day cycle
+  // -------------------------------------------------------------------------
+
+  /** A wild pal that is not passive starts fighting whoever hit it. */
+  private provoke(palId: string, target: Pick<CombatTarget, "kind" | "id">) {
+    const pal = this.state.pals.get(palId);
+    if (!pal || getSpecies(pal.speciesId).temperament === "passive") return;
+    const now = this.clock.currentTime;
+    const existing = this.wildAggro.get(palId);
+    this.wildAggro.set(palId, { target, until: now + WILD_AGGRO_MS, lastAttackAt: existing?.lastAttackAt ?? 0 });
+  }
+
+  /** Who this wild pal is fighting now, finding a victim if it is aggressive. */
+  private wildTarget(id: string, pal: WildPal, species: PalSpecies, now: number): CombatTarget | undefined {
+    const aggro = this.wildAggro.get(id);
+    if (aggro && aggro.until > now) {
+      const pos = this.targetPos(aggro.target);
+      if (pos) return { ...aggro.target, pos };
+    }
+    if (aggro) this.wildAggro.delete(id);
+    if (species.temperament !== "aggressive") return undefined;
+    const candidates: CombatTarget[] = [];
+    this.state.players.forEach((p, sid) => candidates.push({ kind: "player", id: sid, pos: p }));
+    this.state.companions.forEach((c, cid) => candidates.push({ kind: "companion", id: cid, pos: c }));
+    const found = findNearestTarget(pal, AGGRESSIVE_SIGHT, candidates);
+    if (!found) return undefined;
+    this.wildAggro.set(id, { target: { kind: found.kind, id: found.id }, until: now + WILD_AGGRO_MS, lastAttackAt: 0 });
+    return found;
+  }
+
+  private targetPos(target: Pick<CombatTarget, "kind" | "id">): Vec2 | undefined {
+    return target.kind === "player" ? this.state.players.get(target.id) : this.state.companions.get(target.id);
+  }
+
+  private damage(target: CombatTarget, amount: number, attackerId: string) {
+    const now = this.clock.currentTime;
+    const message: DamageMessage = { targetType: target.kind, targetId: target.id, attackerId, amount };
+    if (target.kind === "player") {
+      const player = this.state.players.get(target.id);
+      if (!player) return;
+      player.hp = Math.max(0, player.hp - amount);
+      this.lastDamagedAt.set(`p:${target.id}`, now);
+      this.broadcast(ServerMessage.Damage, message);
+      if (player.hp <= 0) this.faintPlayer(target.id);
+    } else {
+      const companion = this.state.companions.get(target.id);
+      if (!companion) return;
+      companion.hp = Math.max(0, companion.hp - amount);
+      this.lastDamagedAt.set(`c:${target.id}`, now);
+      this.broadcast(ServerMessage.Damage, message);
+      if (companion.hp <= 0) this.faintCompanion(target.id);
+    }
+  }
+
+  /** A knocked-out player wakes up at their camp (or the campfire) with full health. */
+  private faintPlayer(sessionId: string) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    const home = player.hasBase ? { x: player.baseX, y: player.baseY + 50 } : { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
+    const spot = this.obstacles.resolve(home, 14);
+    player.x = spot.x;
+    player.y = spot.y;
+    player.hp = player.maxHp;
+    this.calmPalsTargeting("player", sessionId);
+    const message: FaintedMessage = { targetType: "player", targetId: sessionId };
+    this.broadcast(ServerMessage.Fainted, message);
+    const client = this.clients.find((c) => c.sessionId === sessionId);
+    if (client) this.notify(client, player.hasBase ? "Bạn bị ngất và tỉnh dậy ở trại 💫" : "Bạn bị ngất và tỉnh dậy bên lửa trại 💫");
+  }
+
+  /** A knocked-out companion goes back into the party and must rest. */
+  private faintCompanion(ownedId: string) {
+    const companion = this.state.companions.get(ownedId);
+    if (!companion) return;
+    const ownerId = companion.ownerId;
+    this.calmPalsTargeting("companion", ownedId);
+    const message: FaintedMessage = { targetType: "companion", targetId: ownedId };
+    this.broadcast(ServerMessage.Fainted, message);
+    this.rest(ownerId, ownedId);
+    this.faintedUntil.set(ownedId, this.clock.currentTime + FAINT_REST_MS);
+    const owned = this.state.players.get(ownerId)?.pals.find((p) => p.id === ownedId);
+    const client = this.clients.find((c) => c.sessionId === ownerId);
+    if (client && owned) this.notify(client, `${getSpecies(owned.speciesId).name} kiệt sức, cần nghỉ ${FAINT_REST_MS / 1000} giây`);
+  }
+
+  private calmPalsTargeting(kind: CombatTarget["kind"], id: string) {
+    this.wildAggro.forEach((aggro, palId) => {
+      if (aggro.target.kind === kind && aggro.target.id === id) this.wildAggro.delete(palId);
+    });
+  }
+
+  /** Refuses (with a notice) to bring out a pal that is still recovering. */
+  private tooTired(sessionId: string, owned: OwnedPal): boolean {
+    const left = (this.faintedUntil.get(owned.id) ?? 0) - this.clock.currentTime;
+    if (left <= 0) return false;
+    const client = this.clients.find((c) => c.sessionId === sessionId);
+    if (client) this.notify(client, `${getSpecies(owned.speciesId).name} đang nghỉ, còn ${Math.ceil(left / 1000)} giây`);
+    return true;
+  }
+
+  /** Health comes back after a few seconds without taking damage. */
+  private tickRegen(dtMs: number, now: number) {
+    const amount = (REGEN_PER_SECOND * dtMs) / 1000;
+    const heal = (key: string, entity: { hp: number; maxHp: number }) => {
+      if (entity.hp >= entity.maxHp || now - (this.lastDamagedAt.get(key) ?? 0) < REGEN_DELAY_MS) return;
+      entity.hp = Math.min(entity.maxHp, Math.round((entity.hp + amount) * 10) / 10);
+    };
+    this.state.players.forEach((p, id) => heal(`p:${id}`, p));
+    this.state.companions.forEach((c, id) => heal(`c:${id}`, c));
+  }
+
+  /** Advances the clock; night pals fly off at dawn. */
+  private tickDay(dtMs: number) {
+    this.dayTime = (this.dayTime + dtMs / DAY_LENGTH_MS) % 1;
+    this.daySyncTimer += dtMs;
+    if (this.daySyncTimer >= 1000) {
+      this.daySyncTimer = 0;
+      this.state.dayTime = Math.round(this.dayTime * 1000) / 1000;
+    }
+    const night = isNight(this.dayTime);
+    if (this.wasNight && !night) {
+      this.state.pals.forEach((pal, id) => {
+        if (getSpecies(pal.speciesId).spawn.time === "night" && !pal.angry) {
+          this.state.pals.delete(id);
+          this.brains.delete(id);
+          this.wildAggro.delete(id);
+        }
+      });
+    }
+    this.wasNight = night;
+  }
+
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
@@ -498,7 +709,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (result.levelsGained === 0) return;
     owned.level = result.level;
     const companion = this.state.companions.get(owned.id);
-    if (companion) companion.level = owned.level;
+    if (companion) {
+      companion.level = owned.level;
+      companion.maxHp = companionMaxHp(getSpecies(owned.speciesId), owned.level);
+      companion.hp = companion.maxHp; // levelling up heals
+    }
     const message: LevelUpMessage = { playerId: sessionId, palId: owned.id, speciesId: owned.speciesId, level: owned.level };
     this.broadcast(ServerMessage.LevelUp, message);
     this.scheduleSave(sessionId);
@@ -510,6 +725,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     companion.speciesId = owned.speciesId;
     companion.level = owned.level;
     companion.mode = mode;
+    companion.maxHp = companionMaxHp(getSpecies(owned.speciesId), owned.level);
+    companion.hp = companion.maxHp;
     companion.x = at.x;
     companion.y = at.y;
     this.state.companions.set(owned.id, companion);
@@ -518,6 +735,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private despawnCompanion(id: string) {
     this.state.companions.delete(id);
     this.companionTimers.delete(id);
+    this.lastDamagedAt.delete(`c:${id}`);
+    this.calmPalsTargeting("companion", id);
   }
 
   private timers(id: string): CompanionTimers {
@@ -593,8 +812,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   private spawnPal(at?: Vec2): string {
-    const species = pickSpecies(Math.random());
-    const pos = at ?? randomPoint(Math.random, this.obstacles, species.size);
+    // Pick the place first, then a species that lives there at this hour.
+    const pos = at ?? randomPoint(Math.random, this.obstacles, 20);
+    const biome = biomeAt(defaultWorld().layout, pos.x, pos.y);
+    const species =
+      pickSpecies(Math.random(), { biome, night: isNight(this.dayTime) }) ?? pickSpecies(Math.random())!;
     const pal = new WildPal();
     pal.speciesId = species.id;
     pal.x = pos.x;

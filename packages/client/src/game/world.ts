@@ -1,6 +1,18 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { BORDER as BORDER_PX, WORLD_HEIGHT, WORLD_WIDTH, defaultWorld, fbm, mulberry32, smoothstep, type Prop } from "@petgame/shared";
+import {
+  BORDER as BORDER_PX,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
+  daylight,
+  defaultWorld,
+  fbm,
+  mulberry32,
+  phaseAt,
+  smoothstep,
+  type Prop,
+} from "@petgame/shared";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { UNITS_PER_PIXEL } from "./coords.ts";
 
 const W = WORLD_WIDTH * UNITS_PER_PIXEL;
@@ -18,8 +30,20 @@ export interface World {
    * Advances wind, particles and the campfire. `focus` is the camera target;
    * tree canopies between the camera and `focus` are faded out.
    */
-  update(timeSec: number, focus: THREE.Vector3, camera: THREE.Camera): void;
+  update(timeSec: number, focus: THREE.Vector3, camera: THREE.Camera, dayTime: number): void;
 }
+
+/** Sky, fog and light colors through the day (see shared daycycle.ts). */
+const PALETTE = {
+  skyDay: new THREE.Color(0xbfe3f2),
+  skyDusk: new THREE.Color(0xf0a57a),
+  skyNight: new THREE.Color(0x111d33),
+  sunDay: new THREE.Color(0xffeccc),
+  sunDusk: new THREE.Color(0xff9a5c),
+  moon: new THREE.Color(0x8fa8ff),
+  hemiDay: new THREE.Color(0xd6ecff),
+  hemiNight: new THREE.Color(0x34466e),
+};
 
 /** Loads the KayKit nature models (trees, bushes, rocks, grass) keyed by name. */
 export async function loadNature(): Promise<Map<string, THREE.Object3D>> {
@@ -37,7 +61,8 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
   scene.background = new THREE.Color(SKY);
   scene.fog = new THREE.Fog(SKY, 28, 55);
 
-  scene.add(new THREE.HemisphereLight(0xd6ecff, 0x4b6b32, 1.15));
+  const hemi = new THREE.HemisphereLight(0xd6ecff, 0x4b6b32, 1.15);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffeccc, 2.8);
   sun.castShadow = true;
   sun.shadow.mapSize.setScalar(highQuality ? 2048 : 1024);
@@ -55,17 +80,38 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
     cameraPos: { value: new THREE.Vector3() },
   };
   scatterNature(scene, nature, uniforms);
+  scene.add(buildLake(uniforms));
   const particles = new Particles(scene);
   const campfire = buildCampfire(scene, nature);
+  const fog = scene.fog as THREE.Fog;
+  const sky = scene.background as THREE.Color;
+  const sunOffset = new THREE.Vector3();
 
   return {
     sun,
-    update(timeSec, focus, camera) {
+    update(timeSec, focus, camera, dayTime) {
       uniforms.windTime.value = timeSec;
       uniforms.focus.value.copy(focus);
       uniforms.cameraPos.value.copy(camera.position);
-      particles.update(timeSec, focus);
-      campfire(timeSec);
+
+      // Day/night: light level d, plus a warm tint around dusk and dawn.
+      const d = daylight(dayTime);
+      const phase = phaseAt(dayTime);
+      const warm = phase === "dusk" || phase === "dawn" ? Math.sin(Math.PI * d) : 0;
+      sky.lerpColors(PALETTE.skyNight, PALETTE.skyDay, d).lerp(PALETTE.skyDusk, warm * 0.8);
+      fog.color.copy(sky);
+      sun.color.lerpColors(PALETTE.moon, PALETTE.sunDay, d).lerp(PALETTE.sunDusk, warm);
+      sun.intensity = 0.65 + 2.15 * d;
+      hemi.color.lerpColors(PALETTE.hemiNight, PALETTE.hemiDay, d);
+      hemi.intensity = 0.7 + 0.45 * d;
+      // The sun (or moon) swings around the sky over the day.
+      const az = dayTime * Math.PI * 2;
+      sunOffset.set(Math.cos(az) * 9, 12 + 6 * d, Math.sin(az) * 5 + 5);
+      sun.position.copy(focus).add(sunOffset);
+      sun.target.position.copy(focus);
+
+      particles.update(timeSec, focus, 1 - d);
+      campfire(timeSec, 1 - d);
     },
   };
 }
@@ -86,6 +132,11 @@ function buildGround(): THREE.Mesh {
   const grass = new THREE.Color(0x5c9e3c);
   const grassLight = new THREE.Color(0x93bf52);
   const dirt = new THREE.Color(0xa88a5c);
+  const sand = new THREE.Color(0xd9c58f);
+  const lakeBed = new THREE.Color(0x2c6f7f);
+  const rock = new THREE.Color(0x8a8272);
+  const { lake, rocky } = defaultWorld().layout;
+  const U = 1 / UNITS_PER_PIXEL;
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
@@ -98,6 +149,13 @@ function buildGround(): THREE.Mesh {
     const d = fbm(x * 0.09 + 100, z * 0.09 + 100);
     c.lerp(dirt, Math.max(smoothstep(0.93, 0.975, trail), smoothstep(0.74, 0.82, d)) * 0.8);
     c.offsetHSL(0, 0, (detail - 0.5) * 0.06);
+    // Biomes: stony ground in the rocky hills, sandy shore and a deep lake bed.
+    const px = x * U, py = z * U;
+    const rockyT = 1 - smoothstep(rocky.r * 0.75, rocky.r, Math.hypot(px - rocky.x, py - rocky.y));
+    c.lerp(rock, rockyT * (0.55 + 0.35 * detail));
+    const shore = Math.min(...lake.map((w) => Math.hypot(px - w.x, py - w.y) - w.r)) / U; // units from the water edge
+    c.lerp(sand, 1 - smoothstep(0.3, 1.6, shore));
+    if (shore < 0) c.lerp(lakeBed, Math.min(1, -shore));
     // Darker under the border forest.
     const outside = Math.max(-x, x - W, -z, z - H, 0);
     c.multiplyScalar(1 - Math.min(outside / BORDER, 1) * 0.3);
@@ -184,13 +242,18 @@ function scatterFlowers(scene: THREE.Scene, rand: () => number, uniforms: WorldU
   const colors = [0xffffff, 0xffe066, 0xff8fb1, 0xc5a3ff, 0xff9e5e];
   const perColor: THREE.Matrix4[][] = colors.map(() => []);
   const m = new THREE.Matrix4();
+  const { lake } = defaultWorld().layout;
+  const onLand = (x: number, z: number) =>
+    lake.every((c) => Math.hypot(x / UNITS_PER_PIXEL - c.x, z / UNITS_PER_PIXEL - c.y) > c.r + 8);
   for (let p = 0; p < 45; p++) {
     const cx = rand() * W, cz = rand() * H;
     const color = Math.floor(rand() * colors.length);
     const n = 6 + Math.floor(rand() * 10);
     for (let i = 0; i < n; i++) {
       const s = 0.8 + rand() * 0.6;
-      m.makeScale(s, s * 0.6, s).setPosition(cx + (rand() - 0.5) * 2.4, 0.14 + rand() * 0.06, cz + (rand() - 0.5) * 2.4);
+      const fx = cx + (rand() - 0.5) * 2.4, fz = cz + (rand() - 0.5) * 2.4;
+      if (!onLand(fx, fz)) continue;
+      m.makeScale(s, s * 0.6, s).setPosition(fx, 0.14 + rand() * 0.06, fz);
       perColor[rand() < 0.8 ? color : Math.floor(rand() * colors.length)].push(m.clone());
     }
   }
@@ -277,11 +340,48 @@ function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, swa
 }
 
 // ---------------------------------------------------------------------------
+// Lake
+// ---------------------------------------------------------------------------
+
+/** Water surface over the lake circles, with moving ripples and a bright rim. */
+function buildLake(uniforms: WorldUniforms): THREE.Mesh {
+  const { lake } = defaultWorld().layout;
+  const geometry = mergeGeometries(
+    lake.map((c) =>
+      new THREE.CircleGeometry(c.r * UNITS_PER_PIXEL, 48)
+        .rotateX(-Math.PI / 2)
+        .translate(c.x * UNITS_PER_PIXEL, 0, c.y * UNITS_PER_PIXEL)
+        .toNonIndexed(),
+    ),
+  );
+  const material = new THREE.MeshStandardMaterial({ color: 0x3aa3c9, roughness: 0.12, metalness: 0.05 });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.windTime = uniforms.windTime;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vWaterPos;")
+      .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvWaterPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float windTime;\nvarying vec3 vWaterPos;")
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+        float ripple = sin(vWaterPos.x * 2.3 + windTime * 1.6) * sin(vWaterPos.z * 2.9 - windTime * 1.3);
+        diffuseColor.rgb += vec3(0.05, 0.08, 0.09) * ripple;`,
+      );
+  };
+  material.customProgramCacheKey = () => "lake";
+  const water = new THREE.Mesh(geometry, material);
+  water.position.y = 0.05;
+  water.receiveShadow = true;
+  return water;
+}
+
+// ---------------------------------------------------------------------------
 // Campfire
 // ---------------------------------------------------------------------------
 
 /** Stone ring, logs, flickering flame and light. Returns the per-frame updater. */
-function buildCampfire(scene: THREE.Scene, nature: Map<string, THREE.Object3D>): (t: number) => void {
+function buildCampfire(scene: THREE.Scene, nature: Map<string, THREE.Object3D>): (t: number, night: number) => void {
   const camp = new THREE.Group();
   camp.position.set(CAMPFIRE.x, 0, CAMPFIRE.y);
   scene.add(camp);
@@ -334,13 +434,14 @@ function buildCampfire(scene: THREE.Scene, nature: Map<string, THREE.Object3D>):
   light.position.y = 0.8;
   camp.add(light);
 
-  return (t) => {
+  return (t, night) => {
     flames.forEach((f, i) => {
       const k = 1 + Math.sin(t * (9 + i * 3) + i) * 0.12 + Math.sin(t * 23 + i * 2) * 0.06;
       f.scale.set(1 / Math.sqrt(k), k, 1 / Math.sqrt(k));
       f.rotation.y = t * (1 + i);
     });
-    light.intensity = 5.5 + Math.sin(t * 13) * 0.8 + Math.sin(t * 29) * 0.5;
+    light.intensity = (5.5 + Math.sin(t * 13) * 0.8 + Math.sin(t * 29) * 0.5) * (1 + night * 1.6);
+    light.distance = 9 + night * 7;
   };
 }
 
@@ -376,7 +477,12 @@ class Particles {
     scene.add(this.points);
   }
 
-  update(t: number, focus: THREE.Vector3) {
+  update(t: number, focus: THREE.Vector3, night = 0) {
+    // Pale pollen by day, bright green-gold fireflies at night.
+    const material = this.points.material as THREE.PointsMaterial;
+    material.size = 0.12 + night * 0.1;
+    material.color.setRGB(1, 0.96 + night * 0.04, 0.69 - night * 0.3);
+    material.opacity = 0.6 + night * 0.4;
     const pos = this.points.geometry.attributes.position as THREE.BufferAttribute;
     const a = this.area;
     for (let i = 0; i < this.count; i++) {

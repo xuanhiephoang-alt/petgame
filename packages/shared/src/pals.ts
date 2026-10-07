@@ -2,6 +2,10 @@ import palData from "./data/pals.json" with { type: "json" };
 
 export type Element = "grass" | "fire" | "water" | "earth" | "electric";
 
+export type Temperament = "passive" | "defensive" | "aggressive";
+export type Biome = "meadow" | "lake" | "rocky";
+export type SpawnTime = "any" | "day" | "night";
+
 export interface PalSpecies {
   id: string;
   name: string;
@@ -18,6 +22,12 @@ export interface PalSpecies {
   /** Relative spawn frequency. */
   spawnWeight: number;
   workSkills: string[];
+  /** passive: never attacks; defensive: fights back when hit; aggressive: attacks anyone nearby. */
+  temperament: Temperament;
+  /** Damage per hit at level 1. */
+  attack: number;
+  /** Where and when this species appears in the wild. */
+  spawn: { biomes: Biome[]; time: SpawnTime };
 }
 
 export const PAL_SPECIES: readonly PalSpecies[] = palData as PalSpecies[];
@@ -30,13 +40,24 @@ export function getSpecies(id: string): PalSpecies {
   return species;
 }
 
-/** Picks a species by spawnWeight. `roll` is a number in [0, 1). */
-export function pickSpecies(roll: number): PalSpecies {
-  const total = PAL_SPECIES.reduce((sum, s) => sum + s.spawnWeight, 0);
+/**
+ * Picks a species by spawnWeight among those that live in `biome` at this
+ * time of day. `roll` is a number in [0, 1). Without a context, any species.
+ */
+export function pickSpecies(roll: number, where?: { biome: Biome; night: boolean }): PalSpecies | undefined {
+  const pool = where
+    ? PAL_SPECIES.filter(
+        (s) =>
+          s.spawn.biomes.includes(where.biome) &&
+          (s.spawn.time === "any" || (s.spawn.time === "night") === where.night),
+      )
+    : PAL_SPECIES;
+  const total = pool.reduce((sum, s) => sum + s.spawnWeight, 0);
+  if (total <= 0) return undefined;
   let threshold = roll * total;
-  for (const species of PAL_SPECIES) {
+  for (const species of pool) {
     threshold -= species.spawnWeight;
     if (threshold < 0) return species;
   }
-  return PAL_SPECIES[PAL_SPECIES.length - 1];
+  return pool[pool.length - 1];
 }

@@ -15,7 +15,7 @@ export interface CompanionStep {
 }
 
 /**
- * Moves toward `goal` at companion speed, stopping `stopAt` pixels short and
+ * Moves toward `goal` (at companion speed unless given), stopping `stopAt` pixels short and
  * sliding around obstacles.
  */
 export function stepToward(
@@ -25,10 +25,11 @@ export function stepToward(
   dtMs: number,
   radius: number,
   obstacles?: CollisionGrid,
+  speed = COMPANION_SPEED,
 ): Vec2 {
   const d = distance(pos, goal);
   if (d <= stopAt) return pos;
-  const step = Math.min((COMPANION_SPEED * dtMs) / 1000, d - stopAt);
+  const step = Math.min((speed * dtMs) / 1000, d - stopAt);
   const next = { x: pos.x + ((goal.x - pos.x) / d) * step, y: pos.y + ((goal.y - pos.y) / d) * step };
   return obstacles ? obstacles.resolve(next, radius) : next;
 }

@@ -9,7 +9,18 @@
     "color": "#7cc35a",
     "size": 14,
     "spawnWeight": 5,
-    "workSkills": ["planting", "gathering"]
+    "workSkills": [
+      "planting",
+      "gathering"
+    ],
+    "temperament": "passive",
+    "attack": 4,
+    "spawn": {
+      "biomes": [
+        "meadow"
+      ],
+      "time": "any"
+    }
   },
   {
     "id": "emberpup",
@@ -21,7 +32,17 @@
     "color": "#ff7043",
     "size": 15,
     "spawnWeight": 4,
-    "workSkills": ["kindling"]
+    "workSkills": [
+      "kindling"
+    ],
+    "temperament": "defensive",
+    "attack": 7,
+    "spawn": {
+      "biomes": [
+        "meadow"
+      ],
+      "time": "any"
+    }
   },
   {
     "id": "bubbloon",
@@ -33,7 +54,18 @@
     "color": "#4dabf5",
     "size": 16,
     "spawnWeight": 4,
-    "workSkills": ["watering"]
+    "workSkills": [
+      "watering"
+    ],
+    "temperament": "passive",
+    "attack": 3,
+    "spawn": {
+      "biomes": [
+        "meadow",
+        "lake"
+      ],
+      "time": "any"
+    }
   },
   {
     "id": "pebblet",
@@ -45,7 +77,18 @@
     "color": "#a1887f",
     "size": 17,
     "spawnWeight": 3,
-    "workSkills": ["mining"]
+    "workSkills": [
+      "mining"
+    ],
+    "temperament": "defensive",
+    "attack": 6,
+    "spawn": {
+      "biomes": [
+        "meadow",
+        "rocky"
+      ],
+      "time": "any"
+    }
   },
   {
     "id": "voltmouse",
@@ -57,6 +100,84 @@
     "color": "#ffd54f",
     "size": 12,
     "spawnWeight": 2,
-    "workSkills": ["generating"]
+    "workSkills": [
+      "generating"
+    ],
+    "temperament": "passive",
+    "attack": 5,
+    "spawn": {
+      "biomes": [
+        "meadow"
+      ],
+      "time": "any"
+    }
+  },
+  {
+    "id": "ripplefin",
+    "name": "Ripplefin",
+    "element": "water",
+    "maxHp": 48,
+    "speed": 60,
+    "catchRate": 0.4,
+    "color": "#26c6da",
+    "size": 15,
+    "spawnWeight": 4,
+    "workSkills": [
+      "watering"
+    ],
+    "temperament": "defensive",
+    "attack": 6,
+    "spawn": {
+      "biomes": [
+        "lake"
+      ],
+      "time": "any"
+    }
+  },
+  {
+    "id": "mothlume",
+    "name": "Mothlume",
+    "element": "electric",
+    "maxHp": 38,
+    "speed": 75,
+    "catchRate": 0.25,
+    "color": "#b39ddb",
+    "size": 13,
+    "spawnWeight": 2,
+    "workSkills": [
+      "generating"
+    ],
+    "temperament": "passive",
+    "attack": 5,
+    "spawn": {
+      "biomes": [
+        "meadow",
+        "lake",
+        "rocky"
+      ],
+      "time": "night"
+    }
+  },
+  {
+    "id": "boulderhorn",
+    "name": "Boulderhorn",
+    "element": "earth",
+    "maxHp": 90,
+    "speed": 45,
+    "catchRate": 0.2,
+    "color": "#8d8f94",
+    "size": 20,
+    "spawnWeight": 3,
+    "workSkills": [
+      "mining"
+    ],
+    "temperament": "aggressive",
+    "attack": 10,
+    "spawn": {
+      "biomes": [
+        "rocky"
+      ],
+      "time": "any"
+    }
   }
 ]

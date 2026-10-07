@@ -11,6 +11,11 @@ import {
   stepPlayer,
   RESOURCE_INFO,
   CRAFT_RANGE,
+  DAY_LENGTH_MS,
+  daylight,
+  phaseAt,
+  type DamageMessage,
+  type FaintedMessage,
   type CaptureResultMessage,
   type HitMessage,
   type LevelUpMessage,
@@ -87,12 +92,16 @@ export class Game {
   private useGreatBall = false;
   /** Camp models by owner session id. */
   private bases = new Map<string, THREE.Group>();
+  /** Last synced time of day and when it arrived; the client extrapolates between syncs. */
+  private serverDay = 0;
+  private serverDayAt = performance.now();
+  /** A warm lantern that follows the local player at night. */
+  private lantern = new THREE.PointLight(0xffc27a, 0, 7, 1.5);
   private lastSentInput: Vec2 = { x: 0, y: 0 };
   private lastFrame = performance.now();
   private cameraTarget = new THREE.Vector3();
   /** Same obstacles the server uses, so prediction matches its collisions. */
   private obstacles = defaultWorld().grid;
-  private tmp = new THREE.Vector3();
 
   constructor(private container: HTMLElement, private room: GameRoom, private assets: GameAssets) {
     const dpr = Math.min(window.devicePixelRatio, 2);
@@ -117,6 +126,7 @@ export class Game {
       capture: () => this.throwBall(),
       placeBase: () => this.room.send(ClientMessage.PlaceBase),
       toggleBall: () => this.toggleBall(),
+      eat: () => this.room.send(ClientMessage.Eat),
     });
     if (isTouch) this.joystick = new Joystick(this.hud.joystickZone);
     this.party = new PartyPanel(this.hud.root, {
@@ -134,7 +144,9 @@ export class Game {
       e: () => this.throwBall(),
       b: () => this.room.send(ClientMessage.PlaceBase),
       r: () => this.toggleBall(),
+      h: () => this.room.send(ClientMessage.Eat),
     });
+    this.scene.add(this.lantern);
 
     window.addEventListener("resize", () => this.resize());
     this.resize();
@@ -162,6 +174,7 @@ export class Game {
       const label = makeLabel(player.name, isMe ? "label me" : "label");
       label.position.y = 2.15;
       model.add(label);
+      const playerHp = addHpBar(label);
       this.scene.add(model);
       const entity: Entity = { model, anim, label, pos: { x: player.x, y: player.y }, server: { x: player.x, y: player.y } };
       toScene(player.x, player.y, model.position);
@@ -169,6 +182,7 @@ export class Game {
       $.onChange(player, () => {
         entity.server.x = player.x;
         entity.server.y = player.y;
+        setHp(label, playerHp, player.hp, player.maxHp);
         this.syncBase(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
       });
       this.syncBase(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
@@ -211,6 +225,7 @@ export class Game {
         entity.hp = pal.hp;
         entity.maxHp = pal.maxHp;
         this.updateHpBar(entity);
+        label.element.classList.toggle("angry", pal.angry);
       });
     });
 
@@ -237,6 +252,7 @@ export class Game {
       label.position.y = new THREE.Box3().setFromObject(model).max.y / PAL_DISPLAY_SCALE + 0.15;
       model.add(label);
       const labelText = label.element.querySelector("span")!;
+      const companionHp = addHpBar(label);
       toScene(companion.x, companion.y, model.position);
       this.scene.add(model);
       const entity: Entity = { model, anim, label, pos: { x: companion.x, y: companion.y }, server: { x: companion.x, y: companion.y } };
@@ -245,6 +261,7 @@ export class Game {
         entity.server.x = companion.x;
         entity.server.y = companion.y;
         labelText.textContent = `Lv ${companion.level} ${species.name}`;
+        setHp(label, companionHp, companion.hp, companion.maxHp);
       });
     });
 
@@ -281,6 +298,33 @@ export class Game {
       const name = getSpecies(msg.speciesId).name;
       const pct = Math.round(msg.chance * 100);
       this.hud.showToast(msg.success ? `Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${pct}%)`);
+    });
+
+    $.listen("dayTime", (value) => {
+      this.serverDay = value;
+      this.serverDayAt = performance.now();
+    });
+
+    this.room.onMessage(ServerMessage.Damage, (msg: DamageMessage) => {
+      const target = msg.targetType === "player" ? this.players.get(msg.targetId) : this.companions.get(msg.targetId);
+      const attacker = this.pals.get(msg.attackerId);
+      if (attacker) {
+        attacker.anim.once("attack");
+        attacker.model.rotation.y = Math.atan2(
+          (target?.pos.x ?? attacker.pos.x) - attacker.pos.x,
+          (target?.pos.y ?? attacker.pos.y) - attacker.pos.y,
+        );
+      }
+      if (!target) return;
+      flashRed(target.model);
+      this.floatText(target.model, `-${msg.amount}`, "damage");
+      if (msg.targetType === "player") target.anim.once(PlayerClip.Hit);
+      else target.anim.once("hurt");
+    });
+
+    this.room.onMessage(ServerMessage.Fainted, (msg: FaintedMessage) => {
+      const target = msg.targetType === "player" ? this.players.get(msg.targetId) : this.companions.get(msg.targetId);
+      if (target) this.effects.sparkle(target.model.position, 0x9e9e9e);
     });
 
     this.room.onMessage(ServerMessage.Notice, (msg: NoticeMessage) => this.hud.showToast(msg.text));
@@ -350,7 +394,12 @@ export class Game {
     });
 
     this.updateCamera(dtSec);
-    this.world.update(now / 1000, this.cameraTarget, this.camera);
+    const dayTime = (this.serverDay + (now - this.serverDayAt) / DAY_LENGTH_MS) % 1;
+    this.world.update(now / 1000, this.cameraTarget, this.camera, dayTime);
+    const me = this.players.get(this.room.sessionId);
+    if (me) this.lantern.position.copy(me.model.position).setY(1.8);
+    this.lantern.intensity = (1 - daylight(dayTime)) * 3;
+    this.hud.setTime(phaseAt(dayTime));
     this.bases.forEach((base) => animateBase(base, now / 1000));
     this.effects.update(dtSec);
     this.updateHud();
@@ -383,8 +432,6 @@ export class Game {
     this.camera.position.copy(this.cameraTarget).add(CAMERA_OFFSET);
     this.camera.lookAt(this.cameraTarget);
     // Keep the shadow-casting area centered on the player.
-    this.world.sun.position.copy(this.cameraTarget).add(this.tmp.set(8, 16, 6));
-    this.world.sun.target.position.copy(this.cameraTarget);
   }
 
   private readInput(): Vec2 {
@@ -441,6 +488,7 @@ export class Game {
     const me = this.room.state.players?.get(this.room.sessionId);
     const resources = { wood: me?.wood ?? 0, stone: me?.stone ?? 0, berries: me?.berries ?? 0 };
     this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, resources, inviteLink(this.room.roomId));
+    if (me) this.hud.setHealth(me.hp, me.maxHp);
     if (me) {
       const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment }));
       this.party.update(party, me.hasBase, me.snacks);
@@ -497,9 +545,9 @@ export class Game {
   }
 
   /** A short "+1 🪵" style text rising above a model. */
-  private floatText(model: THREE.Object3D, text: string) {
+  private floatText(model: THREE.Object3D, text: string, kind = "") {
     const div = document.createElement("div");
-    div.className = "float-text";
+    div.className = `float-text ${kind}`;
     div.textContent = text;
     const label = new CSS2DObject(div);
     label.position.y = 1.4;
@@ -515,6 +563,41 @@ export class Game {
     this.scene.remove(entity.model);
     entity.anim.dispose();
   }
+}
+
+/** A small health bar under a label, hidden while at full health. */
+function addHpBar(label: CSS2DObject): HTMLDivElement {
+  const bar = document.createElement("div");
+  bar.className = "hp-bar";
+  const fill = document.createElement("div");
+  bar.append(fill);
+  label.element.append(bar);
+  return fill;
+}
+
+function setHp(label: CSS2DObject, fill: HTMLDivElement, hp: number, maxHp: number) {
+  const ratio = maxHp > 0 ? Math.max(0, hp) / maxHp : 1;
+  fill.style.width = `${Math.round(ratio * 100)}%`;
+  fill.classList.toggle("low", ratio < 0.3);
+  label.element.classList.toggle("hurt", ratio < 1);
+}
+
+/** Briefly tints a model red when it takes damage. */
+function flashRed(model: THREE.Object3D) {
+  model.traverse((o) => {
+    const material = (o as THREE.Mesh).material;
+    if (!(material instanceof THREE.MeshStandardMaterial || material instanceof THREE.MeshLambertMaterial)) return;
+    material.userData.restEmissive ??= material.emissive.getHex();
+    material.emissive.setHex(0xff2200);
+  });
+  setTimeout(() => {
+    model.traverse((o) => {
+      const material = (o as THREE.Mesh).material;
+      if (material instanceof THREE.MeshStandardMaterial || material instanceof THREE.MeshLambertMaterial) {
+        material.emissive.setHex(material.userData.restEmissive ?? 0x000000);
+      }
+    });
+  }, 120);
 }
 
 /** Turns an entity to face a point (server pixels). */

@@ -16,6 +16,10 @@ import {
   defaultWorld,
   SNACK_XP,
   workerCap,
+  PLAYER_MAX_HP,
+  BERRY_HEAL,
+  WildPal,
+  type DamageMessage,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
 import { SqliteStore } from "../persistence/store.ts";
@@ -334,5 +338,120 @@ describe("offline production", () => {
     expect(player.stone).toBe(180); // 1 h at half speed, one stone per 10 s
     const notice = await client.waitForMessage(ServerMessage.Notice);
     expect(notice.text).toContain("đi vắng");
+  });
+});
+
+/** Puts a wild pal of the given species right next to a point. */
+function placeWild(room: GameRoom, speciesId: string, at: { x: number; y: number }, dx = 30): string {
+  const pal = new WildPal();
+  pal.speciesId = speciesId;
+  pal.level = 1;
+  pal.maxHp = getSpecies(speciesId).maxHp;
+  pal.hp = pal.maxHp;
+  pal.x = at.x + dx;
+  pal.y = at.y;
+  const id = `test-${speciesId}-${Math.random().toString(36).slice(2, 8)}`;
+  room.state.pals.set(id, pal);
+  (room as any).brains.set(id, { target: { x: pal.x, y: pal.y }, idleMs: 60_000 });
+  return id;
+}
+
+describe("combat", () => {
+  it("passive pals never fight back", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    placeWild(room, "leafkit", player);
+    const damage: DamageMessage[] = [];
+    client.onMessage(ServerMessage.Damage, (m: DamageMessage) => damage.push(m));
+    client.send(ClientMessage.Attack);
+    await ticks(room, 40);
+    expect(damage).toHaveLength(0);
+    expect(player.hp).toBe(PLAYER_MAX_HP);
+  });
+
+  it("defensive pals fight back against whoever hit them", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "emberpup", player);
+    client.send(ClientMessage.Attack);
+    const hit: DamageMessage = await client.waitForMessage(ServerMessage.Damage);
+    expect(hit).toMatchObject({ targetType: "player", targetId: client.sessionId, attackerId: id });
+    expect(player.hp).toBeLessThan(PLAYER_MAX_HP);
+    expect(room.state.pals.get(id)!.angry).toBe(true);
+  });
+
+  it("aggressive pals attack on sight", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    placeWild(room, "boulderhorn", player, 90);
+    const hit: DamageMessage = await client.waitForMessage(ServerMessage.Damage);
+    expect(hit.targetId).toBe(client.sessionId);
+  });
+
+  it("a knocked-out player wakes at the campfire with full health", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    player.x = 300;
+    player.y = 300;
+    player.hp = 1;
+    placeWild(room, "boulderhorn", player, 30);
+    await client.waitForMessage(ServerMessage.Fainted);
+    expect(player.hp).toBe(PLAYER_MAX_HP);
+    expect(distance(player, defaultWorld().layout.campfire)).toBeLessThan(200);
+  });
+
+  it("a knocked-out companion returns to the party and must rest", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    room.state.pals.clear();
+    const palId = player.activePalId;
+    const companion = room.state.companions.get(palId)!;
+    companion.hp = 1;
+    placeWild(room, "boulderhorn", companion, 25);
+    // Keep the player out of reach so the companion is the closest target.
+    player.x = companion.x - 200;
+    await client.waitForMessage(ServerMessage.Fainted);
+    expect(room.state.companions.has(palId)).toBe(false);
+    expect(player.activePalId).toBe("");
+    const notices: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
+    client.send(ClientMessage.Summon, { palId });
+    await ticks(room, 3);
+    expect(room.state.companions.has(palId)).toBe(false);
+    expect(notices.at(-1)).toContain("đang nghỉ");
+  });
+
+  it("eating a berry heals; health regenerates after a pause", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    player.hp = 50;
+    player.berries = 1;
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(0);
+    expect(player.hp).toBeGreaterThanOrEqual(50 + BERRY_HEAL);
+    const before = player.hp;
+    await ticks(room, 20);
+    expect(player.hp).toBeGreaterThan(before);
+  });
+});
+
+describe("day and night", () => {
+  it("syncs the time of day and spawns night pals at night", async () => {
+    const { room } = await setup();
+    expect(room.state.dayTime).toBeGreaterThan(0);
+    (room as any).dayTime = 0.8; // night
+    room.state.pals.clear();
+    await ticks(room, 30);
+    const night = [...room.state.pals.values()].filter((p) => getSpecies(p.speciesId).spawn.time === "night");
+    // Respawning is gradual; force a few spawns to sample the night pool.
+    for (let i = 0; i < 30; i++) (room as any).spawnPal();
+    const all = [...room.state.pals.values()].map((p) => p.speciesId);
+    expect(night.length + all.filter((id) => id === "mothlume").length).toBeGreaterThan(0);
+
+    // Dawn: night pals leave.
+    (room as any).dayTime = 0.999;
+    await ticks(room, 10);
+    expect([...room.state.pals.values()].some((p) => p.speciesId === "mothlume" && !p.angry)).toBe(false);
   });
 });

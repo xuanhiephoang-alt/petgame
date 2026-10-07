@@ -161,3 +161,13 @@ test("crafting at the camp: great ball, ball toggle and camp upgrade", async ({ 
   await expect.poll(async () => (await me()).baseLevel).toBe(2);
   await expect(page.locator(".label.base")).toContainText("Cấp 2");
 });
+
+test("HUD shows health, time of day and lets you eat berries", async ({ browser }) => {
+  const page = await join(browser, "Hungry");
+  await waitForWorld(page);
+  await expect(page.locator(".hud-hp-text")).toHaveText("100/100");
+  await expect(page.locator(".hud-time")).toHaveText(/Ngày|Hoàng hôn|Đêm|Bình minh/);
+  // Full health: eating is refused with a notice.
+  await page.locator(".eat-btn").click();
+  await expect(page.locator(".hud-toast")).toContainText(/quả mọng|Máu đang đầy/);
+});

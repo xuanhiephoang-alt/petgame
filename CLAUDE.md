@@ -26,7 +26,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - Schema dùng `schema()` + `t.*` (không decorator). Đổi schema là đổi giao thức, cần cập nhật client.
 - Import nội bộ có đuôi `.ts`. Không có bước compile; server chạy bằng `tsx`, client bằng Vite.
 - Lưu game: `packages/server/src/persistence/store.ts` (SQLite `node:sqlite`, file ở `PETGAME_DB`, mặc định `packages/server/data/`). Hồ sơ theo token ngẫu nhiên của thiết bị (`JoinOptions.token`), luôn qua `sanitizeProfile` khi đọc. Test dùng `PETGAME_DB=:memory:`.
-- Test hook phía server chỉ bật khi `PETGAME_DEBUG=1` (Playwright tự đặt). Không bao giờ bật trên server thật.
+- Test hook phía server (`debug:*`: spawnPal, give, setTime, teleport) chỉ bật khi `PETGAME_DEBUG=1` (Playwright tự đặt). Không bao giờ bật trên server thật.
 - Không dùng tên, hình hay thiết kế thú của Palworld, Pokémon hoặc game có bản quyền.
 - Trước khi commit: `npm run typecheck && npm test`; tính năng chạm tới mạng hoặc UI thì chạy thêm `npm run test:e2e`.
 - Mỗi tính năng làm trên nhánh riêng, merge qua PR.

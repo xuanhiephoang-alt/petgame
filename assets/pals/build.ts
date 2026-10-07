@@ -294,7 +294,87 @@ function voltmouse(root: THREE.Group) {
   leg(root, "leg_br", [lx, 0.14, -lz], 0.1, 0.04, yellow, cream);
 }
 
-const BUILDERS: Record<string, (root: THREE.Group) => void> = { leafkit, emberpup, bubbloon, pebblet, voltmouse };
+/** Ripplefin: plump river fish that waddles on stubby fin-feet; dorsal fin and fan tail. */
+function ripplefin(root: THREE.Group) {
+  const teal = "#26c6da", pale = "#e0f7fa", fin = "#00838f";
+  const body = group("body", root, [0, 0.42, 0]);
+  add(body, sphere(0.3), mat(teal), [0, 0, 0], [0.9, 0.85, 1.35]);
+  add(body, sphere(0.22), mat(pale), [0, -0.1, 0.08], [0.85, 0.6, 1.2]);
+  for (let i = 0; i < 3; i++) add(body, sphere(0.05, 8, 6), mat("#80deea"), [0.18, 0.08 - i * 0.07, -0.1 + i * 0.12]);
+  eyes(body, 0.06, 0.33, 0.13, 0.06);
+  add(body, sphere(0.045), mat("#006064"), [0, -0.07, 0.4], [1.4, 0.5, 0.5]);
+
+  const head = group("head", body, [0, 0.24, -0.02]);
+  add(head, cone(0.16, 0.34, 8), mat(fin, { flat: true }), [0, 0.1, 0], [0.25, 1, 1.4]);
+
+  for (const side of [-1, 1]) {
+    const f = group(side < 0 ? "fin_l" : "fin_r", body, [side * 0.27, -0.04, 0.05], [0, 0, side * 1.0]);
+    add(f, cone(0.1, 0.24, 6), mat(fin), [0, 0.11, 0], [1, 1, 0.3]);
+  }
+  const tail = group("tail", body, [0, 0.02, -0.38]);
+  for (const side of [-1, 1]) {
+    add(tail, cone(0.1, 0.28, 6), mat(fin), [side * 0.09, 0.03, -0.1], [1, 1, 0.3], [-1.3, 0, side * 0.55]);
+  }
+  leg(root, "leg_l", [-0.14, 0.18, 0.05], 0.06, 0.07, teal, fin);
+  leg(root, "leg_r", [0.14, 0.18, 0.05], 0.06, 0.07, teal, fin);
+}
+
+/** Mothlume: fluffy night moth with glowing wing spots and feathery antennae; it hovers. */
+function mothlume(root: THREE.Group) {
+  const fur = "#d1c4e9", deep = "#7e57c2", glow = "#b388ff";
+  const body = group("body", root, [0, 0.62, 0]);
+  add(body, sphere(0.22), mat(fur), [0, 0, 0], [1, 1.05, 1.1]);
+  add(body, sphere(0.2), mat("#ede7f6"), [0, 0.02, 0.12], [1.15, 0.8, 0.7]); // fluffy collar
+  add(body, sphere(0.14, 12, 8), mat(deep), [0, -0.22, -0.12], [0.9, 1.1, 1.3]); // abdomen
+  eyes(body, 0.05, 0.2, 0.09, 0.07);
+
+  const head = group("head", body, [0, 0.18, 0.05]);
+  for (const side of [-1, 1]) {
+    add(head, cyl(0.008, 0.012, 0.28, 4), mat(deep), [side * 0.07, 0.13, 0.02], [1, 1, 1], [0.3, 0, -side * 0.35]);
+    add(head, sphere(0.04, 8, 6), mat(glow, { emissive: "#7c4dff" }), [side * 0.12, 0.26, 0.06]);
+  }
+
+  // Wings flap via the fin_l / fin_r animation tracks.
+  for (const side of [-1, 1]) {
+    const wing = group(side < 0 ? "fin_l" : "fin_r", body, [side * 0.16, 0.06, -0.05], [0, 0, side * 0.35]);
+    add(wing, sphere(0.26, 12, 8), mat(fur), [side * 0.26, 0.08, 0], [1.2, 0.95, 0.12]);
+    add(wing, sphere(0.09, 8, 6), mat(glow, { emissive: "#7c4dff" }), [side * 0.32, 0.12, 0.03], [1, 1, 0.3]);
+    add(wing, sphere(0.16, 10, 6), mat(deep), [side * 0.2, -0.16, 0], [1, 0.8, 0.12]);
+  }
+}
+
+/** Boulderhorn: stocky stone rhino with a big horn, mossy back plates and heavy feet. */
+function boulderhorn(root: THREE.Group) {
+  const stone = "#8d8f94", dark = "#5f6368", moss = "#7cb342";
+  const body = group("body", root, [0, 0.55, 0]);
+  add(body, new THREE.DodecahedronGeometry(0.42, 1), mat(stone, { flat: true }), [0, 0, 0], [1.05, 0.85, 1.3]);
+  for (let i = 0; i < 4; i++) {
+    add(body, cone(0.1, 0.22, 5), mat(dark, { flat: true }), [0, 0.36, 0.2 - i * 0.18], [1, 1, 0.8], [-0.2, 0, 0]);
+  }
+  add(body, ico(0.16, 0), mat(moss, { flat: true }), [0.15, 0.3, -0.25], [1.4, 0.35, 1.2]);
+
+  const head = group("head", body, [0, 0.08, 0.5]);
+  add(head, new THREE.DodecahedronGeometry(0.26, 1), mat(stone, { flat: true }), [0, 0, 0], [1, 0.85, 1.1]);
+  add(head, cone(0.09, 0.32, 6), mat("#efebe9"), [0, 0.12, 0.25], [1, 1, 1], [1.0, 0, 0]);
+  add(head, cone(0.05, 0.15, 6), mat("#efebe9"), [0, 0.22, 0.12], [1, 1, 1], [0.7, 0, 0]);
+  eyes(head, 0.06, 0.2, 0.13, 0.05);
+  for (const side of [-1, 1]) {
+    const ear = group(side < 0 ? "ear_l" : "ear_r", head, [side * 0.2, 0.17, -0.05], [0, 0, -side * 0.6]);
+    add(ear, cone(0.07, 0.15, 4), mat(dark, { flat: true }), [0, 0.07, 0]);
+  }
+  const tail = group("tail", body, [0, 0.05, -0.55], [-0.6, 0, 0]);
+  add(tail, cyl(0.03, 0.05, 0.2, 5), mat(dark), [0, 0.1, 0]);
+
+  const lx = 0.24, lz = 0.3;
+  leg(root, "leg_fl", [-lx, 0.3, lz], 0.2, 0.1, stone, dark);
+  leg(root, "leg_fr", [lx, 0.3, lz], 0.2, 0.1, stone, dark);
+  leg(root, "leg_bl", [-lx, 0.3, -lz], 0.2, 0.1, stone, dark);
+  leg(root, "leg_br", [lx, 0.3, -lz], 0.2, 0.1, stone, dark);
+}
+
+const BUILDERS: Record<string, (root: THREE.Group) => void> = {
+  leafkit, emberpup, bubbloon, pebblet, voltmouse, ripplefin, mothlume, boulderhorn,
+};
 
 // ---------------------------------------------------------------------------
 // Animation

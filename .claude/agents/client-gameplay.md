@@ -20,6 +20,7 @@ Bạn là lập trình viên **client gameplay 3D** của PetGame (Three.js + Vi
 - `animated.ts`: `AnimatedModel` (loop/once/dispose) dùng chung cho thú và nhân vật, `addRimLight` (viền sáng).
 - `characters.ts`: 5 nhân vật KayKit có xương (chọn theo màu/slot người chơi), clone bằng `SkeletonUtils.clone`, clip trong `PlayerClip` (Idle_A, Running_A, Punch, Throw, Hit_A).
 - `models.ts`: model người chơi và model thú tạm (dự phòng) dựng từ khối cơ bản. Quy ước model: `THREE.Group`, gốc ở chân, mặt hướng +Z.
+- Ngày đêm: client ngoại suy `state.dayTime` theo `DAY_LENGTH_MS`; `world.update(..., dayTime)` đổi màu trời, sương, nắng/trăng, đom đóm, lửa trại; đèn lồng theo người chơi ban đêm. Hồ (`buildLake`) và nền đất theo vùng (`biomeAt`).
 - `world.ts` vẽ bố cục từ `defaultWorld().layout` (shared), không tự rải. Tán cây giữa camera và người chơi bị khoét bằng dither trong shader (`decorateMaterial`).
 - `world.ts`: mặt đất tô màu bằng noise (lối mòn, mảng đất), cây/bụi/đá/cỏ KayKit rải bằng `InstancedMesh` theo cụm (seed cố định), gió lay cỏ (shader), hoa, lửa trại, đốm sáng bay. Cây cỏ chưa có va chạm.
 - `effects.ts`: hiệu ứng ngắn (vòng đánh, bóng bay).

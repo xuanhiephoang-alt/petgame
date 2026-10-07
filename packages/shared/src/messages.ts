@@ -13,6 +13,8 @@ export const ClientMessage = {
   Craft: "craft",
   /** Feed a snack to one of the player's pals. */
   Feed: "feed",
+  /** Eat one berry to heal. */
+  Eat: "eat",
 } as const;
 
 export interface InputMessage {
@@ -55,7 +57,25 @@ export const ServerMessage = {
   Produced: "produced",
   /** Short text for one player (e.g. why an action was refused). */
   Notice: "notice",
+  /** A wild pal hurt a player or a companion. */
+  Damage: "damage",
+  /** A player or companion was knocked out. */
+  Fainted: "fainted",
 } as const;
+
+export interface DamageMessage {
+  targetType: "player" | "companion";
+  /** Session id (player) or OwnedPal id (companion). */
+  targetId: string;
+  /** Wild pal that attacked. */
+  attackerId: string;
+  amount: number;
+}
+
+export interface FaintedMessage {
+  targetType: "player" | "companion";
+  targetId: string;
+}
 
 export interface LevelUpMessage {
   playerId: string;

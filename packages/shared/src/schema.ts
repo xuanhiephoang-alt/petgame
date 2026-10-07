@@ -24,6 +24,8 @@ export const Player = schema(
     x: t.number(),
     y: t.number(),
     color: t.number(),
+    hp: t.number(),
+    maxHp: t.number(),
     pals: t.array(OwnedPal),
     /** Id of the OwnedPal currently following the player ("" = none). */
     activePalId: t.string(),
@@ -49,6 +51,8 @@ export const WildPal = schema(
     hp: t.number(),
     maxHp: t.number(),
     level: t.number(),
+    /** True while it is chasing someone (fighting back or hunting). */
+    angry: t.boolean(),
   },
   "WildPal",
 );
@@ -64,6 +68,8 @@ export const Companion = schema(
     level: t.number(),
     /** "follow" or "work". */
     mode: t.string(),
+    hp: t.number(),
+    maxHp: t.number(),
   },
   "Companion",
 );
@@ -74,6 +80,8 @@ export const GameState = schema(
     players: t.map(Player),
     pals: t.map(WildPal),
     companions: t.map(Companion),
+    /** Time of day in [0, 1): see daycycle.ts. */
+    dayTime: t.number(),
   },
   "GameState",
 );

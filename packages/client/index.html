@@ -22,8 +22,21 @@
       .hp-bar { width: 36px; height: 5px; background: rgba(0,0,0,0.6); border-radius: 3px; overflow: hidden; display: none; }
       .label.hurt .hp-bar { display: block; }
       .hp-bar div { height: 100%; background: #66bb6a; transition: width 0.15s; }
+      .hp-bar div.low { background: #ef5350; }
+      .label.pal.angry span { opacity: 1; color: #ff8a80; }
+      .label.pal.angry span::before { content: "❗"; }
+      .float-text.damage { color: #ff5252; font-size: 17px; }
       .hud { position: absolute; inset: 0; pointer-events: none; color: #fff; z-index: 2; }
-      .hud-status { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
+      .hud-health { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
+        display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.45); padding: 5px 10px; border-radius: 10px;
+        font-size: 14px; font-weight: 600; pointer-events: auto; }
+      .hud-hp { width: 120px; height: 10px; background: rgba(255,255,255,0.25); border-radius: 5px; overflow: hidden; }
+      .hud-hp div { height: 100%; background: #ef5350; transition: width 0.2s; }
+      .hud-hp div.low { background: #ff1744; animation: pulse 0.8s infinite alternate; }
+      @keyframes pulse { from { opacity: 1; } to { opacity: 0.5; } }
+      .hud-time { margin-right: 4px; }
+      .eat-btn { border: none; border-radius: 8px; padding: 4px 8px; font-weight: 600; background: #7e57c2; color: #fff; cursor: pointer; min-height: 30px; }
+      .hud-status { position: absolute; top: max(52px, calc(env(safe-area-inset-top) + 40px)); left: max(12px, env(safe-area-inset-left));
         background: rgba(0,0,0,0.45); padding: 6px 10px; border-radius: 8px; font-size: 14px; line-height: 1.5;
         pointer-events: auto; max-width: calc(100vw - 24px); overflow-wrap: anywhere; }
       .hud-status a { color: #b3e5fc; }
