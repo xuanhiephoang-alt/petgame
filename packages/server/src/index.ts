@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -28,4 +29,13 @@ const server = defineServer({
 
 await server.listen(port);
 console.log(`PetGame server listening on port ${port}`);
-if (existsSync(clientDist)) console.log(`Serving web client from ${clientDist}`);
+if (existsSync(clientDist)) {
+  console.log(`Serving web client from ${clientDist}`);
+  // Addresses other devices on the same Wi-Fi (e.g. an iPhone) can open.
+  const lan = Object.values(networkInterfaces())
+    .flat()
+    .filter((a) => a && a.family === "IPv4" && !a.internal)
+    .map((a) => `http://${a!.address}:${port}`);
+  console.log(`\nMở game trên máy này:   http://localhost:${port}`);
+  for (const url of lan) console.log(`Mở trên điện thoại:     ${url}  (cùng mạng Wi-Fi)`);
+}

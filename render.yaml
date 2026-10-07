@@ -1,0 +1,13 @@
+# Render Blueprint: deploy PetGame from the dashboard (New > Blueprint) with no CLI.
+# The free plan sleeps after ~15 minutes idle and its disk is not persistent,
+# so saved pals reset when it restarts. A paid plan with a disk keeps them.
+services:
+  - type: web
+    name: petgame
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production

@@ -39,11 +39,21 @@ function deviceToken(): string | undefined {
   try {
     let token = localStorage.getItem("petgame:token");
     if (!token) {
-      token = crypto.randomUUID();
+      token = randomToken();
       localStorage.setItem("petgame:token", token);
     }
     return token;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * crypto.randomUUID only exists on https/localhost pages; iPhone Safari on a
+ * LAN address (http://192.168.x.x) lacks it, but getRandomValues works anywhere.
+ */
+function randomToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
