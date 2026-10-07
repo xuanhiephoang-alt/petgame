@@ -17,7 +17,8 @@
     "attack": 4,
     "spawn": {
       "biomes": [
-        "meadow"
+        "meadow",
+        "island"
       ],
       "time": "any"
     }
@@ -39,7 +40,8 @@
     "attack": 7,
     "spawn": {
       "biomes": [
-        "meadow"
+        "meadow",
+        "volcano"
       ],
       "time": "any"
     }
@@ -62,7 +64,8 @@
     "spawn": {
       "biomes": [
         "meadow",
-        "lake"
+        "lake",
+        "swamp"
       ],
       "time": "any"
     }
@@ -85,8 +88,9 @@
     "spawn": {
       "biomes": [
         "meadow",
-        "rocky",
-        "snow"
+        "volcano",
+        "snow",
+        "desert"
       ],
       "time": "any"
     }
@@ -108,7 +112,9 @@
     "attack": 5,
     "spawn": {
       "biomes": [
-        "meadow"
+        "meadow",
+        "swamp",
+        "island"
       ],
       "time": "any"
     }
@@ -130,7 +136,9 @@
     "attack": 6,
     "spawn": {
       "biomes": [
-        "lake"
+        "lake",
+        "swamp",
+        "island"
       ],
       "time": "any"
     }
@@ -154,8 +162,9 @@
       "biomes": [
         "meadow",
         "lake",
-        "rocky",
-        "snow"
+        "volcano",
+        "snow",
+        "swamp"
       ],
       "time": "night"
     }
@@ -177,7 +186,7 @@
     "attack": 10,
     "spawn": {
       "biomes": [
-        "rocky"
+        "volcano"
       ],
       "time": "any"
     }
@@ -201,6 +210,99 @@
     "spawn": {
       "biomes": [
         "snow"
+      ],
+      "time": "any"
+    }
+  },
+  {
+    "id": "cactoad",
+    "name": "Cactoad",
+    "element": "grass",
+    "maxHp": 60,
+    "speed": 45,
+    "catchRate": 0.4,
+    "color": "#8bc34a",
+    "size": 16,
+    "spawnWeight": 4,
+    "workSkills": [
+      "planting",
+      "gathering"
+    ],
+    "temperament": "defensive",
+    "attack": 8,
+    "spawn": {
+      "biomes": [
+        "desert"
+      ],
+      "time": "any"
+    }
+  },
+  {
+    "id": "scorchtail",
+    "name": "Scorchtail",
+    "element": "fire",
+    "maxHp": 55,
+    "speed": 85,
+    "catchRate": 0.35,
+    "color": "#ff8f00",
+    "size": 15,
+    "spawnWeight": 3,
+    "workSkills": [
+      "kindling",
+      "mining"
+    ],
+    "temperament": "aggressive",
+    "attack": 9,
+    "spawn": {
+      "biomes": [
+        "desert",
+        "volcano"
+      ],
+      "time": "any"
+    }
+  },
+  {
+    "id": "bogbloom",
+    "name": "Bogbloom",
+    "element": "grass",
+    "maxHp": 50,
+    "speed": 40,
+    "catchRate": 0.5,
+    "color": "#6d8f3a",
+    "size": 15,
+    "spawnWeight": 4,
+    "workSkills": [
+      "planting",
+      "watering"
+    ],
+    "temperament": "passive",
+    "attack": 5,
+    "spawn": {
+      "biomes": [
+        "swamp"
+      ],
+      "time": "any"
+    }
+  },
+  {
+    "id": "coralcrab",
+    "name": "Coralcrab",
+    "element": "water",
+    "maxHp": 75,
+    "speed": 55,
+    "catchRate": 0.3,
+    "color": "#ff7a7a",
+    "size": 16,
+    "spawnWeight": 4,
+    "workSkills": [
+      "mining",
+      "watering"
+    ],
+    "temperament": "defensive",
+    "attack": 10,
+    "spawn": {
+      "biomes": [
+        "island"
       ],
       "time": "any"
     }

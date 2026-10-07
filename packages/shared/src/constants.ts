@@ -9,8 +9,8 @@ export const TICK_MS = 1000 / TICK_RATE;
 export const PIXELS_PER_UNIT = 32;
 
 /** World size in pixels. */
-export const WORLD_WIDTH = 3200;
-export const WORLD_HEIGHT = 2400;
+export const WORLD_WIDTH = 6400;
+export const WORLD_HEIGHT = 4800;
 
 /** Pixels per second. */
 export const PLAYER_SPEED = 160;
@@ -24,7 +24,7 @@ export const THROW_RANGE = 180;
 export const THROW_COOLDOWN_MS = 800;
 
 /** How many wild pals the server tries to keep alive at once. */
-export const WILD_PAL_TARGET = 36;
+export const WILD_PAL_TARGET = 80;
 export const PAL_RESPAWN_MS = 5000;
 
 /** Player colors, indexed by join order. */

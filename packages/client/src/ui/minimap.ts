@@ -1,4 +1,4 @@
-import { WORLD_HEIGHT, WORLD_WIDTH, biomeAt, defaultWorld, type Vec2 } from "@petgame/shared";
+import { REGION_INFO, WORLD_HEIGHT, WORLD_WIDTH, defaultWorld, terrainAt, type Region, type TerrainKind, type Vec2 } from "@petgame/shared";
 
 export interface MinimapMarkers {
   me?: Vec2 & { heading: number };
@@ -9,8 +9,10 @@ export interface MinimapMarkers {
 }
 
 /** Background pixels per world pixel; the map is redrawn on top of a prerendered image. */
-const SCALE = 1 / 10;
-const BIOME_COLORS = { meadow: "#5d9b3e", lake: "#3a9fc9", rocky: "#8f877a", snow: "#e8f1f8" } as const;
+const SCALE = 1 / 20;
+const TERRAIN_COLORS: Record<TerrainKind, string> = {
+  sea: "#2b7fb3", meadow: "#5d9b3e", snow: "#e8f1f8", desert: "#e2c27f", swamp: "#4f6232", volcano: "#4a3f3a", island: "#7bbf4e",
+};
 
 /**
  * Corner map of the whole world: biomes and trees prerendered once, players,
@@ -49,7 +51,22 @@ export class Minimap {
     const c = this.ctx;
     c.drawImage(this.background, 0, 0);
     const big = this.element.classList.contains("big");
-    const r = big ? 3 : 4.5; // markers stay readable when the map is small
+    const r = big ? 2.5 : 4; // markers stay readable when the map is small
+    if (big) {
+      // Region names on the enlarged map.
+      c.font = "bold 11px system-ui";
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      const { regions } = defaultWorld().layout;
+      for (const [region, at] of Object.entries(regions) as [Region, Vec2][]) {
+        if (region === "meadow") continue;
+        const info = REGION_INFO[region];
+        c.fillStyle = "rgba(0,0,0,0.55)";
+        c.fillText(`${info.icon} ${info.name}`, at.x * SCALE + 1, at.y * SCALE + 15);
+        c.fillStyle = "#fff";
+        c.fillText(`${info.icon} ${info.name}`, at.x * SCALE, at.y * SCALE + 14);
+      }
+    }
     for (const chest of markers.chests) {
       c.fillStyle = "#ffca28";
       c.strokeStyle = "#5d4037";
@@ -109,21 +126,30 @@ function prerender(): HTMLCanvasElement {
   const h = (canvas.height = WORLD_HEIGHT * SCALE);
   const c = canvas.getContext("2d")!;
   const { layout } = defaultWorld();
-  for (let y = 0; y < h; y += 2) {
-    for (let x = 0; x < w; x += 2) {
-      const px = (x + 1) / SCALE, py = (y + 1) / SCALE;
-      const inWater = layout.lake.some((l) => Math.hypot(px - l.x, py - l.y) < l.r);
-      c.fillStyle = inWater ? "#2f86b3" : BIOME_COLORS[biomeAt(layout, px, py)];
-      c.fillRect(x, y, 2, 2);
+  const image = c.createImageData(w, h);
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const palette = Object.fromEntries(Object.entries(TERRAIN_COLORS).map(([k, v]) => [k, rgb(v)])) as Record<TerrainKind, number[]>;
+  const water = rgb("#2f86b3");
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const px = (x + 0.5) / SCALE, py = (y + 0.5) / SCALE;
+      const kind = terrainAt(layout.terrain, px, py);
+      const color = kind !== "sea" && layout.lake.some((l) => Math.hypot(px - l.x, py - l.y) < l.r) ? water : palette[kind];
+      image.data.set([color[0], color[1], color[2], 255], (y * w + x) * 4);
     }
   }
+  c.putImageData(image, 0, 0);
   for (const p of layout.props) {
     if (p.kind !== "tree" && p.kind !== "rock") continue;
     if (p.x < 0 || p.y < 0 || p.x > WORLD_WIDTH || p.y > WORLD_HEIGHT) continue;
-    c.fillStyle = p.kind === "tree" ? "rgba(30,70,30,0.55)" : "rgba(70,70,70,0.5)";
-    c.fillRect(p.x * SCALE - 1.5, p.y * SCALE - 1.5, 3, 3);
+    c.fillStyle = p.kind === "tree" ? "rgba(30,70,30,0.5)" : "rgba(70,70,70,0.45)";
+    c.fillRect(p.x * SCALE - 1, p.y * SCALE - 1, 2, 2);
   }
-  // The shared campfire at the spawn.
+  // The volcano and the shared campfire at the spawn.
+  c.fillStyle = "#ff5a1a";
+  c.beginPath();
+  c.arc(layout.volcano.x * SCALE, layout.volcano.y * SCALE, 4, 0, Math.PI * 2);
+  c.fill();
   c.fillStyle = "#ff7043";
   c.beginPath();
   c.arc(layout.campfire.x * SCALE, layout.campfire.y * SCALE, 4, 0, Math.PI * 2);

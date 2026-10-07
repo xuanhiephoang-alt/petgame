@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { Room, type Client } from "colyseus";
 import {
+  CLIMATE_TICK_MS,
+  FRUIT_REGROW_MS,
+  Fruit,
+  GEAR,
+  HARVEST_RANGE,
+  REGION_INFO,
+  climateHazard,
+  isSea,
+  protectedFrom,
+  type Hazard,
+  type HarvestedMessage,
   CHEST_OPEN_RADIUS,
   CHEST_RESPAWN_MS,
   Chest,
@@ -181,12 +192,17 @@ export class GameRoom extends Room<{ state: GameState }> {
   private wasNight = false;
   /** Trees, rocks and the campfire; shared with the client for prediction. */
   private obstacles = defaultWorld().grid;
+  private terrain = defaultWorld().layout.terrain;
+  private climateTimer = 0;
+  /** Session id -> the climate hazard the player was last warned about. */
+  private hazardWarned = new Map<string, Hazard | "">();
 
   onCreate() {
     this.state.dayTime = DAY_START;
     for (let i = 0; i < WILD_PAL_TARGET; i++) this.spawnPal();
     this.spawnBoss();
     defaultWorld().layout.chests.forEach((_, i) => this.placeChest(`chest${i}`));
+    defaultWorld().layout.fruits.forEach((_, i) => this.growFruit(`fruit${i}`));
 
     this.onMessage(ClientMessage.Input, (client, message: InputMessage) => {
       const control = this.controls.get(client.sessionId);
@@ -239,6 +255,10 @@ export class GameRoom extends Room<{ state: GameState }> {
         if (!player || typeof message?.index !== "number") return;
         player.questIndex = Math.max(0, Math.min(QUESTS.length, Math.floor(message.index)));
         player.questProgress = 0;
+      });
+      this.onMessage("debug:gear", (client) => {
+        const player = this.state.players.get(client.sessionId);
+        if (player) for (const g of GEAR) player[g] = 1;
       });
       this.onMessage("debug:give", (client) => {
         const player = this.state.players.get(client.sessionId);
@@ -325,7 +345,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.players.forEach((player, sessionId) => {
       const control = this.controls.get(sessionId);
       if (!control || (control.input.x === 0 && control.input.y === 0)) return;
-      const next = stepPlayer(player, control.input, dtMs, this.obstacles);
+      const next = stepPlayer(player, control.input, dtMs, this.obstacles, { terrain: this.terrain, canSail: player.raft > 0 });
       player.x = next.x;
       player.y = next.y;
     });
@@ -343,8 +363,11 @@ export class GameRoom extends Room<{ state: GameState }> {
         const radius = pal.boss ? BOSS.radius : species.size;
         const reach = pal.boss ? BOSS.radius + 24 : undefined;
         const step = stepChase(pos, target.pos, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, radius, this.obstacles, reach);
-        pal.x = step.pos.x;
-        pal.y = step.pos.y;
+        // Wild pals cannot swim: they stop at the shore.
+        if (!isSea(this.terrain, step.pos.x, step.pos.y)) {
+          pal.x = step.pos.x;
+          pal.y = step.pos.y;
+        }
         pal.angry = true;
         if (pal.boss && now - this.bossLastStompAt >= BOSS.stompCooldownMs && distance(pal, target.pos) <= BOSS.stompRadius) {
           this.bossLastStompAt = now;
@@ -357,12 +380,19 @@ export class GameRoom extends Room<{ state: GameState }> {
       }
       pal.angry = false;
       stepWander(pos, brain, species.speed, dtMs, Math.random, { grid: this.obstacles, radius: species.size });
+      if (isSea(this.terrain, pos.x, pos.y)) {
+        // Turn back at the water's edge and wander somewhere else.
+        brain.target = { x: pal.x + (pal.x - pos.x) * 40, y: pal.y + (pal.y - pos.y) * 40 };
+        brain.idleMs = 500;
+        return;
+      }
       pal.x = pos.x;
       pal.y = pos.y;
     });
 
     this.tickCompanions(dtMs);
     this.tickExploration();
+    this.tickClimate(dtMs);
     this.tickRegen(dtMs, now);
     this.tickDay(dtMs);
 
@@ -464,7 +494,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     control.lastAttackAt = now;
 
     const target = this.nearestPal(player, ATTACK_RANGE);
-    if (!target) return;
+    if (!target) return this.harvest(client.sessionId);
     const [palId, pal] = target;
     control.targetPalId = palId;
     control.aggroUntil = now + COMPANION_AGGRO_MS;
@@ -583,6 +613,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const { campfire } = defaultWorld().layout;
     if (distance(spot, campfire) < BASE_MIN_CAMPFIRE_DISTANCE) return this.notify(client, "Quá gần lửa trại chung");
     if (this.obstacles.blocked(spot, BASE_CLEARANCE)) return this.notify(client, "Chỗ này vướng cây hoặc đá");
+    if (isSea(this.terrain, spot.x, spot.y)) return this.notify(client, "Không dựng trại trên biển được");
     let tooClose = false;
     this.state.players.forEach((other, id) => {
       if (id !== client.sessionId && other.hasBase && distance(spot, { x: other.baseX, y: other.baseY }) < BASE_SPACING) tooClose = true;
@@ -603,7 +634,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player || !recipe) return;
     const resources = { wood: player.wood, stone: player.stone, berries: player.berries };
     const nearBase = player.hasBase && distance(player, { x: player.baseX, y: player.baseY }) <= CRAFT_RANGE;
-    const blocker = craftBlocker(recipe, { resources, hasBase: player.hasBase, baseLevel: player.baseLevel, nearBase });
+    const items = Object.fromEntries(ITEMS.map((item) => [item, player[item]]));
+    const blocker = craftBlocker(recipe, { resources, hasBase: player.hasBase, baseLevel: player.baseLevel, nearBase, items });
     if (blocker) return this.notify(client, blocker);
     for (const r of RESOURCES) player[r] -= recipe.cost[r] ?? 0;
     if ("baseLevel" in recipe.output) {
@@ -612,8 +644,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     } else {
       player[recipe.output.item] += recipe.output.amount;
       this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`);
-      if (recipe.output.item === "greatBalls") this.questEvent(client.sessionId, "craftGreatBall");
     }
+    this.questEvent(client.sessionId, "craft", 1, recipe.id);
     this.scheduleSave(client.sessionId);
   }
 
@@ -707,18 +739,17 @@ export class GameRoom extends Room<{ state: GameState }> {
     for (const t of hits) this.damage(t, BOSS.stompDamage, bossId);
   }
 
-  /** The giant Boulderhorn appears in the middle of the rocky hills. */
+  /** The giant Boulderhorn appears at the foot of the volcano. */
   private spawnBoss() {
     if (this.bossId && this.state.pals.has(this.bossId)) return;
-    const { rocky } = defaultWorld().layout;
     const species = getSpecies(BOSS.speciesId);
-    // Somewhere open in the heart of the hills (the center may hold a boulder).
-    let pos: Vec2 = { x: rocky.x, y: rocky.y };
-    for (let i = 0; i < 200 && this.obstacles.blocked(pos, BOSS.radius); i++) {
-      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * rocky.r * 0.75;
-      pos = { x: rocky.x + Math.cos(a) * r, y: rocky.y + Math.sin(a) * r };
+    // On open ground at the foot of the volcano.
+    const { volcano } = defaultWorld().layout;
+    let pos: Vec2 = { x: volcano.x, y: volcano.y + volcano.r + 4 * 32 };
+    for (let i = 0; i < 300 && (this.obstacles.blocked(pos, BOSS.radius) || isSea(this.terrain, pos.x, pos.y)); i++) {
+      const a = Math.random() * Math.PI * 2, r = volcano.r + (3 + Math.random() * 10) * 32;
+      pos = { x: volcano.x + Math.cos(a) * r, y: volcano.y + Math.sin(a) * r };
     }
-    if (this.obstacles.blocked(pos, BOSS.radius)) pos = randomPoint(Math.random, this.obstacles, BOSS.radius);
     const id = this.spawnPal(pos, species);
     const boss = this.state.pals.get(id)!;
     boss.boss = true;
@@ -913,8 +944,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.chests.forEach((chest, chestId) => {
         if (distance(player, chest) <= CHEST_OPEN_RADIUS) this.openChest(sessionId, chestId, chest);
       });
-      if (QUESTS[player.questIndex]?.event === "visitSnow" && biomeAt(defaultWorld().layout, player.x, player.y) === "snow") {
-        this.questEvent(sessionId, "visitSnow");
+      if (QUESTS[player.questIndex]?.event === "visit") {
+        this.questEvent(sessionId, "visit", 1, biomeAt(defaultWorld().layout, player.x, player.y));
       }
     });
   }
@@ -935,10 +966,10 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   /** Moves the player's current quest forward; finished quests pay out and the next one begins. */
-  private questEvent(sessionId: string, event: QuestEvent, amount = 1) {
+  private questEvent(sessionId: string, event: QuestEvent, amount = 1, subject?: string) {
     const player = this.state.players.get(sessionId);
     if (!player) return;
-    const { state, completed } = advanceQuest({ index: player.questIndex, progress: player.questProgress }, event, amount);
+    const { state, completed } = advanceQuest({ index: player.questIndex, progress: player.questProgress }, event, amount, subject);
     if (state.index === player.questIndex && state.progress === player.questProgress) return;
     player.questIndex = state.index;
     player.questProgress = state.progress;
@@ -959,10 +990,73 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player || !quest) return;
     if (quest.event === "camp" && player.hasBase) this.questEvent(sessionId, "camp");
     else if (quest.event === "work" && player.pals.some((p) => p.assignment === "work")) this.questEvent(sessionId, "work");
-    else if (quest.event === "palLevel") {
+    else if (quest.event === "craft" && quest.subject) {
+      const output = getRecipe(quest.subject)?.output;
+      if (output && "item" in output && GEAR.includes(output.item) && player[output.item] > 0) this.questEvent(sessionId, "craft", 1, quest.subject);
+    } else if (quest.event === "palLevel") {
       const best = player.pals.reduce((m, p) => Math.max(m, p.level), 0);
       if (best > 0) this.questEvent(sessionId, "palLevel", best);
     }
+  }
+
+  private growFruit(id: string) {
+    const spot = defaultWorld().layout.fruits[Number(id.slice("fruit".length))];
+    if (!spot || this.state.fruits.has(id)) return;
+    const fruit = new Fruit();
+    fruit.x = spot.x;
+    fruit.y = spot.y;
+    this.state.fruits.set(id, fruit);
+  }
+
+  /** Attacking next to a ripe fruit bush picks its berries. */
+  private harvest(sessionId: string) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    let best: string | undefined;
+    let bestDist = HARVEST_RANGE;
+    this.state.fruits.forEach((fruit, id) => {
+      const d = distance(player, fruit);
+      if (d <= bestDist) {
+        bestDist = d;
+        best = id;
+      }
+    });
+    if (!best) return;
+    const amount = 2 + Math.floor(Math.random() * 3);
+    player.berries += amount;
+    this.state.fruits.delete(best);
+    this.clock.setTimeout(() => this.growFruit(best!), FRUIT_REGROW_MS);
+    const message: HarvestedMessage = { fruitId: best, playerId: sessionId, amount };
+    this.broadcast(ServerMessage.Harvested, message);
+    this.questEvent(sessionId, "harvest");
+    this.scheduleSave(sessionId);
+  }
+
+  /** Cold and heat hurt players who are not protected (see shared climate.ts). */
+  private tickClimate(dtMs: number) {
+    this.climateTimer += dtMs;
+    if (this.climateTimer < CLIMATE_TICK_MS) return;
+    this.climateTimer = 0;
+    const night = isNight(this.dayTime);
+    this.state.players.forEach((player, sessionId) => {
+      const biome = biomeAt(defaultWorld().layout, player.x, player.y);
+      const climate = climateHazard(biome, night);
+      const follower = player.activePalId ? this.state.companions.get(player.activePalId) : undefined;
+      const element = follower ? getSpecies(follower.speciesId).element : undefined;
+      const hurt = climate && !protectedFrom(climate.hazard, player, element) ? climate.hazard : "";
+      if (hurt !== (this.hazardWarned.get(sessionId) ?? "")) {
+        this.hazardWarned.set(sessionId, hurt);
+        const client = this.clients.find((c) => c.sessionId === sessionId);
+        if (client && hurt === "cold") this.notify(client, `${REGION_INFO[biome].name}: lạnh quá! 🥶 Cần 🧥 Áo ấm hoặc thú hệ lửa đi theo`);
+        if (client && hurt === "heat") this.notify(client, `${REGION_INFO[biome].name}: nóng quá! 🥵 Cần 👒 Nón lá hoặc thú hệ nước đi theo`);
+      }
+      if (!climate || !hurt) return;
+      player.hp = Math.max(0, player.hp - climate.damage);
+      this.lastDamagedAt.set(`p:${sessionId}`, this.clock.currentTime);
+      const message: DamageMessage = { targetType: "player", targetId: sessionId, attackerId: "", amount: climate.damage, cause: climate.hazard };
+      this.broadcast(ServerMessage.Damage, message);
+      if (player.hp <= 0) this.faintPlayer(sessionId);
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1055,7 +1149,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       base: player.hasBase ? { x: player.baseX, y: player.baseY } : null,
       baseLevel: player.baseLevel || 1,
       resources: { wood: player.wood, stone: player.stone, berries: player.berries },
-      items: { greatBalls: player.greatBalls, snacks: player.snacks },
+      items: Object.fromEntries(ITEMS.map((item) => [item, player[item]])) as Profile["items"],
       quest: { index: player.questIndex, progress: player.questProgress },
       savedAt: Date.now(),
     };
@@ -1082,7 +1176,8 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private spawnPal(at?: Vec2, forced?: PalSpecies): string {
     // Pick the place first, then a species that lives there at this hour.
-    const pos = at ?? randomPoint(Math.random, this.obstacles, 20);
+    let pos = at ?? randomPoint(Math.random, this.obstacles, 20);
+    for (let i = 0; !at && i < 100 && isSea(this.terrain, pos.x, pos.y); i++) pos = randomPoint(Math.random, this.obstacles, 20);
     const biome = biomeAt(defaultWorld().layout, pos.x, pos.y);
     const species =
       forced ?? pickSpecies(Math.random(), { biome, night: isNight(this.dayTime) }) ?? pickSpecies(Math.random())!;

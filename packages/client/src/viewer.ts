@@ -79,6 +79,11 @@ function resize() {
   renderer.setSize(innerWidth, innerHeight);
   labels.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
+  // Back off far enough to fit the whole row of species.
+  const halfWidth = (PAL_SPECIES.length * 1.25) / 2 + 0.5;
+  const fit = halfWidth / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / camera.aspect;
+  camera.position.set(0, 2.2 * Math.max(1, fit / 5.2), Math.max(5.2, fit));
+  camera.lookAt(0, 0.45, 0);
   camera.updateProjectionMatrix();
 }
 addEventListener("resize", resize);

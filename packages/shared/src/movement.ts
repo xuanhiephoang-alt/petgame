@@ -1,5 +1,9 @@
 import { PLAYER_RADIUS, PLAYER_SPEED, WORLD_HEIGHT, WORLD_WIDTH } from "./constants.ts";
 import type { CollisionGrid } from "./collision.ts";
+import { isSea, type Terrain } from "./terrain.ts";
+
+/** Speed on a raft compared to walking. */
+export const SAIL_SPEED_FACTOR = 0.9;
 
 export interface Vec2 {
   x: number;
@@ -19,12 +23,29 @@ export function normalizeInput(input: Vec2): Vec2 {
  * Moves a player by one step, sliding around obstacles. Shared by the server
  * (authoritative) and the client (prediction) so both compute identical positions.
  */
-export function stepPlayer(pos: Vec2, input: Vec2, dtMs: number, obstacles?: CollisionGrid): Vec2 {
+export function stepPlayer(
+  pos: Vec2,
+  input: Vec2,
+  dtMs: number,
+  obstacles?: CollisionGrid,
+  sea?: { terrain: Terrain; canSail: boolean },
+): Vec2 {
   const dir = normalizeInput(input);
-  const dist = (PLAYER_SPEED * dtMs) / 1000;
-  let next = clampToWorld({ x: pos.x + dir.x * dist, y: pos.y + dir.y * dist });
-  if (obstacles) next = clampToWorld(obstacles.resolve(next, PLAYER_RADIUS));
-  return next;
+  const sailing = !!sea && isSea(sea.terrain, pos.x, pos.y);
+  const dist = ((sailing ? PLAYER_SPEED * SAIL_SPEED_FACTOR : PLAYER_SPEED) * dtMs) / 1000;
+  const move = (dx: number, dy: number) => {
+    const next = clampToWorld({ x: pos.x + dx, y: pos.y + dy });
+    return obstacles ? clampToWorld(obstacles.resolve(next, PLAYER_RADIUS)) : next;
+  };
+  const next = move(dir.x * dist, dir.y * dist);
+  if (!sea || sea.canSail || !isSea(sea.terrain, next.x, next.y)) return next;
+  // Without a raft the shore stops you: slide along it on one axis if possible.
+  for (const [dx, dy] of [[dir.x * dist, 0], [0, dir.y * dist]]) {
+    if (dx === 0 && dy === 0) continue;
+    const slide = move(dx, dy);
+    if (!isSea(sea.terrain, slide.x, slide.y)) return slide;
+  }
+  return { x: pos.x, y: pos.y };
 }
 
 function clampToWorld(p: Vec2): Vec2 {

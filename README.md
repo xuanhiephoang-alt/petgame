@@ -4,9 +4,10 @@ Game 3D bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống, ch
 
 ## Có gì trong game
 
-- Bản đồ 100×75 m: đồng cỏ, hai hồ, núi đá có trùm **Vua Đá Boulderhorn**, vùng tuyết có tuyết rơi. Bản đồ thu nhỏ ở góc phải (phím N để phóng to).
-- 9 loài thú theo vùng và giờ (ngày/đêm), càng xa càng mạnh; bắt, nuôi lên cấp, cho đi theo đánh cùng hoặc làm việc ở trại.
-- 18 rương báu rải khắp nơi, chuỗi nhiệm vụ hướng dẫn người mới, chế tạo, nâng cấp trại, lưu game tự động.
+- Lục địa 200×150 m giữa biển, chia 5 vùng khí hậu: 🌳 đồng cỏ ở giữa (cây, hồ, bụi quả), ❄️ núi tuyết phía bắc (lạnh), 🏜️ sa mạc phía nam (nóng), 🌧️ đầm lầy phía tây (mưa), 🌋 núi lửa phía đông (trùm **Vua Đá Boulderhorn**). Bốn góc biển có 🏝️ đảo hoang, phải đóng 🛶 bè mới ra được.
+- Thời tiết riêng từng vùng; vùng lạnh/nóng làm mất máu nếu thiếu 🧥 áo ấm / 👒 nón lá (hoặc thú hệ lửa / nước đi theo).
+- 13 loài thú theo vùng và giờ (ngày/đêm), càng xa càng mạnh; bắt, nuôi lên cấp, cho đi theo đánh cùng hoặc làm việc ở trại.
+- 40 rương báu, bụi quả mọng để hái, chuỗi 16 nhiệm vụ, chế tạo, nâng cấp trại, bản đồ thu nhỏ (phím N), lưu game tự động.
 
 ## Chơi trên iPhone / điện thoại
 

@@ -27,6 +27,8 @@ import {
   CHEST_COUNT,
   type ChestOpenedMessage,
   type QuestDoneMessage,
+  type HarvestedMessage,
+  isSea,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
 import { SqliteStore } from "../persistence/store.ts";
@@ -68,6 +70,8 @@ async function capture(room: GameRoom, client: Awaited<ReturnType<typeof setup>>
   await client.waitForMessage(ServerMessage.CaptureResult);
   vi.restoreAllMocks();
 }
+
+const bossOf = (room: GameRoom) => [...room.state.pals.entries()].find(([, p]) => p.boss);
 
 const ticks = async (room: GameRoom, n: number) => {
   for (let i = 0; i < n; i++) await room.waitForNextTimestep();
@@ -344,7 +348,7 @@ describe("offline production", () => {
       base: { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 + 150 },
       baseLevel: 1,
       resources: { wood: 0, stone: 0, berries: 0 },
-      items: { greatBalls: 0, snacks: 0 },
+      items: { greatBalls: 0, snacks: 0, coat: 0, hat: 0, raft: 0 },
       quest: { index: 0, progress: 0 },
       savedAt: Date.now() - 60 * 60 * 1000, // one hour ago
     });
@@ -521,10 +525,10 @@ describe("elements and skills", () => {
 });
 
 describe("boss", () => {
-  const bossOf = (room: GameRoom) => [...room.state.pals.entries()].find(([, p]) => p.boss);
 
-  it("spawns one boss in the rocky hills that cannot be captured", async () => {
+  it("spawns one boss by the volcano that cannot be captured", async () => {
     const { room, client, player } = await setup();
+    player.hat = 1; // the volcano is hot
     const [bossId, boss] = bossOf(room)!;
     expect(boss.maxHp).toBeGreaterThan(500);
     expect(boss.level).toBe(BOSS.level);
@@ -540,6 +544,7 @@ describe("boss", () => {
 
   it("stomps everyone nearby", async () => {
     const { room, client, player } = await setup();
+    player.hat = 1; // the volcano is hot
     const [, boss] = bossOf(room)!;
     player.x = boss.x - 50;
     player.y = boss.y;
@@ -549,6 +554,7 @@ describe("boss", () => {
 
   it("rewards everyone who helped when defeated", async () => {
     const { room, client, player } = await setup();
+    player.hat = 1; // the volcano is hot
     const [bossId, boss] = bossOf(room)!;
     player.x = boss.x - 50;
     player.y = boss.y;
@@ -599,11 +605,11 @@ describe("exploration", () => {
     expect(player.berries).toBe(berries + (QUESTS[0].reward.berries ?? 0));
   });
 
-  it("counts reaching the snowfield", async () => {
+  it("counts reaching the snow mountains", async () => {
     const { room, player } = await setup();
-    const snowQuest = QUESTS.findIndex((q) => q.event === "visitSnow");
+    const snowQuest = QUESTS.findIndex((q) => q.id === "snow");
     player.questIndex = snowQuest;
-    const { snow } = defaultWorld().layout;
+    const { snow } = defaultWorld().layout.regions;
     const spot = (room as any).obstacles.resolve({ x: snow.x, y: snow.y }, 14);
     player.x = spot.x;
     player.y = spot.y;
@@ -620,5 +626,86 @@ describe("exploration", () => {
     await client.leave();
     await ticks(room, 1);
     expect(db.load(token)!.quest.index).toBe(1);
+  });
+});
+
+describe("regions and climate", () => {
+  /** A land spot just inside the west coast, with sea right next to it. */
+  function westShore() {
+    const { layout } = defaultWorld();
+    let x = layout.regions.swamp.x;
+    const y = layout.regions.swamp.y;
+    while (!isSea(layout.terrain, x - 30, y)) x -= 10;
+    return { x, y };
+  }
+
+  it("stops players at the sea until they build a raft", async () => {
+    const { room, client, player } = await setup();
+    const shore = (room as any).obstacles.resolve(westShore(), 14);
+    player.x = shore.x;
+    player.y = shore.y;
+    client.send(ClientMessage.Input, { x: -1, y: 0 });
+    await ticks(room, 10);
+    expect(isSea(defaultWorld().layout.terrain, player.x, player.y)).toBe(false);
+    player.raft = 1;
+    await ticks(room, 10);
+    expect(isSea(defaultWorld().layout.terrain, player.x, player.y)).toBe(true);
+  });
+
+  it("hurts players in the snow unless they wear a coat", async () => {
+    const { room, client, player } = await setup();
+    const notices: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
+    const { snow } = defaultWorld().layout.regions;
+    const spot = (room as any).obstacles.resolve(snow, 14);
+    player.x = spot.x;
+    player.y = spot.y;
+    const damage: DamageMessage = await client.waitForMessage(ServerMessage.Damage, 4000);
+    expect(damage.cause).toBe("cold");
+    expect(player.hp).toBeLessThan(PLAYER_MAX_HP);
+    expect(notices.some((n) => n.includes("lạnh"))).toBe(true);
+
+    player.coat = 1;
+    player.hp = PLAYER_MAX_HP;
+    await ticks(room, 50); // 2.5 s: more than one climate tick
+    expect(player.hp).toBe(PLAYER_MAX_HP);
+  });
+
+  it("lets players pick berries from a fruit bush", async () => {
+    const { room, client, player } = await setup();
+    const [fruitId, fruit] = [...room.state.fruits.entries()][0];
+    player.x = fruit.x + 20;
+    player.y = fruit.y;
+    // Keep wild pals away so the attack picks the bush.
+    room.state.pals.forEach((pal) => {
+      if (distance(pal, player) < 200) pal.x = player.x + 600;
+    });
+    const berries = player.berries;
+    client.send(ClientMessage.Attack);
+    const harvested: HarvestedMessage = await client.waitForMessage(ServerMessage.Harvested);
+    expect(harvested.fruitId).toBe(fruitId);
+    expect(player.berries).toBe(berries + harvested.amount);
+    expect(room.state.fruits.has(fruitId)).toBe(false);
+  });
+
+  it("puts the boss at the foot of the volcano and wild pals on land", async () => {
+    const { room } = await setup();
+    const { layout } = defaultWorld();
+    const [, boss] = bossOf(room)!;
+    expect(distance(boss, layout.volcano)).toBeLessThan(layout.volcano.r + 15 * 32);
+    room.state.pals.forEach((pal) => expect(isSea(layout.terrain, pal.x, pal.y)).toBe(false));
+  });
+
+  it("saves crafted gear", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "gear-token-0123456789ab";
+    const { room, client, player } = await setup(token);
+    player.hat = 1;
+    player.wood = 1; // any saved change
+    (room as any).scheduleSave(client.sessionId);
+    await client.leave();
+    await ticks(room, 1);
+    expect(db.load(token)!.items.hat).toBe(1);
   });
 });

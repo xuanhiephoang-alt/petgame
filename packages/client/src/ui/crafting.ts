@@ -1,10 +1,12 @@
-import { RECIPES, RESOURCES, RESOURCE_INFO, craftBlocker, type Resource } from "@petgame/shared";
+import { RECIPES, RESOURCES, RESOURCE_INFO, craftBlocker, type Item, type Resource } from "@petgame/shared";
 
 export interface CraftState {
   resources: Record<Resource, number>;
   hasBase: boolean;
   baseLevel: number;
   nearBase: boolean;
+  /** Owned items, so gear already crafted shows as owned. */
+  items?: Partial<Record<Item, number>>;
 }
 
 /**

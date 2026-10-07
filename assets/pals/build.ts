@@ -412,8 +412,120 @@ function frostfang(root: THREE.Group) {
   leg(root, "leg_br", [lx, 0.3, -lz], 0.24, 0.06, fur, shade);
 }
 
+/** Cactoad: squat desert toad with a little cactus on its back and a pink flower. */
+function cactoad(root: THREE.Group) {
+  const green = "#8bc34a", belly = "#f0e6b8", dark = "#558b2f";
+  const body = group("body", root, [0, 0.34, 0]);
+  add(body, sphere(0.34), mat(green), [0, 0, 0], [1.15, 0.72, 1.05]);
+  add(body, sphere(0.26), mat(belly), [0, -0.08, 0.14], [1.05, 0.55, 0.9]);
+  for (let i = 0; i < 5; i++) add(body, sphere(0.04, 6, 4), mat(dark), [Math.cos(i * 1.3) * 0.22, 0.17, Math.sin(i * 1.7) * 0.18 - 0.05]);
+  // Cactus on its back, with a flower.
+  add(body, cyl(0.08, 0.09, 0.3, 7), mat("#4f9a3c"), [0, 0.32, -0.08]);
+  add(body, sphere(0.08, 7, 5), mat("#4f9a3c"), [0, 0.47, -0.08]);
+  add(body, cyl(0.045, 0.045, 0.14, 6), mat("#4f9a3c"), [0.1, 0.34, -0.08], [1, 1, 1], [0, 0, -1.2]);
+  add(body, sphere(0.05, 6, 5), mat("#ff6fa5"), [0, 0.56, -0.08]);
+
+  const head = group("head", body, [0, 0.08, 0.3]);
+  add(head, sphere(0.22, 12, 10), mat(green), [0, 0, 0], [1.25, 0.7, 0.9]);
+  for (const side of [-1, 1]) {
+    add(head, sphere(0.09, 10, 8), mat(green), [side * 0.15, 0.13, 0.02]);
+    add(head, sphere(0.06, 8, 6), mat("#1b1b2f"), [side * 0.16, 0.16, 0.08], [1, 1, 0.6]);
+    add(head, sphere(0.02, 6, 4), mat("#ffffff"), [side * 0.15 + 0.02, 0.19, 0.12]);
+  }
+  add(head, cyl(0.15, 0.15, 0.015, 10), mat("#33691e"), [0, -0.05, 0.14], [1, 1, 0.5], [Math.PI / 2, 0, 0]);
+  leg(root, "leg_fl", [-0.2, 0.16, 0.2], 0.1, 0.06, green, dark);
+  leg(root, "leg_fr", [0.2, 0.16, 0.2], 0.1, 0.06, green, dark);
+  leg(root, "leg_bl", [-0.24, 0.18, -0.18], 0.12, 0.08, green, dark);
+  leg(root, "leg_br", [0.24, 0.18, -0.18], 0.12, 0.08, green, dark);
+}
+
+/** Scorchtail: quick orange lizard with ember spines and a burning tail tip. */
+function scorchtail(root: THREE.Group) {
+  const orange = "#ff8f00", cream = "#ffe0b2", dark = "#bf360c";
+  const body = group("body", root, [0, 0.3, 0]);
+  add(body, sphere(0.24), mat(orange), [0, 0, 0], [0.9, 0.65, 1.7]);
+  add(body, sphere(0.18), mat(cream), [0, -0.06, 0.05], [0.9, 0.5, 1.5]);
+  for (let i = 0; i < 4; i++) add(body, cone(0.05, 0.14, 4), mat("#ffca28", { emissive: "#ff6f00", flat: true }), [0, 0.15, 0.25 - i * 0.16]);
+
+  const head = group("head", body, [0, 0.08, 0.42]);
+  add(head, sphere(0.17, 12, 10), mat(orange), [0, 0, 0.04], [1, 0.75, 1.35]);
+  add(head, sphere(0.03, 6, 4), mat(dark), [0.05, 0.0, 0.26]);
+  add(head, sphere(0.03, 6, 4), mat(dark), [-0.05, 0.0, 0.26]);
+  eyes(head, 0.06, 0.1, 0.1, 0.045);
+  add(head, cone(0.035, 0.12, 4), mat(dark, { flat: true }), [0, 0.13, -0.04], [1, 1, 1], [-0.5, 0, 0]);
+
+  const tail = group("tail", body, [0, 0.02, -0.38], [-1.35, 0, 0]);
+  add(tail, cone(0.11, 0.55, 8), mat(orange), [0, 0.27, 0]);
+  add(tail, cone(0.08, 0.22, 6), mat("#ffee58", { emissive: "#ff9100" }), [0, 0.58, 0]);
+  add(tail, cone(0.05, 0.16, 6), mat("#fff59d", { emissive: "#ffc400" }), [0, 0.64, 0.02]);
+
+  leg(root, "leg_fl", [-0.17, 0.2, 0.2], 0.14, 0.05, orange, dark);
+  leg(root, "leg_fr", [0.17, 0.2, 0.2], 0.14, 0.05, orange, dark);
+  leg(root, "leg_bl", [-0.17, 0.2, -0.2], 0.14, 0.05, orange, dark);
+  leg(root, "leg_br", [0.17, 0.2, -0.2], 0.14, 0.05, orange, dark);
+}
+
+/** Bogbloom: round swamp frog wearing a big water-lily flower, with a lily-pad frill. */
+function bogbloom(root: THREE.Group) {
+  const green = "#6d8f3a", pale = "#c5d99a", petal = "#f8bbd0";
+  const body = group("body", root, [0, 0.38, 0]);
+  add(body, sphere(0.33), mat(green), [0, 0, 0], [1, 0.9, 1]);
+  add(body, sphere(0.25), mat(pale), [0, -0.08, 0.14], [0.95, 0.7, 0.8]);
+  // Lily-pad frill around the neck.
+  add(body, cyl(0.38, 0.38, 0.03, 16), mat("#558b2f"), [0, 0.08, 0], [1, 1, 1], [0.15, 0, 0]);
+  eyes(body, 0.12, 0.3, 0.12, 0.06);
+  add(body, sphere(0.04, 6, 4), mat("#33691e"), [0, -0.02, 0.33], [2, 0.5, 0.5]);
+
+  const head = group("head", body, [0, 0.3, 0]);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    add(head, sphere(0.09, 8, 6), mat(petal), [Math.cos(a) * 0.1, 0.03, Math.sin(a) * 0.1], [0.6, 0.35, 1.3], [0, -a, 0]);
+  }
+  add(head, sphere(0.06, 8, 6), mat("#ffeb3b", { emissive: "#fbc02d" }), [0, 0.06, 0]);
+
+  for (const side of [-1, 1]) {
+    const arm = group(side < 0 ? "arm_l" : "arm_r", body, [side * 0.3, -0.02, 0.1]);
+    add(arm, sphere(0.07, 8, 6), mat(green), [side * 0.04, -0.08, 0.04], [1, 1.4, 1]);
+  }
+  leg(root, "leg_l", [-0.16, 0.12, 0], 0.06, 0.08, green, "#4e6b2a");
+  leg(root, "leg_r", [0.16, 0.12, 0], 0.06, 0.08, green, "#4e6b2a");
+}
+
+/** Coralcrab: red-pink crab with a coral crown and two big claws. */
+function coralcrab(root: THREE.Group) {
+  const shell = "#ff7a7a", pale = "#ffd0c4", coral = "#ff4f8b";
+  const body = group("body", root, [0, 0.32, 0]);
+  add(body, sphere(0.32), mat(shell), [0, 0, 0], [1.35, 0.6, 1]);
+  add(body, sphere(0.24), mat(pale), [0, -0.08, 0.05], [1.3, 0.4, 0.9]);
+  for (let i = 0; i < 3; i++) {
+    add(body, cyl(0.03, 0.04, 0.2 + i * 0.05, 5), mat(coral), [(i - 1) * 0.12, 0.25, -0.05], [1, 1, 1], [0, 0, (i - 1) * 0.4]);
+    add(body, sphere(0.045, 6, 4), mat(coral), [(i - 1) * 0.17, 0.36 + (i === 1 ? 0.05 : 0), -0.05]);
+  }
+  const head = group("head", body, [0, 0.12, 0.22]);
+  for (const side of [-1, 1]) {
+    add(head, cyl(0.02, 0.02, 0.14, 5), mat(shell), [side * 0.1, 0.06, 0]);
+    add(head, sphere(0.055, 8, 6), mat("#1b1b2f"), [side * 0.1, 0.15, 0.01]);
+    add(head, sphere(0.018, 6, 4), mat("#ffffff"), [side * 0.1 + 0.02, 0.17, 0.05]);
+  }
+  for (const side of [-1, 1]) {
+    const arm = group(side < 0 ? "arm_l" : "arm_r", body, [side * 0.4, 0, 0.2], [0, side * 0.4, 0]);
+    add(arm, cyl(0.04, 0.05, 0.18, 6), mat(shell), [0, 0, 0.08], [1, 1, 1], [Math.PI / 2, 0, 0]);
+    add(arm, sphere(0.11, 10, 8), mat(shell), [0, 0.02, 0.22], [0.9, 0.7, 1.2]);
+    add(arm, cone(0.05, 0.14, 5), mat(pale), [side * 0.03, 0.05, 0.34], [1, 1, 1], [Math.PI / 2, 0, 0]);
+  }
+  for (const side of [-1, 1]) {
+    for (let k = 0; k < 2; k++) {
+      leg(root, `leg_${side < 0 ? "l" : "r"}${k}`, [side * 0.33, 0.22, -0.05 - k * 0.16], 0.18, 0.03, shell, shell);
+    }
+  }
+  // Name the first pair like a biped so the walk cycle swings them.
+  root.getObjectByName("leg_l0")!.name = "leg_l";
+  root.getObjectByName("leg_r0")!.name = "leg_r";
+}
+
 const BUILDERS: Record<string, (root: THREE.Group) => void> = {
   leafkit, emberpup, bubbloon, pebblet, voltmouse, ripplefin, mothlume, boulderhorn, frostfang,
+  cactoad, scorchtail, bogbloom, coralcrab,
 };
 
 // ---------------------------------------------------------------------------

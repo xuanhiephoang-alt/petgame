@@ -47,6 +47,10 @@
       .hud-hp div.low { background: #ff1744; animation: pulse 0.8s infinite alternate; }
       @keyframes pulse { from { opacity: 1; } to { opacity: 0.5; } }
       .hud-time { margin-right: 4px; }
+      .hud-region { font-size: 12px; font-weight: 500; opacity: 0.9; margin-right: 4px; white-space: nowrap; }
+      @media (max-width: 600px) { .hud-region { display: none; } }
+      .float-text.cold { color: #b3e5fc; font-size: 13px; }
+      .float-text.heat { color: #ffab91; font-size: 13px; }
       .eat-btn { border: none; border-radius: 8px; padding: 4px 8px; font-weight: 600; background: #7e57c2; color: #fff; cursor: pointer; min-height: 30px; }
       .hud-left { position: absolute; top: max(52px, calc(env(safe-area-inset-top) + 40px)); left: max(12px, env(safe-area-inset-left));
         display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: min(460px, calc(100vw - 190px)); }

@@ -3,7 +3,8 @@ import palData from "./data/pals.json" with { type: "json" };
 export type Element = "grass" | "fire" | "water" | "earth" | "electric";
 
 export type Temperament = "passive" | "defensive" | "aggressive";
-export type Biome = "meadow" | "lake" | "rocky" | "snow";
+/** Where a pal lives: a terrain kind, or "lake" for the meadow lake shore. */
+export type Biome = "meadow" | "lake" | "snow" | "desert" | "swamp" | "volcano" | "island" | "sea";
 export type SpawnTime = "any" | "day" | "night";
 
 export interface PalSpecies {

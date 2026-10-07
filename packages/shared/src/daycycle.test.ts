@@ -34,7 +34,7 @@ describe("biomes", () => {
   it("classifies points", () => {
     const lake = world.lake[0];
     expect(biomeAt(world, lake.x + lake.r + 10, lake.y)).toBe("lake");
-    expect(biomeAt(world, world.rocky.x, world.rocky.y)).toBe("rocky");
+    expect(biomeAt(world, world.regions.volcano.x + 200, world.regions.volcano.y)).toBe("volcano");
     expect(biomeAt(world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2)).toBe("meadow");
   });
 

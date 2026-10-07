@@ -38,6 +38,10 @@ export const Player = schema(
     baseLevel: t.number(),
     greatBalls: t.number(),
     snacks: t.number(),
+    /** Gear: 1 once crafted. */
+    coat: t.number(),
+    hat: t.number(),
+    raft: t.number(),
     /** Position in the quest chain (QUESTS index) and progress toward its goal. */
     questIndex: t.number(),
     questProgress: t.number(),
@@ -90,12 +94,23 @@ export const Chest = schema(
 );
 export type Chest = SchemaType<typeof Chest>;
 
+/** A fruit bush with ripe berries. Picked bushes are removed and regrow later. */
+export const Fruit = schema(
+  {
+    x: t.number(),
+    y: t.number(),
+  },
+  "Fruit",
+);
+export type Fruit = SchemaType<typeof Fruit>;
+
 export const GameState = schema(
   {
     players: t.map(Player),
     pals: t.map(WildPal),
     companions: t.map(Companion),
     chests: t.map(Chest),
+    fruits: t.map(Fruit),
     /** Time of day in [0, 1): see daycycle.ts. */
     dayTime: t.number(),
   },

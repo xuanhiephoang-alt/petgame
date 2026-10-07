@@ -60,3 +60,13 @@ describe("offlineProduction", () => {
     expect(offlineProduction(many, 1, -5)).toEqual({ wood: 0, stone: 0, berries: 0 });
   });
 });
+
+describe("gear", () => {
+  it("can only be crafted once", () => {
+    const raft = getRecipe("raft")!;
+    const ready = { resources: { wood: 99, stone: 99, berries: 99 }, hasBase: true, baseLevel: 1, nearBase: true };
+    expect(craftBlocker(raft, ready)).toBeUndefined();
+    expect(craftBlocker(raft, { ...ready, items: { raft: 1 } })).toBe("Đã có rồi");
+    expect(craftBlocker(getRecipe("great_ball")!, { ...ready, items: { greatBalls: 3 } })).toBeUndefined();
+  });
+});

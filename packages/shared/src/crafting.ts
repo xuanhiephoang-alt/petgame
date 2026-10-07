@@ -2,12 +2,17 @@ import recipeData from "./data/recipes.json" with { type: "json" };
 import { RESOURCES, workIntervalMs, workOutput, type Resource } from "./work.ts";
 import { getSpecies } from "./pals.ts";
 
-export const ITEMS = ["greatBalls", "snacks"] as const;
+export const ITEMS = ["greatBalls", "snacks", "coat", "hat", "raft"] as const;
 export type Item = (typeof ITEMS)[number];
+/** Gear is kept once and never used up (0 or 1). */
+export const GEAR: readonly Item[] = ["coat", "hat", "raft"];
 
 export const ITEM_INFO: Record<Item, { name: string; icon: string }> = {
   greatBalls: { name: "Bóng xịn", icon: "🔵" },
   snacks: { name: "Bánh quả mọng", icon: "🥧" },
+  coat: { name: "Áo ấm", icon: "🧥" },
+  hat: { name: "Nón lá", icon: "👒" },
+  raft: { name: "Bè gỗ", icon: "🛶" },
 };
 
 /** Capture chance multiplier of a great ball (basic balls are 1). */
@@ -44,7 +49,13 @@ export function canAfford(have: Record<Resource, number>, cost: Recipe["cost"]):
  */
 export function craftBlocker(
   recipe: Recipe,
-  state: { resources: Record<Resource, number>; hasBase: boolean; baseLevel: number; nearBase: boolean },
+  state: {
+    resources: Record<Resource, number>;
+    hasBase: boolean;
+    baseLevel: number;
+    nearBase: boolean;
+    items?: Partial<Record<Item, number>>;
+  },
 ): string | undefined {
   if (!state.hasBase) return "Cần dựng trại trước";
   if (!state.nearBase) return "Hãy đứng gần trại của bạn";
@@ -52,6 +63,7 @@ export function craftBlocker(
     if (state.baseLevel >= recipe.output.baseLevel) return "Trại đã đạt cấp này";
     if (state.baseLevel !== recipe.output.baseLevel - 1) return `Cần trại cấp ${recipe.output.baseLevel - 1}`;
   }
+  if ("item" in recipe.output && GEAR.includes(recipe.output.item) && (state.items?.[recipe.output.item] ?? 0) > 0) return "Đã có rồi";
   if (!canAfford(state.resources, recipe.cost)) return "Chưa đủ nguyên liệu";
   return undefined;
 }

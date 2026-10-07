@@ -37,6 +37,12 @@ describe("quests", () => {
     expect(advanceQuest(state, "palLevel", 5).completed?.id).toBe("trainer");
   });
 
+  it("only counts events about the quest's subject", () => {
+    const snow = QUESTS.findIndex((q) => q.id === "snow");
+    expect(advanceQuest({ index: snow, progress: 0 }, "visit", 1, "desert").completed).toBeUndefined();
+    expect(advanceQuest({ index: snow, progress: 0 }, "visit", 1, "snow").completed?.id).toBe("snow");
+  });
+
   it("stops after the last quest", () => {
     const done = { index: QUESTS.length, progress: 0 };
     expect(advanceQuest(done, "boss")).toEqual({ state: done });
@@ -58,8 +64,8 @@ describe("treasure chests", () => {
   });
 
   it("adds rewards to a player-like counter", () => {
-    const target = { wood: 1, stone: 0, berries: 0, greatBalls: 0, snacks: 0 };
+    const target = { wood: 1, stone: 0, berries: 0, greatBalls: 0, snacks: 0, coat: 0, hat: 0, raft: 0 };
     applyReward(target, { wood: 2, greatBalls: 1 });
-    expect(target).toEqual({ wood: 3, stone: 0, berries: 0, greatBalls: 1, snacks: 0 });
+    expect(target).toEqual({ wood: 3, stone: 0, berries: 0, greatBalls: 1, snacks: 0, coat: 0, hat: 0, raft: 0 });
   });
 });

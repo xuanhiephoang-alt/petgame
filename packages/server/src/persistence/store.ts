@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import {
+  GEAR,
   ITEMS,
   MAX_BASE_LEVEL,
   MAX_LEVEL,
@@ -57,7 +58,7 @@ export function emptyProfile(name: string): Profile {
     base: null,
     baseLevel: 1,
     resources: { wood: 0, stone: 0, berries: 0 },
-    items: { greatBalls: 0, snacks: 0 },
+    items: { greatBalls: 0, snacks: 0, coat: 0, hat: 0, raft: 0 },
     quest: { index: 0, progress: 0 },
     savedAt: 0,
   };
@@ -143,8 +144,8 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
       : null;
   const resources = { wood: 0, stone: 0, berries: 0 } as Record<Resource, number>;
   for (const key of RESOURCES) resources[key] = Math.floor(num(r.resources?.[key], 0, 1e9, 0));
-  const items = { greatBalls: 0, snacks: 0 } as Record<Item, number>;
-  for (const key of ITEMS) items[key] = Math.floor(num(r.items?.[key], 0, 1e6, 0));
+  const items = {} as Record<Item, number>;
+  for (const key of ITEMS) items[key] = Math.floor(num(r.items?.[key], 0, GEAR.includes(key) ? 1 : 1e6, 0));
   const name = typeof r.name === "string" ? r.name.slice(0, 16) : "";
   const baseLevel = Math.round(num(r.baseLevel, 1, MAX_BASE_LEVEL, 1));
   const savedAt = num(r.savedAt, 0, Date.now(), 0);

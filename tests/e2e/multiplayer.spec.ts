@@ -209,3 +209,16 @@ test("exploring: quest tracker, minimap and opening a treasure chest", async ({ 
   expect(state.open).toBe(true);
   expect(state.total).toBeGreaterThan(0);
 });
+
+test("regions: the HUD names the region and gear shows in the status", async ({ browser }) => {
+  const page = await join(browser, "Traveler");
+  await waitForWorld(page);
+  await expect(page.locator(".hud-region")).toContainText("Đồng cỏ");
+  await page.evaluate(() => {
+    const room = (window as any).__petgame.room;
+    room.send("debug:gear");
+    room.send("debug:teleport", { x: 3200, y: 1180 }); // the snow mountains, north of the meadow
+  });
+  await expect(page.locator(".hud-region")).toContainText("Núi tuyết");
+  await expect(page.locator(".hud-status")).toContainText("🛶");
+});

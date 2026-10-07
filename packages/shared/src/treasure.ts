@@ -4,6 +4,10 @@ import type { Reward } from "./rewards.ts";
 export const CHEST_OPEN_RADIUS = 36;
 /** An opened chest refills after this long. */
 export const CHEST_RESPAWN_MS = 3 * 60 * 1000;
+/** A picked fruit bush has berries again after this long. */
+export const FRUIT_REGROW_MS = 90 * 1000;
+/** Reach (pixels) for picking a fruit bush with the attack button. */
+export const HARVEST_RANGE = 52;
 
 /**
  * What a chest holds. Each call draws from `rand` (0..1): a pile of one or

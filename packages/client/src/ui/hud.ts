@@ -27,7 +27,7 @@ export class Hud {
     this.toast = div("hud-toast");
     this.joystickZone = div("joystick-zone");
     this.health = div("hud-health");
-    this.health.innerHTML = `<span class="hud-time"></span><span class="hud-heart">❤️</span><div class="hud-hp"><div></div></div><span class="hud-hp-text"></span>`;
+    this.health.innerHTML = `<span class="hud-time"></span><span class="hud-region"></span><span class="hud-heart">❤️</span><div class="hud-hp"><div></div></div><span class="hud-hp-text"></span>`;
     const eat = document.createElement("button");
     eat.className = "eat-btn";
     eat.textContent = "🫐 Ăn";
@@ -103,11 +103,17 @@ export class Hud {
     this.ballButton.classList.toggle("great", great);
   }
 
-  setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string) {
+  /** Region name and climate next to the clock. */
+  setRegion(text: string) {
+    const el = this.health.querySelector(".hud-region")!;
+    if (el.textContent !== text) el.textContent = text;
+  }
+
+  setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string, gear = "") {
     const help = this.isTouch
       ? "Kéo bên trái để đi • Đánh • Bắt"
       : "WASD/↑↓←→ đi • Space đánh • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • N bản đồ • M âm thanh";
-    const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ");
+    const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ") + (gear ? ` &nbsp; ${gear}` : "");
     const html =
       `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +
       `Mời bạn: <a href="${invite}" target="_blank" rel="noopener">${escapeHtml(invite)}</a>`;

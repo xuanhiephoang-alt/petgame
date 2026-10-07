@@ -4,7 +4,8 @@ import {
   BORDER as BORDER_PX,
   WORLD_HEIGHT,
   WORLD_WIDTH,
-  biomeAt,
+  terrainAt,
+  type TerrainKind,
   daylight,
   defaultWorld,
   fbm,
@@ -15,6 +16,7 @@ import {
 } from "@petgame/shared";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { UNITS_PER_PIXEL } from "./coords.ts";
+import { buildOcean, buildVolcano, makeCactus, makePalm } from "./scenery.ts";
 
 const W = WORLD_WIDTH * UNITS_PER_PIXEL;
 const H = WORLD_HEIGHT * UNITS_PER_PIXEL;
@@ -80,10 +82,15 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
     focus: { value: new THREE.Vector3() },
     cameraPos: { value: new THREE.Vector3() },
   };
+  // Palms and cacti are built here; the rest comes from the KayKit pack.
+  if (!nature.has("Palm")) nature.set("Palm", makePalm());
+  if (!nature.has("Cactus")) nature.set("Cactus", makeCactus());
   scatterNature(scene, nature, uniforms);
   scene.add(buildLake(uniforms));
+  scene.add(buildOcean(uniforms.windTime));
+  const volcano = buildVolcano(scene);
   const particles = new Particles(scene);
-  const snowfall = new Snowfall(scene);
+  const weather = new Weather(scene);
   const campfire = buildCampfire(scene, nature);
   const fog = scene.fog as THREE.Fog;
   const sky = scene.background as THREE.Color;
@@ -113,7 +120,8 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
       sun.target.position.copy(focus);
 
       particles.update(timeSec, focus, 1 - d);
-      snowfall.update(timeSec, focus);
+      weather.update(timeSec, focus);
+      volcano(timeSec);
       campfire(timeSec, 1 - d);
     },
   };
@@ -123,56 +131,116 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
 // Ground
 // ---------------------------------------------------------------------------
 
+/** Ground colors of each region (see shared terrain.ts). */
+const GROUND = {
+  grassDark: new THREE.Color(0x3c7a2e),
+  grass: new THREE.Color(0x5c9e3c),
+  grassLight: new THREE.Color(0x93bf52),
+  dirt: new THREE.Color(0xa88a5c),
+  sand: new THREE.Color(0xe3cf98),
+  lakeBed: new THREE.Color(0x2c6f7f),
+  snowWhite: new THREE.Color(0xeef4fa),
+  snowShade: new THREE.Color(0xc4d6ea),
+  dune: new THREE.Color(0xe8c784),
+  duneShade: new THREE.Color(0xc99d5c),
+  mud: new THREE.Color(0x4d5a2c),
+  mudDark: new THREE.Color(0x343f22),
+  basalt: new THREE.Color(0x4a4440),
+  basaltDark: new THREE.Color(0x2a2624),
+  lava: new THREE.Color(0x9a3a1a),
+  islandGrass: new THREE.Color(0x7bbf4e),
+  seaBed: new THREE.Color(0x2a6f86),
+};
+
+/** Color of one terrain kind at a scene point, before blending with neighbors. */
+function groundColor(kind: TerrainKind, x: number, z: number, detail: number, out: THREE.Color): THREE.Color {
+  switch (kind) {
+    case "meadow": {
+      const n = fbm(x * 0.06, z * 0.06);
+      out.lerpColors(GROUND.grassDark, GROUND.grass, smoothstep(0.3, 0.6, n));
+      out.lerp(GROUND.grassLight, smoothstep(0.62, 0.85, n) * 0.8);
+      // Winding dirt trails (ridges of low-frequency noise) and worn patches.
+      const trail = 1 - Math.abs(fbm(x * 0.035 + 20, z * 0.035 + 20) - 0.5) * 2;
+      const d = fbm(x * 0.09 + 100, z * 0.09 + 100);
+      return out.lerp(GROUND.dirt, Math.max(smoothstep(0.93, 0.975, trail), smoothstep(0.74, 0.82, d)) * 0.8);
+    }
+    case "snow":
+      return out.lerpColors(GROUND.snowShade, GROUND.snowWhite, smoothstep(0.35, 0.65, detail));
+    case "desert": {
+      // Rippled dunes.
+      const ripple = Math.sin(x * 0.45 + fbm(x * 0.05, z * 0.05) * 9) * 0.5 + 0.5;
+      return out.lerpColors(GROUND.dune, GROUND.duneShade, ripple * 0.45 + (detail - 0.5) * 0.3);
+    }
+    case "swamp":
+      return out.lerpColors(GROUND.mud, GROUND.mudDark, smoothstep(0.4, 0.7, fbm(x * 0.12 + 5, z * 0.12 + 5)));
+    case "volcano": {
+      out.lerpColors(GROUND.basalt, GROUND.basaltDark, smoothstep(0.35, 0.7, detail));
+      // Glowing cracks along noise ridges.
+      const crack = 1 - Math.abs(fbm(x * 0.08 + 300, z * 0.08 + 300) - 0.5) * 2;
+      return out.lerp(GROUND.lava, smoothstep(0.975, 0.995, crack) * 0.85);
+    }
+    case "island":
+      return out.lerpColors(GROUND.islandGrass, GROUND.grassLight, detail * 0.6);
+    case "sea":
+      return out.copy(GROUND.seaBed);
+  }
+}
+
+/**
+ * Ground for the whole world: region colors blended across their borders,
+ * beaches along the coast, and the land sloping under the sea surface.
+ */
 function buildGround(): THREE.Mesh {
-  const size = new THREE.Vector2(W + BORDER * 2 + 30, H + BORDER * 2 + 30);
-  // About one vertex per scene unit, enough for the biome edges.
+  const size = new THREE.Vector2(W + BORDER * 2, H + BORDER * 2);
+  // About one vertex per scene unit, enough for the region edges.
   const geometry = new THREE.PlaneGeometry(size.x, size.y, Math.round(size.x), Math.round(size.y));
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(W / 2, 0, H / 2);
 
   const pos = geometry.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const grassDark = new THREE.Color(0x3c7a2e);
-  const grass = new THREE.Color(0x5c9e3c);
-  const grassLight = new THREE.Color(0x93bf52);
-  const dirt = new THREE.Color(0xa88a5c);
-  const sand = new THREE.Color(0xd9c58f);
-  const lakeBed = new THREE.Color(0x2c6f7f);
-  const rock = new THREE.Color(0x8a8272);
-  const snowWhite = new THREE.Color(0xeef4fa);
-  const snowShade = new THREE.Color(0xc9d9ea);
-  const { lake, rocky, snow } = defaultWorld().layout;
+  const { lake, terrain } = defaultWorld().layout;
   const U = 1 / UNITS_PER_PIXEL;
   const c = new THREE.Color();
-  const _snow = new THREE.Color();
+  const sample = new THREE.Color();
+  const STEP = 16; // pixels between blend samples (5x5 around each vertex)
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
-    const n = fbm(x * 0.06, z * 0.06);
-    const detail = fbm(x * 0.35 + 50, z * 0.35 + 50);
-    c.lerpColors(grassDark, grass, smoothstep(0.3, 0.6, n));
-    c.lerp(grassLight, smoothstep(0.62, 0.85, n) * 0.8);
-    // Winding dirt trails (ridges of low-frequency noise) and worn patches.
-    const trail = 1 - Math.abs(fbm(x * 0.035 + 20, z * 0.035 + 20) - 0.5) * 2;
-    const d = fbm(x * 0.09 + 100, z * 0.09 + 100);
-    c.lerp(dirt, Math.max(smoothstep(0.93, 0.975, trail), smoothstep(0.74, 0.82, d)) * 0.8);
-    c.offsetHSL(0, 0, (detail - 0.5) * 0.06);
-    // Biomes: stony ground in the rocky hills, sandy shore and a deep lake bed.
     const px = x * U, py = z * U;
-    const rockyT = 1 - smoothstep(rocky.r * 0.75, rocky.r, Math.hypot(px - rocky.x, py - rocky.y));
-    c.lerp(rock, rockyT * (0.55 + 0.35 * detail));
-    // Snowfield: drifts with bluish hollows, ragged at the edge.
-    const snowEdge = snow.r * (0.85 + 0.25 * fbm(x * 0.15 + 300, z * 0.15 + 300));
-    const snowT = 1 - smoothstep(snowEdge - 2 * U, snowEdge, Math.hypot(px - snow.x, py - snow.y));
-    if (snowT > 0) c.lerp(_snow.lerpColors(snowShade, snowWhite, smoothstep(0.35, 0.65, detail)), snowT);
-    const shore = Math.min(...lake.map((w) => Math.hypot(px - w.x, py - w.y) - w.r)) / U; // units from the water edge
-    c.lerp(sand, 1 - smoothstep(0.3, 1.6, shore));
-    if (shore < 0) c.lerp(lakeBed, Math.min(1, -shore));
-    // Darker under the border forest.
-    const outside = Math.max(-x, x - W, -z, z - H, 0);
-    c.multiplyScalar(1 - Math.min(outside / BORDER, 1) * 0.3);
+    const detail = fbm(x * 0.35 + 50, z * 0.35 + 50);
+    // Average neighboring terrain so borders blend; count land for the coast.
+    c.setRGB(0, 0, 0);
+    let land = 0, n = 0;
+    let lastKind: TerrainKind | undefined;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const kind = terrainAt(terrain, px + dx * STEP, py + dy * STEP);
+        if (kind !== lastKind) {
+          groundColor(kind, x, z, detail, sample);
+          lastKind = kind;
+        }
+        c.r += sample.r; c.g += sample.g; c.b += sample.b;
+        if (kind !== "sea") land++;
+        n++;
+      }
+    }
+    c.multiplyScalar(1 / n);
+    const landT = land / n;
+    // Beaches: sand where land meets the sea.
+    if (landT < 1) c.lerp(GROUND.sand, Math.min(1, (1 - landT) * 2.2) * (landT > 0 ? 1 : 0.3));
+    c.offsetHSL(0, 0, (detail - 0.5) * 0.06);
+    // Sandy rims and deep beds for lakes and ponds.
+    let shore = Infinity;
+    for (const w of lake) shore = Math.min(shore, Math.hypot(px - w.x, py - w.y) - w.r);
+    shore /= U; // units from the water edge
+    if (shore < 1.6) c.lerp(GROUND.sand, (1 - smoothstep(0.3, 1.6, shore)) * 0.85);
+    if (shore < 0) c.lerp(GROUND.lakeBed, Math.min(1, -shore));
     colors.set([c.r, c.g, c.b], i * 3);
+    // The coast slopes down under the sea surface (SEA_LEVEL).
+    pos.setY(i, -(1 - landT) * 0.6);
   }
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
 
   const ground = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true }));
   ground.receiveShadow = true;
@@ -193,6 +261,17 @@ interface WorldUniforms {
 /** Wind strength per prop kind: grass sways a lot, canopies a little, rocks not at all. */
 const SWAY: Record<Prop["kind"], number> = { grass: 0.12, bush: 0.05, tree: 0.015, rock: 0 };
 
+/** Per-region color treatment of scenery models. */
+type Tint = "" | "frost" | "swamp" | "ash" | "sand";
+const TINTS: Partial<Record<TerrainKind, Tint>> = { snow: "frost", swamp: "swamp", volcano: "ash", desert: "sand" };
+const TINT_GLSL: Record<Exclude<Tint, "">, string> = {
+  // Snow settles on upward-facing surfaces; everything else gets a cold tint.
+  frost: "diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.85, 0.93, 1.05), vec3(0.94, 0.97, 1.0), smoothstep(0.0, 0.6, vUp) * 0.75 + 0.2);",
+  swamp: "diffuseColor.rgb *= vec3(0.72, 0.82, 0.62);",
+  ash: "diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.5, 0.46, 0.45), vec3(0.6, 0.25, 0.12), (1.0 - smoothstep(0.0, 0.3, vUp)) * 0.15);",
+  sand: "diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.72, 0.5), 0.45);",
+};
+
 /** Scenery is split into square chunks (scene units) so only nearby ones are drawn. */
 const CHUNK = 12;
 
@@ -205,9 +284,9 @@ function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, 
   const { layout } = defaultWorld();
   const placements = new Map<string, Prop[]>();
   for (const p of layout.props) {
-    const frost = biomeAt(layout, p.x, p.y) === "snow";
+    const tint = TINTS[terrainAt(layout.terrain, p.x, p.y)] ?? "";
     const cx = Math.floor((p.x * UNITS_PER_PIXEL) / CHUNK), cz = Math.floor((p.y * UNITS_PER_PIXEL) / CHUNK);
-    const key = `${p.model}|${frost ? 1 : 0}|${cx},${cz}`;
+    const key = `${p.model}|${tint}|${cx},${cz}`;
     const list = placements.get(key) ?? [];
     list.push(p);
     placements.set(key, list);
@@ -216,12 +295,12 @@ function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, 
   if (nature.size === 0) return;
 
   const materials = new Map<string, THREE.Material>();
-  const decorated = (base: THREE.Material, kind: Prop["kind"], frost: boolean) => {
-    const key = `${base.uuid}:${kind}:${frost}`;
+  const decorated = (base: THREE.Material, kind: Prop["kind"], tint: Tint) => {
+    const key = `${base.uuid}:${kind}:${tint}`;
     let m = materials.get(key);
     if (!m) {
       m = base.clone();
-      decorateMaterial(m, uniforms, SWAY[kind], kind === "tree", frost);
+      decorateMaterial(m, uniforms, SWAY[kind], kind === "tree", tint);
       materials.set(key, m);
     }
     return m;
@@ -232,18 +311,18 @@ function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, 
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   for (const [key, list] of placements) {
-    const [name, frostFlag] = key.split("|");
+    const [name, tintName] = key.split("|");
     const template = nature.get(name);
     if (!template) continue;
     const kind = list[0].kind;
-    const frost = frostFlag === "1";
+    const tint = tintName as Tint;
     template.updateMatrixWorld(true);
     const rootInverse = template.matrixWorld.clone().invert();
     template.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       relative.multiplyMatrices(rootInverse, mesh.matrixWorld);
-      const im = new THREE.InstancedMesh(mesh.geometry, decorated(mesh.material as THREE.Material, kind, frost), list.length);
+      const im = new THREE.InstancedMesh(mesh.geometry, decorated(mesh.material as THREE.Material, kind, tint), list.length);
       list.forEach((p, i) => {
         q.setFromAxisAngle(up, p.yaw);
         instance.compose(
@@ -266,11 +345,13 @@ function scatterFlowers(scene: THREE.Scene, rand: () => number, uniforms: WorldU
   const colors = [0xffffff, 0xffe066, 0xff8fb1, 0xc5a3ff, 0xff9e5e];
   const perColor: THREE.Matrix4[][] = colors.map(() => []);
   const m = new THREE.Matrix4();
-  const { lake, snow } = defaultWorld().layout;
-  const onLand = (x: number, z: number) =>
-    lake.every((c) => Math.hypot(x / UNITS_PER_PIXEL - c.x, z / UNITS_PER_PIXEL - c.y) > c.r + 8) &&
-    Math.hypot(x / UNITS_PER_PIXEL - snow.x, z / UNITS_PER_PIXEL - snow.y) > snow.r;
-  for (let p = 0; p < 180; p++) {
+  const { lake, terrain } = defaultWorld().layout;
+  const onLand = (x: number, z: number) => {
+    const kind = terrainAt(terrain, x / UNITS_PER_PIXEL, z / UNITS_PER_PIXEL);
+    return (kind === "meadow" || kind === "island") &&
+      lake.every((c) => Math.hypot(x / UNITS_PER_PIXEL - c.x, z / UNITS_PER_PIXEL - c.y) > c.r + 8);
+  };
+  for (let p = 0; p < 500; p++) {
     const cx = rand() * W, cz = rand() * H;
     const color = Math.floor(rand() * colors.length);
     const n = 6 + Math.floor(rand() * 10);
@@ -310,8 +391,8 @@ function scatterFlowers(scene: THREE.Scene, rand: () => number, uniforms: WorldU
  * dithered out so the player stays visible. Dithering (discarding a screen
  * pattern) works with instancing and needs no transparency sorting.
  */
-function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, sway: number, fadeOccluders: boolean, frost = false) {
-  if (sway === 0 && !fadeOccluders && !frost) return;
+function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, sway: number, fadeOccluders: boolean, tint: Tint = "") {
+  if (sway === 0 && !fadeOccluders && !tint) return;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.windTime = uniforms.windTime;
     shader.uniforms.focusPos = uniforms.focus;
@@ -342,15 +423,10 @@ function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, swa
           vUp = normalize(mat3(modelMatrix) * objectNormal).y;
         #endif`,
       );
-    if (frost) {
-      // Snow settles on upward-facing surfaces; everything else gets a cold tint.
+    if (tint) {
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", "#include <common>\nvarying float vUp;")
-        .replace(
-          "#include <color_fragment>",
-          `#include <color_fragment>
-          diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.85, 0.93, 1.05), vec3(0.94, 0.97, 1.0), smoothstep(0.0, 0.6, vUp) * 0.75 + 0.2);`,
-        );
+        .replace("#include <color_fragment>", `#include <color_fragment>\n${TINT_GLSL[tint]}`);
     }
     if (fadeOccluders) {
       shader.fragmentShader = shader.fragmentShader
@@ -374,7 +450,7 @@ function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, swa
         );
     }
   };
-  material.customProgramCacheKey = () => `decor-${sway}-${fadeOccluders}-${frost}`;
+  material.customProgramCacheKey = () => `decor-${sway}-${fadeOccluders}-${tint}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -534,13 +610,30 @@ class Particles {
   }
 }
 
-/** Snowflakes drifting down around the camera target while it is in the snowfield. */
-class Snowfall {
+type WeatherKind = "snow" | "rain" | "dust" | "embers";
+/** Weather per region: none in the meadow, on the islands or at sea. */
+const WEATHER: Partial<Record<TerrainKind, WeatherKind>> = { snow: "snow", swamp: "rain", desert: "dust", volcano: "embers" };
+const WEATHER_LOOK: Record<WeatherKind, { color: number; size: number; opacity: number; additive: boolean }> = {
+  snow: { color: 0xffffff, size: 0.13, opacity: 0.9, additive: false },
+  rain: { color: 0xb4d2ee, size: 0.06, opacity: 0.65, additive: false },
+  dust: { color: 0xe6c690, size: 0.09, opacity: 0.55, additive: false },
+  embers: { color: 0xff7a2a, size: 0.11, opacity: 0.95, additive: true },
+};
+
+/**
+ * Region weather around the camera target: snowflakes, swamp rain, desert
+ * dust or volcano embers. Fades out and back in when the region changes.
+ */
+class Weather {
   private points: THREE.Points;
+  private material: THREE.PointsMaterial;
   private base: Float32Array;
-  private readonly count = 500;
+  private readonly count = 600;
   private readonly area = 30;
   private readonly height = 9;
+  private kind: WeatherKind | undefined;
+  private strength = 0;
+  private lastT = 0;
 
   constructor(scene: THREE.Scene) {
     const rand = mulberry32(77);
@@ -550,30 +643,57 @@ class Snowfall {
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(this.count * 3), 3));
-    this.points = new THREE.Points(
-      geometry,
-      new THREE.PointsMaterial({ size: 0.13, map: glowTexture(), color: 0xffffff, transparent: true, depthWrite: false, opacity: 0 }),
-    );
+    this.material = new THREE.PointsMaterial({ size: 0.13, map: glowTexture(), color: 0xffffff, transparent: true, depthWrite: false, opacity: 0 });
+    this.points = new THREE.Points(geometry, this.material);
     this.points.frustumCulled = false;
     this.points.visible = false;
     scene.add(this.points);
   }
 
   update(t: number, focus: THREE.Vector3) {
-    const { snow } = defaultWorld().layout;
-    const d = Math.hypot(focus.x / UNITS_PER_PIXEL - snow.x, focus.z / UNITS_PER_PIXEL - snow.y);
-    const strength = 1 - smoothstep(snow.r * 0.8, snow.r * 1.15, d);
-    this.points.visible = strength > 0.01;
-    if (!this.points.visible) return;
-    (this.points.material as THREE.PointsMaterial).opacity = 0.9 * strength;
+    const dt = Math.min(0.1, Math.max(0, t - this.lastT));
+    this.lastT = t;
+    const want = WEATHER[terrainAt(defaultWorld().layout.terrain, focus.x / UNITS_PER_PIXEL, focus.z / UNITS_PER_PIXEL)];
+    if (want !== this.kind) {
+      this.strength -= dt * 1.2;
+      if (this.strength <= 0) {
+        this.strength = 0;
+        this.kind = want;
+        if (want) {
+          const look = WEATHER_LOOK[want];
+          this.material.color.setHex(look.color);
+          this.material.size = look.size;
+          this.material.blending = look.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
+          this.material.needsUpdate = true;
+        }
+      }
+    } else if (want) {
+      this.strength = Math.min(1, this.strength + dt * 0.8);
+    }
+    this.points.visible = !!this.kind && this.strength > 0.01;
+    if (!this.points.visible || !this.kind) return;
+    this.material.opacity = WEATHER_LOOK[this.kind].opacity * this.strength;
     const pos = this.points.geometry.attributes.position as THREE.BufferAttribute;
     const a = this.area, h = this.height;
+    const wrap = (v: number, f: number) => f - a / 2 + ((((v - f) % a) + a) % a);
     for (let i = 0; i < this.count; i++) {
       const bx = this.base[i * 4], by = this.base[i * 4 + 1], bz = this.base[i * 4 + 2], speed = this.base[i * 4 + 3];
-      const y = (((by - t * speed) % h) + h) % h;
-      const x = focus.x - a / 2 + ((((bx + Math.sin(t * 0.7 + i) * 0.6 - focus.x) % a) + a) % a);
-      const z = focus.z - a / 2 + ((((bz + t * 0.3 - focus.z) % a) + a) % a);
-      pos.setXYZ(i, x, y, z);
+      let x = bx, y = by, z = bz;
+      switch (this.kind) {
+        case "snow":
+          y = by - t * speed; x = bx + Math.sin(t * 0.7 + i) * 0.6; z = bz + t * 0.3;
+          break;
+        case "rain":
+          y = by - t * speed * 14; x = bx + t * 1.5;
+          break;
+        case "dust":
+          y = (by % 2.5) + Math.sin(t * 1.3 + i) * 0.2; x = bx + t * speed * 4; z = bz + Math.sin(t * 0.5 + i) * 0.8;
+          break;
+        case "embers":
+          y = by + t * speed * 0.9; x = bx + Math.sin(t * 1.1 + i) * 0.5;
+          break;
+      }
+      pos.setXYZ(i, wrap(x, focus.x), ((y % h) + h) % h, wrap(z, focus.z));
     }
     pos.needsUpdate = true;
   }

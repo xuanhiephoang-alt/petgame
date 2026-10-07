@@ -28,7 +28,11 @@ describe("pal data", () => {
     expect(nightIds.has("mothlume")).toBe(true);
     const dayIds = new Set(Array.from({ length: 200 }, (_, i) => pickSpecies(i / 200, { biome: "meadow", night: false })!.id));
     expect(dayIds.has("mothlume")).toBe(false);
-    expect(pickSpecies(0.5, { biome: "rocky", night: false })!.spawn.biomes).toContain("rocky");
+    expect(pickSpecies(0.5, { biome: "volcano", night: false })!.spawn.biomes).toContain("volcano");
+    // Every land biome has something to catch by day.
+    for (const biome of ["meadow", "lake", "snow", "desert", "swamp", "volcano", "island"] as const) {
+      expect(pickSpecies(0.5, { biome, night: false })).toBeDefined();
+    }
   });
 
   it("has a temperament, attack and spawn rule for every species", () => {

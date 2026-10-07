@@ -47,6 +47,11 @@ describe("profile store", () => {
     expect(p.base).toEqual({ x: WORLD_WIDTH, y: WORLD_HEIGHT / 2 });
     expect(p.quest).toEqual({ index: 0, progress: 0 });
     expect(p.resources).toEqual({ wood: 3, stone: 0, berries: 0 });
-    expect(p.items).toEqual({ greatBalls: 0, snacks: 0 });
+    expect(p.items).toEqual({ greatBalls: 0, snacks: 0, coat: 0, hat: 0, raft: 0 });
+  });
+
+  it("keeps at most one of each gear", () => {
+    const p = sanitizeProfile({ items: { raft: 7, coat: 1, greatBalls: 4 } })!;
+    expect(p.items).toEqual({ greatBalls: 4, snacks: 0, coat: 1, hat: 0, raft: 1 });
   });
 });

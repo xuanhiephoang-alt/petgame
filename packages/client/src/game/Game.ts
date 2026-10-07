@@ -16,6 +16,13 @@ import {
   phaseAt,
   BOSS,
   QUESTS,
+  GEAR,
+  ITEMS,
+  ITEM_INFO,
+  REGION_INFO,
+  biomeAt,
+  isSea,
+  type HarvestedMessage,
   type ChestOpenedMessage,
   type QuestDoneMessage,
   type BossDefeatedMessage,
@@ -41,6 +48,7 @@ import { Keyboard } from "../ui/keyboard.ts";
 import { Minimap } from "../ui/minimap.ts";
 import { QuestTracker } from "../ui/quests.ts";
 import { animateChest, createChestModel } from "./chest.ts";
+import { FruitLayer, createRaft } from "./fruits.ts";
 import { toScene } from "./coords.ts";
 import { Effects } from "./effects.ts";
 import { setFlash } from "./models.ts";
@@ -58,7 +66,12 @@ interface Entity {
   /** Latest authoritative position from the server. */
   server: Vec2;
   label: CSS2DObject;
+  /** Log raft shown while the entity is out at sea (players only). */
+  raft?: THREE.Object3D;
 }
+
+/** Wild pals farther than this (pixels) from the camera target are not drawn or animated. */
+const PAL_DRAW_DISTANCE = 1300;
 
 interface PalEntity extends Entity {
   anim: PalInstance;
@@ -104,6 +117,9 @@ export class Game {
   private minimap: Minimap;
   private quests: QuestTracker;
   private chests = new Map<string, THREE.Group>();
+  private fruits: FruitLayer;
+  /** Region the local player was last in (for the HUD and the arrival toast). */
+  private region = "";
   /** Camp models by owner session id. */
   private bases = new Map<string, THREE.Group>();
   /** Last synced time of day and when it arrived; the client extrapolates between syncs. */
@@ -121,6 +137,7 @@ export class Game {
   private cameraTarget = new THREE.Vector3();
   /** Same obstacles the server uses, so prediction matches its collisions. */
   private obstacles = defaultWorld().grid;
+  private terrain = defaultWorld().layout.terrain;
 
   constructor(private container: HTMLElement, private room: GameRoom, private assets: GameAssets) {
     const dpr = Math.min(window.devicePixelRatio, 2);
@@ -139,6 +156,7 @@ export class Game {
     const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
     this.world = buildWorld(this.scene, assets.nature, !isTouch);
     this.effects = new Effects(this.scene);
+    this.fruits = new FruitLayer(this.scene);
 
     this.hud = new Hud(container, isTouch, {
       attack: () => this.attack(),
@@ -206,7 +224,9 @@ export class Game {
       model.add(label);
       const playerHp = addHpBar(label);
       this.scene.add(model);
-      const entity: Entity = { model, anim, label, pos: { x: player.x, y: player.y }, server: { x: player.x, y: player.y } };
+      const raft = createRaft();
+      model.add(raft);
+      const entity: Entity = { model, anim, label, raft, pos: { x: player.x, y: player.y }, server: { x: player.x, y: player.y } };
       toScene(player.x, player.y, model.position);
       this.players.set(sessionId, entity);
       $.onChange(player, () => {
@@ -329,6 +349,17 @@ export class Game {
       this.chests.delete(id);
     });
 
+    $.onAdd("fruits", (_fruit, id) => this.fruits.setRipe(Number(id.replace("fruit", "")), true));
+    $.onRemove("fruits", (_fruit, id) => this.fruits.setRipe(Number(id.replace("fruit", "")), false));
+
+    this.room.onMessage(ServerMessage.Harvested, (msg: HarvestedMessage) => {
+      const player = this.players.get(msg.playerId);
+      if (!player) return;
+      this.effects.burst(player.model.position, [0xe53935, 0xff8a80, 0x66bb6a], 12, 0.8);
+      this.floatText(player.model, `+${msg.amount} 🫐`);
+      if (msg.playerId === this.room.sessionId) this.sound.play("produce");
+    });
+
     this.room.onMessage(ServerMessage.ChestOpened, (msg: ChestOpenedMessage) => {
       const model = this.chests.get(msg.chestId);
       const at = model?.position ?? this.players.get(msg.playerId)?.model.position;
@@ -400,6 +431,11 @@ export class Game {
         );
       }
       if (!target) return;
+      if (msg.cause) {
+        // Cold or heat: a quieter tick of damage.
+        this.floatText(target.model, `${msg.cause === "cold" ? "🥶" : "🥵"} -${msg.amount}`, msg.cause);
+        return;
+      }
       flashRed(target.model);
       if (msg.targetType === "player" && msg.targetId === this.room.sessionId) this.sound.play("hurt");
       this.floatText(target.model, `-${msg.amount}`, "damage");
@@ -480,7 +516,8 @@ export class Game {
       const prev = { x: entity.pos.x, y: entity.pos.y };
       if (sessionId === this.room.sessionId) {
         // Client-side prediction, gently corrected toward the server.
-        const predicted = stepPlayer(entity.pos, input, delta, this.obstacles);
+        const raft = (this.room.state.players.get(sessionId)?.raft ?? 0) > 0;
+        const predicted = stepPlayer(entity.pos, input, delta, this.obstacles, { terrain: this.terrain, canSail: raft });
         if (distance(predicted, entity.server) > SNAP_DISTANCE) entity.pos = { ...entity.server };
         else entity.pos = {
           x: predicted.x + (entity.server.x - predicted.x) * 0.05,
@@ -491,13 +528,19 @@ export class Game {
         entity.pos.y += (entity.server.y - entity.pos.y) * lerp;
       }
       this.placeModel(entity, prev, dtSec);
+      if (entity.raft) entity.raft.visible = isSea(this.terrain, entity.pos.x, entity.pos.y);
       this.animate(entity, prev, dtSec, PlayerClip.Run, PlayerClip.Idle);
     });
+    const focus = this.players.get(this.room.sessionId)?.pos;
 
     this.pals.forEach((pal) => {
       const prev = { x: pal.pos.x, y: pal.pos.y };
       pal.pos.x += (pal.server.x - pal.pos.x) * lerp;
       pal.pos.y += (pal.server.y - pal.pos.y) * lerp;
+      // Far-away pals are hidden and not animated (the world is big).
+      const near = !focus || distance(focus, pal.pos) < PAL_DRAW_DISTANCE;
+      pal.model.visible = pal.label.visible = near;
+      if (!near) return;
       this.placeModel(pal, prev, dtSec);
       this.animate(pal, prev, dtSec, "walk", "idle");
     });
@@ -613,7 +656,8 @@ export class Game {
   private updateHud() {
     const me = this.room.state.players?.get(this.room.sessionId);
     const resources = { wood: me?.wood ?? 0, stone: me?.stone ?? 0, berries: me?.berries ?? 0 };
-    this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, resources, inviteLink(this.room.roomId));
+    const gear = me ? GEAR.filter((g) => me[g] > 0).map((g) => ITEM_INFO[g].icon).join(" ") : "";
+    this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, resources, inviteLink(this.room.roomId), gear);
     if (me) this.hud.setHealth(me.hp, me.maxHp);
     if (me) {
       const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment }));
@@ -622,10 +666,24 @@ export class Game {
       this.hud.setBall(this.useGreatBall, me.greatBalls);
       const myPos = this.players.get(this.room.sessionId)?.pos ?? me;
       const nearBase = me.hasBase && distance(myPos, { x: me.baseX, y: me.baseY }) <= CRAFT_RANGE;
-      this.craft.update({ resources, hasBase: me.hasBase, baseLevel: me.baseLevel || 1, nearBase });
+      const items = Object.fromEntries(ITEMS.map((item) => [item, me[item] ?? 0]));
+      this.craft.update({ resources, hasBase: me.hasBase, baseLevel: me.baseLevel || 1, nearBase, items });
+      this.updateRegion(myPos);
       this.quests.update(me.questIndex ?? 0, me.questProgress ?? 0);
       this.updateMinimap(me.hasBase ? { x: me.baseX, y: me.baseY } : undefined);
     }
+  }
+
+  /** Shows the region and climate under the local player; announces arrivals. */
+  private updateRegion(at: Vec2) {
+    const biome = biomeAt(defaultWorld().layout, at.x, at.y);
+    const info = REGION_INFO[biome];
+    this.hud.setRegion(`${info.icon} ${info.name} · ${info.climate}`);
+    const region = biome === "lake" ? "meadow" : biome;
+    if (region === this.region) return;
+    const first = this.region === "";
+    this.region = region;
+    if (!first) this.hud.showToast(`Đến ${info.icon} ${REGION_INFO[region].name} (${REGION_INFO[region].climate})`);
   }
 
   private updateMinimap(base: Vec2 | undefined) {

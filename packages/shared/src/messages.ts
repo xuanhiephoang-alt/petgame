@@ -71,6 +71,8 @@ export const ServerMessage = {
   ChestOpened: "chestOpened",
   /** A player finished a quest. */
   QuestDone: "questDone",
+  /** A player picked berries from a fruit bush. */
+  Harvested: "harvested",
 } as const;
 
 export interface ChestOpenedMessage {
@@ -78,6 +80,12 @@ export interface ChestOpenedMessage {
   playerId: string;
   /** Reward (resource/item -> amount). */
   loot: Record<string, number>;
+}
+
+export interface HarvestedMessage {
+  fruitId: string;
+  playerId: string;
+  amount: number;
 }
 
 export interface QuestDoneMessage {
@@ -107,9 +115,11 @@ export interface DamageMessage {
   targetType: "player" | "companion";
   /** Session id (player) or OwnedPal id (companion). */
   targetId: string;
-  /** Wild pal that attacked. */
+  /** Wild pal that attacked ("" for the climate). */
   attackerId: string;
   amount: number;
+  /** Set when cold or heat did the damage. */
+  cause?: "cold" | "heat";
 }
 
 export interface FaintedMessage {
