@@ -14,8 +14,11 @@ import {
   DAY_LENGTH_MS,
   daylight,
   phaseAt,
+  BOSS,
+  type BossDefeatedMessage,
   type DamageMessage,
   type FaintedMessage,
+  type SkillMessage,
   type CaptureResultMessage,
   type HitMessage,
   type LevelUpMessage,
@@ -29,6 +32,7 @@ import { inviteLink, type GameRoom } from "../net/connection.ts";
 import { Hud } from "../ui/hud.ts";
 import { PartyPanel } from "../ui/party.ts";
 import { CraftPanel } from "../ui/crafting.ts";
+import { Sound } from "../ui/audio.ts";
 import { Joystick } from "../ui/joystick.ts";
 import { Keyboard } from "../ui/keyboard.ts";
 import { toScene } from "./coords.ts";
@@ -95,6 +99,11 @@ export class Game {
   /** Last synced time of day and when it arrived; the client extrapolates between syncs. */
   private serverDay = 0;
   private serverDayAt = performance.now();
+  private sound = new Sound();
+  /** Current boss (wild pal id), shown with a big HP bar when near. */
+  private bossId: string | undefined;
+  /** Camera shake strength (scene units), decays every frame. */
+  private shake = 0;
   /** A warm lantern that follows the local player at night. */
   private lantern = new THREE.PointLight(0xffc27a, 0, 7, 1.5);
   private lastSentInput: Vec2 = { x: 0, y: 0 };
@@ -127,7 +136,14 @@ export class Game {
       placeBase: () => this.room.send(ClientMessage.PlaceBase),
       toggleBall: () => this.toggleBall(),
       eat: () => this.room.send(ClientMessage.Eat),
+      toggleSound: () => this.sound.toggleMute(),
     });
+    this.hud.setMuted(this.sound.muted);
+    // Audio can only start after a user gesture: joining counts, but retry on the next one too.
+    this.sound.unlock();
+    const unlock = () => this.sound.unlock();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
     if (isTouch) this.joystick = new Joystick(this.hud.joystickZone);
     this.party = new PartyPanel(this.hud.root, {
       summon: (palId) => this.room.send(ClientMessage.Summon, { palId }),
@@ -145,6 +161,7 @@ export class Game {
       b: () => this.room.send(ClientMessage.PlaceBase),
       r: () => this.toggleBall(),
       h: () => this.room.send(ClientMessage.Eat),
+      m: () => this.hud.setMuted(this.sound.toggleMute()),
     });
     this.scene.add(this.lantern);
 
@@ -201,14 +218,26 @@ export class Game {
       const anim = this.assets.pals.create(species.id);
       const model = anim.object;
       model.scale.setScalar(PAL_DISPLAY_SCALE);
-      const label = makeLabel(`Lv ${pal.level} ${species.name}`, "label pal");
+      const label = pal.boss
+        ? makeLabel(`👑 ${BOSS.name}`, "label pal boss")
+        : makeLabel(`Lv ${pal.level} ${species.name}`, "label pal");
+      if (pal.boss) {
+        this.bossId = id;
+        model.scale.setScalar(PAL_DISPLAY_SCALE * BOSS.displayScale);
+        const aura = new THREE.Mesh(
+          new THREE.RingGeometry(0.75, 0.95, 40).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: 0xff3d00, transparent: true, opacity: 0.6, depthWrite: false }),
+        );
+        aura.position.y = 0.04;
+        model.add(aura);
+      }
       const hpBar = document.createElement("div");
       hpBar.className = "hp-bar";
       const hpFill = document.createElement("div");
       hpBar.append(hpFill);
       label.element.append(hpBar);
       // Label is a child of the scaled model, so convert the world height back.
-      label.position.y = new THREE.Box3().setFromObject(model).max.y / PAL_DISPLAY_SCALE + 0.2;
+      label.position.y = new THREE.Box3().setFromObject(model).max.y / model.scale.y + 0.2;
       model.add(label);
       toScene(pal.x, pal.y, model.position);
       this.scene.add(model);
@@ -230,6 +259,7 @@ export class Game {
     });
 
     $.onRemove("pals", (_pal, id) => {
+      if (id === this.bossId) this.bossId = undefined;
       const entity = this.pals.get(id);
       if (entity) this.removeEntity(entity);
       this.pals.delete(id);
@@ -273,6 +303,9 @@ export class Game {
 
     this.room.onMessage(ServerMessage.Hit, (msg: HitMessage) => {
       const pal = this.pals.get(msg.palId);
+      if (pal && distance(pal.pos, this.players.get(this.room.sessionId)?.pos ?? pal.pos) < 500) this.sound.play("hit");
+      if (pal && msg.effect === "super") this.floatText(pal.model, "Hiệu quả! 💥", "super");
+      if (pal && msg.effect === "weak") this.floatText(pal.model, "Kém hiệu quả", "weak");
       if (msg.companionId) {
         const companion = this.companions.get(msg.companionId);
         if (companion && pal) faceToward(companion, pal.pos);
@@ -290,6 +323,10 @@ export class Game {
       const thrower = this.players.get(msg.playerId);
       const pal = this.pals.get(msg.palId);
       if (thrower && pal) this.effects.throwBall(thrower.model.position, pal.model.position);
+      if (msg.playerId === this.room.sessionId) {
+        this.sound.play("throw");
+        setTimeout(() => this.sound.play(msg.success ? "capture" : "escape"), 320);
+      }
       if (msg.success && pal) this.effects.sparkle(pal.model.position, getSpecies(msg.speciesId).color);
       if (msg.playerId !== this.room.sessionId) {
         thrower?.anim.once(PlayerClip.Throw);
@@ -317,6 +354,7 @@ export class Game {
       }
       if (!target) return;
       flashRed(target.model);
+      if (msg.targetType === "player" && msg.targetId === this.room.sessionId) this.sound.play("hurt");
       this.floatText(target.model, `-${msg.amount}`, "damage");
       if (msg.targetType === "player") target.anim.once(PlayerClip.Hit);
       else target.anim.once("hurt");
@@ -325,20 +363,52 @@ export class Game {
     this.room.onMessage(ServerMessage.Fainted, (msg: FaintedMessage) => {
       const target = msg.targetType === "player" ? this.players.get(msg.targetId) : this.companions.get(msg.targetId);
       if (target) this.effects.sparkle(target.model.position, 0x9e9e9e);
+      if (msg.targetType === "player" && msg.targetId === this.room.sessionId) this.sound.play("faint");
     });
 
-    this.room.onMessage(ServerMessage.Notice, (msg: NoticeMessage) => this.hud.showToast(msg.text));
+    this.room.onMessage(ServerMessage.Skill, (msg: SkillMessage) => this.showSkill(msg));
+
+    this.room.onMessage(ServerMessage.BossStomp, () => {
+      const boss = this.bossId ? this.pals.get(this.bossId) : undefined;
+      if (!boss) return;
+      this.effects.ring(boss.model.position, 0xff7043, (BOSS.stompRadius / 32) * 1.1, 0.6);
+      this.effects.burst(boss.model.position, [0x8d6e63, 0xbcaaa4], 24, 1);
+      boss.anim.once("attack");
+      const me = this.players.get(this.room.sessionId);
+      if (me && distance(me.pos, boss.pos) < 600) {
+        this.shake = 0.35;
+        this.sound.play("stomp");
+      }
+    });
+
+    this.room.onMessage(ServerMessage.BossDefeated, (msg: BossDefeatedMessage) => {
+      const boss = this.pals.get(msg.bossId);
+      if (boss) {
+        this.effects.sparkle(boss.model.position, 0xffd54f);
+        this.effects.ring(boss.model.position, 0xffd54f, 4, 1);
+      }
+      if (msg.winners.includes(this.room.sessionId)) this.sound.play("victory");
+    });
+
+    this.room.onMessage(ServerMessage.Notice, (msg: NoticeMessage) => {
+      this.hud.showToast(msg.text);
+      if (msg.text.startsWith("Đã làm") || msg.text.startsWith("Trại đã lên cấp")) this.sound.play("craft");
+    });
 
     this.room.onMessage(ServerMessage.LevelUp, (msg: LevelUpMessage) => {
       const companion = this.companions.get(msg.palId);
       if (companion) this.effects.sparkle(companion.model.position, 0xffd54f);
-      if (msg.playerId === this.room.sessionId) this.hud.showToast(`${getSpecies(msg.speciesId).name} lên cấp ${msg.level}! ⭐`);
+      if (msg.playerId === this.room.sessionId) {
+        this.hud.showToast(`${getSpecies(msg.speciesId).name} lên cấp ${msg.level}! ⭐`);
+        this.sound.play("levelup");
+      }
     });
 
     this.room.onMessage(ServerMessage.Produced, (msg: ProducedMessage) => {
       const worker = this.companions.get(msg.palId);
       if (!worker) return;
       worker.anim.once("attack");
+      if (msg.playerId === this.room.sessionId) this.sound.play("produce");
       const info = RESOURCE_INFO[msg.resource as Resource];
       if (info) this.floatText(worker.model, `+${msg.amount} ${info.icon}`);
     });
@@ -399,7 +469,10 @@ export class Game {
     const me = this.players.get(this.room.sessionId);
     if (me) this.lantern.position.copy(me.model.position).setY(1.8);
     this.lantern.intensity = (1 - daylight(dayTime)) * 3;
-    this.hud.setTime(phaseAt(dayTime));
+    const phase = phaseAt(dayTime);
+    this.hud.setTime(phase);
+    this.sound.setNight(phase === "night");
+    this.updateBossBar();
     this.bases.forEach((base) => animateBase(base, now / 1000));
     this.effects.update(dtSec);
     this.updateHud();
@@ -430,6 +503,11 @@ export class Game {
     const me = this.players.get(this.room.sessionId);
     if (me) this.cameraTarget.lerp(me.model.position, 1 - Math.pow(0.0005, dtSec));
     this.camera.position.copy(this.cameraTarget).add(CAMERA_OFFSET);
+    if (this.shake > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shake;
+      this.camera.position.y += (Math.random() - 0.5) * this.shake;
+      this.shake *= Math.pow(0.02, dtSec);
+    }
     this.camera.lookAt(this.cameraTarget);
     // Keep the shadow-casting area centered on the player.
   }
@@ -498,6 +576,55 @@ export class Game {
       const nearBase = me.hasBase && distance(myPos, { x: me.baseX, y: me.baseY }) <= CRAFT_RANGE;
       this.craft.update({ resources, hasBase: me.hasBase, baseLevel: me.baseLevel || 1, nearBase });
     }
+  }
+
+  /** Visuals for a companion's element skill. */
+  private showSkill(msg: SkillMessage) {
+    const companion = this.companions.get(msg.companionId);
+    if (!companion) return;
+    const target = msg.targetId ? this.pals.get(msg.targetId) : undefined;
+    const names: Record<string, string> = { flame: "🔥 Phun lửa", vines: "🌿 Dây leo", quake: "🛡️ Khiên đá", thunder: "⚡ Sấm sét", rain: "💧 Mưa hồi máu" };
+    this.floatText(companion.model, names[msg.skill] ?? msg.skill, "skill");
+    companion.anim.once("attack");
+    const me = this.players.get(this.room.sessionId);
+    if (me && distance(me.pos, companion.pos) < 600) this.sound.play("skill");
+    const ownerId = this.room.state.companions.get(msg.companionId)?.ownerId;
+    const ownerEntity = ownerId ? this.players.get(ownerId) : undefined;
+    switch (msg.skill) {
+      case "flame":
+        if (target) {
+          this.effects.burst(target.model.position, [0xff6d00, 0xffab00, 0xff3d00], 26, 1.4);
+          this.effects.ring(target.model.position, 0xff7043, 2.2, 0.5);
+        }
+        break;
+      case "vines":
+        if (target) {
+          this.effects.ring(target.model.position, 0x43a047, 1.2, 3);
+          this.effects.burst(target.model.position, [0x66bb6a, 0x2e7d32], 14, 0.8);
+        }
+        break;
+      case "thunder":
+        if (target) this.effects.bolt(target.model.position);
+        break;
+      case "quake":
+        if (ownerEntity) this.effects.shield(ownerEntity.model, 6);
+        break;
+      case "rain":
+        for (const e of [companion, ownerEntity]) {
+          if (!e) continue;
+          this.effects.burst(e.model.position.clone().setY(2), [0x4fc3f7, 0x81d4fa], 16, -1.2);
+          this.floatText(e.model, "+25", "heal");
+        }
+        break;
+    }
+  }
+
+  /** Shows the boss HP bar at the top while the boss is near. */
+  private updateBossBar() {
+    const boss = this.bossId ? this.room.state.pals.get(this.bossId) : undefined;
+    const me = this.players.get(this.room.sessionId);
+    if (!boss || !me || distance(me.pos, boss) > 450) return this.hud.setBoss(undefined);
+    this.hud.setBoss({ name: BOSS.name, hp: boss.hp, maxHp: boss.maxHp });
   }
 
   private toggleBall() {

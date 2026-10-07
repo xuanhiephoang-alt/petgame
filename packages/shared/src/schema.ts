@@ -53,6 +53,8 @@ export const WildPal = schema(
     level: t.number(),
     /** True while it is chasing someone (fighting back or hunting). */
     angry: t.boolean(),
+    /** The world boss: much bigger, cannot be captured, can be defeated. */
+    boss: t.boolean(),
   },
   "WildPal",
 );

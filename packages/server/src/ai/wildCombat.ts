@@ -38,7 +38,8 @@ export function stepChase(
   dtMs: number,
   radius: number,
   obstacles?: CollisionGrid,
+  range = WILD_ATTACK_RANGE,
 ): { pos: Vec2; inRange: boolean } {
-  const next = stepToward(pos, target, WILD_ATTACK_RANGE * 0.7, dtMs, radius, obstacles, speed);
-  return { pos: next, inRange: distance(next, target) <= WILD_ATTACK_RANGE };
+  const next = stepToward(pos, target, range * 0.7, dtMs, radius, obstacles, speed);
+  return { pos: next, inRange: distance(next, target) <= range };
 }

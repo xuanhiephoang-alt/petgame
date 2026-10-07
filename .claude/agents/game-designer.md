@@ -18,6 +18,7 @@ KHÔNG sửa file `.ts`. Nếu cần trường dữ liệu mới, hãy mô tả 
 - `catchRate` trong khoảng 0..1. Thú càng mạnh/hiếm thì catchRate càng thấp và spawnWeight càng thấp.
 - Giữ cân bằng giữa các hệ (grass, fire, water, earth, electric). Ghi lý do thay đổi chỉ số vào `docs/design/balance-log.md`.
 - Mỗi loài có `temperament` (passive/defensive/aggressive), `attack`, `spawn: { biomes, time }` (xem `docs/design/pals.md`). Loài mới cần model trong `assets/pals/build.ts` (giao art-pipeline).
+- Khắc hệ: vòng lửa > cỏ > đất > điện > nước > lửa (`packages/shared/src/elements.ts`, ×1,5 / ×0,75). Mỗi hệ có 1 chiêu (`SKILLS`, `SKILL_NUMBERS`). Boss cấu hình ở `boss.ts`.
 - Công thức chế tạo: `packages/shared/src/data/recipes.json` (cost theo wood/stone/berries; output là item `greatBalls`/`snacks` hoặc `baseLevel`). Thêm loại item mới cần server-netcode thêm trường schema.
 - Cân bằng lên cấp/thu hoạch nằm trong `packages/shared/src/progression.ts` và `work.ts` (hằng số XP, công thức). Đề xuất thay đổi số liệu ở đó qua server-netcode.
 - Sau khi sửa, chạy `npx vitest run packages/shared` để test kiểm tra dữ liệu.

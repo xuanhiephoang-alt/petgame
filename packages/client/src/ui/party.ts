@@ -1,4 +1,4 @@
-import { RESOURCE_INFO, getSpecies, workOutput, xpToNext, type Element } from "@petgame/shared";
+import { ELEMENT_INFO, RESOURCE_INFO, SKILLS, getSpecies, strongAgainst, workOutput, xpToNext, type Element } from "@petgame/shared";
 
 const ELEMENTS: Record<Element, string> = {
   grass: "🌿 Cỏ",
@@ -124,7 +124,13 @@ export class PartyPanel {
     const fill = document.createElement("div");
     fill.style.width = `${Math.min(100, (entry.xp / xpToNext(entry.level)) * 100)}%`;
     xp.append(fill);
-    info.append(name, detail, xp);
+    const skill = SKILLS[species.element];
+    const strong = ELEMENT_INFO[strongAgainst(species.element)];
+    const skillLine = document.createElement("small");
+    skillLine.className = "party-skill";
+    skillLine.textContent = `Chiêu: ${skill.icon} ${skill.name} · khắc ${strong.icon} ${strong.name}`;
+    skillLine.title = skill.description;
+    info.append(name, detail, skillLine, xp);
 
     const buttons = document.createElement("div");
     buttons.className = "party-buttons";

@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { Room, type Client } from "colyseus";
 import {
+  BOSS,
+  SKILLS,
+  SKILL_NUMBERS,
+  effectiveness,
+  elementMultiplier,
+  type BossDefeatedMessage,
+  type BossStompMessage,
+  type SkillMessage,
   AGGRESSIVE_SIGHT,
   BERRY_HEAL,
   DAY_LENGTH_MS,
@@ -109,6 +117,7 @@ interface PlayerControl {
 interface CompanionTimers {
   lastAttackAt: number;
   lastWorkAt: number;
+  lastSkillAt: number;
 }
 
 /** Bases need this much clear space around them (pixels). */
@@ -147,6 +156,14 @@ export class GameRoom extends Room<{ state: GameState }> {
   private lastDamagedAt = new Map<string, number>();
   /** Precise time of day; state.dayTime is synced from it once a second. */
   private dayTime = DAY_START;
+  /** Wild pal id -> time until which vines hold it in place. */
+  private rootedUntil = new Map<string, number>();
+  /** Session id -> time until which an earth companion's shield halves damage. */
+  private shieldUntil = new Map<string, number>();
+  /** Current boss (wild pal id) and who has hit it. */
+  private bossId: string | undefined;
+  private bossHelpers = new Set<string>();
+  private bossLastStompAt = 0;
   private daySyncTimer = 0;
   private wasNight = false;
   /** Trees, rocks and the campfire; shared with the client for prediction. */
@@ -155,6 +172,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   onCreate() {
     this.state.dayTime = DAY_START;
     for (let i = 0; i < WILD_PAL_TARGET; i++) this.spawnPal();
+    this.spawnBoss();
 
     this.onMessage(ClientMessage.Input, (client, message: InputMessage) => {
       const control = this.controls.get(client.sessionId);
@@ -295,16 +313,22 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (!brain) return;
       const pos = { x: pal.x, y: pal.y };
       const species = getSpecies(pal.speciesId);
+      if ((this.rootedUntil.get(id) ?? 0) > now) return; // held by vines
       const target = this.wildTarget(id, pal, species, now);
       if (target) {
         const aggro = this.wildAggro.get(id)!;
-        const step = stepChase(pos, target.pos, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, species.size, this.obstacles);
+        const radius = pal.boss ? BOSS.radius : species.size;
+        const reach = pal.boss ? BOSS.radius + 24 : undefined;
+        const step = stepChase(pos, target.pos, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, radius, this.obstacles, reach);
         pal.x = step.pos.x;
         pal.y = step.pos.y;
         pal.angry = true;
-        if (step.inRange && now - aggro.lastAttackAt >= WILD_ATTACK_COOLDOWN_MS) {
+        if (pal.boss && now - this.bossLastStompAt >= BOSS.stompCooldownMs && distance(pal, target.pos) <= BOSS.stompRadius) {
+          this.bossLastStompAt = now;
+          this.bossStomp(id, pal);
+        } else if (step.inRange && now - aggro.lastAttackAt >= (pal.boss ? BOSS.biteCooldownMs : WILD_ATTACK_COOLDOWN_MS)) {
           aggro.lastAttackAt = now;
-          this.damage(target, wildDamage(species, pal.level), id);
+          this.damage(target, pal.boss ? BOSS.biteDamage : wildDamage(species, pal.level), id);
         }
         return;
       }
@@ -318,7 +342,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.tickRegen(dtMs, now);
     this.tickDay(dtMs);
 
-    const target = WILD_PAL_TARGET + (isNight(this.dayTime) ? 3 : 0);
+    const target = WILD_PAL_TARGET + (isNight(this.dayTime) ? 3 : 0) + (this.bossId ? 1 : 0);
     if (this.state.pals.size < target) {
       this.respawnTimer += dtMs;
       if (this.respawnTimer >= PAL_RESPAWN_MS) {
@@ -371,14 +395,34 @@ export class GameRoom extends Room<{ state: GameState }> {
       companion.x = step.pos.x;
       companion.y = step.pos.y;
 
+      // Water companions heal when someone is hurt, even outside a fight.
+      const species = getSpecies(companion.speciesId);
+      if (species.element === "water" && now - timers.lastSkillAt >= SKILLS.water.cooldownMs
+        && (owner.hp < owner.maxHp * 0.7 || companion.hp < companion.maxHp * 0.7)) {
+        timers.lastSkillAt = now;
+        owner.hp = Math.min(owner.maxHp, owner.hp + SKILL_NUMBERS.rainHeal);
+        companion.hp = Math.min(companion.maxHp, companion.hp + SKILL_NUMBERS.rainHeal);
+        this.broadcastSkill(id, "rain");
+      }
+
       if (!target || !targetId || !step.inAttackRange) return;
       if (now - timers.lastAttackAt < COMPANION_ATTACK_COOLDOWN_MS) return;
       timers.lastAttackAt = now;
-      const damage = companionDamage(owned.level);
-      target.hp = Math.max(1, target.hp - damage);
+      const wildSpecies = getSpecies(target.speciesId);
+      const multiplier = elementMultiplier(species.element, wildSpecies.element);
+      let damage = companionDamage(owned.level) * multiplier;
+      const skill = SKILLS[species.element];
+      if (skill.id !== "rain" && now - timers.lastSkillAt >= skill.cooldownMs) {
+        timers.lastSkillAt = now;
+        damage = this.useSkill(id, companion.ownerId, skill.id, targetId, target, damage, species.element);
+      }
+      damage = Math.round(damage);
       this.provoke(targetId, { kind: "companion", id });
-      const hit: HitMessage = { playerId: companion.ownerId, palId: targetId, damage, companionId: id };
+      const hit: HitMessage = {
+        playerId: companion.ownerId, palId: targetId, damage, companionId: id, effect: effectiveness(multiplier),
+      };
       this.broadcast(ServerMessage.Hit, hit);
+      this.hitWild(targetId, target, damage, companion.ownerId);
       this.grantXp(companion.ownerId, owned, XP_PER_HIT);
     });
   }
@@ -398,13 +442,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     const target = this.nearestPal(player, ATTACK_RANGE);
     if (!target) return;
     const [palId, pal] = target;
-    // Attacks never knock a pal out, so it can always still be captured.
-    pal.hp = Math.max(1, pal.hp - ATTACK_DAMAGE);
     control.targetPalId = palId;
     control.aggroUntil = now + COMPANION_AGGRO_MS;
     this.provoke(palId, { kind: "player", id: client.sessionId });
     const hit: HitMessage = { playerId: client.sessionId, palId, damage: ATTACK_DAMAGE };
     this.broadcast(ServerMessage.Hit, hit);
+    this.hitWild(palId, pal, ATTACK_DAMAGE, client.sessionId);
   }
 
   private handleThrow(client: Client, palId: string, greatBall: boolean) {
@@ -415,6 +458,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const now = this.clock.currentTime;
     if (now - control.lastThrowAt < THROW_COOLDOWN_MS) return;
     if (distance(player, pal) > THROW_RANGE) return;
+    if (pal.boss) return this.notify(client, "Không thể bắt trùm! Hãy cùng nhau hạ nó");
     control.lastThrowAt = now;
 
     const species = getSpecies(pal.speciesId);
@@ -570,6 +614,113 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Combat, health and the day cycle
   // -------------------------------------------------------------------------
 
+  /**
+   * Applies damage to a wild pal. Normal pals never drop below 1 HP so they
+   * can still be captured; the boss can be defeated.
+   */
+  private hitWild(palId: string, pal: WildPal, amount: number, helperSessionId: string) {
+    if (!pal.boss) {
+      pal.hp = Math.max(1, pal.hp - amount);
+      return;
+    }
+    this.bossHelpers.add(helperSessionId);
+    pal.hp = Math.max(0, pal.hp - amount);
+    if (pal.hp <= 0) this.defeatBoss(palId);
+  }
+
+  /** Applies a companion's element skill; returns the damage of this hit. */
+  private useSkill(
+    companionId: string,
+    ownerId: string,
+    skill: (typeof SKILLS)[keyof typeof SKILLS]["id"],
+    targetId: string,
+    target: WildPal,
+    baseDamage: number,
+    element: PalSpecies["element"],
+  ): number {
+    let damage = baseDamage;
+    if (skill === "flame") {
+      damage *= SKILL_NUMBERS.flameMultiplier;
+      // Splash nearby wild pals too.
+      this.state.pals.forEach((other, otherId) => {
+        if (otherId === targetId || distance(other, target) > SKILL_NUMBERS.flameRadius) return;
+        const splash = Math.round(baseDamage * elementMultiplier(element, getSpecies(other.speciesId).element));
+        this.hitWild(otherId, other, splash, ownerId);
+        this.provoke(otherId, { kind: "companion", id: companionId });
+      });
+    } else if (skill === "vines") {
+      damage *= SKILL_NUMBERS.vinesMultiplier;
+      this.rootedUntil.set(targetId, this.clock.currentTime + SKILL_NUMBERS.vinesRootMs);
+    } else if (skill === "thunder") {
+      damage *= SKILL_NUMBERS.thunderMultiplier;
+    } else if (skill === "quake") {
+      this.shieldUntil.set(ownerId, this.clock.currentTime + SKILL_NUMBERS.quakeShieldMs);
+    }
+    this.broadcastSkill(companionId, skill, targetId);
+    return damage;
+  }
+
+  private broadcastSkill(companionId: string, skill: string, targetId?: string) {
+    const message: SkillMessage = { companionId, skill, targetId };
+    this.broadcast(ServerMessage.Skill, message);
+  }
+
+  /** The boss slams the ground, hurting every player and companion nearby. */
+  private bossStomp(bossId: string, boss: WildPal) {
+    const message: BossStompMessage = { bossId };
+    this.broadcast(ServerMessage.BossStomp, message);
+    const hits: CombatTarget[] = [];
+    this.state.players.forEach((p, sid) => {
+      if (distance(p, boss) <= BOSS.stompRadius) hits.push({ kind: "player", id: sid, pos: p });
+    });
+    this.state.companions.forEach((c, cid) => {
+      if (distance(c, boss) <= BOSS.stompRadius) hits.push({ kind: "companion", id: cid, pos: c });
+    });
+    for (const t of hits) this.damage(t, BOSS.stompDamage, bossId);
+  }
+
+  /** The giant Boulderhorn appears in the middle of the rocky hills. */
+  private spawnBoss() {
+    if (this.bossId && this.state.pals.has(this.bossId)) return;
+    const { rocky } = defaultWorld().layout;
+    const species = getSpecies(BOSS.speciesId);
+    const spot = randomPoint(Math.random, this.obstacles, BOSS.radius);
+    const pos = this.obstacles.blocked({ x: rocky.x, y: rocky.y }, BOSS.radius) ? spot : { x: rocky.x, y: rocky.y };
+    const id = this.spawnPal(pos, species);
+    const boss = this.state.pals.get(id)!;
+    boss.boss = true;
+    boss.level = BOSS.level;
+    boss.maxHp = scaledMaxHp(species.maxHp, BOSS.level) * BOSS.hpMultiplier;
+    boss.hp = boss.maxHp;
+    this.bossId = id;
+    this.bossHelpers.clear();
+  }
+
+  private defeatBoss(bossId: string) {
+    const winners = [...this.bossHelpers].filter((sid) => this.state.players.has(sid));
+    for (const sid of winners) {
+      const player = this.state.players.get(sid)!;
+      player.wood += BOSS.reward.wood;
+      player.stone += BOSS.reward.stone;
+      player.berries += BOSS.reward.berries;
+      player.greatBalls += BOSS.reward.greatBalls;
+      this.scheduleSave(sid);
+      const client = this.clients.find((c) => c.sessionId === sid);
+      if (client) {
+        const r = BOSS.reward;
+        this.notify(client, `Hạ được trùm! 🏆 +🪵${r.wood} +🪨${r.stone} +🫐${r.berries} +🔵${r.greatBalls}`);
+      }
+    }
+    const message: BossDefeatedMessage = { bossId, winners };
+    this.broadcast(ServerMessage.BossDefeated, message);
+    this.state.pals.delete(bossId);
+    this.brains.delete(bossId);
+    this.wildAggro.delete(bossId);
+    this.bossId = undefined;
+    this.bossHelpers.clear();
+    this.clock.setTimeout(() => this.spawnBoss(), BOSS.respawnMs);
+  }
+
   /** A wild pal that is not passive starts fighting whoever hit it. */
   private provoke(palId: string, target: Pick<CombatTarget, "kind" | "id">) {
     const pal = this.state.pals.get(palId);
@@ -603,6 +754,15 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private damage(target: CombatTarget, amount: number, attackerId: string) {
     const now = this.clock.currentTime;
+    const attacker = this.state.pals.get(attackerId);
+    if (target.kind === "player" && (this.shieldUntil.get(target.id) ?? 0) > now) {
+      amount *= SKILL_NUMBERS.quakeDamageTaken;
+    }
+    if (target.kind === "companion" && attacker) {
+      const companion = this.state.companions.get(target.id);
+      if (companion) amount *= elementMultiplier(getSpecies(attacker.speciesId).element, getSpecies(companion.speciesId).element);
+    }
+    amount = Math.max(1, Math.round(amount));
     const message: DamageMessage = { targetType: target.kind, targetId: target.id, attackerId, amount };
     if (target.kind === "player") {
       const player = this.state.players.get(target.id);
@@ -742,7 +902,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   private timers(id: string): CompanionTimers {
     let t = this.companionTimers.get(id);
     if (!t) {
-      t = { lastAttackAt: 0, lastWorkAt: this.clock.currentTime };
+      t = { lastAttackAt: 0, lastWorkAt: this.clock.currentTime, lastSkillAt: 0 };
       this.companionTimers.set(id, t);
     }
     return t;
@@ -802,7 +962,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     let best: [string, WildPal] | undefined;
     let bestDist = range;
     this.state.pals.forEach((pal, id) => {
-      const d = distance(from, pal);
+      // Measure to the body edge so the big boss can be hit from its side.
+      const d = distance(from, pal) - (pal.boss ? BOSS.radius : 0);
       if (d <= bestDist) {
         bestDist = d;
         best = [id, pal];
@@ -811,16 +972,18 @@ export class GameRoom extends Room<{ state: GameState }> {
     return best;
   }
 
-  private spawnPal(at?: Vec2): string {
+  private spawnPal(at?: Vec2, forced?: PalSpecies): string {
     // Pick the place first, then a species that lives there at this hour.
     const pos = at ?? randomPoint(Math.random, this.obstacles, 20);
     const biome = biomeAt(defaultWorld().layout, pos.x, pos.y);
     const species =
-      pickSpecies(Math.random(), { biome, night: isNight(this.dayTime) }) ?? pickSpecies(Math.random())!;
+      forced ?? pickSpecies(Math.random(), { biome, night: isNight(this.dayTime) }) ?? pickSpecies(Math.random())!;
     const pal = new WildPal();
     pal.speciesId = species.id;
     pal.x = pos.x;
     pal.y = pos.y;
+    pal.boss = false;
+    pal.angry = false;
     pal.level = rollWildLevel(Math.random());
     pal.maxHp = scaledMaxHp(species.maxHp, pal.level);
     pal.hp = pal.maxHp;

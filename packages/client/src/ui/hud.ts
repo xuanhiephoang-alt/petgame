@@ -12,11 +12,13 @@ export class Hud {
   private health: HTMLDivElement;
   private lastHealth = "";
   private lastTime = "";
+  private soundButton!: HTMLButtonElement;
+  private bossBar!: HTMLDivElement;
 
   constructor(
     parent: HTMLElement,
     private isTouch: boolean,
-    actions: { attack: () => void; capture: () => void; placeBase: () => void; toggleBall: () => void; eat: () => void },
+    actions: { attack: () => void; capture: () => void; placeBase: () => void; toggleBall: () => void; eat: () => void; toggleSound: () => boolean },
   ) {
     this.root = div("hud");
     this.status = div("hud-status");
@@ -30,6 +32,15 @@ export class Hud {
     eat.title = "Ăn 1 quả mọng để hồi máu (phím H)";
     eat.addEventListener("click", actions.eat);
     this.health.append(eat);
+    this.soundButton = document.createElement("button");
+    this.soundButton.className = "sound-btn";
+    this.soundButton.title = "Bật/tắt âm thanh (phím M)";
+    this.soundButton.addEventListener("click", () => this.setMuted(actions.toggleSound()));
+    this.health.append(this.soundButton);
+    this.bossBar = div("boss-bar");
+    this.bossBar.innerHTML = `<strong></strong><div class="boss-hp"><div></div></div>`;
+    this.bossBar.hidden = true;
+    this.root.append(this.bossBar);
     this.root.append(this.health, this.status, this.toast);
     const base = document.createElement("button");
     base.className = "base-btn";
@@ -48,6 +59,18 @@ export class Hud {
       this.root.append(button("btn-attack", "Đánh", actions.attack), button("btn-capture", "Bắt", actions.capture));
     }
     parent.append(this.root);
+  }
+
+  setMuted(muted: boolean) {
+    this.soundButton.textContent = muted ? "🔇" : "🔊";
+  }
+
+  /** Big HP bar for the boss; undefined hides it. */
+  setBoss(boss: { name: string; hp: number; maxHp: number } | undefined) {
+    this.bossBar.hidden = !boss;
+    if (!boss) return;
+    this.bossBar.querySelector("strong")!.textContent = `👑 ${boss.name}  ${Math.ceil(boss.hp)}/${boss.maxHp}`;
+    this.bossBar.querySelector<HTMLDivElement>(".boss-hp div")!.style.width = `${(Math.max(0, boss.hp) / boss.maxHp) * 100}%`;
   }
 
   setHealth(hp: number, maxHp: number) {
@@ -79,7 +102,7 @@ export class Hud {
   setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string) {
     const help = this.isTouch
       ? "Kéo bên trái để đi • Đánh • Bắt"
-      : "WASD/↑↓←→ đi • Space đánh • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo";
+      : "WASD/↑↓←→ đi • Space đánh • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • M âm thanh";
     const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ");
     const html =
       `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +

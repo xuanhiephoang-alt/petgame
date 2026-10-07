@@ -61,7 +61,31 @@ export const ServerMessage = {
   Damage: "damage",
   /** A player or companion was knocked out. */
   Fainted: "fainted",
+  /** A companion used its element skill. */
+  Skill: "skill",
+  /** The boss stomped the ground. */
+  BossStomp: "bossStomp",
+  /** The boss was defeated. */
+  BossDefeated: "bossDefeated",
 } as const;
+
+export interface SkillMessage {
+  /** Companion (OwnedPal id) that used the skill. */
+  companionId: string;
+  skill: string;
+  /** Wild pal the skill was aimed at, if any. */
+  targetId?: string;
+}
+
+export interface BossStompMessage {
+  bossId: string;
+}
+
+export interface BossDefeatedMessage {
+  bossId: string;
+  /** Session ids of everyone who helped (they all get the reward). */
+  winners: string[];
+}
 
 export interface DamageMessage {
   targetType: "player" | "companion";
@@ -111,6 +135,8 @@ export interface HitMessage {
   damage: number;
   /** Set when a companion (OwnedPal id) landed the hit instead of the player. */
   companionId?: string;
+  /** Element matchup of a companion hit. */
+  effect?: "super" | "weak" | "normal";
 }
 
 export interface JoinOptions {

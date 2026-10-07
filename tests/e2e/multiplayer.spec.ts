@@ -98,8 +98,14 @@ test("a captured pal follows the player and shows in the party panel", async ({ 
   expect(caught).toBeGreaterThanOrEqual(1);
 
   const companions = () => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number);
+  const partySize = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return room.state.players.get(room.sessionId).pals.length as number;
+  });
   await expect.poll(companions).toBe(1);
-  await expect(page.locator(".party-btn")).toHaveText(`🐾 Thú (${caught})`);
+  // A throw still in flight may add one more; the button must match the real party.
+  await page.waitForTimeout(1500);
+  await expect(page.locator(".party-btn")).toHaveText(`🐾 Thú (${await partySize()})`);
   await page.locator(".party-btn").click();
   await expect(page.locator(".party-card.follow .party-action.rest")).toHaveText("Cho về");
 
@@ -126,7 +132,7 @@ test("a captured pal follows the player and shows in the party panel", async ({ 
   await page.fill("#name", "Tamer");
   await page.click("#join-btn");
   await waitForWorld(page);
-  await expect.poll(async () => (await me()).pals).toBe(caught);
+  await expect.poll(async () => (await me()).pals).toBeGreaterThanOrEqual(caught);
   expect((await me()).hasBase).toBe(true);
   expect((await me()).assignments).toContain("work");
   await expect.poll(companions).toBe(1);

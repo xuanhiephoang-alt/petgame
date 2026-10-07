@@ -20,6 +20,8 @@ import {
   BERRY_HEAL,
   WildPal,
   type DamageMessage,
+  type SkillMessage,
+  BOSS,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
 import { SqliteStore } from "../persistence/store.ts";
@@ -137,6 +139,7 @@ describe("wild pal levels", () => {
   it("spawns pals with a level and HP scaled to it", async () => {
     const { room } = await setup();
     room.state.pals.forEach((pal) => {
+      if (pal.boss) return; // the boss has its own HP rules
       expect(pal.level).toBeGreaterThanOrEqual(1);
       expect(pal.maxHp).toBe(scaledMaxHp(getSpecies(pal.speciesId).maxHp, pal.level));
     });
@@ -453,5 +456,97 @@ describe("day and night", () => {
     (room as any).dayTime = 0.999;
     await ticks(room, 10);
     expect([...room.state.pals.values()].some((p) => p.speciesId === "mothlume" && !p.angry)).toBe(false);
+  });
+});
+
+/** Gives the player a following companion of a given species (skips capturing). */
+async function giveCompanion(room: GameRoom, client: any, player: any, speciesId: string) {
+  await capture(room, client, player);
+  const owned = player.pals[0];
+  owned.speciesId = speciesId;
+  const companion = room.state.companions.get(owned.id)!;
+  companion.speciesId = speciesId;
+  return { owned, companion };
+}
+
+describe("elements and skills", () => {
+  it("companion hits carry their element matchup", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "emberpup"); // fire
+    room.state.pals.clear();
+    placeWild(room, "leafkit", player, 30); // grass: weak to fire
+    const hits: HitMessage[] = [];
+    client.onMessage(ServerMessage.Hit, (m: HitMessage) => hits.push(m));
+    client.send(ClientMessage.Attack);
+    for (let i = 0; i < 80 && !hits.some((h) => h.companionId); i++) await room.waitForNextTimestep();
+    expect(hits.find((h) => h.companionId)?.effect).toBe("super");
+  });
+
+  it("fire companions breathe fire that splashes nearby pals", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "emberpup");
+    room.state.pals.clear();
+    const a = placeWild(room, "leafkit", player, 30);
+    const b = placeWild(room, "leafkit", player, 55);
+    const skills: SkillMessage[] = [];
+    client.onMessage(ServerMessage.Skill, (m: SkillMessage) => skills.push(m));
+    client.send(ClientMessage.Attack);
+    for (let i = 0; i < 80 && skills.length === 0; i++) await room.waitForNextTimestep();
+    expect(skills[0]?.skill).toBe("flame");
+    const splashed = room.state.pals.get(b)!;
+    expect(splashed.hp).toBeLessThan(splashed.maxHp);
+    expect(room.state.pals.get(a)!.hp).toBeGreaterThanOrEqual(1);
+  });
+
+  it("water companions heal a hurt owner", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "bubbloon");
+    room.state.pals.clear();
+    player.hp = 40;
+    const skill: SkillMessage = await client.waitForMessage(ServerMessage.Skill);
+    expect(skill.skill).toBe("rain");
+    expect(player.hp).toBeGreaterThanOrEqual(40 + 25 - 1);
+  });
+});
+
+describe("boss", () => {
+  const bossOf = (room: GameRoom) => [...room.state.pals.entries()].find(([, p]) => p.boss);
+
+  it("spawns one boss in the rocky hills that cannot be captured", async () => {
+    const { room, client, player } = await setup();
+    const [bossId, boss] = bossOf(room)!;
+    expect(boss.maxHp).toBeGreaterThan(500);
+    expect(boss.level).toBe(BOSS.level);
+    player.x = boss.x - 60;
+    player.y = boss.y;
+    const notices: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
+    client.send(ClientMessage.Throw, { palId: bossId });
+    await ticks(room, 3);
+    expect(room.state.pals.has(bossId)).toBe(true);
+    expect(notices.at(-1)).toContain("trùm");
+  });
+
+  it("stomps everyone nearby", async () => {
+    const { room, client, player } = await setup();
+    const [, boss] = bossOf(room)!;
+    player.x = boss.x - 50;
+    player.y = boss.y;
+    await client.waitForMessage(ServerMessage.BossStomp, 8000);
+    expect(player.hp).toBeLessThan(PLAYER_MAX_HP);
+  });
+
+  it("rewards everyone who helped when defeated", async () => {
+    const { room, client, player } = await setup();
+    const [bossId, boss] = bossOf(room)!;
+    player.x = boss.x - 50;
+    player.y = boss.y;
+    boss.hp = 5;
+    const before = { stone: player.stone, greatBalls: player.greatBalls };
+    client.send(ClientMessage.Attack);
+    await client.waitForMessage(ServerMessage.BossDefeated);
+    expect(room.state.pals.has(bossId)).toBe(false);
+    expect(player.stone).toBe(before.stone + BOSS.reward.stone);
+    expect(player.greatBalls).toBe(before.greatBalls + BOSS.reward.greatBalls);
   });
 });

@@ -26,6 +26,18 @@
       .label.pal.angry span { opacity: 1; color: #ff8a80; }
       .label.pal.angry span::before { content: "❗"; }
       .float-text.damage { color: #ff5252; font-size: 17px; }
+      .float-text.super { color: #ffab40; font-size: 15px; }
+      .float-text.weak { color: #cfd8dc; font-size: 13px; }
+      .float-text.skill { color: #fff59d; font-size: 15px; }
+      .float-text.heal { color: #69f0ae; }
+      .label.pal.boss span { opacity: 1; font-size: 14px; background: rgba(183,28,28,0.75); }
+      .sound-btn { border: none; background: rgba(255,255,255,0.2); border-radius: 8px; min-width: 34px; min-height: 30px; cursor: pointer; font-size: 15px; }
+      .boss-bar { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+        width: min(420px, 60vw); text-align: center; color: #fff; font-size: 14px; text-shadow: 0 1px 2px #000; }
+      .boss-bar[hidden] { display: none; }
+      .boss-hp { height: 12px; margin-top: 4px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px; overflow: hidden; }
+      .boss-hp div { height: 100%; background: linear-gradient(90deg, #d50000, #ff6d00); transition: width 0.2s; }
+      .party-skill { color: #8d6e63 !important; }
       .hud { position: absolute; inset: 0; pointer-events: none; color: #fff; z-index: 2; }
       .hud-health { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
         display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.45); padding: 5px 10px; border-radius: 10px;
