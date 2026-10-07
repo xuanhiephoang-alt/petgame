@@ -12,12 +12,14 @@ export default defineConfig({
     {
       command: "npm run start --workspace=@petgame/server",
       port: 2567,
-      reuseExistingServer: !process.env.CI,
+      // Enables test-only messages such as debug:spawnPal.
+      env: { PETGAME_DEBUG: "1" },
+      reuseExistingServer: false,
     },
     {
       command: "npm run dev --workspace=@petgame/client",
       port: 5173,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
   ],
 });

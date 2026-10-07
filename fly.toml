@@ -1,0 +1,28 @@
+# Fly.io config. Change `app` to a unique name before the first deploy (see docs/deploy.md).
+app = "petgame-change-me"
+primary_region = "sin" # Singapore: closest to Vietnam
+
+[build]
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Rooms live in memory: run exactly one machine (fly scale count 1).
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "3s"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

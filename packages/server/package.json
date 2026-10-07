@@ -10,6 +10,10 @@
   "dependencies": {
     "@petgame/shared": "*",
     "colyseus": "^0.18.9",
+    "express": "^5.2.1",
     "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6"
   }
 }

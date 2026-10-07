@@ -1,5 +1,12 @@
 import { Room, type Client } from "colyseus";
 import {
+  COMPANION_AGGRO_MS,
+  COMPANION_ATTACK_COOLDOWN_MS,
+  COMPANION_DAMAGE,
+  MAX_PARTY,
+  Companion,
+  OwnedPal,
+  type SummonMessage,
   ATTACK_COOLDOWN_MS,
   ATTACK_DAMAGE,
   ATTACK_RANGE,
@@ -32,12 +39,16 @@ import {
   defaultWorld,
 } from "@petgame/shared";
 import { newBrain, randomPoint, stepWander, type WanderBrain } from "../ai/wander.ts";
+import { stepCompanion } from "../ai/companion.ts";
 
 /** Server-only per-player data that is never synced. */
 interface PlayerControl {
   input: Vec2;
   lastAttackAt: number;
   lastThrowAt: number;
+  /** Wild pal the player last hit; their companion joins in until aggroUntil. */
+  targetPalId?: string;
+  aggroUntil: number;
 }
 
 export class GameRoom extends Room<{ state: GameState }> {
@@ -46,7 +57,10 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private controls = new Map<string, PlayerControl>();
   private brains = new Map<string, WanderBrain>();
+  /** Companion id -> time of its last attack. */
+  private companionAttacks = new Map<string, number>();
   private nextPalId = 1;
+  private nextOwnedId = 1;
   private respawnTimer = 0;
   /** Trees, rocks and the campfire; shared with the client for prediction. */
   private obstacles = defaultWorld().grid;
@@ -67,6 +81,23 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.handleThrow(client, message.palId);
     });
 
+    this.onMessage(ClientMessage.Summon, (client, message: SummonMessage) => {
+      if (typeof message?.palId !== "string") return;
+      this.summon(client.sessionId, message.palId);
+    });
+
+    if (process.env.PETGAME_DEBUG === "1") {
+      // Test hook (never enabled in production): a weakened wild pal next to the sender.
+      this.onMessage("debug:spawnPal", (client) => {
+        const player = this.state.players.get(client.sessionId);
+        if (!player) return;
+        const id = this.spawnPal({ x: player.x + 40, y: player.y });
+        const pal = this.state.pals.get(id)!;
+        pal.hp = 1;
+        this.brains.get(id)!.idleMs = 60_000;
+      });
+    }
+
     this.setSimulationInterval((dt) => this.tick(dt), TICK_MS);
   }
 
@@ -77,12 +108,14 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.x = WORLD_WIDTH / 2 + (index - 2) * 40;
     player.y = WORLD_HEIGHT / 2;
     player.color = this.pickColor();
-    player.palCount = 0;
+    player.activePalId = "";
     this.state.players.set(client.sessionId, player);
-    this.controls.set(client.sessionId, { input: { x: 0, y: 0 }, lastAttackAt: 0, lastThrowAt: 0 });
+    this.controls.set(client.sessionId, { input: { x: 0, y: 0 }, lastAttackAt: 0, lastThrowAt: 0, aggroUntil: 0 });
   }
 
   onLeave(client: Client) {
+    const player = this.state.players.get(client.sessionId);
+    if (player?.activePalId) this.despawnCompanion(player.activePalId);
     this.state.players.delete(client.sessionId);
     this.controls.delete(client.sessionId);
   }
@@ -106,6 +139,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       pal.y = pos.y;
     });
 
+    this.tickCompanions(dtMs);
+
     if (this.state.pals.size < WILD_PAL_TARGET) {
       this.respawnTimer += dtMs;
       if (this.respawnTimer >= PAL_RESPAWN_MS) {
@@ -128,6 +163,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     const [palId, pal] = target;
     // Attacks never knock a pal out, so it can always still be captured.
     pal.hp = Math.max(1, pal.hp - ATTACK_DAMAGE);
+    control.targetPalId = palId;
+    control.aggroUntil = now + COMPANION_AGGRO_MS;
     const hit: HitMessage = { playerId: client.sessionId, palId, damage: ATTACK_DAMAGE };
     this.broadcast(ServerMessage.Hit, hit);
   }
@@ -148,7 +185,14 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (success) {
       this.state.pals.delete(palId);
       this.brains.delete(palId);
-      player.palCount += 1;
+      if (player.pals.length < MAX_PARTY) {
+        const owned = new OwnedPal();
+        owned.id = `own${this.nextOwnedId++}`;
+        owned.speciesId = species.id;
+        player.pals.push(owned);
+        // The first catch starts following right away.
+        if (!player.activePalId) this.summon(client.sessionId, owned.id);
+      }
     }
     const result: CaptureResultMessage = {
       playerId: client.sessionId,
@@ -158,6 +202,54 @@ export class GameRoom extends Room<{ state: GameState }> {
       chance,
     };
     this.broadcast(ServerMessage.CaptureResult, result);
+  }
+
+  /** Makes one of the player's pals follow them, replacing the current one. "" dismisses. */
+  private summon(sessionId: string, ownedId: string) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    const owned = ownedId ? player.pals.find((p) => p.id === ownedId) : undefined;
+    if (ownedId && !owned) return;
+    if (player.activePalId) this.despawnCompanion(player.activePalId);
+    player.activePalId = owned ? owned.id : "";
+    if (!owned) return;
+    const companion = new Companion();
+    companion.ownerId = sessionId;
+    companion.speciesId = owned.speciesId;
+    const spot = this.obstacles.resolve({ x: player.x - 30, y: player.y + 24 }, getSpecies(owned.speciesId).size);
+    companion.x = spot.x;
+    companion.y = spot.y;
+    this.state.companions.set(owned.id, companion);
+  }
+
+  private despawnCompanion(id: string) {
+    this.state.companions.delete(id);
+    this.companionAttacks.delete(id);
+  }
+
+  private tickCompanions(dtMs: number) {
+    const now = this.clock.currentTime;
+    this.state.companions.forEach((companion, id) => {
+      const owner = this.state.players.get(companion.ownerId);
+      const control = this.controls.get(companion.ownerId);
+      if (!owner || !control) {
+        this.despawnCompanion(id);
+        return;
+      }
+      const targetId = control.aggroUntil > now ? control.targetPalId : undefined;
+      const target = targetId ? this.state.pals.get(targetId) : undefined;
+      const radius = getSpecies(companion.speciesId).size;
+      const step = stepCompanion(companion, owner, target, dtMs, radius, this.obstacles);
+      companion.x = step.pos.x;
+      companion.y = step.pos.y;
+
+      if (!target || !targetId || !step.inAttackRange) return;
+      if (now - (this.companionAttacks.get(id) ?? 0) < COMPANION_ATTACK_COOLDOWN_MS) return;
+      this.companionAttacks.set(id, now);
+      target.hp = Math.max(1, target.hp - COMPANION_DAMAGE);
+      const hit: HitMessage = { playerId: companion.ownerId, palId: targetId, damage: COMPANION_DAMAGE, companionId: id };
+      this.broadcast(ServerMessage.Hit, hit);
+    });
   }
 
   private nearestPal(from: Vec2, range: number): [string, WildPal] | undefined {
@@ -173,9 +265,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     return best;
   }
 
-  private spawnPal() {
+  private spawnPal(at?: Vec2): string {
     const species = pickSpecies(Math.random());
-    const pos = randomPoint(Math.random, this.obstacles, species.size);
+    const pos = at ?? randomPoint(Math.random, this.obstacles, species.size);
     const pal = new WildPal();
     pal.speciesId = species.id;
     pal.x = pos.x;
@@ -185,6 +277,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const id = `pal${this.nextPalId++}`;
     this.state.pals.set(id, pal);
     this.brains.set(id, newBrain(pos));
+    return id;
   }
 
   private pickColor(): number {

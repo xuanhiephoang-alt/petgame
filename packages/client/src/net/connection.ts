@@ -6,6 +6,9 @@ export type GameRoom = Room<any, GameState>;
 function serverUrl(): string {
   const fromEnv = import.meta.env.VITE_SERVER_URL as string | undefined;
   if (fromEnv) return fromEnv;
+  // A production build is served by the game server itself: same origin.
+  if (import.meta.env.PROD) return location.origin;
+  // Dev: Vite on :5173, game server on :2567 of the same host (works over LAN).
   const protocol = location.protocol === "https:" ? "https" : "http";
   return `${protocol}://${location.hostname}:2567`;
 }

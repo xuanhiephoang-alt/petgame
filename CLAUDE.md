@@ -15,6 +15,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - `npm run typecheck`, `npm test` (Vitest), `npm run test:e2e` (Playwright, tự bật server)
 - `npm run build`: build client vào `packages/client/dist`
 - `npm run models:build`: dựng lại model GLB của thú từ `assets/pals/build.ts`; xem ở http://localhost:5173/model-viewer.html
+- Deploy: một container (`Dockerfile`, `fly.toml`) chạy server và phục vụ luôn client đã build; xem `docs/deploy.md`.
 - `npm run assets:kaykit`: nhập lại asset CC0 KayKit (cây cỏ, 5 nhân vật, animation) theo `assets/kaykit/manifest.ts`
 
 ## Quy tắc chung
@@ -24,6 +25,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - Bố cục thế giới (cây, đá, bụi, cỏ, lửa trại) sinh từ seed trong `packages/shared/src/worldgen.ts`. Server lấy vật cản (`defaultWorld().grid`) để chặn người và thú; client vẽ đúng bố cục đó và dùng cùng grid khi dự đoán chuyển động. Không tự rải vật cản riêng ở client.
 - Schema dùng `schema()` + `t.*` (không decorator). Đổi schema là đổi giao thức, cần cập nhật client.
 - Import nội bộ có đuôi `.ts`. Không có bước compile; server chạy bằng `tsx`, client bằng Vite.
+- Test hook phía server chỉ bật khi `PETGAME_DEBUG=1` (Playwright tự đặt). Không bao giờ bật trên server thật.
 - Không dùng tên, hình hay thiết kế thú của Palworld, Pokémon hoặc game có bản quyền.
 - Trước khi commit: `npm run typecheck && npm test`; tính năng chạm tới mạng hoặc UI thì chạy thêm `npm run test:e2e`.
 - Mỗi tính năng làm trên nhánh riêng, merge qua PR.

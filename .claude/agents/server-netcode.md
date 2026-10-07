@@ -15,6 +15,8 @@ Bạn là kỹ sư **server & netcode** của PetGame.
 - `GameRoom` (`packages/server/src/rooms/GameRoom.ts`): `maxClients = MAX_PLAYERS` (5), mô phỏng `TICK_RATE` = 20 tick/giây.
 - Client chỉ gửi **ý định** (`input`, `attack`, `throw`). Server tự tính vị trí, sát thương, tỉ lệ bắt. Không bao giờ tin dữ liệu số từ client; luôn kiểm tra kiểu, khoảng cách, cooldown.
 - Vật cản: `defaultWorld()` trong `packages/shared/src/worldgen.ts` (seed cố định) cho `CollisionGrid`; `stepPlayer(..., grid)` trượt quanh cây/đá. Đổi bố cục thế giới là đổi giao thức ngầm: client và server phải cùng phiên bản.
+- Túi thú: `Player.pals` (OwnedPal) + `activePalId`; thú đi theo nằm trong `state.companions` (key = OwnedPal id). Message `summon` đổi/cho về; Hit có `companionId` khi thú đánh.
+- Hook test `debug:spawnPal` chỉ đăng ký khi `PETGAME_DEBUG=1`. Thêm hook mới cũng phải chặn bằng biến này.
 - Dữ liệu chỉ server cần biết (input, cooldown, não AI) để trong Map riêng, KHÔNG đưa vào schema.
 - `packages/shared/src/schema.ts` được cả client dùng để decode. Đổi schema là đổi giao thức, nên phải báo cho **client-gameplay**.
 

@@ -16,6 +16,7 @@ import {
 } from "@petgame/shared";
 import { inviteLink, type GameRoom } from "../net/connection.ts";
 import { Hud } from "../ui/hud.ts";
+import { PartyPanel } from "../ui/party.ts";
 import { Joystick } from "../ui/joystick.ts";
 import { Keyboard } from "../ui/keyboard.ts";
 import { toScene } from "./coords.ts";
@@ -71,6 +72,8 @@ export class Game {
   private joystick?: Joystick;
   private players = new Map<string, Entity>();
   private pals = new Map<string, PalEntity>();
+  private companions = new Map<string, Entity>();
+  private party: PartyPanel;
   private lastSentInput: Vec2 = { x: 0, y: 0 };
   private lastFrame = performance.now();
   private cameraTarget = new THREE.Vector3();
@@ -98,6 +101,7 @@ export class Game {
 
     this.hud = new Hud(container, isTouch, { attack: () => this.attack(), capture: () => this.throwBall() });
     if (isTouch) this.joystick = new Joystick(this.hud.joystickZone);
+    this.party = new PartyPanel(this.hud.root, (palId) => this.room.send(ClientMessage.Summon, { palId }));
     this.keyboard = new Keyboard({ " ": () => this.attack(), e: () => this.throwBall() });
 
     window.addEventListener("resize", () => this.resize());
@@ -181,9 +185,47 @@ export class Game {
       this.pals.delete(id);
     });
 
+    $.onAdd("companions", (companion, id) => {
+      const species = getSpecies(companion.speciesId);
+      const anim = this.assets.pals.create(species.id);
+      const model = anim.object;
+      model.scale.setScalar(PAL_DISPLAY_SCALE);
+      // A ring in the owner's color marks whose pal this is.
+      const ownerColor = this.room.state.players.get(companion.ownerId)?.color ?? 0xffffff;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.42, 0.52, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: ownerColor, transparent: true, opacity: 0.85, depthWrite: false }),
+      );
+      ring.position.y = 0.03;
+      model.add(ring);
+      const label = makeLabel(species.name, "label companion");
+      label.position.y = new THREE.Box3().setFromObject(model).max.y / PAL_DISPLAY_SCALE + 0.15;
+      model.add(label);
+      toScene(companion.x, companion.y, model.position);
+      this.scene.add(model);
+      const entity: Entity = { model, anim, label, pos: { x: companion.x, y: companion.y }, server: { x: companion.x, y: companion.y } };
+      this.companions.set(id, entity);
+      $.onChange(companion, () => {
+        entity.server.x = companion.x;
+        entity.server.y = companion.y;
+      });
+    });
+
+    $.onRemove("companions", (_companion, id) => {
+      const entity = this.companions.get(id);
+      if (entity) this.removeEntity(entity);
+      this.companions.delete(id);
+    });
+
     this.room.onMessage(ServerMessage.Hit, (msg: HitMessage) => {
       const pal = this.pals.get(msg.palId);
-      if (msg.playerId !== this.room.sessionId) this.players.get(msg.playerId)?.anim.once(PlayerClip.Attack);
+      if (msg.companionId) {
+        const companion = this.companions.get(msg.companionId);
+        if (companion && pal) faceToward(companion, pal.pos);
+        companion?.anim.once("attack");
+      } else if (msg.playerId !== this.room.sessionId) {
+        this.players.get(msg.playerId)?.anim.once(PlayerClip.Attack);
+      }
       if (!pal) return;
       pal.anim.once("hurt");
       setFlash(pal.model, true);
@@ -244,6 +286,14 @@ export class Game {
       pal.pos.y += (pal.server.y - pal.pos.y) * lerp;
       this.placeModel(pal, prev, dtSec);
       this.animate(pal, prev, dtSec, "walk", "idle");
+    });
+
+    this.companions.forEach((companion) => {
+      const prev = { x: companion.pos.x, y: companion.pos.y };
+      companion.pos.x += (companion.server.x - companion.pos.x) * lerp;
+      companion.pos.y += (companion.server.y - companion.pos.y) * lerp;
+      this.placeModel(companion, prev, dtSec);
+      this.animate(companion, prev, dtSec, "walk", "idle");
     });
 
     this.updateCamera(dtSec);
@@ -333,7 +383,8 @@ export class Game {
 
   private updateHud() {
     const me = this.room.state.players?.get(this.room.sessionId);
-    this.hud.setStatus(this.room.state.players?.size ?? 0, me?.palCount ?? 0, inviteLink(this.room.roomId));
+    this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, inviteLink(this.room.roomId));
+    if (me) this.party.update(me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId })), me.activePalId);
   }
 
   private removeEntity(entity: Entity) {
@@ -341,6 +392,11 @@ export class Game {
     this.scene.remove(entity.model);
     entity.anim.dispose();
   }
+}
+
+/** Turns an entity to face a point (server pixels). */
+function faceToward(entity: Entity, target: Vec2) {
+  entity.model.rotation.y = Math.atan2(target.x - entity.pos.x, target.y - entity.pos.y);
 }
 
 function makeLabel(text: string, className: string): CSS2DObject {

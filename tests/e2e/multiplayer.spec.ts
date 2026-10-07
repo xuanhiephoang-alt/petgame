@@ -1,10 +1,19 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { Client, type Room } from "@colyseus/sdk";
 
 const SERVER = "http://localhost:2567";
 
+// Pages render WebGL in software here; close them after each test so they
+// do not keep eating CPU and starve the next test.
+const contexts: BrowserContext[] = [];
+test.afterEach(async () => {
+  await Promise.all(contexts.splice(0).map((c) => c.close()));
+});
+
 async function join(browser: Browser, name: string, path = "/"): Promise<Page> {
-  const page = await (await browser.newContext()).newPage();
+  const context = await browser.newContext();
+  contexts.push(context);
+  const page = await context.newPage();
   await page.goto(path);
   await page.fill("#name", name);
   await page.click("#join-btn");
@@ -61,4 +70,41 @@ test("wild pals spawn and can be targeted", async ({ browser }) => {
   await waitForWorld(page);
   const palCount = await page.evaluate(() => (window as any).__petgame.room.state.pals.size as number);
   expect(palCount).toBeGreaterThan(0);
+});
+
+test("a captured pal follows the player and shows in the party panel", async ({ browser }) => {
+  const page = await join(browser, "Tamer");
+  await waitForWorld(page);
+
+  // A weakened pal appears next to us (test-only server hook); throw until caught.
+  const caught = await page.evaluate(async () => {
+    const { room } = (window as any).__petgame;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const me = () => room.state.players.get(room.sessionId);
+    room.send("debug:spawnPal");
+    for (let attempt = 0; attempt < 20 && me().pals.length === 0; attempt++) {
+      await sleep(900);
+      let nearest = "", best = Infinity;
+      room.state.pals.forEach((p: any, id: string) => {
+        const d = Math.hypot(p.x - me().x, p.y - me().y);
+        if (d < best) { best = d; nearest = id; }
+      });
+      if (nearest) room.send("throw", { palId: nearest });
+    }
+    await sleep(500);
+    return me().pals.length;
+  });
+  // A throw already in flight can land a second catch; one or more is fine.
+  expect(caught).toBeGreaterThanOrEqual(1);
+
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size)).toBe(1);
+  await expect(page.locator(".party-btn")).toHaveText(`🐾 Thú (${caught})`);
+  await page.locator(".party-btn").click();
+  await expect(page.locator(".party-card.active .party-action")).toHaveText("Cho về");
+
+  // Dismiss, then summon again from the panel.
+  await page.locator(".party-card.active .party-action").click();
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size)).toBe(0);
+  await page.locator(".party-card .party-action").first().click();
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size)).toBe(1);
 });
