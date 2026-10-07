@@ -73,6 +73,8 @@ test("wild pals spawn and can be targeted", async ({ browser }) => {
 });
 
 test("a captured pal follows the player and shows in the party panel", async ({ browser }) => {
+  // Long flow (catch, camp, reload) on software-rendered WebGL: allow extra time.
+  test.slow();
   const page = await join(browser, "Tamer");
   await waitForWorld(page);
 
@@ -139,6 +141,8 @@ test("a captured pal follows the player and shows in the party panel", async ({ 
 });
 
 test("crafting at the camp: great ball, ball toggle and camp upgrade", async ({ browser }) => {
+  // Long flow (catch, camp, reload) on software-rendered WebGL: allow extra time.
+  test.slow();
   const page = await join(browser, "Crafter");
   await waitForWorld(page);
   const me = () => page.evaluate(() => {
