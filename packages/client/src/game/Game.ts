@@ -12,6 +12,7 @@ import {
   type CaptureResultMessage,
   type HitMessage,
   type Vec2,
+  defaultWorld,
 } from "@petgame/shared";
 import { inviteLink, type GameRoom } from "../net/connection.ts";
 import { Hud } from "../ui/hud.ts";
@@ -73,6 +74,8 @@ export class Game {
   private lastSentInput: Vec2 = { x: 0, y: 0 };
   private lastFrame = performance.now();
   private cameraTarget = new THREE.Vector3();
+  /** Same obstacles the server uses, so prediction matches its collisions. */
+  private obstacles = defaultWorld().grid;
   private tmp = new THREE.Vector3();
 
   constructor(private container: HTMLElement, private room: GameRoom, private assets: GameAssets) {
@@ -221,7 +224,7 @@ export class Game {
       const prev = { x: entity.pos.x, y: entity.pos.y };
       if (sessionId === this.room.sessionId) {
         // Client-side prediction, gently corrected toward the server.
-        const predicted = stepPlayer(entity.pos, input, delta);
+        const predicted = stepPlayer(entity.pos, input, delta, this.obstacles);
         if (distance(predicted, entity.server) > SNAP_DISTANCE) entity.pos = { ...entity.server };
         else entity.pos = {
           x: predicted.x + (entity.server.x - predicted.x) * 0.05,
@@ -244,7 +247,7 @@ export class Game {
     });
 
     this.updateCamera(dtSec);
-    this.world.update(now / 1000, this.cameraTarget);
+    this.world.update(now / 1000, this.cameraTarget, this.camera);
     this.effects.update(dtSec);
     this.updateHud();
     this.renderer.render(this.scene, this.camera);

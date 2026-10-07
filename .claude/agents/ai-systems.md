@@ -11,6 +11,7 @@ Bạn là kỹ sư **AI hệ thống** của PetGame.
 
 ## Kiến trúc hiện tại
 - `wander.ts`: `WanderBrain` + `stepWander()`, hàm thuần, mutate vị trí. `GameRoom` gọi mỗi tick.
+- `stepWander(..., { grid, radius })` trượt quanh vật cản và đổi mục tiêu khi bị chặn; `randomPoint(random, grid, r)` tránh sinh thú trong cây/đá. Grid lấy từ `defaultWorld()`.
 - Não AI (`brain`) chỉ tồn tại trên server, KHÔNG đồng bộ cho client.
 - Kỹ năng làm việc của thú lấy từ `workSkills` trong `packages/shared/src/data/pals.json`.
 

@@ -1,4 +1,5 @@
 import { PLAYER_RADIUS, PLAYER_SPEED, WORLD_HEIGHT, WORLD_WIDTH } from "./constants.ts";
+import type { CollisionGrid } from "./collision.ts";
 
 export interface Vec2 {
   x: number;
@@ -15,15 +16,21 @@ export function normalizeInput(input: Vec2): Vec2 {
 }
 
 /**
- * Moves a player by one step. Shared by the server (authoritative) and the
- * client (prediction) so both compute identical positions.
+ * Moves a player by one step, sliding around obstacles. Shared by the server
+ * (authoritative) and the client (prediction) so both compute identical positions.
  */
-export function stepPlayer(pos: Vec2, input: Vec2, dtMs: number): Vec2 {
+export function stepPlayer(pos: Vec2, input: Vec2, dtMs: number, obstacles?: CollisionGrid): Vec2 {
   const dir = normalizeInput(input);
   const dist = (PLAYER_SPEED * dtMs) / 1000;
+  let next = clampToWorld({ x: pos.x + dir.x * dist, y: pos.y + dir.y * dist });
+  if (obstacles) next = clampToWorld(obstacles.resolve(next, PLAYER_RADIUS));
+  return next;
+}
+
+function clampToWorld(p: Vec2): Vec2 {
   return {
-    x: clamp(pos.x + dir.x * dist, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS),
-    y: clamp(pos.y + dir.y * dist, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS),
+    x: clamp(p.x, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS),
+    y: clamp(p.y, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS),
   };
 }
 

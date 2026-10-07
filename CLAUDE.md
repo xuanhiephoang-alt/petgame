@@ -21,6 +21,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - Client chỉ gửi ý định; server quyết định vị trí, sát thương, kết quả bắt thú.
 - Server mô phỏng mặt phẳng 2D theo pixel (x, y). Client vẽ 3D trên mặt XZ qua `toScene()` (`packages/client/src/game/coords.ts`, 32 px = 1 đơn vị).
 - Logic dùng chung giữa client và server đặt trong `packages/shared` và phải có test.
+- Bố cục thế giới (cây, đá, bụi, cỏ, lửa trại) sinh từ seed trong `packages/shared/src/worldgen.ts`. Server lấy vật cản (`defaultWorld().grid`) để chặn người và thú; client vẽ đúng bố cục đó và dùng cùng grid khi dự đoán chuyển động. Không tự rải vật cản riêng ở client.
 - Schema dùng `schema()` + `t.*` (không decorator). Đổi schema là đổi giao thức, cần cập nhật client.
 - Import nội bộ có đuôi `.ts`. Không có bước compile; server chạy bằng `tsx`, client bằng Vite.
 - Không dùng tên, hình hay thiết kế thú của Palworld, Pokémon hoặc game có bản quyền.

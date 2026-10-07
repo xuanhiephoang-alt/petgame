@@ -1,25 +1,24 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { WORLD_HEIGHT, WORLD_WIDTH } from "@petgame/shared";
+import { BORDER as BORDER_PX, WORLD_HEIGHT, WORLD_WIDTH, defaultWorld, fbm, mulberry32, smoothstep, type Prop } from "@petgame/shared";
 import { UNITS_PER_PIXEL } from "./coords.ts";
-import { mulberry32 } from "./random.ts";
 
 const W = WORLD_WIDTH * UNITS_PER_PIXEL;
 const H = WORLD_HEIGHT * UNITS_PER_PIXEL;
-const CENTER = new THREE.Vector2(W / 2, H / 2);
-/** Players spawn in the middle; keep it open. */
-const CLEARING_RADIUS = 6;
 /** Width of the dense forest band drawn outside the playable area. */
-const BORDER = 8;
+const BORDER = BORDER_PX * UNITS_PER_PIXEL;
 
 const SKY = 0xbfe3f2;
-/** Camp at the spawn point, just north of where players appear. */
-const CAMPFIRE = new THREE.Vector2(W / 2, H / 2 - 2.4);
+/** Camp at the spawn point, from the shared layout (just north of where players appear). */
+const CAMPFIRE = new THREE.Vector2(defaultWorld().layout.campfire.x, defaultWorld().layout.campfire.y).multiplyScalar(UNITS_PER_PIXEL);
 
 export interface World {
   sun: THREE.DirectionalLight;
-  /** Advances wind and ambient particles; `focus` is the camera target. */
-  update(timeSec: number, focus: THREE.Vector3): void;
+  /**
+   * Advances wind, particles and the campfire. `focus` is the camera target;
+   * tree canopies between the camera and `focus` are faded out.
+   */
+  update(timeSec: number, focus: THREE.Vector3, camera: THREE.Camera): void;
 }
 
 /** Loads the KayKit nature models (trees, bushes, rocks, grass) keyed by name. */
@@ -50,15 +49,21 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
 
   scene.add(buildGround());
 
-  const wind = { value: 0 };
-  scatterNature(scene, nature, wind);
+  const uniforms: WorldUniforms = {
+    windTime: { value: 0 },
+    focus: { value: new THREE.Vector3() },
+    cameraPos: { value: new THREE.Vector3() },
+  };
+  scatterNature(scene, nature, uniforms);
   const particles = new Particles(scene);
   const campfire = buildCampfire(scene, nature);
 
   return {
     sun,
-    update(timeSec, focus) {
-      wind.value = timeSec;
+    update(timeSec, focus, camera) {
+      uniforms.windTime.value = timeSec;
+      uniforms.focus.value.copy(focus);
+      uniforms.cameraPos.value.copy(camera.position);
       particles.update(timeSec, focus);
       campfire(timeSec);
     },
@@ -105,125 +110,38 @@ function buildGround(): THREE.Mesh {
   return ground;
 }
 
-// Value noise + fBm, deterministic so every client sees the same ground.
-function hash(x: number, y: number): number {
-  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
-  return s - Math.floor(s);
-}
-function noise(x: number, y: number): number {
-  const xi = Math.floor(x), yi = Math.floor(y);
-  const xf = x - xi, yf = y - yi;
-  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
-  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-}
-function fbm(x: number, y: number): number {
-  let sum = 0, amp = 0.5, freq = 1;
-  for (let o = 0; o < 4; o++) {
-    sum += noise(x * freq, y * freq) * amp;
-    freq *= 2;
-    amp *= 0.5;
-  }
-  return sum / 0.9375;
-}
-function smoothstep(a: number, b: number, x: number): number {
-  const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
-  return t * t * (3 - 2 * t);
-}
-
 // ---------------------------------------------------------------------------
 // Nature scatter (instanced)
 // ---------------------------------------------------------------------------
 
-const TREES = ["Tree_1_A", "Tree_1_B", "Tree_2_A", "Tree_2_C", "Tree_3_A", "Tree_4_A", "Tree_4_B", "Tree_5_A", "Tree_6_A", "Tree_7_A"];
-const BUSHES = ["Bush_1_A", "Bush_1_C", "Bush_2_A", "Bush_2_C", "Bush_4_A"];
-const ROCKS = ["Rock_1_A", "Rock_1_E", "Rock_2_A", "Rock_3_A", "Rock_3_E", "Rock_5_A"];
-const GRASS = ["Grass_1_A", "Grass_1_C", "Grass_2_A", "Grass_2_C"];
-
-interface Placement {
-  x: number;
-  z: number;
-  scale: number;
-  yaw: number;
+interface WorldUniforms {
+  windTime: { value: number };
+  /** Point the camera follows (the local player). */
+  focus: { value: THREE.Vector3 };
+  cameraPos: { value: THREE.Vector3 };
 }
 
-function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, wind: { value: number }) {
+/** Wind strength per prop kind: grass sways a lot, canopies a little, rocks not at all. */
+const SWAY: Record<Prop["kind"], number> = { grass: 0.12, bush: 0.05, tree: 0.015, rock: 0 };
+
+/** Draws the shared world layout (packages/shared worldgen.ts) with instanced KayKit models. */
+function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, uniforms: WorldUniforms) {
+  const placements = new Map<string, Prop[]>();
+  for (const p of defaultWorld().layout.props) {
+    const list = placements.get(p.model) ?? [];
+    list.push(p);
+    placements.set(p.model, list);
+  }
+  scatterFlowers(scene, mulberry32(4321), uniforms);
   if (nature.size === 0) return;
-  const rand = mulberry32(1234);
-  const pick = <T,>(list: T[]) => list[Math.floor(rand() * list.length)];
-  const placements = new Map<string, Placement[]>();
-  const place = (name: string, x: number, z: number, scale: number) => {
-    const list = placements.get(name) ?? [];
-    list.push({ x, z, scale, yaw: rand() * Math.PI * 2 });
-    placements.set(name, list);
-  };
-  const inClearing = (x: number, z: number, margin = 0) => CENTER.distanceTo(new THREE.Vector2(x, z)) < CLEARING_RADIUS + margin;
-  const inside = (x: number, z: number) => x > 0 && x < W && z > 0 && z < H;
 
-  // Dense forest band around the world edge.
-  for (let x = -BORDER; x <= W + BORDER; x += 2.1) {
-    for (let z = -BORDER; z <= H + BORDER; z += 2.1) {
-      if (inside(x, z)) continue;
-      const jx = x + (rand() - 0.5) * 1.6, jz = z + (rand() - 0.5) * 1.6;
-      place(pick(TREES), jx, jz, 0.9 + rand() * 0.6);
-      if (rand() < 0.4) place(pick(BUSHES), jx + 1, jz + 0.5, 0.8 + rand() * 0.5);
-    }
-  }
-  // Bushes softening the inner edge of the forest.
-  for (let i = 0; i < 70; i++) {
-    const edge = Math.floor(rand() * 4);
-    const t = rand();
-    const d = rand() * 1.5;
-    const [x, z] = edge === 0 ? [t * W, d] : edge === 1 ? [t * W, H - d] : edge === 2 ? [d, t * H] : [W - d, t * H];
-    place(pick(BUSHES), x, z, 0.8 + rand() * 0.6);
-  }
-
-  // Forest clumps inside the world.
-  for (let i = 0; i < 11; i++) {
-    const cx = 4 + rand() * (W - 8), cz = 4 + rand() * (H - 8);
-    if (inClearing(cx, cz, 4)) continue;
-    const trees = 3 + Math.floor(rand() * 6);
-    for (let t = 0; t < trees; t++) {
-      const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * 3.2;
-      place(pick(TREES), cx + Math.cos(a) * r, cz + Math.sin(a) * r, 0.8 + rand() * 0.5);
-    }
-    for (let b = 0; b < 4 + rand() * 4; b++) {
-      const a = rand() * Math.PI * 2, r = 3 + rand() * 1.5;
-      place(pick(BUSHES), cx + Math.cos(a) * r, cz + Math.sin(a) * r, 0.7 + rand() * 0.5);
-    }
-  }
-
-  // Rock clusters.
-  for (let i = 0; i < 16; i++) {
-    const cx = 2 + rand() * (W - 4), cz = 2 + rand() * (H - 4);
-    if (inClearing(cx, cz, 1)) continue;
-    const n = 1 + Math.floor(rand() * 3);
-    for (let r = 0; r < n; r++) place(pick(ROCKS), cx + (rand() - 0.5) * 1.6, cz + (rand() - 0.5) * 1.6, 0.6 + rand() * 0.8);
-  }
-
-  // Loose bushes and lots of grass tufts.
-  for (let i = 0; i < 30; i++) {
-    const x = rand() * W, z = rand() * H;
-    if (!inClearing(x, z)) place(pick(BUSHES), x, z, 0.6 + rand() * 0.5);
-  }
-  // Grass grows in patches: sample candidates and keep those where noise is high.
-  for (let i = 0; i < 5000; i++) {
-    const x = -2 + rand() * (W + 4), z = -2 + rand() * (H + 4);
-    const keep = inClearing(x, z) ? rand() < 0.2 : fbm(x * 0.12 + 7, z * 0.12 + 7) > 0.5 && rand() < 0.55;
-    if (!keep || CAMPFIRE.distanceTo(new THREE.Vector2(x, z)) < 1.6) continue;
-    place(pick(GRASS), x, z, 0.3 + rand() * 0.3);
-  }
-
-  scatterFlowers(scene, rand, wind);
-
-  // Wind: grass and bushes sway a lot, tree canopies a little, rocks not at all.
   const materials = new Map<string, THREE.Material>();
-  const windMaterial = (base: THREE.Material, amount: number) => {
-    const key = `${base.uuid}:${amount}`;
+  const decorated = (base: THREE.Material, kind: Prop["kind"]) => {
+    const key = `${base.uuid}:${kind}`;
     let m = materials.get(key);
     if (!m) {
       m = base.clone();
-      if (amount > 0) addWind(m, wind, amount);
+      decorateMaterial(m, uniforms, SWAY[kind], kind === "tree");
       materials.set(key, m);
     }
     return m;
@@ -236,22 +154,25 @@ function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, 
   for (const [name, list] of placements) {
     const template = nature.get(name);
     if (!template) continue;
-    const sway = name.startsWith("Grass") ? 0.12 : name.startsWith("Bush") ? 0.05 : name.startsWith("Tree") ? 0.015 : 0;
+    const kind = list[0].kind;
     template.updateMatrixWorld(true);
     const rootInverse = template.matrixWorld.clone().invert();
     template.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       relative.multiplyMatrices(rootInverse, mesh.matrixWorld);
-      const im = new THREE.InstancedMesh(mesh.geometry, windMaterial(mesh.material as THREE.Material, sway), list.length);
+      const im = new THREE.InstancedMesh(mesh.geometry, decorated(mesh.material as THREE.Material, kind), list.length);
       list.forEach((p, i) => {
         q.setFromAxisAngle(up, p.yaw);
-        instance.compose(new THREE.Vector3(p.x, 0, p.z), q, new THREE.Vector3(p.scale, p.scale, p.scale));
+        instance.compose(
+          new THREE.Vector3(p.x * UNITS_PER_PIXEL, 0, p.y * UNITS_PER_PIXEL),
+          q,
+          new THREE.Vector3(p.scale, p.scale, p.scale),
+        );
         im.setMatrixAt(i, instance.multiply(relative));
       });
       im.computeBoundingSphere();
-      const isGrass = name.startsWith("Grass");
-      im.castShadow = !isGrass;
+      im.castShadow = kind !== "grass";
       im.receiveShadow = true;
       scene.add(im);
     });
@@ -259,7 +180,7 @@ function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, 
 }
 
 /** Small instanced flower heads in clustered patches for splashes of color. */
-function scatterFlowers(scene: THREE.Scene, rand: () => number, wind: { value: number }) {
+function scatterFlowers(scene: THREE.Scene, rand: () => number, uniforms: WorldUniforms) {
   const colors = [0xffffff, 0xffe066, 0xff8fb1, 0xc5a3ff, 0xff9e5e];
   const perColor: THREE.Matrix4[][] = colors.map(() => []);
   const m = new THREE.Matrix4();
@@ -281,7 +202,7 @@ function scatterFlowers(scene: THREE.Scene, rand: () => number, wind: { value: n
     const list = perColor[i];
     if (!list.length) return;
     const material = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.15 });
-    addWind(material, wind, 0.6);
+    decorateMaterial(material, uniforms, 0.6, false);
     const im = new THREE.InstancedMesh(geometry, material, list.length);
     list.forEach((mat, k) => im.setMatrixAt(k, mat));
     im.computeBoundingSphere();
@@ -294,12 +215,20 @@ function scatterFlowers(scene: THREE.Scene, rand: () => number, wind: { value: n
   scene.add(stems);
 }
 
-/** Bends vertices sideways over time, more the higher they are above the ground. */
-function addWind(material: THREE.Material, time: { value: number }, amount: number) {
+/**
+ * Injects wind sway (vertices bend more the higher they are) and, for trees,
+ * occlusion fading: canopy fragments close to the camera-to-player line are
+ * dithered out so the player stays visible. Dithering (discarding a screen
+ * pattern) works with instancing and needs no transparency sorting.
+ */
+function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, sway: number, fadeOccluders: boolean) {
+  if (sway === 0 && !fadeOccluders) return;
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.windTime = time;
+    shader.uniforms.windTime = uniforms.windTime;
+    shader.uniforms.focusPos = uniforms.focus;
+    shader.uniforms.cameraPos = uniforms.cameraPos;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float windTime;")
+      .replace("#include <common>", "#include <common>\nuniform float windTime;\nvarying vec3 vWorldPos;")
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
@@ -309,12 +238,42 @@ function addWind(material: THREE.Material, time: { value: number }, amount: numb
           vec3 windOrigin = vec3(0.0);
         #endif
         float windPhase = windTime * 1.7 + windOrigin.x * 0.35 + windOrigin.z * 0.25;
-        float windBend = max(transformed.y, 0.0) * ${amount.toFixed(3)};
+        float windBend = max(transformed.y, 0.0) * ${sway.toFixed(3)};
         transformed.x += sin(windPhase) * windBend;
         transformed.z += cos(windPhase * 0.8) * windBend * 0.5;`,
+      )
+      .replace(
+        "#include <worldpos_vertex>",
+        `#include <worldpos_vertex>
+        #ifdef USE_INSTANCING
+          vWorldPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+        #else
+          vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        #endif`,
       );
+    if (fadeOccluders) {
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", "#include <common>\nuniform vec3 focusPos;\nuniform vec3 cameraPos;\nvarying vec3 vWorldPos;")
+        .replace(
+          "#include <clipping_planes_fragment>",
+          `#include <clipping_planes_fragment>
+          {
+            // Distance from this fragment to the segment camera -> player chest.
+            vec3 target = focusPos + vec3(0.0, 1.0, 0.0);
+            vec3 seg = target - cameraPos;
+            float t = clamp(dot(vWorldPos - cameraPos, seg) / dot(seg, seg), 0.0, 1.0);
+            float d = length(vWorldPos - (cameraPos + seg * t));
+            // Fully cut out near the line, dithered rim further out, trunks kept.
+            float fade = (1.0 - smoothstep(1.8, 2.3, d)) * step(0.05, 1.0 - t) * smoothstep(0.9, 1.6, vWorldPos.y);
+            // 4x4 ordered dither: discard a growing share of pixels as fade rises.
+            vec2 p = mod(floor(gl_FragCoord.xy), 4.0);
+            float threshold = (mod(p.x * 2.0 + p.y * 3.0, 4.0) * 4.0 + mod(p.x + p.y * 2.0, 4.0) + 0.5) / 16.0;
+            if (fade > threshold) discard;
+          }`,
+        );
+    }
   };
-  material.customProgramCacheKey = () => `wind-${amount}`;
+  material.customProgramCacheKey = () => `decor-${sway}-${fadeOccluders}`;
 }
 
 // ---------------------------------------------------------------------------

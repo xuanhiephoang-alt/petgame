@@ -5,6 +5,9 @@ export const MAX_PLAYERS = 5;
 export const TICK_RATE = 20;
 export const TICK_MS = 1000 / TICK_RATE;
 
+/** Server pixels per 3D scene unit (1 unit = 1 m). */
+export const PIXELS_PER_UNIT = 32;
+
 /** World size in pixels. */
 export const WORLD_WIDTH = 1600;
 export const WORLD_HEIGHT = 1200;

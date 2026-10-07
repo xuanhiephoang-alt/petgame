@@ -4,3 +4,6 @@ export * from "./capture.ts";
 export * from "./movement.ts";
 export * from "./messages.ts";
 export * from "./schema.ts";
+export * from "./noise.ts";
+export * from "./collision.ts";
+export * from "./worldgen.ts";

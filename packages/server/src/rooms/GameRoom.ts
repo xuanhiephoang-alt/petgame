@@ -29,6 +29,7 @@ import {
   GameState,
   Player,
   WildPal,
+  defaultWorld,
 } from "@petgame/shared";
 import { newBrain, randomPoint, stepWander, type WanderBrain } from "../ai/wander.ts";
 
@@ -47,6 +48,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private brains = new Map<string, WanderBrain>();
   private nextPalId = 1;
   private respawnTimer = 0;
+  /** Trees, rocks and the campfire; shared with the client for prediction. */
+  private obstacles = defaultWorld().grid;
 
   onCreate() {
     for (let i = 0; i < WILD_PAL_TARGET; i++) this.spawnPal();
@@ -88,7 +91,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.players.forEach((player, sessionId) => {
       const control = this.controls.get(sessionId);
       if (!control || (control.input.x === 0 && control.input.y === 0)) return;
-      const next = stepPlayer(player, control.input, dtMs);
+      const next = stepPlayer(player, control.input, dtMs, this.obstacles);
       player.x = next.x;
       player.y = next.y;
     });
@@ -97,7 +100,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       const brain = this.brains.get(id);
       if (!brain) return;
       const pos = { x: pal.x, y: pal.y };
-      stepWander(pos, brain, getSpecies(pal.speciesId).speed, dtMs);
+      const species = getSpecies(pal.speciesId);
+      stepWander(pos, brain, species.speed, dtMs, Math.random, { grid: this.obstacles, radius: species.size });
       pal.x = pos.x;
       pal.y = pos.y;
     });
@@ -171,7 +175,7 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private spawnPal() {
     const species = pickSpecies(Math.random());
-    const pos = randomPoint();
+    const pos = randomPoint(Math.random, this.obstacles, species.size);
     const pal = new WildPal();
     pal.speciesId = species.id;
     pal.x = pos.x;
