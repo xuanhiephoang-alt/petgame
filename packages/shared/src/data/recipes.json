@@ -1,0 +1,34 @@
+[
+  {
+    "id": "great_ball",
+    "name": "Bóng xịn",
+    "icon": "🔵",
+    "description": "Tỉ lệ bắt cao gấp 1,6 lần bóng thường",
+    "cost": { "wood": 3, "stone": 2 },
+    "output": { "item": "greatBalls", "amount": 1 }
+  },
+  {
+    "id": "berry_snack",
+    "name": "Bánh quả mọng",
+    "icon": "🥧",
+    "description": "Cho thú ăn để nhận 40 kinh nghiệm",
+    "cost": { "berries": 4 },
+    "output": { "item": "snacks", "amount": 1 }
+  },
+  {
+    "id": "camp_2",
+    "name": "Nâng trại cấp 2",
+    "icon": "🏕️",
+    "description": "Thêm 1 chỗ làm việc, thú làm nhanh hơn 15%",
+    "cost": { "wood": 12, "stone": 8 },
+    "output": { "baseLevel": 2 }
+  },
+  {
+    "id": "camp_3",
+    "name": "Nâng trại cấp 3",
+    "icon": "🏰",
+    "description": "Thêm 1 chỗ làm việc nữa, thú làm nhanh hơn 30%",
+    "cost": { "wood": 25, "stone": 18, "berries": 10 },
+    "output": { "baseLevel": 3 }
+  }
+]

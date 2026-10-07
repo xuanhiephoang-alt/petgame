@@ -9,6 +9,10 @@ export const ClientMessage = {
   Assign: "assign",
   /** Place (or move) the player's base at their position. */
   PlaceBase: "placeBase",
+  /** Craft a recipe at the player's camp. */
+  Craft: "craft",
+  /** Feed a snack to one of the player's pals. */
+  Feed: "feed",
 } as const;
 
 export interface InputMessage {
@@ -19,6 +23,16 @@ export interface InputMessage {
 
 export interface ThrowMessage {
   /** Id of the wild pal the ball is thrown at. */
+  palId: string;
+  /** "great" uses a crafted great ball if the player has one. */
+  ball?: "basic" | "great";
+}
+
+export interface CraftMessage {
+  recipeId: string;
+}
+
+export interface FeedMessage {
   palId: string;
 }
 

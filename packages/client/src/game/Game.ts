@@ -10,6 +10,7 @@ import {
   normalizeInput,
   stepPlayer,
   RESOURCE_INFO,
+  CRAFT_RANGE,
   type CaptureResultMessage,
   type HitMessage,
   type LevelUpMessage,
@@ -22,6 +23,7 @@ import {
 import { inviteLink, type GameRoom } from "../net/connection.ts";
 import { Hud } from "../ui/hud.ts";
 import { PartyPanel } from "../ui/party.ts";
+import { CraftPanel } from "../ui/crafting.ts";
 import { Joystick } from "../ui/joystick.ts";
 import { Keyboard } from "../ui/keyboard.ts";
 import { toScene } from "./coords.ts";
@@ -80,6 +82,9 @@ export class Game {
   private pals = new Map<string, PalEntity>();
   private companions = new Map<string, Entity>();
   private party: PartyPanel;
+  private craft: CraftPanel;
+  /** Whether the next throw should use a crafted great ball. */
+  private useGreatBall = false;
   /** Camp models by owner session id. */
   private bases = new Map<string, THREE.Group>();
   private lastSentInput: Vec2 = { x: 0, y: 0 };
@@ -111,17 +116,24 @@ export class Game {
       attack: () => this.attack(),
       capture: () => this.throwBall(),
       placeBase: () => this.room.send(ClientMessage.PlaceBase),
+      toggleBall: () => this.toggleBall(),
     });
     if (isTouch) this.joystick = new Joystick(this.hud.joystickZone);
     this.party = new PartyPanel(this.hud.root, {
       summon: (palId) => this.room.send(ClientMessage.Summon, { palId }),
       work: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "work" }),
       rest: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "" }),
+      feed: (palId) => this.room.send(ClientMessage.Feed, { palId }),
     });
+    this.craft = new CraftPanel(this.hud.root, (recipeId) => this.room.send(ClientMessage.Craft, { recipeId }));
+    // Only one panel open at a time.
+    this.party.onOpen = () => this.craft.toggle(false);
+    this.craft.onOpen = () => this.party.toggle(false);
     this.keyboard = new Keyboard({
       " ": () => this.attack(),
       e: () => this.throwBall(),
       b: () => this.room.send(ClientMessage.PlaceBase),
+      r: () => this.toggleBall(),
     });
 
     window.addEventListener("resize", () => this.resize());
@@ -157,9 +169,9 @@ export class Game {
       $.onChange(player, () => {
         entity.server.x = player.x;
         entity.server.y = player.y;
-        this.syncBase(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name);
+        this.syncBase(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
       });
-      this.syncBase(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name);
+      this.syncBase(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
       if (isMe) this.cameraTarget.copy(model.position);
     });
 
@@ -167,7 +179,7 @@ export class Game {
       const entity = this.players.get(sessionId);
       if (entity) this.removeEntity(entity);
       this.players.delete(sessionId);
-      this.syncBase(sessionId, false, 0, 0, 0, "");
+      this.syncBase(sessionId, false, 0, 0, 0, "", 1);
     });
 
     $.onAdd("pals", (pal, id) => {
@@ -410,7 +422,9 @@ export class Game {
       this.hud.showToast("Không có thú nào ở gần");
       return;
     }
-    this.room.send(ClientMessage.Throw, { palId: targetId });
+    const me2 = this.room.state.players.get(this.room.sessionId);
+    const great = this.useGreatBall && (me2?.greatBalls ?? 0) > 0;
+    this.room.send(ClientMessage.Throw, { palId: targetId, ball: great ? "great" : "basic" });
     me.anim.once(PlayerClip.Throw);
     // Face the target while throwing.
     const target = this.pals.get(targetId)!;
@@ -429,25 +443,51 @@ export class Game {
     this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, resources, inviteLink(this.room.roomId));
     if (me) {
       const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment }));
-      this.party.update(party, me.hasBase);
+      this.party.update(party, me.hasBase, me.snacks);
+      if (me.greatBalls === 0) this.useGreatBall = false;
+      this.hud.setBall(this.useGreatBall, me.greatBalls);
+      const myPos = this.players.get(this.room.sessionId)?.pos ?? me;
+      const nearBase = me.hasBase && distance(myPos, { x: me.baseX, y: me.baseY }) <= CRAFT_RANGE;
+      this.craft.update({ resources, hasBase: me.hasBase, baseLevel: me.baseLevel || 1, nearBase });
     }
   }
 
+  private toggleBall() {
+    const me = this.room.state.players.get(this.room.sessionId);
+    if (!me) return;
+    if (me.greatBalls <= 0) {
+      this.useGreatBall = false;
+      this.hud.showToast("Chưa có 🔵 Bóng xịn. Chế tạo ở trại (phím C)");
+      return;
+    }
+    this.useGreatBall = !this.useGreatBall;
+  }
+
   /** Creates, moves or removes a player's camp model to match the synced state. */
-  private syncBase(sessionId: string, hasBase: boolean, x: number, y: number, color: number, owner: string) {
+  private syncBase(sessionId: string, hasBase: boolean, x: number, y: number, color: number, owner: string, level: number) {
     let base = this.bases.get(sessionId);
+    // Upgrades change the model: rebuild it.
+    if (base && hasBase && base.userData.level !== level) {
+      this.syncBase(sessionId, false, 0, 0, 0, "", 1);
+      base = undefined;
+    }
     if (!hasBase) {
       if (base) {
         this.scene.remove(base);
-        base.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+        base.traverse((o) => {
+          (o as THREE.Mesh).geometry?.dispose();
+          const material = (o as THREE.Mesh).material as THREE.Material | undefined;
+          material?.dispose();
+        });
         base.children.forEach((c) => c instanceof CSS2DObject && c.element.remove());
         this.bases.delete(sessionId);
       }
       return;
     }
     if (!base) {
-      base = createBaseModel(color);
-      const label = makeLabel(`🏕️ Trại của ${owner}`, "label base");
+      base = createBaseModel(color, level);
+      base.userData.level = level;
+      const label = makeLabel(`🏕️ Trại của ${owner} · Cấp ${level}`, "label base");
       label.position.y = 2.2;
       base.add(label);
       this.scene.add(base);

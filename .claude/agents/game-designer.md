@@ -17,6 +17,7 @@ KHÔNG sửa file `.ts`. Nếu cần trường dữ liệu mới, hãy mô tả 
 - `id` viết thường, không dấu, duy nhất. `name` là tên tự sáng tạo. **Không dùng tên/thiết kế của Palworld, Pokémon hay bất kỳ game có bản quyền nào.**
 - `catchRate` trong khoảng 0..1. Thú càng mạnh/hiếm thì catchRate càng thấp và spawnWeight càng thấp.
 - Giữ cân bằng giữa các hệ (grass, fire, water, earth, electric). Ghi lý do thay đổi chỉ số vào `docs/design/balance-log.md`.
+- Công thức chế tạo: `packages/shared/src/data/recipes.json` (cost theo wood/stone/berries; output là item `greatBalls`/`snacks` hoặc `baseLevel`). Thêm loại item mới cần server-netcode thêm trường schema.
 - Cân bằng lên cấp/thu hoạch nằm trong `packages/shared/src/progression.ts` và `work.ts` (hằng số XP, công thức). Đề xuất thay đổi số liệu ở đó qua server-netcode.
 - Sau khi sửa, chạy `npx vitest run packages/shared` để test kiểm tra dữ liệu.
 - Mỗi thú mới cần một mô tả ngoại hình ngắn (màu, dáng, đặc điểm) trong `docs/design/pals.md` để agent **art-pipeline** dùng làm prompt vẽ.

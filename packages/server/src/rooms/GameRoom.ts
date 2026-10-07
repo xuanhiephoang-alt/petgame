@@ -5,6 +5,19 @@ import {
   ATTACK_DAMAGE,
   ATTACK_RANGE,
   BASE_MIN_CAMPFIRE_DISTANCE,
+  CRAFT_RANGE,
+  GREAT_BALL_BONUS,
+  ITEMS,
+  ITEM_INFO,
+  RESOURCE_INFO,
+  SNACK_XP,
+  campSpeed,
+  craftBlocker,
+  getRecipe,
+  offlineProduction,
+  workerCap,
+  type CraftMessage,
+  type FeedMessage,
   COMPANION_AGGRO_MS,
   COMPANION_ATTACK_COOLDOWN_MS,
   COMPANION_TELEPORT_DISTANCE,
@@ -13,7 +26,6 @@ import {
   GameState,
   MAX_PARTY,
   MAX_PLAYERS,
-  MAX_WORKERS,
   OwnedPal,
   PAL_RESPAWN_MS,
   PLAYER_COLORS,
@@ -94,6 +106,11 @@ function store(): ProfileStore {
   return sharedStore;
 }
 
+/** Replaces the profile store (tests use this to inspect and edit saved data). */
+export function useStore(next: ProfileStore) {
+  sharedStore = next;
+}
+
 export class GameRoom extends Room<{ state: GameState }> {
   maxClients = MAX_PLAYERS;
   state = new GameState();
@@ -116,7 +133,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
     this.onMessage(ClientMessage.Attack, (client) => this.handleAttack(client));
     this.onMessage(ClientMessage.Throw, (client, message: ThrowMessage) => {
-      if (typeof message?.palId === "string") this.handleThrow(client, message.palId);
+      if (typeof message?.palId === "string") this.handleThrow(client, message.palId, message.ball === "great");
     });
     this.onMessage(ClientMessage.Summon, (client, message: SummonMessage) => {
       if (typeof message?.palId === "string") this.summon(client.sessionId, message.palId);
@@ -127,6 +144,12 @@ export class GameRoom extends Room<{ state: GameState }> {
       else if (message.assignment === "") this.rest(client.sessionId, message.palId);
     });
     this.onMessage(ClientMessage.PlaceBase, (client) => this.placeBase(client));
+    this.onMessage(ClientMessage.Craft, (client, message: CraftMessage) => {
+      if (typeof message?.recipeId === "string") this.craft(client, message.recipeId);
+    });
+    this.onMessage(ClientMessage.Feed, (client, message: FeedMessage) => {
+      if (typeof message?.palId === "string") this.feed(client, message.palId);
+    });
 
     if (process.env.PETGAME_DEBUG === "1") {
       // Test hook (never enabled in production): a weakened wild pal next to the sender.
@@ -137,6 +160,11 @@ export class GameRoom extends Room<{ state: GameState }> {
         const pal = this.state.pals.get(id)!;
         pal.hp = 1;
         this.brains.get(id)!.idleMs = 60_000;
+      });
+      this.onMessage("debug:give", (client) => {
+        const player = this.state.players.get(client.sessionId);
+        if (!player) return;
+        for (const r of RESOURCES) player[r] += 50;
       });
     }
 
@@ -157,7 +185,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.hasBase = !!profile.base;
     player.baseX = profile.base?.x ?? 0;
     player.baseY = profile.base?.y ?? 0;
+    player.baseLevel = profile.baseLevel;
     for (const r of RESOURCES) player[r] = profile.resources[r];
+    for (const item of ITEMS) player[item] = profile.items[item];
     for (const saved of profile.pals) {
       const owned = new OwnedPal();
       owned.id = saved.id;
@@ -176,6 +206,19 @@ export class GameRoom extends Room<{ state: GameState }> {
     for (const saved of profile.pals) {
       if (saved.assignment === "follow") this.summon(client.sessionId, saved.id);
       else if (saved.assignment === "work" && player.hasBase) this.startWork(client.sessionId, saved.id);
+    }
+
+    // Workers kept going (at half speed) while the player was away.
+    if (player.hasBase && profile.savedAt > 0) {
+      const workers = profile.pals.filter((p) => p.assignment === "work");
+      const made = offlineProduction(workers, player.baseLevel, Date.now() - profile.savedAt);
+      const parts = RESOURCES.filter((r) => made[r] > 0).map((r) => `${RESOURCE_INFO[r].icon} ${made[r]}`);
+      if (parts.length > 0) {
+        for (const r of RESOURCES) player[r] += made[r];
+        this.scheduleSave(client.sessionId);
+        // Give the client a moment to register its message handlers.
+        this.clock.setTimeout(() => this.notify(client, `Trong lúc bạn đi vắng, thú đã làm được: ${parts.join("  ")}`), 1500);
+      }
     }
   }
 
@@ -248,7 +291,7 @@ export class GameRoom extends Room<{ state: GameState }> {
           timers.lastWorkAt = now; // the clock starts once it reaches its spot
           return;
         }
-        if (now - timers.lastWorkAt < workIntervalMs(owned.level)) return;
+        if (now - timers.lastWorkAt < workIntervalMs(owned.level) * campSpeed(owner.baseLevel)) return;
         timers.lastWorkAt = now;
         const resource = workOutput(getSpecies(owned.speciesId));
         owner[resource] += 1;
@@ -299,7 +342,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.broadcast(ServerMessage.Hit, hit);
   }
 
-  private handleThrow(client: Client, palId: string) {
+  private handleThrow(client: Client, palId: string, greatBall: boolean) {
     const player = this.state.players.get(client.sessionId);
     const control = this.controls.get(client.sessionId);
     const pal = this.state.pals.get(palId);
@@ -310,8 +353,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     control.lastThrowAt = now;
 
     const species = getSpecies(pal.speciesId);
-    const chance = captureChance(pal.hp, pal.maxHp, levelCatchRate(species.catchRate, pal.level));
+    const useGreat = greatBall && player.greatBalls > 0;
+    if (useGreat) player.greatBalls -= 1;
+    const chance = captureChance(pal.hp, pal.maxHp, levelCatchRate(species.catchRate, pal.level), useGreat ? GREAT_BALL_BONUS : 1);
     const success = Math.random() < chance;
+    if (useGreat) this.scheduleSave(client.sessionId);
     if (success) {
       this.state.pals.delete(palId);
       this.brains.delete(palId);
@@ -358,7 +404,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player || !owned || owned.assignment === "work") return;
     if (!player.hasBase) return this.notify(client, "Hãy đặt trại trước (nút 🏕️ hoặc phím B)");
     const workers = player.pals.filter((p) => p.assignment === "work").length;
-    if (workers >= MAX_WORKERS) return this.notify(client, `Trại chỉ chứa ${MAX_WORKERS} thú làm việc`);
+    const cap = workerCap(player.baseLevel);
+    if (workers >= cap) return this.notify(client, `Trại cấp ${player.baseLevel} chỉ chứa ${cap} thú làm việc`);
     this.startWork(client.sessionId, ownedId);
   }
 
@@ -403,10 +450,41 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (id !== client.sessionId && other.hasBase && distance(spot, { x: other.baseX, y: other.baseY }) < BASE_SPACING) tooClose = true;
     });
     if (tooClose) return this.notify(client, "Quá gần trại của người khác");
+    if (!player.hasBase) player.baseLevel = 1;
     player.hasBase = true;
     player.baseX = spot.x;
     player.baseY = spot.y;
     this.notify(client, "Đã dựng trại 🏕️");
+    this.scheduleSave(client.sessionId);
+  }
+
+  private craft(client: Client, recipeId: string) {
+    const player = this.state.players.get(client.sessionId);
+    const recipe = getRecipe(recipeId);
+    if (!player || !recipe) return;
+    const resources = { wood: player.wood, stone: player.stone, berries: player.berries };
+    const nearBase = player.hasBase && distance(player, { x: player.baseX, y: player.baseY }) <= CRAFT_RANGE;
+    const blocker = craftBlocker(recipe, { resources, hasBase: player.hasBase, baseLevel: player.baseLevel, nearBase });
+    if (blocker) return this.notify(client, blocker);
+    for (const r of RESOURCES) player[r] -= recipe.cost[r] ?? 0;
+    if ("baseLevel" in recipe.output) {
+      player.baseLevel = recipe.output.baseLevel;
+      this.notify(client, `Trại đã lên cấp ${player.baseLevel}! ${recipe.icon}`);
+    } else {
+      player[recipe.output.item] += recipe.output.amount;
+      this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`);
+    }
+    this.scheduleSave(client.sessionId);
+  }
+
+  private feed(client: Client, ownedId: string) {
+    const player = this.state.players.get(client.sessionId);
+    const owned = player?.pals.find((p) => p.id === ownedId);
+    if (!player || !owned) return;
+    if (player.snacks <= 0) return this.notify(client, `Hết ${ITEM_INFO.snacks.icon} ${ITEM_INFO.snacks.name}`);
+    player.snacks -= 1;
+    this.grantXp(client.sessionId, owned, SNACK_XP);
+    this.notify(client, `${getSpecies(owned.speciesId).name} ăn ngon lành! +${SNACK_XP} XP`);
     this.scheduleSave(client.sessionId);
   }
 
@@ -489,7 +567,10 @@ export class GameRoom extends Room<{ state: GameState }> {
         assignment: p.assignment === "follow" || p.assignment === "work" ? p.assignment : "",
       })),
       base: player.hasBase ? { x: player.baseX, y: player.baseY } : null,
+      baseLevel: player.baseLevel || 1,
       resources: { wood: player.wood, stone: player.stone, berries: player.berries },
+      items: { greatBalls: player.greatBalls, snacks: player.snacks },
+      savedAt: Date.now(),
     };
     try {
       store().save(token, profile);

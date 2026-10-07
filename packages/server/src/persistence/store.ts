@@ -2,7 +2,19 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { MAX_LEVEL, MAX_PARTY, PAL_SPECIES, RESOURCES, WORLD_HEIGHT, WORLD_WIDTH, type Resource } from "@petgame/shared";
+import {
+  ITEMS,
+  MAX_BASE_LEVEL,
+  MAX_LEVEL,
+  MAX_PARTY,
+  MAX_WORKERS,
+  PAL_SPECIES,
+  RESOURCES,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
+  type Item,
+  type Resource,
+} from "@petgame/shared";
 
 export interface SavedPal {
   id: string;
@@ -17,7 +29,11 @@ export interface Profile {
   name: string;
   pals: SavedPal[];
   base: { x: number; y: number } | null;
+  baseLevel: number;
   resources: Record<Resource, number>;
+  items: Record<Item, number>;
+  /** When the profile was last saved (ms since epoch); drives offline production. */
+  savedAt: number;
 }
 
 export interface ProfileStore {
@@ -32,7 +48,15 @@ export function isValidToken(token: unknown): token is string {
 }
 
 export function emptyProfile(name: string): Profile {
-  return { name, pals: [], base: null, resources: { wood: 0, stone: 0, berries: 0 } };
+  return {
+    name,
+    pals: [],
+    base: null,
+    baseLevel: 1,
+    resources: { wood: 0, stone: 0, berries: 0 },
+    items: { greatBalls: 0, snacks: 0 },
+    savedAt: 0,
+  };
 }
 
 /** SQLite-backed store (node:sqlite, no extra dependency). */
@@ -96,7 +120,7 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
     if (!p || typeof p.id !== "string" || !/^[A-Za-z0-9-]{1,40}$/.test(p.id) || ids.has(p.id) || !species.has(p.speciesId)) continue;
     let assignment: SavedPal["assignment"] = p.assignment === "follow" || p.assignment === "work" ? p.assignment : "";
     if (assignment === "follow" && following) assignment = "";
-    if (assignment === "work" && workers >= 3) assignment = "";
+    if (assignment === "work" && workers >= MAX_WORKERS) assignment = "";
     if (assignment === "follow") following = true;
     if (assignment === "work") workers++;
     ids.add(p.id);
@@ -115,6 +139,10 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
       : null;
   const resources = { wood: 0, stone: 0, berries: 0 } as Record<Resource, number>;
   for (const key of RESOURCES) resources[key] = Math.floor(num(r.resources?.[key], 0, 1e9, 0));
+  const items = { greatBalls: 0, snacks: 0 } as Record<Item, number>;
+  for (const key of ITEMS) items[key] = Math.floor(num(r.items?.[key], 0, 1e6, 0));
   const name = typeof r.name === "string" ? r.name.slice(0, 16) : "";
-  return { name, pals, base, resources };
+  const baseLevel = Math.round(num(r.baseLevel, 1, MAX_BASE_LEVEL, 1));
+  const savedAt = num(r.savedAt, 0, Date.now(), 0);
+  return { name, pals, base, baseLevel, resources, items, savedAt };
 }

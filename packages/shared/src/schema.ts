@@ -33,6 +33,9 @@ export const Player = schema(
     wood: t.number(),
     stone: t.number(),
     berries: t.number(),
+    baseLevel: t.number(),
+    greatBalls: t.number(),
+    snacks: t.number(),
   },
   "Player",
 );

@@ -38,7 +38,7 @@
 .party-btn { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
         pointer-events: auto; border: none; border-radius: 20px; padding: 8px 14px; font-size: 15px; font-weight: 600;
         background: rgba(255,255,255,0.92); color: #2b3a24; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
-      .party-panel { position: absolute; top: 100px; right: max(12px, env(safe-area-inset-right)); width: min(320px, calc(100vw - 24px));
+      .party-panel { position: absolute; top: 144px; right: max(12px, env(safe-area-inset-right)); width: min(320px, calc(100vw - 24px));
         max-height: calc(100% - 140px); overflow-y: auto; pointer-events: auto; background: rgba(250,252,246,0.97); color: #253020;
         border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.3); padding: 10px; }
       .party-panel[hidden] { display: none; }
@@ -69,6 +69,21 @@
         pointer-events: auto; border: none; border-radius: 20px; padding: 8px 14px; font-size: 15px; font-weight: 600;
         background: rgba(255,224,178,0.95); color: #4e342e; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
       .party-panel { z-index: 3; }
+      .craft-btn { position: absolute; top: max(100px, calc(env(safe-area-inset-top) + 88px)); right: max(12px, env(safe-area-inset-right));
+        pointer-events: auto; border: none; border-radius: 20px; padding: 8px 14px; font-size: 15px; font-weight: 600;
+        background: rgba(207,216,220,0.95); color: #263238; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
+      .craft-icon { font-size: 26px; width: 34px; text-align: center; flex: none; }
+      .craft-cost { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; font-size: 13px; font-weight: 600; }
+      .craft-cost span { white-space: nowrap; }
+      .craft-cost .enough { color: #2e7d32; }
+      .craft-cost .short { color: #c62828; }
+      .craft-blocker { color: #c62828 !important; }
+      .ball-btn { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
+        pointer-events: auto; border: none; border-radius: 18px; padding: 6px 12px; font-size: 14px; font-weight: 600;
+        background: rgba(255,255,255,0.9); color: #263238; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
+      .ball-btn.great { background: #bbdefb; }
+      .ball-btn.touch { right: max(150px, calc(env(safe-area-inset-right) + 150px)); bottom: 120px; }
+      .party-action.feed { background: #8d6e63; }
       .action-btn { position: absolute; width: 76px; height: 76px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.6);
         color: #fff; font-size: 16px; font-weight: bold; pointer-events: auto; touch-action: none; }
       .action-btn:active { filter: brightness(1.3); }

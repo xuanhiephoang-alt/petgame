@@ -14,8 +14,11 @@ import {
   type NoticeMessage,
   type ProducedMessage,
   defaultWorld,
+  SNACK_XP,
+  workerCap,
 } from "@petgame/shared";
-import { GameRoom } from "./GameRoom.ts";
+import { GameRoom, useStore } from "./GameRoom.ts";
+import { SqliteStore } from "../persistence/store.ts";
 
 // Profiles go to an in-memory database for tests (opened lazily on first join).
 process.env.PETGAME_DB = ":memory:";
@@ -242,5 +245,94 @@ describe("base and work", () => {
     await ticks(room, 2);
     expect(pal.assignment).toBe("");
     expect(room.state.companions.has(pal.id)).toBe(false);
+  });
+});
+
+describe("crafting", () => {
+  async function atCamp() {
+    const ctx = await setup();
+    ctx.player.x = 800;
+    ctx.player.y = WORLD_HEIGHT / 2 + 200;
+    ctx.client.send(ClientMessage.PlaceBase);
+    await ticks(ctx.room, 3);
+    expect(ctx.player.hasBase).toBe(true);
+    return ctx;
+  }
+
+  it("refuses without materials and crafts once they are there", async () => {
+    const { room, client, player } = await atCamp();
+    const notices: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
+    client.send(ClientMessage.Craft, { recipeId: "great_ball" });
+    await ticks(room, 3);
+    expect(player.greatBalls).toBe(0);
+    expect(notices.at(-1)).toContain("nguyên liệu");
+
+    player.wood = 5;
+    player.stone = 5;
+    client.send(ClientMessage.Craft, { recipeId: "great_ball" });
+    await ticks(room, 3);
+    expect(player.greatBalls).toBe(1);
+    expect([player.wood, player.stone]).toEqual([2, 3]);
+  });
+
+  it("must be crafted at your own camp", async () => {
+    const { room, client, player } = await atCamp();
+    player.wood = 5;
+    player.stone = 5;
+    player.x += 400;
+    client.send(ClientMessage.Craft, { recipeId: "great_ball" });
+    await ticks(room, 3);
+    expect(player.greatBalls).toBe(0);
+  });
+
+  it("camp upgrades raise the worker cap", async () => {
+    const { room, client, player } = await atCamp();
+    player.wood = 50;
+    player.stone = 50;
+    client.send(ClientMessage.Craft, { recipeId: "camp_2" });
+    await ticks(room, 3);
+    expect(player.baseLevel).toBe(2);
+    expect(workerCap(player.baseLevel)).toBe(4);
+  });
+
+  it("snacks feed a pal for XP; great balls are used up", async () => {
+    const { room, client, player } = await atCamp();
+    await capture(room, client, player);
+    const pal = player.pals[0];
+    player.snacks = 1;
+    const before = pal.level * 1e6 + pal.xp;
+    client.send(ClientMessage.Feed, { palId: pal.id });
+    await ticks(room, 3);
+    expect(player.snacks).toBe(0);
+    expect(pal.level * 1e6 + pal.xp).toBeGreaterThanOrEqual(before + Math.min(SNACK_XP, 1));
+
+    player.greatBalls = 2;
+    await ticks(room, 20);
+    const palId = palNextTo(room, player, 60);
+    client.send(ClientMessage.Throw, { palId, ball: "great" });
+    await client.waitForMessage(ServerMessage.CaptureResult);
+    expect(player.greatBalls).toBe(1);
+  });
+});
+
+describe("offline production", () => {
+  it("credits what workers made while the player was away", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "offline-token-0123456789";
+    db.save(token, {
+      name: "Away",
+      pals: [{ id: "w1", speciesId: "pebblet", level: 1, xp: 0, assignment: "work" }],
+      base: { x: 800, y: WORLD_HEIGHT / 2 + 200 },
+      baseLevel: 1,
+      resources: { wood: 0, stone: 0, berries: 0 },
+      items: { greatBalls: 0, snacks: 0 },
+      savedAt: Date.now() - 60 * 60 * 1000, // one hour ago
+    });
+    const { client, player } = await setup(token);
+    expect(player.stone).toBe(180); // 1 h at half speed, one stone per 10 s
+    const notice = await client.waitForMessage(ServerMessage.Notice);
+    expect(notice.text).toContain("đi vắng");
   });
 });

@@ -21,6 +21,7 @@ export interface PartyActions {
   summon(palId: string): void;
   work(palId: string): void;
   rest(palId: string): void;
+  feed(palId: string): void;
 }
 
 /**
@@ -63,16 +64,20 @@ export class PartyPanel {
     this.update([], false);
   }
 
+  onOpen?: () => void;
+
   get open(): boolean {
     return !this.panel.hidden;
   }
 
   toggle(force?: boolean) {
-    this.panel.hidden = !(force ?? this.panel.hidden);
+    const open = force ?? this.panel.hidden;
+    this.panel.hidden = !open;
+    if (open) this.onOpen?.();
   }
 
-  update(party: readonly PartyEntry[], hasBase: boolean) {
-    const key = `${hasBase}|${party.map((p) => `${p.id}:${p.level}:${p.xp}:${p.assignment}`).join(",")}`;
+  update(party: readonly PartyEntry[], hasBase: boolean, snacks = 0) {
+    const key = `${hasBase}|${snacks > 0}|${party.map((p) => `${p.id}:${p.level}:${p.xp}:${p.assignment}`).join(",")}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
     this.button.textContent = `🐾 Thú (${party.length})`;
@@ -91,10 +96,10 @@ export class PartyPanel {
       hint.textContent = "Đặt trại (🏕️ / phím B) để giao việc cho thú.";
       this.list.append(hint);
     }
-    for (const entry of party) this.list.append(this.card(entry, hasBase));
+    for (const entry of party) this.list.append(this.card(entry, hasBase, snacks > 0));
   }
 
-  private card(entry: PartyEntry, hasBase: boolean): HTMLDivElement {
+  private card(entry: PartyEntry, hasBase: boolean, canFeed: boolean): HTMLDivElement {
     const species = getSpecies(entry.speciesId);
     const output = RESOURCE_INFO[workOutput(species)];
     const card = document.createElement("div");
@@ -134,6 +139,7 @@ export class PartyPanel {
     if (entry.assignment !== "follow") add("Đi theo", () => this.actions.summon(entry.id));
     if (entry.assignment !== "work") add("Làm việc", () => this.actions.work(entry.id), "work", !hasBase);
     if (entry.assignment) add(entry.assignment === "follow" ? "Cho về" : "Nghỉ", () => this.actions.rest(entry.id), "rest");
+    if (canFeed) add("Cho ăn 🥧", () => this.actions.feed(entry.id), "feed");
 
     card.append(swatch, info, buttons);
     return card;

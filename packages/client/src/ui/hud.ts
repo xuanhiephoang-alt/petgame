@@ -8,11 +8,12 @@ export class Hud {
   private toast: HTMLDivElement;
   private toastTimer = 0;
   private lastStatus = "";
+  private ballButton: HTMLButtonElement;
 
   constructor(
     parent: HTMLElement,
     private isTouch: boolean,
-    actions: { attack: () => void; capture: () => void; placeBase: () => void },
+    actions: { attack: () => void; capture: () => void; placeBase: () => void; toggleBall: () => void },
   ) {
     this.root = div("hud");
     this.status = div("hud-status");
@@ -25,6 +26,11 @@ export class Hud {
     base.title = "Dựng trại ở chỗ đang đứng (phím B)";
     base.addEventListener("click", actions.placeBase);
     this.root.append(base);
+    this.ballButton = document.createElement("button");
+    this.ballButton.className = isTouch ? "ball-btn touch" : "ball-btn";
+    this.ballButton.title = "Đổi loại bóng (phím R)";
+    this.ballButton.addEventListener("click", actions.toggleBall);
+    this.root.append(this.ballButton);
 
     if (isTouch) {
       this.root.append(this.joystickZone);
@@ -33,8 +39,18 @@ export class Hud {
     parent.append(this.root);
   }
 
+  /** Shows which ball the next throw uses. */
+  setBall(great: boolean, greatCount: number) {
+    const text = great ? `🔵 Bóng xịn (${greatCount})` : `⚪ Bóng thường`;
+    if (this.ballButton.textContent === text) return;
+    this.ballButton.textContent = text;
+    this.ballButton.classList.toggle("great", great);
+  }
+
   setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string) {
-    const help = this.isTouch ? "Kéo bên trái để đi • Đánh • Bắt" : "WASD/↑↓←→ đi • Space đánh • E ném bóng • Q thú • B trại";
+    const help = this.isTouch
+      ? "Kéo bên trái để đi • Đánh • Bắt"
+      : "WASD/↑↓←→ đi • Space đánh • E ném • R bóng • Q thú • B trại • C chế tạo";
     const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ");
     const html =
       `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +

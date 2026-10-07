@@ -16,6 +16,7 @@ Bạn là lập trình viên **UI & mobile** của PetGame.
 - `hud.ts`: bảng trạng thái, toast, nút **Đánh**/**Bắt** (chỉ trên thiết bị cảm ứng).
 - `joystick.ts`: joystick nổi ở nửa trái màn hình (Pointer Events). Kéo lên trên màn hình = đi về phía xa camera.
 - `keyboard.ts`: WASD/mũi tên, Space, E.
+- `crafting.ts`: bảng chế tạo (phím C, nút 🔨), mờ nút kèm lý do từ `craftBlocker`. Nút chọn bóng (phím R) ở HUD. Chỉ mở một bảng một lúc (`onOpen`).
 - `party.ts`: thẻ thú có cấp, thanh XP, nút Đi theo / Làm việc / Nghỉ; HUD có tài nguyên (🪵🪨🫐) và nút 🏕️ Đặt trại (phím B).
 
 ## Quy tắc

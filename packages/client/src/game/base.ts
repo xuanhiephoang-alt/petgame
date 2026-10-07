@@ -4,7 +4,7 @@ import * as THREE from "three";
  * A player's camp: owner-colored tent, a supply crate, a flag and a ring of
  * stones. Built from primitives in the KayKit-like rounded style.
  */
-export function createBaseModel(color: number): THREE.Group {
+export function createBaseModel(color: number, level = 1): THREE.Group {
   const base = new THREE.Group();
   const mat = (c: THREE.ColorRepresentation) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
   const add = (mesh: THREE.Mesh) => {
@@ -49,6 +49,37 @@ export function createBaseModel(color: number): THREE.Group {
     const s = add(new THREE.Mesh(new THREE.DodecahedronGeometry(0.12, 0), stone));
     s.position.set(Math.cos(a) * 1.85, 0.06, Math.sin(a) * 1.85);
     s.rotation.set(a, a * 2, 0);
+  }
+  if (level >= 2) {
+    // Fence posts with a rail, and a glowing lantern by the tent.
+    const wood = mat(0x8d6e63);
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      if (Math.abs(Math.sin(a / 2 - Math.PI / 4)) < 0.2) continue; // gap for the entrance
+      const post = add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.1), wood));
+      post.position.set(Math.cos(a) * 2.15, 0.25, Math.sin(a) * 2.15);
+    }
+    const lanternPost = add(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6), wood));
+    lanternPost.position.set(-1.2, 0.45, 0.6);
+    const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffd180 }));
+    lantern.position.set(-1.2, 0.95, 0.6);
+    base.add(lantern);
+    const glow = new THREE.PointLight(0xffb74d, 1.5, 4);
+    glow.position.copy(lantern.position);
+    base.add(glow);
+  }
+  if (level >= 3) {
+    // A small lookout tower with a roof in the owner's color.
+    const wood = mat(0x795548);
+    for (const [x, z] of [[1.2, 0.9], [1.6, 0.9], [1.2, 1.3], [1.6, 1.3]]) {
+      const leg = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.6, 6), wood));
+      leg.position.set(x, 0.8, z);
+    }
+    const deck = add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.6), wood));
+    deck.position.set(1.4, 1.6, 1.1);
+    const roof = add(new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.45, 4), mat(color)));
+    roof.position.set(1.4, 2.0, 1.1);
+    roof.rotation.y = Math.PI / 4;
   }
   return base;
 }

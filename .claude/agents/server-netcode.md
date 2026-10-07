@@ -18,7 +18,8 @@ Bạn là kỹ sư **server & netcode** của PetGame.
 - Túi thú: `Player.pals` (OwnedPal) + `activePalId`; thú đi theo nằm trong `state.companions` (key = OwnedPal id). Message `summon` đổi/cho về; Hit có `companionId` khi thú đánh.
 - Lưu game: `persistence/store.ts`; `GameRoom.scheduleSave` gom lưu mỗi 2 s, `saveNow` khi rời phòng. Thêm dữ liệu cần lưu thì cập nhật `Profile`, `sanitizeProfile` và test.
 - Trại & làm việc: `placeBase` (cách lửa trại ≥ 96 px, không vướng vật cản, cách trại khác ≥ 140 px), `assign` work/"" (tối đa `MAX_WORKERS`), thú làm việc sinh tài nguyên theo `workOutput`/`workIntervalMs` (shared `work.ts`).
-- Hook test `debug:spawnPal` chỉ đăng ký khi `PETGAME_DEBUG=1`. Thêm hook mới cũng phải chặn bằng biến này.
+- Chế tạo `craft` (phải đứng trong `CRAFT_RANGE` của trại mình, kiểm tra bằng `craftBlocker` dùng chung), `feed` (bánh → `SNACK_XP`), ném `ball: "great"` dùng `greatBalls`. Thu hoạch khi vắng mặt: `offlineProduction` tính từ `Profile.savedAt` khi vào lại (50% tốc độ, tối đa 8 giờ).
+- Hook test `debug:spawnPal`, `debug:give` chỉ đăng ký khi `PETGAME_DEBUG=1`. Thêm hook mới cũng phải chặn bằng biến này.
 - Dữ liệu chỉ server cần biết (input, cooldown, não AI) để trong Map riêng, KHÔNG đưa vào schema.
 - `packages/shared/src/schema.ts` được cả client dùng để decode. Đổi schema là đổi giao thức, nên phải báo cho **client-gameplay**.
 

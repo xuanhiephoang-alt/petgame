@@ -131,3 +131,33 @@ test("a captured pal follows the player and shows in the party panel", async ({ 
   expect((await me()).assignments).toContain("work");
   await expect.poll(companions).toBe(1);
 });
+
+test("crafting at the camp: great ball, ball toggle and camp upgrade", async ({ browser }) => {
+  const page = await join(browser, "Crafter");
+  await waitForWorld(page);
+  const me = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const p = room.state.players.get(room.sessionId);
+    return { hasBase: p.hasBase, baseLevel: p.baseLevel, greatBalls: p.greatBalls, wood: p.wood };
+  });
+
+  // Without a camp every recipe explains why it is locked.
+  await page.locator(".craft-btn").click();
+  await expect(page.locator(".craft-card").first()).toContainText("Cần dựng trại trước");
+
+  await page.locator(".base-btn").click();
+  await expect.poll(async () => (await me()).hasBase).toBe(true);
+  await page.evaluate(() => (window as any).__petgame.room.send("debug:give"));
+  await expect.poll(async () => (await me()).wood).toBe(50);
+
+  const ballCard = page.locator(".craft-card", { hasText: "Bóng xịn" });
+  await ballCard.getByRole("button", { name: "Làm" }).click();
+  await expect.poll(async () => (await me()).greatBalls).toBe(1);
+
+  await page.keyboard.press("r");
+  await expect(page.locator(".ball-btn")).toHaveText("🔵 Bóng xịn (1)");
+
+  await page.locator(".craft-card", { hasText: "Nâng trại cấp 2" }).getByRole("button", { name: "Làm" }).click();
+  await expect.poll(async () => (await me()).baseLevel).toBe(2);
+  await expect(page.locator(".label.base")).toContainText("Cấp 2");
+});

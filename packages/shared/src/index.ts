@@ -9,3 +9,4 @@ export * from "./collision.ts";
 export * from "./worldgen.ts";
 export * from "./progression.ts";
 export * from "./work.ts";
+export * from "./crafting.ts";

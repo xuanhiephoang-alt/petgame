@@ -19,8 +19,8 @@ const SKILL_OUTPUT: Record<string, Resource> = {
   watering: "berries",
 };
 
-/** Most pals one player can have working at their base. */
-export const MAX_WORKERS = 3;
+/** Most pals that can ever work at one camp (camp level 3); see workerCap. */
+export const MAX_WORKERS = 5;
 /** Workers stand this far (pixels) from the base center. */
 export const WORK_RADIUS = 56;
 /** A base cannot be placed this close (pixels) to the shared campfire. */

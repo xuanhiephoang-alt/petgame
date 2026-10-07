@@ -33,7 +33,11 @@ describe("profile store", () => {
       ],
       base: { x: 1e9, y: "nope" },
       resources: { wood: 3.7, stone: -1, berries: "x" },
+      baseLevel: 99,
+      savedAt: 1e15,
     })!;
+    expect(p.baseLevel).toBe(3);
+    expect(p.savedAt).toBeLessThanOrEqual(Date.now());
     expect(p.name.length).toBeLessThanOrEqual(16);
     expect(p.pals.map((x) => x.id)).toEqual(["ok1", "ok2"]);
     expect(p.pals[0].level).toBe(30);
@@ -41,5 +45,6 @@ describe("profile store", () => {
     expect(p.pals[1].assignment).toBe(""); // only one follower allowed
     expect(p.base).toEqual({ x: 1600, y: 600 });
     expect(p.resources).toEqual({ wood: 3, stone: 0, berries: 0 });
+    expect(p.items).toEqual({ greatBalls: 0, snacks: 0 });
   });
 });
