@@ -22,16 +22,16 @@ Palworld do hàng chục người làm trong nhiều năm. Để làm được t
 | Phần | Lựa chọn | Lý do |
 |---|---|---|
 | Ngôn ngữ | **TypeScript** (dùng cho cả client lẫn server) | Dùng chung code chỉ số, kiểu dữ liệu, công thức sát thương |
-| Engine client | **Phaser 4** + Vite | Engine 2D mạnh nhất cho web, chạy mượt trên điện thoại, có sẵn tilemap, va chạm, camera |
-| Multiplayer | **Colyseus** (Node.js) | Có sẵn khái niệm "phòng" (room tối đa 5 người), tự đồng bộ trạng thái, có nhiều ví dụ dùng chung với Phaser |
+| Engine client | **Three.js** + Vite (3D, camera nhìn chéo từ trên xuống) | Thư viện 3D phổ biến nhất cho web, nhẹ (~200 kB gzip), chạy tốt trên điện thoại, đọc model **glTF/GLB** từ Blender/Meshy/Tripo |
+| Multiplayer | **Colyseus** (Node.js) | Có sẵn khái niệm "phòng" (room tối đa 5 người), tự đồng bộ trạng thái, có ví dụ dùng với Three.js/Babylon.js |
 | Mô hình mạng | **Server quyết định mọi thứ (server-authoritative)**, client dự đoán chuyển động trước | Chống gian lận, tránh lệch trạng thái giữa 5 người |
-| Bản đồ | **Tiled Map Editor** → xuất JSON → Phaser đọc | Chuẩn de facto cho game 2D |
+| Bản đồ | Lưới 2D trên server (vật cản, vùng thú) + cảnh 3D dựng trong **Blender** hoặc sinh bằng code | Server vẫn mô phỏng mặt phẳng 2D: đơn giản, rẻ, đủ cho góc nhìn từ trên xuống |
 | Lưu dữ liệu | **PostgreSQL** (Supabase) hoặc SQLite lúc đầu | Lưu tài khoản, thú đã bắt, căn cứ |
-| Điện thoại | Bản web dạng **PWA** + joystick ảo (plugin rex-virtual-joystick). Sau này đóng gói bằng **Capacitor** để đưa lên Google Play / App Store | Một code base duy nhất |
+| Điện thoại | Bản web dạng **PWA** + joystick ảo (DOM). Sau này đóng gói bằng **Capacitor** để đưa lên Google Play / App Store | Một code base duy nhất |
 | Hosting | Client: Vercel/Netlify/Cloudflare Pages (miễn phí). Server: Fly.io / Railway / Colyseus Cloud (~5–20 USD/tháng) | Rẻ, đủ cho ít người chơi |
 | Test | Vitest (logic), Playwright (mở 5 tab trình duyệt giả lập 5 người) | Có sẵn Chromium trong môi trường |
 
-> **2D hay 3D?** Đề xuất **2D pixel art, góc nhìn top-down / 3/4** (kiểu Stardew Valley, Pokémon). Rẻ hơn rất nhiều, AI tạo hình làm tốt, điện thoại chạy nhẹ. Nếu bắt buộc muốn 3D nhìn từ trên xuống thì đổi Phaser thành **Babylon.js** hoặc **Three.js**, còn Colyseus giữ nguyên (xem repo `t5c` bên dưới).
+> **Đã chọn 3D.** Hình hiển thị là 3D low-poly với camera nhìn chéo từ trên xuống, nhưng server vẫn mô phỏng trên mặt phẳng 2D (x, y) nên netcode đơn giản như game 2D. Low-poly vừa đẹp vừa nhẹ cho điện thoại, và AI tạo model 3D (Meshy, Tripo) làm tốt kiểu này.
 
 ### Cấu trúc thư mục (monorepo)
 
@@ -41,8 +41,8 @@ petgame/
 │   ├── shared/     # schema đồng bộ, message, hằng số, logic dùng chung
 │   │   └── src/data/   # pals.json, items.json, recipes.json (dữ liệu thiết kế)
 │   ├── server/     # Colyseus: GameRoom, AI thú, quái, lưu game
-│   └── client/     # Phaser + Vite: scene, UI, điều khiển cảm ứng
-├── assets/         # sprite gốc (.aseprite), tileset, file Tiled (.tmx)
+│   └── client/     # Three.js + Vite: cảnh 3D, model, UI, điều khiển cảm ứng
+├── assets/         # file nguồn 3D (.blend), texture gốc
 ├── docs/           # phong cách đồ họa, tài liệu thiết kế
 ├── tests/e2e/      # Playwright: nhiều người chơi
 ├── .claude/agents/ # định nghĩa 7 Agent
@@ -60,10 +60,10 @@ petgame/
 | 0 | **Điều phối (phiên Claude chính, tức bạn + tôi)** | Chia việc, giữ GAME_PLAN, duyệt PR, quyết định kiến trúc | toàn bộ | Luôn luôn |
 | 1 | **game-designer** | Viết dữ liệu: danh sách thú (chỉ số, hệ, kỹ năng), vật phẩm, công thức chế tạo, tỉ lệ bắt, đường cong lên cấp. Chỉ sửa JSON/Markdown | `packages/shared/src/data/`, `docs/` | Từ MVP |
 | 2 | **server-netcode** | Colyseus room, đồng bộ trạng thái, server quyết định va chạm/sát thương, vào lại khi rớt mạng, giới hạn 5 người | `packages/server`, `packages/shared` | Từ MVP |
-| 3 | **client-gameplay** | Scene Phaser, di chuyển, camera, nội suy chuyển động người khác, hiệu ứng, ném bóng bắt thú | `packages/client/src/scenes` | Từ MVP |
+| 3 | **client-gameplay** | Cảnh 3D Three.js, model, di chuyển, camera, nội suy chuyển động người khác, hiệu ứng, ném bóng bắt thú | `packages/client/src/scenes` | Từ MVP |
 | 4 | **ai-systems** | AI của thú/quái (đi lang thang, đuổi, bỏ chạy), thú đi theo chủ, giao việc ở căn cứ (chặt cây, đào mỏ), tìm đường A* | `packages/server/src/ai` | Alpha |
 | 5 | **ui-mobile** | HUD, túi đồ, menu chế tạo, joystick ảo, nút cảm ứng, co giãn theo màn hình, PWA | `packages/client/src/ui` | Từ MVP (joystick), mở rộng ở Alpha |
-| 6 | **art-pipeline** | Gọi PixelLab MCP tạo sprite/tileset, cắt sprite sheet, đặt tên đúng chuẩn, giữ bảng màu thống nhất | `assets/`, `packages/client/public` | Từ MVP |
+| 6 | **art-pipeline** | Tạo model 3D bằng Meshy/Tripo/Blender MCP, rig + animation, tối ưu số polygon, xuất GLB, giữ phong cách thống nhất | `assets/`, `packages/client/public` | Từ MVP |
 | 7 | **qa-tester** | Viết test Vitest + Playwright (5 người cùng vào), đo FPS trên màn hình điện thoại, tìm bug lệch đồng bộ | `tests/` | Từ Alpha |
 
 **Quy tắc để các agent không giẫm chân nhau:**
@@ -86,30 +86,32 @@ petgame/
 | [phaserjs/template-vite-ts](https://github.com/phaserjs/template-vite-ts) | Khung client Phaser + Vite + TS chuẩn |
 | [Danh sách ví dụ Colyseus](https://docs.colyseus.io/learn/examples) | Danh sách ví dụ chính thức của Colyseus |
 
-Gợi ý: **không fork nguyên một repo**. Hãy dựng khung từ `template-vite-ts` + `tutorial-phaser` và đọc Reldens để học cách làm túi đồ/chiến đấu.
+Gợi ý: với bản 3D, **[t5c](https://github.com/orion3dgames/t5c)** là repo gần nhất (3D top-down + Colyseus). Các repo Phaser vẫn hữu ích để học phần netcode, túi đồ, chiến đấu. Ngoài ra có thể xem [ví dụ chính thức của Three.js](https://threejs.org/examples/) (nạp GLB, animation, bóng đổ).
 
 > ⚠️ **Bản quyền:** không dùng tên, hình ảnh, thiết kế thú của Palworld/Pokémon. Lấy cơ chế làm cảm hứng, còn thú và thế giới thì tự thiết kế.
 
 ---
 
-## 5. Đồ họa: phần mềm, MCP, cách kết nối
+## 5. Đồ họa 3D: phần mềm, MCP, cách kết nối
 
 ### Phần mềm
 
 | Công cụ | Dùng để | Giá |
 |---|---|---|
-| **Aseprite** (hoặc LibreSprite miễn phí) | Vẽ/sửa pixel art, làm animation, xuất sprite sheet | ~20 USD |
-| **Tiled** | Vẽ bản đồ từ tileset, đặt vùng xuất hiện thú, vật cản | Miễn phí |
-| **Free Texture Packer** / TexturePacker | Gộp sprite thành atlas cho Phaser | Miễn phí / trả phí |
+| **Blender** | Dựng, sửa, rig và tạo animation cho model; dựng địa hình; xuất **GLB** | Miễn phí |
+| **Meshy** / **Tripo AI** | Tạo model 3D từ chữ hoặc ảnh, tự rig và tạo animation đi/chạy | Có gói miễn phí, trả phí theo lượt |
+| **Mixamo** | Animation người (đi, chạy, ném) gắn vào nhân vật | Miễn phí |
+| **gltf-transform** / glTF Viewer | Nén GLB (Draco/Meshopt, texture KTX2) cho nhẹ trên điện thoại; xem thử model | Miễn phí |
 | **Figma** | Thiết kế UI: HUD, túi đồ, menu, icon | Miễn phí |
-| **Blender** | Chỉ khi làm 3D, hoặc render model 3D thành sprite 2D | Miễn phí |
-| **Kenney.nl, itch.io (asset CC0)** | Asset tạm để làm MVP trước khi có hình thật | Miễn phí |
+| **Kenney.nl, Quaternius, Poly Pizza (CC0)** | Model low-poly miễn phí (cây, đá, nhà, nhân vật) để làm tạm | Miễn phí |
 
 ### MCP nên kết nối với Claude Code
 
 | MCP | Làm gì | Trạng thái trong phiên này |
 |---|---|---|
-| **PixelLab MCP** | Tạo nhân vật/thú pixel art **4 hoặc 8 hướng**, tạo animation đi/đánh, tạo **tileset Wang** (ghép liền mạch) và tile isometric, ngay từ Claude Code | Cần cài: lấy API key tại [pixellab.ai/vibe-coding](https://www.pixellab.ai/vibe-coding), rồi chạy `claude mcp add` theo hướng dẫn ở đó (gói npm `pixellab-mcp`, cần Node 18+) |
+| **Blender MCP** ([ahujasid/blender-mcp](https://github.com/ahujasid/blender-mcp)) | Claude điều khiển Blender: dựng model, vật liệu, ánh sáng, tải asset Poly Haven/Sketchfab, xuất GLB | Cần cài: Blender + addon, rồi `claude mcp add` (chạy trên máy có Blender, không chạy được trong cloud) |
+| **Meshy MCP** ([pasie15/meshy-ai-mcp-server](https://github.com/pasie15/meshy-ai-mcp-server)) | Tạo model từ chữ/ảnh, tự rig và tạo animation | Cần API key Meshy |
+| **Tripo MCP** | Tương tự Meshy (tạo, rig, animation, đổi định dạng) | Cần API key Tripo |
 | **Figma MCP** | Thiết kế màn hình UI, rồi chuyển design thành code | ✅ Đã kết nối |
 | **Canva MCP** | Ảnh bìa, banner, ảnh quảng cáo | ⚠️ Cần cấp quyền trong cài đặt connector của claude.ai |
 | **GitHub MCP** | Quản lý issue/PR cho các agent | ✅ Đã kết nối |
@@ -117,11 +119,11 @@ Gợi ý: **không fork nguyên một repo**. Hãy dựng khung từ `template-v
 
 ### Quy trình đồ họa đề xuất
 
-1. **Chốt phong cách:** pixel art, nhân vật 32×32 hoặc 48×48 px, tile 16×16 hoặc 32×32, một bảng màu cố định (ví dụ Lospec "Resurrect 64"). Ghi thành `docs/art-style.md` để mọi prompt AI dùng chung.
-2. **art-pipeline agent** gọi PixelLab: tạo thú/nhân vật 8 hướng → thêm animation `idle/walk/attack/hurt` → xuất PNG.
-3. Sửa lại bằng tay trong **Aseprite** (AI thường lỗi vài pixel).
-4. Gộp thành atlas → `packages/client/public/assets/`.
-5. Tạo tileset bằng PixelLab → vẽ map bằng **Tiled** → xuất JSON.
+1. **Chốt phong cách** trong `docs/art-style.md`: low-poly, đổ bóng phẳng (flat shading), màu tươi, thú tròn trịa dễ thương, giới hạn số polygon.
+2. **art-pipeline agent** gọi Meshy/Tripo: tạo thú/nhân vật từ mô tả trong `docs/design/pals.md` → tự rig → animation `idle/walk/attack/hurt`.
+3. Chỉnh lại trong **Blender** (qua Blender MCP hoặc bằng tay): giảm polygon, sửa màu, đặt gốc tọa độ ở chân, hướng mặt về +Z.
+4. Nén bằng **gltf-transform** → `packages/client/public/assets/models/<id>.glb`.
+5. client-gameplay thay model tạm (dựng bằng code trong `models.ts`) bằng `GLTFLoader`.
 6. UI vẽ trong **Figma** → Figma MCP → code HUD.
 7. qa-tester chụp màn hình bằng Playwright để kiểm tra hình hiển thị đúng.
 
@@ -130,7 +132,7 @@ Gợi ý: **không fork nguyên một repo**. Hãy dựng khung từ `template-v
 ## 6. Những thứ quan trọng khác
 
 - **Mạng:** server chạy 20 tick/giây, client 60 FPS và nội suy. Chỉ gửi những gì nằm trong tầm nhìn. Với 5 người chơi thì một server rẻ nhất cũng đủ.
-- **Điện thoại:** giới hạn số thú trên màn hình (dưới 50), dùng texture atlas, tắt bớt hiệu ứng trên máy yếu, khóa xoay ngang, hỗ trợ cả cảm ứng lẫn bàn phím/tay cầm.
+- **Điện thoại:** giới hạn số thú trên màn hình (dưới 50), model low-poly (thú < 3k tam giác), InstancedMesh cho cây/đá, giới hạn pixel ratio ≤ 2, tắt bóng đổ trên máy yếu, khóa xoay ngang, hỗ trợ cả cảm ứng lẫn bàn phím/tay cầm.
 - **Mời bạn bè:** tạo phòng → sinh **mã phòng 6 ký tự / link mời**, không cần tài khoản ở MVP.
 - **Lưu game:** chủ phòng sở hữu thế giới; lưu định kỳ mỗi 30 giây và khi người chơi thoát.
 - **Âm thanh:** sfxr/jsfxr (hiệu ứng), nhạc CC0 hoặc nhạc tạo bằng AI có giấy phép thương mại.
@@ -143,7 +145,7 @@ Gợi ý: **không fork nguyên một repo**. Hãy dựng khung từ `template-v
 
 1. Dựng monorepo (`shared` / `server` / `client`), TypeScript, Vite, Colyseus.
 2. Tạo các file `.claude/agents/*.md` cho 7 agent ở mục 3.
-3. Một map Tiled đơn giản với asset tạm từ Kenney.
+3. Một bản đồ 3D đơn giản với model tạm (dựng bằng code hoặc CC0 từ Kenney/Quaternius).
 4. Room Colyseus tối đa 5 người, di chuyển đồng bộ, joystick ảo trên điện thoại.
 5. 3 loài thú lang thang, ném bóng để bắt (tỉ lệ theo máu còn lại).
 6. Deploy thử: client lên Cloudflare Pages, server lên Fly.io, rồi gửi link cho 4 người bạn test.

@@ -1,7 +1,5 @@
-import Phaser from "phaser";
-import { BootScene } from "./scenes/BootScene.ts";
-import { GameScene } from "./scenes/GameScene.ts";
-import { connect } from "./net/connection.ts";
+import { Game } from "./game/Game.ts";
+import { connect, type GameRoom } from "./net/connection.ts";
 
 const lobby = document.getElementById("lobby")!;
 const form = document.getElementById("join-form") as HTMLFormElement;
@@ -31,16 +29,8 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-function startGame(room: Awaited<ReturnType<typeof connect>>) {
-  const game = new Phaser.Game({
-    type: Phaser.AUTO,
-    parent: "game",
-    backgroundColor: "#1b2a1b",
-    scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },
-    input: { activePointers: 3 },
-    scene: [BootScene, GameScene],
-  });
-  game.registry.set("room", room);
+function startGame(room: GameRoom) {
+  const game = new Game(document.getElementById("game")!, room);
   // Expose for debugging and end-to-end tests.
   (window as any).__petgame = { game, room };
 }

@@ -1,14 +1,17 @@
-# Phong cách đồ họa
+# Phong cách đồ họa 3D
 
 > Bản nháp đầu tiên. art-pipeline và game-designer cùng chốt trước khi tạo asset hàng loạt.
 
-- **Thể loại hình:** pixel art, góc nhìn top-down 3/4 (thấy đỉnh đầu và mặt trước), giống Stardew Valley.
-- **Kích thước:** người chơi và thú nhỏ 32×32 px; thú lớn/boss 48×48 hoặc 64×64; tile 32×32.
-- **Hướng:** 4 hướng (xuống, lên, trái, phải) cho MVP; 8 hướng cho bản sau.
-- **Animation tối thiểu:** `idle` (2–4 khung), `walk` (4–6 khung), `attack` (3–4 khung), `hurt` (1–2 khung).
-- **Bảng màu:** Lospec "Resurrect 64" (64 màu), dùng thống nhất cho mọi asset.
-- **Viền:** 1px tối màu (không đen tuyệt đối), đổ bóng elip mờ dưới chân.
-- **Cảm giác:** dễ thương, tươi sáng, thân thiện; thú tròn trịa, mắt to.
+- **Thể loại hình:** 3D **low-poly**, flat shading, camera phối cảnh nhìn chéo từ trên xuống (~50°).
+- **Cảm giác:** dễ thương, tươi sáng; thú tròn trịa, mắt to, chân ngắn; màu bão hòa vừa phải.
+- **Tỉ lệ:** 1 đơn vị = 1 m = 32 px của server. Người chơi cao ~1,7; thú nhỏ 0,8–1,2; thú lớn/boss 2–4; cây 2,5–4.
+- **Ngân sách polygon:** thú nhỏ < 3k tam giác, nhân vật < 5k, boss < 10k, vật trang trí < 500.
+- **Màu và chất liệu:** ưu tiên màu theo vertex hoặc một texture bảng màu 256×256 dùng chung (gradient atlas), vật liệu Lambert/Standard không bóng loáng.
+- **Ánh sáng trong game:** trời xanh nhạt, ánh nắng vàng ấm, bóng đổ mềm; sương mù xa để giấu viền bản đồ.
+- **Animation tối thiểu:** `idle`, `walk`, `attack`, `hurt` (thú làm việc: thêm `work`).
 
-## Prompt mẫu cho PixelLab
-`cute chubby <mô tả thú>, top-down 3/4 view, 32x32 pixel art, dark 1px outline, soft shading, Resurrect 64 palette, transparent background`
+## Prompt mẫu cho Meshy / Tripo
+`cute chubby <mô tả thú>, low poly stylized game character, flat shading, vibrant colors, big eyes, short legs, T-pose, clean topology, under 3000 triangles`
+
+## Tham khảo phong cách (chỉ để cảm nhận, không sao chép)
+Low-poly kiểu asset Quaternius / Kenney, phong cách "cozy" của các game nông trại 3D.

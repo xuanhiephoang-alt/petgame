@@ -18,7 +18,7 @@ Bạn là kỹ sư **AI hệ thống** của PetGame.
 1. Máy trạng thái cho thú hoang: `idle → wander → flee` (khi bị đánh) `→ aggro` (với loài hung dữ).
 2. Thú đã bắt đi theo chủ, tự đánh quái gần đó.
 3. Thú làm việc ở căn cứ: tìm việc phù hợp `workSkills`, đi tới, làm, mang về kho.
-4. Tìm đường A* trên lưới tile (khi có bản đồ Tiled với vật cản).
+4. Tìm đường A* trên lưới vật cản 2D của server (cây, đá, nhà).
 
 ## Quy tắc
 - Mỗi hành vi là hàm thuần nhận `random` có thể inject để test được. Viết test Vitest cạnh file (`*.test.ts`).

@@ -5,7 +5,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 ## Cấu trúc
 - `packages/shared`: TypeScript dùng chung: hằng số, schema đồng bộ Colyseus, message, logic thuần (di chuyển, bắt thú), dữ liệu JSON (`src/data/`)
 - `packages/server`: Colyseus 0.18, `GameRoom` có server quyết định mọi kết quả (authoritative)
-- `packages/client`: Phaser 4 + Vite, joystick ảo cho điện thoại
+- `packages/client`: Three.js (3D, camera nhìn chéo từ trên xuống) + Vite; HUD và joystick là DOM overlay
 - `tests/e2e`: Playwright, nhiều người chơi
 - `.claude/agents`: 7 agent chuyên môn; mỗi agent chỉ sửa thư mục của mình (ghi trong file agent)
 
@@ -17,6 +17,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 
 ## Quy tắc chung
 - Client chỉ gửi ý định; server quyết định vị trí, sát thương, kết quả bắt thú.
+- Server mô phỏng mặt phẳng 2D theo pixel (x, y). Client vẽ 3D trên mặt XZ qua `toScene()` (`packages/client/src/game/coords.ts`, 32 px = 1 đơn vị).
 - Logic dùng chung giữa client và server đặt trong `packages/shared` và phải có test.
 - Schema dùng `schema()` + `t.*` (không decorator). Đổi schema là đổi giao thức, cần cập nhật client.
 - Import nội bộ có đuôi `.ts`. Không có bước compile; server chạy bằng `tsx`, client bằng Vite.

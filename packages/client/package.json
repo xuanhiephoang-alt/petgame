@@ -11,6 +11,6 @@
   "dependencies": {
     "@colyseus/sdk": "^0.18.5",
     "@petgame/shared": "*",
-    "phaser": "^4.2.1"
+    "three": "^0.186.1"
   }
 }

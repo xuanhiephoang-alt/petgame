@@ -1,6 +1,6 @@
 # 🐾 PetGame
 
-Game bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống, chơi trên **trình duyệt và điện thoại**, **tối đa 5 người** cùng một thế giới.
+Game 3D bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống, chơi trên **trình duyệt và điện thoại**, **tối đa 5 người** cùng một thế giới.
 
 ## Chạy thử
 
@@ -20,7 +20,7 @@ Mở http://localhost:5173, nhập tên, bấm **Vào chơi**. Gửi **link mờ
 Thú càng ít máu càng dễ bắt.
 
 ## Công nghệ
-TypeScript · Phaser 4 · Colyseus 0.18 · Vite · Vitest · Playwright
+TypeScript · Three.js (3D low-poly) · Colyseus 0.18 · Vite · Vitest · Playwright
 
 ## Kiểm thử
 

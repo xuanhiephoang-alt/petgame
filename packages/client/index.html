@@ -10,7 +10,35 @@
     <title>PetGame</title>
     <style>
       html, body { margin: 0; height: 100%; background: #1b2a1b; overflow: hidden; touch-action: none; }
-      #game { width: 100vw; height: 100vh; height: 100dvh; }
+      #game { position: relative; width: 100vw; height: 100vh; height: 100dvh; font-family: system-ui, sans-serif; }
+      #game canvas { display: block; }
+      .labels { position: absolute; inset: 0; pointer-events: none; }
+      .label { display: flex; flex-direction: column; align-items: center; gap: 2px;
+        font-size: 12px; color: #fff; text-shadow: 0 1px 2px #000, 0 0 4px #000; white-space: nowrap; }
+      .label.me { color: #fff59d; }
+      .label.pal span { font-size: 11px; opacity: 0; transition: opacity 0.2s; }
+      .label.pal.hurt span { opacity: 1; }
+      .hp-bar { width: 36px; height: 5px; background: rgba(0,0,0,0.6); border-radius: 3px; overflow: hidden; display: none; }
+      .label.hurt .hp-bar { display: block; }
+      .hp-bar div { height: 100%; background: #66bb6a; transition: width 0.15s; }
+      .hud { position: absolute; inset: 0; pointer-events: none; color: #fff; }
+      .hud-status { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
+        background: rgba(0,0,0,0.45); padding: 6px 10px; border-radius: 8px; font-size: 14px; line-height: 1.5;
+        pointer-events: auto; max-width: calc(100vw - 24px); overflow-wrap: anywhere; }
+      .hud-status a { color: #b3e5fc; }
+      .hud-toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.65);
+        padding: 8px 14px; border-radius: 8px; font-size: 18px; opacity: 0; transition: opacity 0.2s; }
+      .hud-toast.visible { opacity: 1; }
+      .joystick-zone { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; pointer-events: auto; touch-action: none; }
+      .joystick-base { display: none; position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px;
+        border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3); }
+      .joystick-thumb { position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; border-radius: 50%;
+        background: rgba(255,255,255,0.45); transform: translate(-50%, -50%); }
+      .action-btn { position: absolute; width: 76px; height: 76px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.6);
+        color: #fff; font-size: 16px; font-weight: bold; pointer-events: auto; touch-action: none; }
+      .action-btn:active { filter: brightness(1.3); }
+      .btn-attack { right: max(110px, calc(env(safe-area-inset-right) + 110px)); bottom: 28px; background: rgba(229,115,115,0.7); }
+      .btn-capture { right: max(24px, calc(env(safe-area-inset-right) + 24px)); bottom: 96px; background: rgba(79,195,247,0.7); }
       #lobby {
         position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
         font-family: system-ui, sans-serif; color: #fff; background: #1b2a1b;

@@ -12,9 +12,10 @@ Bạn là lập trình viên **UI & mobile** của PetGame.
 - Phần lobby trong `packages/client/index.html` (phối hợp với **client-gameplay**)
 
 ## Kiến trúc hiện tại
-- `VirtualJoystick`: joystick nổi ở nửa trái màn hình, chỉ bật trên thiết bị cảm ứng.
-- `createActionButton`: nút tròn gắn với camera (`setScrollFactor(0)`).
-- HUD hiện là text trong `GameScene.updateHud()`. Khi tách thành component, đặt trong `src/ui/`.
+- UI là **DOM overlay** nằm trên canvas 3D, CSS trong `packages/client/index.html`.
+- `hud.ts`: bảng trạng thái, toast, nút **Đánh**/**Bắt** (chỉ trên thiết bị cảm ứng).
+- `joystick.ts`: joystick nổi ở nửa trái màn hình (Pointer Events). Kéo lên trên màn hình = đi về phía xa camera.
+- `keyboard.ts`: WASD/mũi tên, Space, E.
 
 ## Quy tắc
 - Mọi thao tác phải dùng được bằng **cả cảm ứng lẫn bàn phím**. Nút cảm ứng tối thiểu 44×44 px.
