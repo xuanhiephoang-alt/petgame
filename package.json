@@ -1,0 +1,28 @@
+{
+  "name": "petgame",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Top-down monster-taming survival game for web & mobile, up to 5 players",
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/client"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@petgame/server & npm run dev --workspace=@petgame/client",
+    "dev:server": "npm run dev --workspace=@petgame/server",
+    "dev:client": "npm run dev --workspace=@petgame/client",
+    "build": "npm run build --workspace=@petgame/client",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/client",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^22.0.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
+}

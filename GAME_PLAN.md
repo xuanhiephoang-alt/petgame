@@ -22,7 +22,7 @@ Palworld do hàng chục người làm trong nhiều năm. Để làm được t
 | Phần | Lựa chọn | Lý do |
 |---|---|---|
 | Ngôn ngữ | **TypeScript** (dùng cho cả client lẫn server) | Dùng chung code chỉ số, kiểu dữ liệu, công thức sát thương |
-| Engine client | **Phaser 3** + Vite | Engine 2D mạnh nhất cho web, chạy mượt trên điện thoại, có sẵn tilemap, va chạm, camera |
+| Engine client | **Phaser 4** + Vite | Engine 2D mạnh nhất cho web, chạy mượt trên điện thoại, có sẵn tilemap, va chạm, camera |
 | Multiplayer | **Colyseus** (Node.js) | Có sẵn khái niệm "phòng" (room tối đa 5 người), tự đồng bộ trạng thái, có nhiều ví dụ dùng chung với Phaser |
 | Mô hình mạng | **Server quyết định mọi thứ (server-authoritative)**, client dự đoán chuyển động trước | Chống gian lận, tránh lệch trạng thái giữa 5 người |
 | Bản đồ | **Tiled Map Editor** → xuất JSON → Phaser đọc | Chuẩn de facto cho game 2D |
@@ -38,12 +38,14 @@ Palworld do hàng chục người làm trong nhiều năm. Để làm được t
 ```
 petgame/
 ├── packages/
-│   ├── shared/     # kiểu dữ liệu, chỉ số thú, công thức sát thương, hằng số
+│   ├── shared/     # schema đồng bộ, message, hằng số, logic dùng chung
+│   │   └── src/data/   # pals.json, items.json, recipes.json (dữ liệu thiết kế)
 │   ├── server/     # Colyseus: GameRoom, AI thú, quái, lưu game
 │   └── client/     # Phaser + Vite: scene, UI, điều khiển cảm ứng
 ├── assets/         # sprite gốc (.aseprite), tileset, file Tiled (.tmx)
-├── data/           # pals.json, items.json, recipes.json (dữ liệu thiết kế)
-├── .claude/agents/ # định nghĩa các Agent
+├── docs/           # phong cách đồ họa, tài liệu thiết kế
+├── tests/e2e/      # Playwright: nhiều người chơi
+├── .claude/agents/ # định nghĩa 7 Agent
 └── GAME_PLAN.md
 ```
 
@@ -56,7 +58,7 @@ petgame/
 | # | Agent | Nhiệm vụ cụ thể | Thư mục phụ trách | Khi nào dùng |
 |---|---|---|---|---|
 | 0 | **Điều phối (phiên Claude chính, tức bạn + tôi)** | Chia việc, giữ GAME_PLAN, duyệt PR, quyết định kiến trúc | toàn bộ | Luôn luôn |
-| 1 | **game-designer** | Viết dữ liệu: danh sách thú (chỉ số, hệ, kỹ năng), vật phẩm, công thức chế tạo, tỉ lệ bắt, đường cong lên cấp. Chỉ sửa JSON/Markdown | `data/`, `docs/` | Từ MVP |
+| 1 | **game-designer** | Viết dữ liệu: danh sách thú (chỉ số, hệ, kỹ năng), vật phẩm, công thức chế tạo, tỉ lệ bắt, đường cong lên cấp. Chỉ sửa JSON/Markdown | `packages/shared/src/data/`, `docs/` | Từ MVP |
 | 2 | **server-netcode** | Colyseus room, đồng bộ trạng thái, server quyết định va chạm/sát thương, vào lại khi rớt mạng, giới hạn 5 người | `packages/server`, `packages/shared` | Từ MVP |
 | 3 | **client-gameplay** | Scene Phaser, di chuyển, camera, nội suy chuyển động người khác, hiệu ứng, ném bóng bắt thú | `packages/client/src/scenes` | Từ MVP |
 | 4 | **ai-systems** | AI của thú/quái (đi lang thang, đuổi, bỏ chạy), thú đi theo chủ, giao việc ở căn cứ (chặt cây, đào mỏ), tìm đường A* | `packages/server/src/ai` | Alpha |

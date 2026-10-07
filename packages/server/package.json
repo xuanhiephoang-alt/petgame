@@ -1,0 +1,15 @@
+{
+  "name": "@petgame/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@petgame/shared": "*",
+    "colyseus": "^0.18.9",
+    "tsx": "^4.20.0"
+  }
+}

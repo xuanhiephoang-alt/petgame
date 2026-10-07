@@ -1,0 +1,62 @@
+[
+  {
+    "id": "leafkit",
+    "name": "Leafkit",
+    "element": "grass",
+    "maxHp": 40,
+    "speed": 50,
+    "catchRate": 0.55,
+    "color": "#7cc35a",
+    "size": 14,
+    "spawnWeight": 5,
+    "workSkills": ["planting", "gathering"]
+  },
+  {
+    "id": "emberpup",
+    "name": "Emberpup",
+    "element": "fire",
+    "maxHp": 50,
+    "speed": 70,
+    "catchRate": 0.45,
+    "color": "#ff7043",
+    "size": 15,
+    "spawnWeight": 4,
+    "workSkills": ["kindling"]
+  },
+  {
+    "id": "bubbloon",
+    "name": "Bubbloon",
+    "element": "water",
+    "maxHp": 45,
+    "speed": 40,
+    "catchRate": 0.5,
+    "color": "#4dabf5",
+    "size": 16,
+    "spawnWeight": 4,
+    "workSkills": ["watering"]
+  },
+  {
+    "id": "pebblet",
+    "name": "Pebblet",
+    "element": "earth",
+    "maxHp": 70,
+    "speed": 30,
+    "catchRate": 0.35,
+    "color": "#a1887f",
+    "size": 17,
+    "spawnWeight": 3,
+    "workSkills": ["mining"]
+  },
+  {
+    "id": "voltmouse",
+    "name": "Voltmouse",
+    "element": "electric",
+    "maxHp": 35,
+    "speed": 95,
+    "catchRate": 0.3,
+    "color": "#ffd54f",
+    "size": 12,
+    "spawnWeight": 2,
+    "workSkills": ["generating"]
+  }
+]
