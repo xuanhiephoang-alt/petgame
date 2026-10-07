@@ -9,8 +9,13 @@ import {
   getSpecies,
   normalizeInput,
   stepPlayer,
+  RESOURCE_INFO,
   type CaptureResultMessage,
   type HitMessage,
+  type LevelUpMessage,
+  type NoticeMessage,
+  type ProducedMessage,
+  type Resource,
   type Vec2,
   defaultWorld,
 } from "@petgame/shared";
@@ -26,6 +31,7 @@ import type { PalInstance, PalModelSet } from "./assets.ts";
 import type { AnimatedModel } from "./animated.ts";
 import { PlayerClip, type CharacterSet } from "./characters.ts";
 import { buildWorld, type World } from "./world.ts";
+import { animateBase, createBaseModel } from "./base.ts";
 
 interface Entity {
   model: THREE.Group;
@@ -74,6 +80,8 @@ export class Game {
   private pals = new Map<string, PalEntity>();
   private companions = new Map<string, Entity>();
   private party: PartyPanel;
+  /** Camp models by owner session id. */
+  private bases = new Map<string, THREE.Group>();
   private lastSentInput: Vec2 = { x: 0, y: 0 };
   private lastFrame = performance.now();
   private cameraTarget = new THREE.Vector3();
@@ -99,10 +107,22 @@ export class Game {
     this.world = buildWorld(this.scene, assets.nature, !isTouch);
     this.effects = new Effects(this.scene);
 
-    this.hud = new Hud(container, isTouch, { attack: () => this.attack(), capture: () => this.throwBall() });
+    this.hud = new Hud(container, isTouch, {
+      attack: () => this.attack(),
+      capture: () => this.throwBall(),
+      placeBase: () => this.room.send(ClientMessage.PlaceBase),
+    });
     if (isTouch) this.joystick = new Joystick(this.hud.joystickZone);
-    this.party = new PartyPanel(this.hud.root, (palId) => this.room.send(ClientMessage.Summon, { palId }));
-    this.keyboard = new Keyboard({ " ": () => this.attack(), e: () => this.throwBall() });
+    this.party = new PartyPanel(this.hud.root, {
+      summon: (palId) => this.room.send(ClientMessage.Summon, { palId }),
+      work: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "work" }),
+      rest: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "" }),
+    });
+    this.keyboard = new Keyboard({
+      " ": () => this.attack(),
+      e: () => this.throwBall(),
+      b: () => this.room.send(ClientMessage.PlaceBase),
+    });
 
     window.addEventListener("resize", () => this.resize());
     this.resize();
@@ -137,7 +157,9 @@ export class Game {
       $.onChange(player, () => {
         entity.server.x = player.x;
         entity.server.y = player.y;
+        this.syncBase(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name);
       });
+      this.syncBase(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name);
       if (isMe) this.cameraTarget.copy(model.position);
     });
 
@@ -145,6 +167,7 @@ export class Game {
       const entity = this.players.get(sessionId);
       if (entity) this.removeEntity(entity);
       this.players.delete(sessionId);
+      this.syncBase(sessionId, false, 0, 0, 0, "");
     });
 
     $.onAdd("pals", (pal, id) => {
@@ -152,7 +175,7 @@ export class Game {
       const anim = this.assets.pals.create(species.id);
       const model = anim.object;
       model.scale.setScalar(PAL_DISPLAY_SCALE);
-      const label = makeLabel(species.name, "label pal");
+      const label = makeLabel(`Lv ${pal.level} ${species.name}`, "label pal");
       const hpBar = document.createElement("div");
       hpBar.className = "hp-bar";
       const hpFill = document.createElement("div");
@@ -198,9 +221,10 @@ export class Game {
       );
       ring.position.y = 0.03;
       model.add(ring);
-      const label = makeLabel(species.name, "label companion");
+      const label = makeLabel(`Lv ${companion.level} ${species.name}`, "label companion");
       label.position.y = new THREE.Box3().setFromObject(model).max.y / PAL_DISPLAY_SCALE + 0.15;
       model.add(label);
+      const labelText = label.element.querySelector("span")!;
       toScene(companion.x, companion.y, model.position);
       this.scene.add(model);
       const entity: Entity = { model, anim, label, pos: { x: companion.x, y: companion.y }, server: { x: companion.x, y: companion.y } };
@@ -208,6 +232,7 @@ export class Game {
       $.onChange(companion, () => {
         entity.server.x = companion.x;
         entity.server.y = companion.y;
+        labelText.textContent = `Lv ${companion.level} ${species.name}`;
       });
     });
 
@@ -244,6 +269,22 @@ export class Game {
       const name = getSpecies(msg.speciesId).name;
       const pct = Math.round(msg.chance * 100);
       this.hud.showToast(msg.success ? `Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${pct}%)`);
+    });
+
+    this.room.onMessage(ServerMessage.Notice, (msg: NoticeMessage) => this.hud.showToast(msg.text));
+
+    this.room.onMessage(ServerMessage.LevelUp, (msg: LevelUpMessage) => {
+      const companion = this.companions.get(msg.palId);
+      if (companion) this.effects.sparkle(companion.model.position, 0xffd54f);
+      if (msg.playerId === this.room.sessionId) this.hud.showToast(`${getSpecies(msg.speciesId).name} lên cấp ${msg.level}! ⭐`);
+    });
+
+    this.room.onMessage(ServerMessage.Produced, (msg: ProducedMessage) => {
+      const worker = this.companions.get(msg.palId);
+      if (!worker) return;
+      worker.anim.once("attack");
+      const info = RESOURCE_INFO[msg.resource as Resource];
+      if (info) this.floatText(worker.model, `+${msg.amount} ${info.icon}`);
     });
 
     this.room.onLeave(() => this.hud.showToast("Mất kết nối với server"));
@@ -298,6 +339,7 @@ export class Game {
 
     this.updateCamera(dtSec);
     this.world.update(now / 1000, this.cameraTarget, this.camera);
+    this.bases.forEach((base) => animateBase(base, now / 1000));
     this.effects.update(dtSec);
     this.updateHud();
     this.renderer.render(this.scene, this.camera);
@@ -383,8 +425,49 @@ export class Game {
 
   private updateHud() {
     const me = this.room.state.players?.get(this.room.sessionId);
-    this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, inviteLink(this.room.roomId));
-    if (me) this.party.update(me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId })), me.activePalId);
+    const resources = { wood: me?.wood ?? 0, stone: me?.stone ?? 0, berries: me?.berries ?? 0 };
+    this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, resources, inviteLink(this.room.roomId));
+    if (me) {
+      const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment }));
+      this.party.update(party, me.hasBase);
+    }
+  }
+
+  /** Creates, moves or removes a player's camp model to match the synced state. */
+  private syncBase(sessionId: string, hasBase: boolean, x: number, y: number, color: number, owner: string) {
+    let base = this.bases.get(sessionId);
+    if (!hasBase) {
+      if (base) {
+        this.scene.remove(base);
+        base.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+        base.children.forEach((c) => c instanceof CSS2DObject && c.element.remove());
+        this.bases.delete(sessionId);
+      }
+      return;
+    }
+    if (!base) {
+      base = createBaseModel(color);
+      const label = makeLabel(`🏕️ Trại của ${owner}`, "label base");
+      label.position.y = 2.2;
+      base.add(label);
+      this.scene.add(base);
+      this.bases.set(sessionId, base);
+    }
+    toScene(x, y, base.position);
+  }
+
+  /** A short "+1 🪵" style text rising above a model. */
+  private floatText(model: THREE.Object3D, text: string) {
+    const div = document.createElement("div");
+    div.className = "float-text";
+    div.textContent = text;
+    const label = new CSS2DObject(div);
+    label.position.y = 1.4;
+    model.add(label);
+    setTimeout(() => {
+      model.remove(label);
+      div.remove();
+    }, 1200);
   }
 
   private removeEntity(entity: Entity) {

@@ -38,7 +38,7 @@
 .party-btn { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
         pointer-events: auto; border: none; border-radius: 20px; padding: 8px 14px; font-size: 15px; font-weight: 600;
         background: rgba(255,255,255,0.92); color: #2b3a24; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
-      .party-panel { position: absolute; top: 56px; right: max(12px, env(safe-area-inset-right)); width: min(320px, calc(100vw - 24px));
+      .party-panel { position: absolute; top: 100px; right: max(12px, env(safe-area-inset-right)); width: min(320px, calc(100vw - 24px));
         max-height: calc(100% - 140px); overflow-y: auto; pointer-events: auto; background: rgba(250,252,246,0.97); color: #253020;
         border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.3); padding: 10px; }
       .party-panel[hidden] { display: none; }
@@ -47,14 +47,28 @@
       .party-list { display: flex; flex-direction: column; gap: 6px; }
       .party-empty { margin: 4px; font-size: 14px; color: #5b6a52; }
       .party-card { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; background: #fff; border: 2px solid transparent; }
-      .party-card.active { border-color: #7cb342; background: #f1f8e9; }
-      .party-swatch { width: 34px; height: 34px; border-radius: 50%; flex: none; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.15); }
+      .party-card.follow { border-color: #7cb342; background: #f1f8e9; }
+      .party-card.work { border-color: #ffb74d; background: #fff8e1; }
+      .party-hint { margin: 2px 4px 6px; font-size: 13px; color: #8d6e63; }
+      .party-xp { height: 4px; background: #e0e0e0; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+      .party-xp div { height: 100%; background: #42a5f5; }
+      .party-buttons { display: flex; flex-direction: column; gap: 4px; }
+      .party-action.work { background: #ffa726; }
+      .party-action.rest { background: #e0e0e0; color: #333; }
+      .party-action:disabled { opacity: 0.4; cursor: not-allowed; }
+      .party-swatch { width: 34px; height: 34px; border-radius: 50%; flex: none; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.15);
+        display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
       .party-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
       .party-info small { color: #66735c; }
-      .party-action { border: none; border-radius: 8px; padding: 8px 12px; min-height: 44px; font-weight: 600; cursor: pointer;
+      .party-action { border: none; border-radius: 8px; padding: 6px 10px; min-height: 36px; min-width: 76px; font-weight: 600; cursor: pointer;
         background: #7cb342; color: #fff; }
-      .party-card.active .party-action { background: #e0e0e0; color: #333; }
       .label.companion span { font-size: 11px; font-weight: 500; }
+      .float-text { font-size: 15px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000; animation: float-up 1.2s ease-out forwards; }
+      @keyframes float-up { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-36px); opacity: 0; } }
+      .base-btn { position: absolute; top: max(56px, calc(env(safe-area-inset-top) + 44px)); right: max(12px, env(safe-area-inset-right));
+        pointer-events: auto; border: none; border-radius: 20px; padding: 8px 14px; font-size: 15px; font-weight: 600;
+        background: rgba(255,224,178,0.95); color: #4e342e; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
+      .party-panel { z-index: 3; }
       .action-btn { position: absolute; width: 76px; height: 76px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.6);
         color: #fff; font-size: 16px; font-weight: bold; pointer-events: auto; touch-action: none; }
       .action-btn:active { filter: brightness(1.3); }

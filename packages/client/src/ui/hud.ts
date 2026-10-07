@@ -1,4 +1,4 @@
-import { MAX_PLAYERS } from "@petgame/shared";
+import { MAX_PLAYERS, RESOURCES, RESOURCE_INFO, type Resource } from "@petgame/shared";
 
 /** DOM overlay: status panel, toast, and touch action buttons. */
 export class Hud {
@@ -9,12 +9,22 @@ export class Hud {
   private toastTimer = 0;
   private lastStatus = "";
 
-  constructor(parent: HTMLElement, private isTouch: boolean, actions: { attack: () => void; capture: () => void }) {
+  constructor(
+    parent: HTMLElement,
+    private isTouch: boolean,
+    actions: { attack: () => void; capture: () => void; placeBase: () => void },
+  ) {
     this.root = div("hud");
     this.status = div("hud-status");
     this.toast = div("hud-toast");
     this.joystickZone = div("joystick-zone");
     this.root.append(this.status, this.toast);
+    const base = document.createElement("button");
+    base.className = "base-btn";
+    base.textContent = "🏕️ Đặt trại";
+    base.title = "Dựng trại ở chỗ đang đứng (phím B)";
+    base.addEventListener("click", actions.placeBase);
+    this.root.append(base);
 
     if (isTouch) {
       this.root.append(this.joystickZone);
@@ -23,10 +33,11 @@ export class Hud {
     parent.append(this.root);
   }
 
-  setStatus(players: number, captured: number, invite: string) {
-    const help = this.isTouch ? "Kéo bên trái để đi • Đánh • Bắt" : "WASD/↑↓←→ đi • Space đánh • E ném bóng";
+  setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string) {
+    const help = this.isTouch ? "Kéo bên trái để đi • Đánh • Bắt" : "WASD/↑↓←→ đi • Space đánh • E ném bóng • Q thú • B trại";
+    const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ");
     const html =
-      `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú đã bắt: ${captured}<br>${help}<br>` +
+      `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +
       `Mời bạn: <a href="${invite}" target="_blank" rel="noopener">${escapeHtml(invite)}</a>`;
     if (html === this.lastStatus) return;
     this.lastStatus = html;

@@ -19,6 +19,7 @@ function serverUrl(): string {
  */
 export async function connect(options: JoinOptions): Promise<GameRoom> {
   const client = new Client(serverUrl());
+  options = { ...options, token: options.token ?? deviceToken() };
   const roomId = new URLSearchParams(location.search).get("room");
   if (roomId) return client.joinById(roomId, options, GameState);
   return client.create(ROOM_NAME, options, GameState);
@@ -28,4 +29,21 @@ export function inviteLink(roomId: string): string {
   const url = new URL(location.href);
   url.searchParams.set("room", roomId);
   return url.toString();
+}
+
+/**
+ * Random id kept on this device; the server saves pals, base and resources
+ * under it. Without storage (private mode) progress is simply not saved.
+ */
+function deviceToken(): string | undefined {
+  try {
+    let token = localStorage.getItem("petgame:token");
+    if (!token) {
+      token = crypto.randomUUID();
+      localStorage.setItem("petgame:token", token);
+    }
+    return token;
+  } catch {
+    return undefined;
+  }
 }

@@ -7,3 +7,5 @@ export * from "./schema.ts";
 export * from "./noise.ts";
 export * from "./collision.ts";
 export * from "./worldgen.ts";
+export * from "./progression.ts";
+export * from "./work.ts";

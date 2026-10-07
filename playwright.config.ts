@@ -13,7 +13,7 @@ export default defineConfig({
       command: "npm run start --workspace=@petgame/server",
       port: 2567,
       // Enables test-only messages such as debug:spawnPal.
-      env: { PETGAME_DEBUG: "1" },
+      env: { PETGAME_DEBUG: "1", PETGAME_DB: ":memory:" },
       reuseExistingServer: false,
     },
     {

@@ -6,6 +6,12 @@ primary_region = "sin" # Singapore: closest to Vietnam
 
 [env]
   PORT = "8080"
+  # Saved players live in SQLite on the persistent volume below.
+  PETGAME_DB = "/data/petgame.db"
+
+[mounts]
+  source = "petgame_data"
+  destination = "/data"
 
 [http_service]
   internal_port = 8080

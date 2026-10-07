@@ -1,8 +1,24 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import { defineRoom, defineServer } from "colyseus";
-import { ClientMessage, ROOM_NAME, ServerMessage, distance, type HitMessage } from "@petgame/shared";
+import {
+  ClientMessage,
+  ROOM_NAME,
+  ServerMessage,
+  WORLD_HEIGHT,
+  XP_PER_CAPTURE,
+  distance,
+  scaledMaxHp,
+  getSpecies,
+  type HitMessage,
+  type NoticeMessage,
+  type ProducedMessage,
+  defaultWorld,
+} from "@petgame/shared";
 import { GameRoom } from "./GameRoom.ts";
+
+// Profiles go to an in-memory database for tests (opened lazily on first join).
+process.env.PETGAME_DB = ":memory:";
 
 let colyseus: ColyseusTestServer;
 
@@ -15,9 +31,9 @@ afterEach(async () => {
   await colyseus.cleanup();
 });
 
-async function setup() {
+async function setup(token?: string) {
   const room = await colyseus.createRoom<GameRoom>(ROOM_NAME);
-  const client = await colyseus.connectTo(room, { name: "Tester" });
+  const client = await colyseus.connectTo(room, { name: "Tester", token });
   await room.waitForNextTimestep();
   const player = room.state.players.get(client.sessionId)!;
   return { room, client, player };
@@ -107,5 +123,124 @@ describe("party and companions", () => {
     await client.leave();
     await ticks(room, 2);
     expect(room.state.companions.size).toBe(0);
+  });
+});
+
+describe("wild pal levels", () => {
+  it("spawns pals with a level and HP scaled to it", async () => {
+    const { room } = await setup();
+    room.state.pals.forEach((pal) => {
+      expect(pal.level).toBeGreaterThanOrEqual(1);
+      expect(pal.maxHp).toBe(scaledMaxHp(getSpecies(pal.speciesId).maxHp, pal.level));
+    });
+  });
+});
+
+describe("progression", () => {
+  it("captured pals keep the wild level and the follower earns capture XP", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    const follower = player.pals[0];
+    expect(follower.level).toBeGreaterThanOrEqual(1);
+    const xpBefore = follower.xp;
+    const levelBefore = follower.level;
+    await ticks(room, 20); // wait out the throw cooldown
+    await capture(room, client, player);
+    expect(player.pals.length).toBe(2);
+    expect(follower.level > levelBefore || follower.xp === xpBefore + XP_PER_CAPTURE).toBe(true);
+  });
+});
+
+describe("saving", () => {
+  it("restores pals, follower, base and resources when rejoining with the same token", async () => {
+    const token = "test-token-0123456789";
+    const first = await setup(token);
+    await capture(first.room, first.client, first.player);
+    first.player.wood = 5;
+    const palId = first.player.pals[0].id;
+    await first.client.leave();
+    await colyseus.cleanup();
+
+    const second = await setup(token);
+    expect(second.player.pals.map((p) => p.id)).toEqual([palId]);
+    expect(second.player.activePalId).toBe(palId);
+    expect(second.room.state.companions.has(palId)).toBe(true);
+    expect(second.player.wood).toBe(5);
+  });
+
+  it("does not save without a token", async () => {
+    const first = await setup();
+    await capture(first.room, first.client, first.player);
+    await first.client.leave();
+    await colyseus.cleanup();
+    const second = await setup();
+    expect(second.player.pals.length).toBe(0);
+  });
+});
+
+describe("base and work", () => {
+  it("refuses a base next to the campfire and places one in the open", async () => {
+    const { room, client, player } = await setup();
+    const notices: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
+
+    const { campfire } = defaultWorld().layout;
+    player.x = campfire.x;
+    player.y = campfire.y + 50;
+    client.send(ClientMessage.PlaceBase);
+    await ticks(room, 3);
+    expect(player.hasBase).toBe(false);
+    expect(notices.at(-1)).toContain("lửa trại");
+
+    player.x = 800;
+    player.y = WORLD_HEIGHT / 2 + 200;
+    client.send(ClientMessage.PlaceBase);
+    await ticks(room, 3);
+    expect(player.hasBase).toBe(true);
+    expect([player.baseX, player.baseY]).toEqual([800, WORLD_HEIGHT / 2 + 200]);
+  });
+
+  it("needs a base before working", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    const notices: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
+    client.send(ClientMessage.Assign, { palId: player.pals[0].id, assignment: "work" });
+    await ticks(room, 3);
+    expect(player.pals[0].assignment).toBe("follow");
+    expect(notices.at(-1)).toContain("đặt trại");
+  });
+
+  it("a working pal walks to the base and produces resources", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    player.x = 800;
+    player.y = WORLD_HEIGHT / 2 + 200;
+    client.send(ClientMessage.PlaceBase);
+    await ticks(room, 2);
+    const pal = player.pals[0];
+    client.send(ClientMessage.Assign, { palId: pal.id, assignment: "work" });
+    await ticks(room, 2);
+    expect(pal.assignment).toBe("work");
+    expect(player.activePalId).toBe("");
+    const worker = room.state.companions.get(pal.id)!;
+    expect(worker.mode).toBe("work");
+
+    // Let it reach its spot, then skip the wait for its next item.
+    await ticks(room, 30);
+    expect(distance(worker, { x: player.baseX, y: player.baseY })).toBeLessThan(80);
+    const produced: ProducedMessage[] = [];
+    client.onMessage(ServerMessage.Produced, (m: ProducedMessage) => produced.push(m));
+    (room as any).companionTimers.get(pal.id).lastWorkAt = 0;
+    await ticks(room, 3);
+    expect(produced).toHaveLength(1);
+    const resource = produced[0].resource as "wood" | "stone" | "berries";
+    expect(player[resource]).toBe(1);
+
+    // Calling it back stops the work.
+    client.send(ClientMessage.Assign, { palId: pal.id, assignment: "" });
+    await ticks(room, 2);
+    expect(pal.assignment).toBe("");
+    expect(room.state.companions.has(pal.id)).toBe(false);
   });
 });

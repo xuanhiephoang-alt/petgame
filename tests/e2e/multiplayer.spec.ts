@@ -97,14 +97,37 @@ test("a captured pal follows the player and shows in the party panel", async ({ 
   // A throw already in flight can land a second catch; one or more is fine.
   expect(caught).toBeGreaterThanOrEqual(1);
 
-  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size)).toBe(1);
+  const companions = () => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number);
+  await expect.poll(companions).toBe(1);
   await expect(page.locator(".party-btn")).toHaveText(`🐾 Thú (${caught})`);
   await page.locator(".party-btn").click();
-  await expect(page.locator(".party-card.active .party-action")).toHaveText("Cho về");
+  await expect(page.locator(".party-card.follow .party-action.rest")).toHaveText("Cho về");
 
   // Dismiss, then summon again from the panel.
-  await page.locator(".party-card.active .party-action").click();
-  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size)).toBe(0);
-  await page.locator(".party-card .party-action").first().click();
-  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size)).toBe(1);
+  await page.locator(".party-card.follow .party-action.rest").click();
+  await expect.poll(companions).toBe(0);
+  await page.locator(".party-card").first().getByText("Đi theo").click();
+  await expect.poll(companions).toBe(1);
+
+  // Place a camp where we stand and send the follower to work there.
+  await page.locator(".base-btn").click();
+  const me = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const p = room.state.players.get(room.sessionId);
+    return { hasBase: p.hasBase as boolean, pals: p.pals.length as number, assignments: p.pals.map((x: any) => x.assignment) as string[] };
+  });
+  await expect.poll(async () => (await me()).hasBase).toBe(true);
+  await page.locator(".party-card.follow").getByText("Làm việc").click();
+  await expect.poll(async () => (await me()).assignments).toContain("work");
+
+  // Everything comes back after a reload (same device token in localStorage).
+  await page.waitForTimeout(2500); // saves are batched every 2 s
+  await page.reload();
+  await page.fill("#name", "Tamer");
+  await page.click("#join-btn");
+  await waitForWorld(page);
+  await expect.poll(async () => (await me()).pals).toBe(caught);
+  expect((await me()).hasBase).toBe(true);
+  expect((await me()).assignments).toContain("work");
+  await expect.poll(companions).toBe(1);
 });

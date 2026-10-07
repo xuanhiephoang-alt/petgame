@@ -11,7 +11,7 @@ RUN npm run build && npm prune --omit=dev --ignore-scripts
 
 FROM node:22-slim
 WORKDIR /app
-ENV NODE_ENV=production PORT=8080
+ENV NODE_ENV=production PORT=8080 PETGAME_DB=/data/petgame.db
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
