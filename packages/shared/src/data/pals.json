@@ -85,7 +85,8 @@
     "spawn": {
       "biomes": [
         "meadow",
-        "rocky"
+        "rocky",
+        "snow"
       ],
       "time": "any"
     }
@@ -153,7 +154,8 @@
       "biomes": [
         "meadow",
         "lake",
-        "rocky"
+        "rocky",
+        "snow"
       ],
       "time": "night"
     }
@@ -176,6 +178,29 @@
     "spawn": {
       "biomes": [
         "rocky"
+      ],
+      "time": "any"
+    }
+  },
+  {
+    "id": "frostfang",
+    "name": "Frostfang",
+    "element": "water",
+    "maxHp": 70,
+    "speed": 75,
+    "catchRate": 0.35,
+    "color": "#bfe6ff",
+    "size": 17,
+    "spawnWeight": 4,
+    "workSkills": [
+      "cooling",
+      "mining"
+    ],
+    "temperament": "defensive",
+    "attack": 9,
+    "spawn": {
+      "biomes": [
+        "snow"
       ],
       "time": "any"
     }

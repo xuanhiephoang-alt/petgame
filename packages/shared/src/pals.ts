@@ -3,7 +3,7 @@ import palData from "./data/pals.json" with { type: "json" };
 export type Element = "grass" | "fire" | "water" | "earth" | "electric";
 
 export type Temperament = "passive" | "defensive" | "aggressive";
-export type Biome = "meadow" | "lake" | "rocky";
+export type Biome = "meadow" | "lake" | "rocky" | "snow";
 export type SpawnTime = "any" | "day" | "night";
 
 export interface PalSpecies {

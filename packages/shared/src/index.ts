@@ -14,3 +14,6 @@ export * from "./daycycle.ts";
 export * from "./combat.ts";
 export * from "./elements.ts";
 export * from "./boss.ts";
+export * from "./rewards.ts";
+export * from "./treasure.ts";
+export * from "./quests.ts";

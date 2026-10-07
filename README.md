@@ -2,6 +2,12 @@
 
 Game 3D bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống, chơi trên **trình duyệt và điện thoại**, **tối đa 5 người** cùng một thế giới.
 
+## Có gì trong game
+
+- Bản đồ 100×75 m: đồng cỏ, hai hồ, núi đá có trùm **Vua Đá Boulderhorn**, vùng tuyết có tuyết rơi. Bản đồ thu nhỏ ở góc phải (phím N để phóng to).
+- 9 loài thú theo vùng và giờ (ngày/đêm), càng xa càng mạnh; bắt, nuôi lên cấp, cho đi theo đánh cùng hoặc làm việc ở trại.
+- 18 rương báu rải khắp nơi, chuỗi nhiệm vụ hướng dẫn người mới, chế tạo, nâng cấp trại, lưu game tự động.
+
 ## Chơi trên iPhone / điện thoại
 
 Xem hướng dẫn từng bước: [`docs/choi-tren-iphone.md`](docs/choi-tren-iphone.md). Nhanh nhất: chạy `npm run play` trên máy tính rồi mở địa chỉ nó in ra bằng Safari trên iPhone (cùng Wi-Fi).

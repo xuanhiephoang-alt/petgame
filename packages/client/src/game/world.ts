@@ -4,6 +4,7 @@ import {
   BORDER as BORDER_PX,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  biomeAt,
   daylight,
   defaultWorld,
   fbm,
@@ -82,6 +83,7 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
   scatterNature(scene, nature, uniforms);
   scene.add(buildLake(uniforms));
   const particles = new Particles(scene);
+  const snowfall = new Snowfall(scene);
   const campfire = buildCampfire(scene, nature);
   const fog = scene.fog as THREE.Fog;
   const sky = scene.background as THREE.Color;
@@ -111,6 +113,7 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
       sun.target.position.copy(focus);
 
       particles.update(timeSec, focus, 1 - d);
+      snowfall.update(timeSec, focus);
       campfire(timeSec, 1 - d);
     },
   };
@@ -122,7 +125,8 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
 
 function buildGround(): THREE.Mesh {
   const size = new THREE.Vector2(W + BORDER * 2 + 30, H + BORDER * 2 + 30);
-  const geometry = new THREE.PlaneGeometry(size.x, size.y, 180, 140);
+  // About one vertex per scene unit, enough for the biome edges.
+  const geometry = new THREE.PlaneGeometry(size.x, size.y, Math.round(size.x), Math.round(size.y));
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(W / 2, 0, H / 2);
 
@@ -135,9 +139,12 @@ function buildGround(): THREE.Mesh {
   const sand = new THREE.Color(0xd9c58f);
   const lakeBed = new THREE.Color(0x2c6f7f);
   const rock = new THREE.Color(0x8a8272);
-  const { lake, rocky } = defaultWorld().layout;
+  const snowWhite = new THREE.Color(0xeef4fa);
+  const snowShade = new THREE.Color(0xc9d9ea);
+  const { lake, rocky, snow } = defaultWorld().layout;
   const U = 1 / UNITS_PER_PIXEL;
   const c = new THREE.Color();
+  const _snow = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const n = fbm(x * 0.06, z * 0.06);
@@ -153,6 +160,10 @@ function buildGround(): THREE.Mesh {
     const px = x * U, py = z * U;
     const rockyT = 1 - smoothstep(rocky.r * 0.75, rocky.r, Math.hypot(px - rocky.x, py - rocky.y));
     c.lerp(rock, rockyT * (0.55 + 0.35 * detail));
+    // Snowfield: drifts with bluish hollows, ragged at the edge.
+    const snowEdge = snow.r * (0.85 + 0.25 * fbm(x * 0.15 + 300, z * 0.15 + 300));
+    const snowT = 1 - smoothstep(snowEdge - 2 * U, snowEdge, Math.hypot(px - snow.x, py - snow.y));
+    if (snowT > 0) c.lerp(_snow.lerpColors(snowShade, snowWhite, smoothstep(0.35, 0.65, detail)), snowT);
     const shore = Math.min(...lake.map((w) => Math.hypot(px - w.x, py - w.y) - w.r)) / U; // units from the water edge
     c.lerp(sand, 1 - smoothstep(0.3, 1.6, shore));
     if (shore < 0) c.lerp(lakeBed, Math.min(1, -shore));
@@ -182,24 +193,35 @@ interface WorldUniforms {
 /** Wind strength per prop kind: grass sways a lot, canopies a little, rocks not at all. */
 const SWAY: Record<Prop["kind"], number> = { grass: 0.12, bush: 0.05, tree: 0.015, rock: 0 };
 
-/** Draws the shared world layout (packages/shared worldgen.ts) with instanced KayKit models. */
+/** Scenery is split into square chunks (scene units) so only nearby ones are drawn. */
+const CHUNK = 12;
+
+/**
+ * Draws the shared world layout (packages/shared worldgen.ts) with instanced
+ * KayKit models: one InstancedMesh per model, part and chunk, so the camera
+ * frustum culls whole chunks. Props in the snowfield get a frosted material.
+ */
 function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, uniforms: WorldUniforms) {
+  const { layout } = defaultWorld();
   const placements = new Map<string, Prop[]>();
-  for (const p of defaultWorld().layout.props) {
-    const list = placements.get(p.model) ?? [];
+  for (const p of layout.props) {
+    const frost = biomeAt(layout, p.x, p.y) === "snow";
+    const cx = Math.floor((p.x * UNITS_PER_PIXEL) / CHUNK), cz = Math.floor((p.y * UNITS_PER_PIXEL) / CHUNK);
+    const key = `${p.model}|${frost ? 1 : 0}|${cx},${cz}`;
+    const list = placements.get(key) ?? [];
     list.push(p);
-    placements.set(p.model, list);
+    placements.set(key, list);
   }
   scatterFlowers(scene, mulberry32(4321), uniforms);
   if (nature.size === 0) return;
 
   const materials = new Map<string, THREE.Material>();
-  const decorated = (base: THREE.Material, kind: Prop["kind"]) => {
-    const key = `${base.uuid}:${kind}`;
+  const decorated = (base: THREE.Material, kind: Prop["kind"], frost: boolean) => {
+    const key = `${base.uuid}:${kind}:${frost}`;
     let m = materials.get(key);
     if (!m) {
       m = base.clone();
-      decorateMaterial(m, uniforms, SWAY[kind], kind === "tree");
+      decorateMaterial(m, uniforms, SWAY[kind], kind === "tree", frost);
       materials.set(key, m);
     }
     return m;
@@ -209,17 +231,19 @@ function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, 
   const relative = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
-  for (const [name, list] of placements) {
+  for (const [key, list] of placements) {
+    const [name, frostFlag] = key.split("|");
     const template = nature.get(name);
     if (!template) continue;
     const kind = list[0].kind;
+    const frost = frostFlag === "1";
     template.updateMatrixWorld(true);
     const rootInverse = template.matrixWorld.clone().invert();
     template.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       relative.multiplyMatrices(rootInverse, mesh.matrixWorld);
-      const im = new THREE.InstancedMesh(mesh.geometry, decorated(mesh.material as THREE.Material, kind), list.length);
+      const im = new THREE.InstancedMesh(mesh.geometry, decorated(mesh.material as THREE.Material, kind, frost), list.length);
       list.forEach((p, i) => {
         q.setFromAxisAngle(up, p.yaw);
         instance.compose(
@@ -242,10 +266,11 @@ function scatterFlowers(scene: THREE.Scene, rand: () => number, uniforms: WorldU
   const colors = [0xffffff, 0xffe066, 0xff8fb1, 0xc5a3ff, 0xff9e5e];
   const perColor: THREE.Matrix4[][] = colors.map(() => []);
   const m = new THREE.Matrix4();
-  const { lake } = defaultWorld().layout;
+  const { lake, snow } = defaultWorld().layout;
   const onLand = (x: number, z: number) =>
-    lake.every((c) => Math.hypot(x / UNITS_PER_PIXEL - c.x, z / UNITS_PER_PIXEL - c.y) > c.r + 8);
-  for (let p = 0; p < 45; p++) {
+    lake.every((c) => Math.hypot(x / UNITS_PER_PIXEL - c.x, z / UNITS_PER_PIXEL - c.y) > c.r + 8) &&
+    Math.hypot(x / UNITS_PER_PIXEL - snow.x, z / UNITS_PER_PIXEL - snow.y) > snow.r;
+  for (let p = 0; p < 180; p++) {
     const cx = rand() * W, cz = rand() * H;
     const color = Math.floor(rand() * colors.length);
     const n = 6 + Math.floor(rand() * 10);
@@ -272,6 +297,7 @@ function scatterFlowers(scene: THREE.Scene, rand: () => number, uniforms: WorldU
     scene.add(im);
     allStems.push(...list);
   });
+  if (!allStems.length) return;
   const stems = new THREE.InstancedMesh(stem, stemMaterial, allStems.length);
   allStems.forEach((mat, k) => stems.setMatrixAt(k, mat));
   stems.computeBoundingSphere();
@@ -284,14 +310,14 @@ function scatterFlowers(scene: THREE.Scene, rand: () => number, uniforms: WorldU
  * dithered out so the player stays visible. Dithering (discarding a screen
  * pattern) works with instancing and needs no transparency sorting.
  */
-function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, sway: number, fadeOccluders: boolean) {
-  if (sway === 0 && !fadeOccluders) return;
+function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, sway: number, fadeOccluders: boolean, frost = false) {
+  if (sway === 0 && !fadeOccluders && !frost) return;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.windTime = uniforms.windTime;
     shader.uniforms.focusPos = uniforms.focus;
     shader.uniforms.cameraPos = uniforms.cameraPos;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float windTime;\nvarying vec3 vWorldPos;")
+      .replace("#include <common>", "#include <common>\nuniform float windTime;\nvarying vec3 vWorldPos;\nvarying float vUp;")
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
@@ -310,10 +336,22 @@ function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, swa
         `#include <worldpos_vertex>
         #ifdef USE_INSTANCING
           vWorldPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+          vUp = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * objectNormal).y;
         #else
           vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+          vUp = normalize(mat3(modelMatrix) * objectNormal).y;
         #endif`,
       );
+    if (frost) {
+      // Snow settles on upward-facing surfaces; everything else gets a cold tint.
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", "#include <common>\nvarying float vUp;")
+        .replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>
+          diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.85, 0.93, 1.05), vec3(0.94, 0.97, 1.0), smoothstep(0.0, 0.6, vUp) * 0.75 + 0.2);`,
+        );
+    }
     if (fadeOccluders) {
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", "#include <common>\nuniform vec3 focusPos;\nuniform vec3 cameraPos;\nvarying vec3 vWorldPos;")
@@ -336,7 +374,7 @@ function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, swa
         );
     }
   };
-  material.customProgramCacheKey = () => `decor-${sway}-${fadeOccluders}`;
+  material.customProgramCacheKey = () => `decor-${sway}-${fadeOccluders}-${frost}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +529,51 @@ class Particles {
       const x = focus.x - a / 2 + ((((bx + Math.sin(t * 0.3 + ph) * 1.5 - focus.x) % a) + a) % a);
       const z = focus.z - a / 2 + ((((bz + Math.cos(t * 0.25 + ph) * 1.5 - focus.z) % a) + a) % a);
       pos.setXYZ(i, x, by + Math.sin(t * 0.8 + ph) * 0.3, z);
+    }
+    pos.needsUpdate = true;
+  }
+}
+
+/** Snowflakes drifting down around the camera target while it is in the snowfield. */
+class Snowfall {
+  private points: THREE.Points;
+  private base: Float32Array;
+  private readonly count = 500;
+  private readonly area = 30;
+  private readonly height = 9;
+
+  constructor(scene: THREE.Scene) {
+    const rand = mulberry32(77);
+    this.base = new Float32Array(this.count * 4);
+    for (let i = 0; i < this.count; i++) {
+      this.base.set([rand() * this.area, rand() * this.height, rand() * this.area, 0.6 + rand() * 0.8], i * 4);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(this.count * 3), 3));
+    this.points = new THREE.Points(
+      geometry,
+      new THREE.PointsMaterial({ size: 0.13, map: glowTexture(), color: 0xffffff, transparent: true, depthWrite: false, opacity: 0 }),
+    );
+    this.points.frustumCulled = false;
+    this.points.visible = false;
+    scene.add(this.points);
+  }
+
+  update(t: number, focus: THREE.Vector3) {
+    const { snow } = defaultWorld().layout;
+    const d = Math.hypot(focus.x / UNITS_PER_PIXEL - snow.x, focus.z / UNITS_PER_PIXEL - snow.y);
+    const strength = 1 - smoothstep(snow.r * 0.8, snow.r * 1.15, d);
+    this.points.visible = strength > 0.01;
+    if (!this.points.visible) return;
+    (this.points.material as THREE.PointsMaterial).opacity = 0.9 * strength;
+    const pos = this.points.geometry.attributes.position as THREE.BufferAttribute;
+    const a = this.area, h = this.height;
+    for (let i = 0; i < this.count; i++) {
+      const bx = this.base[i * 4], by = this.base[i * 4 + 1], bz = this.base[i * 4 + 2], speed = this.base[i * 4 + 3];
+      const y = (((by - t * speed) % h) + h) % h;
+      const x = focus.x - a / 2 + ((((bx + Math.sin(t * 0.7 + i) * 0.6 - focus.x) % a) + a) % a);
+      const z = focus.z - a / 2 + ((((bz + t * 0.3 - focus.z) % a) + a) % a);
+      pos.setXYZ(i, x, y, z);
     }
     pos.needsUpdate = true;
   }

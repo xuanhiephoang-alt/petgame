@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SqliteStore, emptyProfile, isValidToken, sanitizeProfile } from "./store.ts";
+import { WORLD_HEIGHT, WORLD_WIDTH } from "@petgame/shared";
 
 describe("profile store", () => {
   it("saves and loads a profile", () => {
@@ -43,7 +44,8 @@ describe("profile store", () => {
     expect(p.pals[0].level).toBe(30);
     expect(p.pals[0].xp).toBe(0);
     expect(p.pals[1].assignment).toBe(""); // only one follower allowed
-    expect(p.base).toEqual({ x: 1600, y: 600 });
+    expect(p.base).toEqual({ x: WORLD_WIDTH, y: WORLD_HEIGHT / 2 });
+    expect(p.quest).toEqual({ index: 0, progress: 0 });
     expect(p.resources).toEqual({ wood: 3, stone: 0, berries: 0 });
     expect(p.items).toEqual({ greatBalls: 0, snacks: 0 });
   });

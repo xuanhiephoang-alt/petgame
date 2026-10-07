@@ -5,7 +5,7 @@
 
 export type SoundName =
   | "hit" | "hurt" | "throw" | "capture" | "escape" | "levelup"
-  | "skill" | "stomp" | "craft" | "produce" | "victory" | "faint";
+  | "skill" | "stomp" | "craft" | "produce" | "victory" | "faint" | "chest" | "quest";
 
 /** Major pentatonic (day) and minor pentatonic (night), as semitones from the root. */
 const DAY_SCALE = [0, 2, 4, 7, 9, 12, 14, 16];
@@ -79,6 +79,8 @@ export class Sound {
       case "craft": [0, 7].forEach((n, i) => this.tone(t + i * 0.08, note(67 + n), undefined, 0.15, "square", 0.2)); break;
       case "produce": this.tone(t, note(84), undefined, 0.08, "sine", 0.2); break;
       case "victory": [0, 4, 7, 12, 16, 19, 24].forEach((n, i) => this.tone(t + i * 0.1, note(64 + n), undefined, 0.35, "triangle", 0.3)); break;
+      case "chest": this.noise(t, 0.12, 2500, 0.3); [7, 12, 16, 19].forEach((n, i) => this.tone(t + 0.08 + i * 0.06, note(79 + n), undefined, 0.3, "sine", 0.25)); break;
+      case "quest": [0, 7, 12, 7, 12, 16].forEach((n, i) => this.tone(t + i * 0.09, note(67 + n), undefined, 0.3, "triangle", 0.3)); break;
       case "faint": [12, 7, 3, 0].forEach((n, i) => this.tone(t + i * 0.15, note(60 + n), undefined, 0.3, "triangle", 0.3)); break;
     }
   }

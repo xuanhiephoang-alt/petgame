@@ -372,8 +372,48 @@ function boulderhorn(root: THREE.Group) {
   leg(root, "leg_br", [lx, 0.3, -lz], 0.2, 0.1, stone, dark);
 }
 
+/** Frostfang: snow wolf with a fluffy mane, ice-crystal spikes and a frosty tail. */
+function frostfang(root: THREE.Group) {
+  const fur = "#dcefff", shade = "#9cc4e4", ice = "#8fe3ff", snow = "#ffffff";
+  const body = group("body", root, [0, 0.46, 0]);
+  add(body, sphere(0.3), mat(fur), [0, 0, 0], [0.9, 0.82, 1.45]);
+  add(body, sphere(0.22), mat(snow), [0, -0.08, 0.12], [1, 0.7, 1.1]);
+  // Fluffy mane around the neck.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    add(body, sphere(0.12, 8, 6), mat(snow), [Math.cos(a) * 0.2, 0.1 + Math.sin(a) * 0.14, 0.3], [1, 1, 0.8]);
+  }
+  // Ice crystals along the spine.
+  for (let i = 0; i < 3; i++) {
+    add(body, cone(0.07, 0.24 - i * 0.04, 4), mat(ice, { emissive: "#2a9bc4", flat: true }), [0, 0.26, 0.05 - i * 0.17], [1, 1, 0.7], [-0.3, 0, 0]);
+  }
+
+  const head = group("head", body, [0, 0.24, 0.42]);
+  add(head, sphere(0.22, 12, 10), mat(fur), [0, 0, 0], [1, 0.92, 1.05]);
+  add(head, sphere(0.12, 10, 8), mat(snow), [0, -0.07, 0.17], [0.95, 0.7, 1.35]);
+  add(head, sphere(0.04, 8, 6), mat("#24324a"), [0, -0.03, 0.33]);
+  eyes(head, 0.05, 0.17, 0.09, 0.05);
+  // Two little fangs.
+  for (const side of [-1, 1]) add(head, cone(0.018, 0.06, 4), mat(snow), [side * 0.04, -0.14, 0.27], [1, 1, 1], [Math.PI, 0, 0]);
+  for (const side of [-1, 1]) {
+    const ear = group(side < 0 ? "ear_l" : "ear_r", head, [side * 0.13, 0.17, -0.02], [0, 0, -side * 0.25]);
+    add(ear, cone(0.08, 0.2, 4), mat(shade), [0, 0.09, 0]);
+    add(ear, cone(0.045, 0.12, 4), mat(snow), [0, 0.06, 0.03]);
+  }
+
+  const tail = group("tail", body, [0, 0.08, -0.42], [-0.9, 0, 0]);
+  add(tail, sphere(0.12, 10, 8), mat(fur), [0, 0.14, 0], [0.9, 1.7, 0.9]);
+  add(tail, cone(0.08, 0.16, 5), mat(ice, { emissive: "#2a9bc4", flat: true }), [0, 0.36, 0]);
+
+  const lx = 0.14, lz = 0.24;
+  leg(root, "leg_fl", [-lx, 0.3, lz], 0.24, 0.06, fur, shade);
+  leg(root, "leg_fr", [lx, 0.3, lz], 0.24, 0.06, fur, shade);
+  leg(root, "leg_bl", [-lx, 0.3, -lz], 0.24, 0.06, fur, shade);
+  leg(root, "leg_br", [lx, 0.3, -lz], 0.24, 0.06, fur, shade);
+}
+
 const BUILDERS: Record<string, (root: THREE.Group) => void> = {
-  leafkit, emberpup, bubbloon, pebblet, voltmouse, ripplefin, mothlume, boulderhorn,
+  leafkit, emberpup, bubbloon, pebblet, voltmouse, ripplefin, mothlume, boulderhorn, frostfang,
 };
 
 // ---------------------------------------------------------------------------

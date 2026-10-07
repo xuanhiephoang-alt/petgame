@@ -1,6 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { Room, type Client } from "colyseus";
 import {
+  CHEST_OPEN_RADIUS,
+  CHEST_RESPAWN_MS,
+  Chest,
+  QUESTS,
+  advanceQuest,
+  applyReward,
+  dangerAt,
+  rewardText,
+  rollChestLoot,
+  wildMaxLevel,
+  type ChestOpenedMessage,
+  type QuestDoneMessage,
+  type QuestEvent,
   BOSS,
   SKILLS,
   SKILL_NUMBERS,
@@ -173,6 +186,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.dayTime = DAY_START;
     for (let i = 0; i < WILD_PAL_TARGET; i++) this.spawnPal();
     this.spawnBoss();
+    defaultWorld().layout.chests.forEach((_, i) => this.placeChest(`chest${i}`));
 
     this.onMessage(ClientMessage.Input, (client, message: InputMessage) => {
       const control = this.controls.get(client.sessionId);
@@ -220,6 +234,12 @@ export class GameRoom extends Room<{ state: GameState }> {
         player.x = spot.x;
         player.y = spot.y;
       });
+      this.onMessage("debug:quest", (client, message: { index?: number }) => {
+        const player = this.state.players.get(client.sessionId);
+        if (!player || typeof message?.index !== "number") return;
+        player.questIndex = Math.max(0, Math.min(QUESTS.length, Math.floor(message.index)));
+        player.questProgress = 0;
+      });
       this.onMessage("debug:give", (client) => {
         const player = this.state.players.get(client.sessionId);
         if (!player) return;
@@ -249,6 +269,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.baseLevel = profile.baseLevel;
     for (const r of RESOURCES) player[r] = profile.resources[r];
     for (const item of ITEMS) player[item] = profile.items[item];
+    player.questIndex = profile.quest.index;
+    player.questProgress = profile.quest.progress;
     for (const saved of profile.pals) {
       const owned = new OwnedPal();
       owned.id = saved.id;
@@ -268,6 +290,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (saved.assignment === "follow") this.summon(client.sessionId, saved.id);
       else if (saved.assignment === "work" && player.hasBase) this.startWork(client.sessionId, saved.id);
     }
+    this.catchUpQuest(client.sessionId);
 
     // Workers kept going (at half speed) while the player was away.
     if (player.hasBase && profile.savedAt > 0) {
@@ -339,6 +362,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
 
     this.tickCompanions(dtMs);
+    this.tickExploration();
     this.tickRegen(dtMs, now);
     this.tickDay(dtMs);
 
@@ -483,6 +507,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         if (follower) this.grantXp(client.sessionId, follower, XP_PER_CAPTURE);
         // The first catch starts following right away.
         else this.summon(client.sessionId, owned.id);
+        this.questEvent(client.sessionId, "catch");
       } else {
         this.notify(client, "Túi thú đã đầy");
       }
@@ -536,6 +561,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       ? this.workSpotFor(sessionId, owned.id)
       : from;
     this.spawnCompanion(sessionId, owned, "work", start);
+    this.questEvent(sessionId, "work");
     this.scheduleSave(sessionId);
   }
 
@@ -567,6 +593,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.baseX = spot.x;
     player.baseY = spot.y;
     this.notify(client, "Đã dựng trại 🏕️");
+    this.questEvent(client.sessionId, "camp");
     this.scheduleSave(client.sessionId);
   }
 
@@ -585,6 +612,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     } else {
       player[recipe.output.item] += recipe.output.amount;
       this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`);
+      if (recipe.output.item === "greatBalls") this.questEvent(client.sessionId, "craftGreatBall");
     }
     this.scheduleSave(client.sessionId);
   }
@@ -684,8 +712,13 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (this.bossId && this.state.pals.has(this.bossId)) return;
     const { rocky } = defaultWorld().layout;
     const species = getSpecies(BOSS.speciesId);
-    const spot = randomPoint(Math.random, this.obstacles, BOSS.radius);
-    const pos = this.obstacles.blocked({ x: rocky.x, y: rocky.y }, BOSS.radius) ? spot : { x: rocky.x, y: rocky.y };
+    // Somewhere open in the heart of the hills (the center may hold a boulder).
+    let pos: Vec2 = { x: rocky.x, y: rocky.y };
+    for (let i = 0; i < 200 && this.obstacles.blocked(pos, BOSS.radius); i++) {
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * rocky.r * 0.75;
+      pos = { x: rocky.x + Math.cos(a) * r, y: rocky.y + Math.sin(a) * r };
+    }
+    if (this.obstacles.blocked(pos, BOSS.radius)) pos = randomPoint(Math.random, this.obstacles, BOSS.radius);
     const id = this.spawnPal(pos, species);
     const boss = this.state.pals.get(id)!;
     boss.boss = true;
@@ -710,6 +743,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         const r = BOSS.reward;
         this.notify(client, `Hạ được trùm! 🏆 +🪵${r.wood} +🪨${r.stone} +🫐${r.berries} +🔵${r.greatBalls}`);
       }
+      this.questEvent(sid, "boss");
     }
     const message: BossDefeatedMessage = { bossId, winners };
     this.broadcast(ServerMessage.BossDefeated, message);
@@ -860,6 +894,78 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   // -------------------------------------------------------------------------
+  // Exploration: treasure chests and quests
+  // -------------------------------------------------------------------------
+
+  private placeChest(id: string) {
+    const index = Number(id.slice("chest".length));
+    const spot = defaultWorld().layout.chests[index];
+    if (!spot || this.state.chests.has(id)) return;
+    const chest = new Chest();
+    chest.x = spot.x;
+    chest.y = spot.y;
+    this.state.chests.set(id, chest);
+  }
+
+  /** Opens chests players walk up to and notices when they reach the snowfield. */
+  private tickExploration() {
+    this.state.players.forEach((player, sessionId) => {
+      this.state.chests.forEach((chest, chestId) => {
+        if (distance(player, chest) <= CHEST_OPEN_RADIUS) this.openChest(sessionId, chestId, chest);
+      });
+      if (QUESTS[player.questIndex]?.event === "visitSnow" && biomeAt(defaultWorld().layout, player.x, player.y) === "snow") {
+        this.questEvent(sessionId, "visitSnow");
+      }
+    });
+  }
+
+  private openChest(sessionId: string, chestId: string, chest: Chest) {
+    const player = this.state.players.get(sessionId);
+    if (!player || !this.state.chests.has(chestId)) return;
+    const loot = rollChestLoot(Math.random, dangerAt(chest.x, chest.y));
+    applyReward(player, loot);
+    this.state.chests.delete(chestId);
+    this.clock.setTimeout(() => this.placeChest(chestId), CHEST_RESPAWN_MS);
+    const message: ChestOpenedMessage = { chestId, playerId: sessionId, loot: { ...loot } as Record<string, number> };
+    this.broadcast(ServerMessage.ChestOpened, message);
+    const client = this.clients.find((c) => c.sessionId === sessionId);
+    if (client) this.notify(client, `Rương báu! ${rewardText(loot)}`);
+    this.questEvent(sessionId, "chest");
+    this.scheduleSave(sessionId);
+  }
+
+  /** Moves the player's current quest forward; finished quests pay out and the next one begins. */
+  private questEvent(sessionId: string, event: QuestEvent, amount = 1) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    const { state, completed } = advanceQuest({ index: player.questIndex, progress: player.questProgress }, event, amount);
+    if (state.index === player.questIndex && state.progress === player.questProgress) return;
+    player.questIndex = state.index;
+    player.questProgress = state.progress;
+    this.scheduleSave(sessionId);
+    if (!completed) return;
+    applyReward(player, completed.reward);
+    const message: QuestDoneMessage = { playerId: sessionId, questId: completed.id };
+    this.broadcast(ServerMessage.QuestDone, message);
+    const client = this.clients.find((c) => c.sessionId === sessionId);
+    if (client) this.notify(client, `Xong nhiệm vụ "${completed.title}"! ${rewardText(completed.reward)}`);
+    this.catchUpQuest(sessionId);
+  }
+
+  /** A new quest may already be done (camp built, pal levelled earlier): count what is true now. */
+  private catchUpQuest(sessionId: string) {
+    const player = this.state.players.get(sessionId);
+    const quest = player && QUESTS[player.questIndex];
+    if (!player || !quest) return;
+    if (quest.event === "camp" && player.hasBase) this.questEvent(sessionId, "camp");
+    else if (quest.event === "work" && player.pals.some((p) => p.assignment === "work")) this.questEvent(sessionId, "work");
+    else if (quest.event === "palLevel") {
+      const best = player.pals.reduce((m, p) => Math.max(m, p.level), 0);
+      if (best > 0) this.questEvent(sessionId, "palLevel", best);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
 
@@ -876,6 +982,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
     const message: LevelUpMessage = { playerId: sessionId, palId: owned.id, speciesId: owned.speciesId, level: owned.level };
     this.broadcast(ServerMessage.LevelUp, message);
+    this.questEvent(sessionId, "palLevel", owned.level);
     this.scheduleSave(sessionId);
   }
 
@@ -949,6 +1056,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       baseLevel: player.baseLevel || 1,
       resources: { wood: player.wood, stone: player.stone, berries: player.berries },
       items: { greatBalls: player.greatBalls, snacks: player.snacks },
+      quest: { index: player.questIndex, progress: player.questProgress },
       savedAt: Date.now(),
     };
     try {
@@ -984,7 +1092,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     pal.y = pos.y;
     pal.boss = false;
     pal.angry = false;
-    pal.level = rollWildLevel(Math.random());
+    pal.level = rollWildLevel(Math.random(), wildMaxLevel(dangerAt(pos.x, pos.y)));
     pal.maxHp = scaledMaxHp(species.maxHp, pal.level);
     pal.hp = pal.maxHp;
     const id = `pal${this.nextPalId++}`;

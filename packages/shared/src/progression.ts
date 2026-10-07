@@ -47,6 +47,11 @@ export function levelCatchRate(catchRate: number, level: number): number {
   return catchRate * Math.max(0.3, 1 - 0.06 * (level - 1));
 }
 
+/** Highest wild level at a spot: 6 near the spawn, up to 14 at the edges (see dangerAt). */
+export function wildMaxLevel(danger: number): number {
+  return 6 + Math.round(Math.min(1, Math.max(0, danger)) * 8);
+}
+
 /** Wild pal level, weighted toward low levels. `roll` is in [0, 1). */
 export function rollWildLevel(roll: number, maxLevel = 6): number {
   return 1 + Math.floor(Math.pow(roll, 2) * maxLevel);

@@ -15,6 +15,9 @@ import {
   daylight,
   phaseAt,
   BOSS,
+  QUESTS,
+  type ChestOpenedMessage,
+  type QuestDoneMessage,
   type BossDefeatedMessage,
   type DamageMessage,
   type FaintedMessage,
@@ -35,6 +38,9 @@ import { CraftPanel } from "../ui/crafting.ts";
 import { Sound } from "../ui/audio.ts";
 import { Joystick } from "../ui/joystick.ts";
 import { Keyboard } from "../ui/keyboard.ts";
+import { Minimap } from "../ui/minimap.ts";
+import { QuestTracker } from "../ui/quests.ts";
+import { animateChest, createChestModel } from "./chest.ts";
 import { toScene } from "./coords.ts";
 import { Effects } from "./effects.ts";
 import { setFlash } from "./models.ts";
@@ -81,7 +87,8 @@ export class Game {
   private renderer: THREE.WebGLRenderer;
   private labels: CSS2DRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
+  // Far plane just past the fog, so hidden scenery chunks are culled.
+  private camera = new THREE.PerspectiveCamera(42, 1, 0.1, 64);
   private world: World;
   private effects: Effects;
   private hud: Hud;
@@ -94,6 +101,9 @@ export class Game {
   private craft: CraftPanel;
   /** Whether the next throw should use a crafted great ball. */
   private useGreatBall = false;
+  private minimap: Minimap;
+  private quests: QuestTracker;
+  private chests = new Map<string, THREE.Group>();
   /** Camp models by owner session id. */
   private bases = new Map<string, THREE.Group>();
   /** Last synced time of day and when it arrived; the client extrapolates between syncs. */
@@ -151,6 +161,8 @@ export class Game {
       rest: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "" }),
       feed: (palId) => this.room.send(ClientMessage.Feed, { palId }),
     });
+    this.quests = new QuestTracker(this.hud.left);
+    this.minimap = new Minimap(this.hud.root);
     this.craft = new CraftPanel(this.hud.root, (recipeId) => this.room.send(ClientMessage.Craft, { recipeId }));
     // Only one panel open at a time.
     this.party.onOpen = () => this.craft.toggle(false);
@@ -162,6 +174,7 @@ export class Game {
       r: () => this.toggleBall(),
       h: () => this.room.send(ClientMessage.Eat),
       m: () => this.hud.setMuted(this.sound.toggleMute()),
+      n: () => this.minimap.toggle(),
     });
     this.scene.add(this.lantern);
 
@@ -299,6 +312,40 @@ export class Game {
       const entity = this.companions.get(id);
       if (entity) this.removeEntity(entity);
       this.companions.delete(id);
+    });
+
+    $.onAdd("chests", (chest, id) => {
+      const model = createChestModel();
+      toScene(chest.x, chest.y, model.position);
+      model.rotation.y = (chest.x * 13 + chest.y * 7) % (Math.PI * 2);
+      this.scene.add(model);
+      this.chests.set(id, model);
+    });
+
+    $.onRemove("chests", (_chest, id) => {
+      const model = this.chests.get(id);
+      if (!model) return;
+      this.scene.remove(model);
+      this.chests.delete(id);
+    });
+
+    this.room.onMessage(ServerMessage.ChestOpened, (msg: ChestOpenedMessage) => {
+      const model = this.chests.get(msg.chestId);
+      const at = model?.position ?? this.players.get(msg.playerId)?.model.position;
+      if (at) {
+        this.effects.sparkle(at, 0xffc94a);
+        this.effects.burst(at, [0xffd54f, 0xfff59d, 0x7cf3ff], 24, 1.2);
+      }
+      if (msg.playerId === this.room.sessionId) this.sound.play("chest");
+    });
+
+    this.room.onMessage(ServerMessage.QuestDone, (msg: QuestDoneMessage) => {
+      const player = this.players.get(msg.playerId);
+      if (player) this.effects.ring(player.model.position, 0xffca28, 2.5, 0.8);
+      if (msg.playerId !== this.room.sessionId) return;
+      this.sound.play("quest");
+      const quest = QUESTS.find((q) => q.id === msg.questId);
+      if (quest) setTimeout(() => this.hud.showToast(`📜 Xong: ${quest.title}! Nhận thưởng`), 2100);
     });
 
     this.room.onMessage(ServerMessage.Hit, (msg: HitMessage) => {
@@ -474,6 +521,7 @@ export class Game {
     this.sound.setNight(phase === "night");
     this.updateBossBar();
     this.bases.forEach((base) => animateBase(base, now / 1000));
+    this.chests.forEach((chest) => animateChest(chest, now / 1000));
     this.effects.update(dtSec);
     this.updateHud();
     this.renderer.render(this.scene, this.camera);
@@ -575,7 +623,28 @@ export class Game {
       const myPos = this.players.get(this.room.sessionId)?.pos ?? me;
       const nearBase = me.hasBase && distance(myPos, { x: me.baseX, y: me.baseY }) <= CRAFT_RANGE;
       this.craft.update({ resources, hasBase: me.hasBase, baseLevel: me.baseLevel || 1, nearBase });
+      this.quests.update(me.questIndex ?? 0, me.questProgress ?? 0);
+      this.updateMinimap(me.hasBase ? { x: me.baseX, y: me.baseY } : undefined);
     }
+  }
+
+  private updateMinimap(base: Vec2 | undefined) {
+    const self = this.players.get(this.room.sessionId);
+    const players: (Vec2 & { color: number })[] = [];
+    this.room.state.players.forEach((p, id) => {
+      const entity = this.players.get(id);
+      if (id !== this.room.sessionId && entity) players.push({ ...entity.pos, color: p.color });
+    });
+    const boss = this.bossId ? this.pals.get(this.bossId)?.pos : undefined;
+    const chests: Vec2[] = [];
+    this.room.state.chests?.forEach((c) => chests.push({ x: c.x, y: c.y }));
+    this.minimap.update({
+      me: self ? { ...self.pos, heading: self.model.rotation.y } : undefined,
+      players,
+      base,
+      boss,
+      chests,
+    });
   }
 
   /** Visuals for a companion's element skill. */

@@ -48,9 +48,23 @@
       @keyframes pulse { from { opacity: 1; } to { opacity: 0.5; } }
       .hud-time { margin-right: 4px; }
       .eat-btn { border: none; border-radius: 8px; padding: 4px 8px; font-weight: 600; background: #7e57c2; color: #fff; cursor: pointer; min-height: 30px; }
-      .hud-status { position: absolute; top: max(52px, calc(env(safe-area-inset-top) + 40px)); left: max(12px, env(safe-area-inset-left));
+      .hud-left { position: absolute; top: max(52px, calc(env(safe-area-inset-top) + 40px)); left: max(12px, env(safe-area-inset-left));
+        display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: min(460px, calc(100vw - 190px)); }
+      .hud-status {
         background: rgba(0,0,0,0.45); padding: 6px 10px; border-radius: 8px; font-size: 14px; line-height: 1.5;
-        pointer-events: auto; max-width: calc(100vw - 24px); overflow-wrap: anywhere; }
+        pointer-events: auto; overflow-wrap: anywhere; }
+      .hud-quest { display: flex; flex-direction: column; gap: 2px; background: rgba(40,30,10,0.6); border-left: 3px solid #ffca28;
+        padding: 6px 10px; border-radius: 8px; font-size: 14px; pointer-events: auto; }
+      .hud-quest:empty { display: none; }
+      .hud-quest small { color: #ffe0a3; font-size: 12px; }
+      .hud-quest .quest-count { color: #ffca28; font-weight: 700; }
+      .hud-quest .quest-reward { color: #c5e1a5; }
+      .minimap { position: absolute; top: max(146px, calc(env(safe-area-inset-top) + 134px)); right: max(12px, env(safe-area-inset-right));
+        width: 160px; pointer-events: auto; cursor: pointer; border: 2px solid rgba(255,255,255,0.75); border-radius: 10px;
+        overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.35); line-height: 0; }
+      .minimap canvas { width: 100%; height: auto; image-rendering: auto; }
+      .minimap.big { top: 50%; left: 50%; right: auto; transform: translate(-50%, -50%); width: min(92vw, 120vh); z-index: 4; }
+      @media (max-width: 600px) { .minimap { width: 120px; } .hud-left { max-width: calc(100vw - 150px); } }
       .hud-status a { color: #b3e5fc; }
       .hud-toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.65);
         padding: 8px 14px; border-radius: 8px; font-size: 18px; opacity: 0; transition: opacity 0.2s; }

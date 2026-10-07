@@ -6,6 +6,7 @@ import {
   ROOM_NAME,
   ServerMessage,
   WORLD_HEIGHT,
+  WORLD_WIDTH,
   XP_PER_CAPTURE,
   distance,
   scaledMaxHp,
@@ -22,6 +23,10 @@ import {
   type DamageMessage,
   type SkillMessage,
   BOSS,
+  QUESTS,
+  CHEST_COUNT,
+  type ChestOpenedMessage,
+  type QuestDoneMessage,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
 import { SqliteStore } from "../persistence/store.ts";
@@ -114,6 +119,10 @@ describe("party and companions", () => {
     const { room, client, player } = await setup();
     await capture(room, client, player);
     const targetId = palNextTo(room, player, 30);
+    // Keep the rest of the (crowded) world away so the target is the nearest.
+    room.state.pals.forEach((pal, id) => {
+      if (id !== targetId && distance(pal, player) < 300) pal.x = pal.x < player.x ? player.x - 600 : player.x + 600;
+    });
     const hits: HitMessage[] = [];
     client.onMessage(ServerMessage.Hit, (m: HitMessage) => hits.push(m));
     client.send(ClientMessage.Attack);
@@ -202,12 +211,12 @@ describe("base and work", () => {
     expect(player.hasBase).toBe(false);
     expect(notices.at(-1)).toContain("lửa trại");
 
-    player.x = 800;
-    player.y = WORLD_HEIGHT / 2 + 200;
+    player.x = WORLD_WIDTH / 2;
+    player.y = WORLD_HEIGHT / 2 + 150;
     client.send(ClientMessage.PlaceBase);
     await ticks(room, 3);
     expect(player.hasBase).toBe(true);
-    expect([player.baseX, player.baseY]).toEqual([800, WORLD_HEIGHT / 2 + 200]);
+    expect([player.baseX, player.baseY]).toEqual([WORLD_WIDTH / 2, WORLD_HEIGHT / 2 + 150]);
   });
 
   it("needs a base before working", async () => {
@@ -224,8 +233,8 @@ describe("base and work", () => {
   it("a working pal walks to the base and produces resources", async () => {
     const { room, client, player } = await setup();
     await capture(room, client, player);
-    player.x = 800;
-    player.y = WORLD_HEIGHT / 2 + 200;
+    player.x = WORLD_WIDTH / 2;
+    player.y = WORLD_HEIGHT / 2 + 150;
     client.send(ClientMessage.PlaceBase);
     await ticks(room, 2);
     const pal = player.pals[0];
@@ -241,11 +250,12 @@ describe("base and work", () => {
     expect(distance(worker, { x: player.baseX, y: player.baseY })).toBeLessThan(80);
     const produced: ProducedMessage[] = [];
     client.onMessage(ServerMessage.Produced, (m: ProducedMessage) => produced.push(m));
+    const before = { wood: player.wood, stone: player.stone, berries: player.berries };
     (room as any).companionTimers.get(pal.id).lastWorkAt = 0;
     await ticks(room, 3);
     expect(produced).toHaveLength(1);
     const resource = produced[0].resource as "wood" | "stone" | "berries";
-    expect(player[resource]).toBe(1);
+    expect(player[resource]).toBe(before[resource] + 1);
 
     // Calling it back stops the work.
     client.send(ClientMessage.Assign, { palId: pal.id, assignment: "" });
@@ -258,8 +268,8 @@ describe("base and work", () => {
 describe("crafting", () => {
   async function atCamp() {
     const ctx = await setup();
-    ctx.player.x = 800;
-    ctx.player.y = WORLD_HEIGHT / 2 + 200;
+    ctx.player.x = WORLD_WIDTH / 2;
+    ctx.player.y = WORLD_HEIGHT / 2 + 150;
     ctx.client.send(ClientMessage.PlaceBase);
     await ticks(ctx.room, 3);
     expect(ctx.player.hasBase).toBe(true);
@@ -331,10 +341,11 @@ describe("offline production", () => {
     db.save(token, {
       name: "Away",
       pals: [{ id: "w1", speciesId: "pebblet", level: 1, xp: 0, assignment: "work" }],
-      base: { x: 800, y: WORLD_HEIGHT / 2 + 200 },
+      base: { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 + 150 },
       baseLevel: 1,
       resources: { wood: 0, stone: 0, berries: 0 },
       items: { greatBalls: 0, snacks: 0 },
+      quest: { index: 0, progress: 0 },
       savedAt: Date.now() - 60 * 60 * 1000, // one hour ago
     });
     const { client, player } = await setup(token);
@@ -548,5 +559,66 @@ describe("boss", () => {
     expect(room.state.pals.has(bossId)).toBe(false);
     expect(player.stone).toBe(before.stone + BOSS.reward.stone);
     expect(player.greatBalls).toBe(before.greatBalls + BOSS.reward.greatBalls);
+  });
+});
+
+describe("exploration", () => {
+  it("has a closed chest at every chest spot", async () => {
+    const { room } = await setup();
+    expect(room.state.chests.size).toBe(CHEST_COUNT);
+    const spots = defaultWorld().layout.chests;
+    room.state.chests.forEach((chest, id) => {
+      const spot = spots[Number(id.replace("chest", ""))];
+      expect([chest.x, chest.y]).toEqual([spot.x, spot.y]);
+    });
+  });
+
+  it("opens a chest the player walks up to and pays out its loot", async () => {
+    const { room, client, player } = await setup();
+    const [chestId, chest] = [...room.state.chests.entries()][0];
+    const before = player.wood + player.stone + player.berries;
+    player.x = chest.x + 10;
+    player.y = chest.y;
+    const opened: ChestOpenedMessage = await client.waitForMessage(ServerMessage.ChestOpened);
+    expect(opened.chestId).toBe(chestId);
+    expect(opened.playerId).toBe(client.sessionId);
+    const gained = (opened.loot.wood ?? 0) + (opened.loot.stone ?? 0) + (opened.loot.berries ?? 0);
+    expect(player.wood + player.stone + player.berries).toBe(before + gained);
+    expect(room.state.chests.has(chestId)).toBe(false);
+  });
+
+  it("starts the quest chain and completes the first catch", async () => {
+    const { room, client, player } = await setup();
+    expect(player.questIndex).toBe(0);
+    const done = client.waitForMessage(ServerMessage.QuestDone);
+    const berries = player.berries;
+    await capture(room, client, player);
+    const message: QuestDoneMessage = await done;
+    expect(message.questId).toBe("first_catch");
+    expect(player.questIndex).toBe(1);
+    expect(player.berries).toBe(berries + (QUESTS[0].reward.berries ?? 0));
+  });
+
+  it("counts reaching the snowfield", async () => {
+    const { room, player } = await setup();
+    const snowQuest = QUESTS.findIndex((q) => q.event === "visitSnow");
+    player.questIndex = snowQuest;
+    const { snow } = defaultWorld().layout;
+    const spot = (room as any).obstacles.resolve({ x: snow.x, y: snow.y }, 14);
+    player.x = spot.x;
+    player.y = spot.y;
+    await ticks(room, 2);
+    expect(player.questIndex).toBe(snowQuest + 1);
+  });
+
+  it("saves quest progress with the profile", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "quest-token-0123456789";
+    const { room, client, player } = await setup(token);
+    await capture(room, client, player);
+    await client.leave();
+    await ticks(room, 1);
+    expect(db.load(token)!.quest.index).toBe(1);
   });
 });

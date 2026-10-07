@@ -9,6 +9,7 @@ import {
   MAX_PARTY,
   MAX_WORKERS,
   PAL_SPECIES,
+  QUESTS,
   RESOURCES,
   WORLD_HEIGHT,
   WORLD_WIDTH,
@@ -32,6 +33,8 @@ export interface Profile {
   baseLevel: number;
   resources: Record<Resource, number>;
   items: Record<Item, number>;
+  /** Quest chain position (see shared quests.ts). */
+  quest: { index: number; progress: number };
   /** When the profile was last saved (ms since epoch); drives offline production. */
   savedAt: number;
 }
@@ -55,6 +58,7 @@ export function emptyProfile(name: string): Profile {
     baseLevel: 1,
     resources: { wood: 0, stone: 0, berries: 0 },
     items: { greatBalls: 0, snacks: 0 },
+    quest: { index: 0, progress: 0 },
     savedAt: 0,
   };
 }
@@ -144,5 +148,9 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
   const name = typeof r.name === "string" ? r.name.slice(0, 16) : "";
   const baseLevel = Math.round(num(r.baseLevel, 1, MAX_BASE_LEVEL, 1));
   const savedAt = num(r.savedAt, 0, Date.now(), 0);
-  return { name, pals, base, baseLevel, resources, items, savedAt };
+  const quest = {
+    index: Math.round(num(r.quest?.index, 0, QUESTS.length, 0)),
+    progress: Math.round(num(r.quest?.progress, 0, 1e6, 0)),
+  };
+  return { name, pals, base, baseLevel, resources, items, quest, savedAt };
 }

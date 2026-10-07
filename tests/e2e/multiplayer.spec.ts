@@ -57,7 +57,7 @@ test("movement is synced to other players", async ({ browser }) => {
     page.evaluate((id) => (window as any).__petgame.room.state.players.get(id).x as number, sessionA);
   const startX = await xOf(b);
 
-  await a.locator("canvas").click({ position: { x: 600, y: 300 } });
+  await a.locator("canvas[data-engine]").click({ position: { x: 600, y: 300 } });
   await a.keyboard.down("d");
   await a.waitForTimeout(600);
   await a.keyboard.up("d");
@@ -180,4 +180,32 @@ test("HUD shows health, time of day and lets you eat berries", async ({ browser 
   // Full health: eating is refused with a notice.
   await page.locator(".eat-btn").click();
   await expect(page.locator(".hud-toast")).toContainText(/quả mọng|Máu đang đầy/);
+});
+
+test("exploring: quest tracker, minimap and opening a treasure chest", async ({ browser }) => {
+  const page = await join(browser, "Explorer");
+  await waitForWorld(page);
+  await expect(page.locator(".hud-quest")).toContainText("Bắt con thú đầu tiên");
+  // The minimap enlarges on N and shrinks again.
+  await expect(page.locator(".minimap canvas")).toBeVisible();
+  await page.keyboard.press("n");
+  await expect(page.locator(".minimap")).toHaveClass(/big/);
+  await page.keyboard.press("n");
+  await expect(page.locator(".minimap")).not.toHaveClass(/big/);
+
+  // Walk (teleport, debug hook) onto a chest: it opens and pays out.
+  const chest = await page.evaluate(() => {
+    const room = (window as any).__petgame.room;
+    const [id, c] = [...room.state.chests.entries()][0] as [string, { x: number; y: number }];
+    room.send("debug:teleport", { x: c.x, y: c.y + 8 });
+    return id;
+  });
+  await expect(page.locator(".hud-toast")).toContainText("Rương báu");
+  const state = await page.evaluate((id) => {
+    const room = (window as any).__petgame.room;
+    const me = room.state.players.get(room.sessionId);
+    return { open: !room.state.chests.has(id), total: me.wood + me.stone + me.berries };
+  }, chest);
+  expect(state.open).toBe(true);
+  expect(state.total).toBeGreaterThan(0);
 });

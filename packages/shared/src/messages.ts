@@ -67,7 +67,23 @@ export const ServerMessage = {
   BossStomp: "bossStomp",
   /** The boss was defeated. */
   BossDefeated: "bossDefeated",
+  /** Someone opened a treasure chest. */
+  ChestOpened: "chestOpened",
+  /** A player finished a quest. */
+  QuestDone: "questDone",
 } as const;
+
+export interface ChestOpenedMessage {
+  chestId: string;
+  playerId: string;
+  /** Reward (resource/item -> amount). */
+  loot: Record<string, number>;
+}
+
+export interface QuestDoneMessage {
+  playerId: string;
+  questId: string;
+}
 
 export interface SkillMessage {
   /** Companion (OwnedPal id) that used the skill. */

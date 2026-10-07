@@ -38,6 +38,9 @@ export const Player = schema(
     baseLevel: t.number(),
     greatBalls: t.number(),
     snacks: t.number(),
+    /** Position in the quest chain (QUESTS index) and progress toward its goal. */
+    questIndex: t.number(),
+    questProgress: t.number(),
   },
   "Player",
 );
@@ -77,11 +80,22 @@ export const Companion = schema(
 );
 export type Companion = SchemaType<typeof Companion>;
 
+/** A closed treasure chest. Opened chests are removed and come back later. */
+export const Chest = schema(
+  {
+    x: t.number(),
+    y: t.number(),
+  },
+  "Chest",
+);
+export type Chest = SchemaType<typeof Chest>;
+
 export const GameState = schema(
   {
     players: t.map(Player),
     pals: t.map(WildPal),
     companions: t.map(Companion),
+    chests: t.map(Chest),
     /** Time of day in [0, 1): see daycycle.ts. */
     dayTime: t.number(),
   },

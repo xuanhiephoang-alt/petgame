@@ -4,6 +4,8 @@ import { MAX_PLAYERS, RESOURCES, RESOURCE_INFO, type Resource } from "@petgame/s
 export class Hud {
   readonly root: HTMLDivElement;
   readonly joystickZone: HTMLDivElement;
+  /** Left column under the health bar (status, quest tracker). */
+  readonly left: HTMLDivElement;
   private status: HTMLDivElement;
   private toast: HTMLDivElement;
   private toastTimer = 0;
@@ -41,7 +43,9 @@ export class Hud {
     this.bossBar.innerHTML = `<strong></strong><div class="boss-hp"><div></div></div>`;
     this.bossBar.hidden = true;
     this.root.append(this.bossBar);
-    this.root.append(this.health, this.status, this.toast);
+    this.left = div("hud-left");
+    this.left.append(this.status);
+    this.root.append(this.health, this.left, this.toast);
     const base = document.createElement("button");
     base.className = "base-btn";
     base.textContent = "🏕️ Đặt trại";
@@ -102,7 +106,7 @@ export class Hud {
   setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string) {
     const help = this.isTouch
       ? "Kéo bên trái để đi • Đánh • Bắt"
-      : "WASD/↑↓←→ đi • Space đánh • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • M âm thanh";
+      : "WASD/↑↓←→ đi • Space đánh • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • N bản đồ • M âm thanh";
     const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ");
     const html =
       `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +

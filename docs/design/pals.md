@@ -13,6 +13,7 @@ Model 3D hiện tại: `assets/pals/build.ts` → `packages/client/public/assets
 | ripplefin | Ripplefin | water | Cá sông mũm mĩm màu xanh ngọc, bụng trắng, đốm sáng hai bên, vây lưng nhọn, đi lạch bạch bằng hai vây chân, đuôi quạt. Sống quanh hồ, tự vệ khi bị đánh |
 | mothlume | Mothlume | electric | Bướm đêm lông xù màu tím nhạt, cổ lông trắng, cánh có đốm phát sáng, râu kết thúc bằng hạt sáng. Chỉ xuất hiện ban đêm, hiền lành, hiếm |
 | boulderhorn | Boulderhorn | earth | Tê giác đá xám, sừng trắng lớn, hàng gai đá trên lưng, rêu xanh, chân to nặng. Sống ở núi đá, hung dữ: chủ động tấn công người lại gần |
+| frostfang | Frostfang | water | Sói tuyết trắng xanh, bờm lông trắng xù quanh cổ, ba tinh thể băng phát sáng dọc sống lưng, tai nhọn, hai răng nanh nhỏ, đuôi xù có mũi băng. Sống ở vùng tuyết, tự vệ, khó bắt |
 
 ## Tính khí
 
@@ -20,5 +21,12 @@ Model 3D hiện tại: `assets/pals/build.ts` → `packages/client/public/assets
 - **defensive** (tự vệ): đánh trả ai đánh nó trong 8 giây.
 - **aggressive** (hung dữ): chủ động tấn công người/thú trong tầm 120 px.
 
-Trường `spawn.biomes` (`meadow`, `lake`, `rocky`) và `spawn.time` (`any`, `day`, `night`) quyết định thú xuất hiện ở đâu, khi nào.
+Trường `spawn.biomes` (`meadow`, `lake`, `rocky`, `snow`) và `spawn.time` (`any`, `day`, `night`) quyết định thú xuất hiện ở đâu, khi nào.
 
+
+## Bản đồ và độ khó
+
+Thế giới rộng 3200×2400 px (100×75 m): đồng cỏ ở giữa, hai hồ ở phía đông, núi đá ở tây nam (có trùm), vùng tuyết ở tây bắc.
+Thú càng xa điểm xuất phát càng mạnh: cấp tối đa từ 6 (gần lửa trại) đến 14 (góc bản đồ), xem `dangerAt` và `wildMaxLevel`.
+18 rương báu đặt cố định theo seed (`layout.chests`), tự mở khi đi tới gần, mở lại sau 3 phút; rương ở xa có nhiều đồ hơn.
+Chuỗi nhiệm vụ cho người mới nằm ở `packages/shared/src/quests.ts`.
