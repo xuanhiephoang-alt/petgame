@@ -1,10 +1,29 @@
 import * as THREE from "three";
+import { propClone } from "./props.ts";
 
 /**
  * A player's camp: owner-colored tent, a supply crate, a flag and a ring of
  * stones. Built from primitives in the KayKit-like rounded style.
  */
 export function createBaseModel(color: number, level = 1): THREE.Group {
+  const fromBlender = propClone(`camp_${Math.min(3, Math.max(1, level))}` as "camp_1");
+  if (fromBlender) {
+    // Canvas, flag and roof use the "team" material: tint it with the owner's color.
+    fromBlender.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const material = mesh.material as THREE.MeshStandardMaterial;
+      if (material.name !== "team") return;
+      mesh.material = material.clone();
+      (mesh.material as THREE.MeshStandardMaterial).color.setHex(color);
+    });
+    const lantern = fromBlender.getObjectByName("lantern");
+    if (lantern) {
+      const glow = new THREE.PointLight(0xffb74d, 1.5, 4);
+      lantern.add(glow);
+    }
+    return fromBlender;
+  }
   const base = new THREE.Group();
   const mat = (c: THREE.ColorRepresentation) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
   const add = (mesh: THREE.Mesh) => {
@@ -88,4 +107,6 @@ export function createBaseModel(color: number, level = 1): THREE.Group {
 export function animateBase(base: THREE.Group, timeSec: number) {
   const flag = base.getObjectByName("flag");
   if (flag) flag.rotation.y = Math.sin(timeSec * 3 + base.position.x) * 0.25;
+  // The Blender flag hangs from the pole (its origin): ripple it a little more.
+  if (flag && flag.children.length) flag.rotation.z = Math.sin(timeSec * 4.3 + base.position.z) * 0.08;
 }

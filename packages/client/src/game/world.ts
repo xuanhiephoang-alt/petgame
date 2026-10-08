@@ -18,6 +18,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { UNITS_PER_PIXEL } from "./coords.ts";
 import { buildOcean, buildVolcano, makeCactus, makePalm } from "./scenery.ts";
 import { GrassField } from "./render/grassfield.ts";
+import { propClone, propTemplate } from "./props.ts";
 import { buildWaterMask } from "./render/watermask.ts";
 import type { Quality } from "./render/quality.ts";
 
@@ -87,9 +88,9 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
   };
   scene.add(buildGround(uniforms));
   const waterMask = buildWaterMask();
-  // Palms and cacti are built here; the rest comes from the KayKit pack.
-  if (!nature.has("Palm")) nature.set("Palm", makePalm());
-  if (!nature.has("Cactus")) nature.set("Cactus", makeCactus());
+  // Palms and cacti come from Blender (props/), with code-built fallbacks; the rest is KayKit.
+  if (!nature.has("Palm")) nature.set("Palm", propTemplate("palm") ?? makePalm());
+  if (!nature.has("Cactus")) nature.set("Cactus", propTemplate("cactus") ?? makeCactus());
   scatterNature(scene, nature, uniforms);
   scene.add(buildLake(uniforms));
   scene.add(buildOcean(uniforms.windTime, waterMask));
@@ -624,8 +625,11 @@ function buildCampfire(scene: THREE.Scene, nature: Map<string, THREE.Object3D>):
   camp.position.set(CAMPFIRE.x, 0, CAMPFIRE.y);
   scene.add(camp);
 
+  // Stones, logs and benches from Blender; flames and light are animated below.
+  const fromBlender = propClone("campfire");
+  if (fromBlender) camp.add(fromBlender);
   const rock = nature.get("Rock_1_A");
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 9 && !fromBlender; i++) {
     const a = (i / 9) * Math.PI * 2;
     const stone = rock ? rock.clone() : new THREE.Mesh(new THREE.DodecahedronGeometry(0.15), new THREE.MeshLambertMaterial({ color: 0x888888 }));
     stone.scale.setScalar(rock ? 0.38 : 1);
@@ -637,7 +641,7 @@ function buildCampfire(scene: THREE.Scene, nature: Map<string, THREE.Object3D>):
 
   const bark = new THREE.MeshLambertMaterial({ color: 0x6d4527 });
   const logGeometry = new THREE.CylinderGeometry(0.07, 0.08, 0.8, 8);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 4 && !fromBlender; i++) {
     const log = new THREE.Mesh(logGeometry, bark);
     log.rotation.set(Math.PI / 2 - 0.45, (i / 4) * Math.PI * 2, 0, "YXZ");
     log.position.set(0, 0.15, 0);
@@ -646,7 +650,7 @@ function buildCampfire(scene: THREE.Scene, nature: Map<string, THREE.Object3D>):
   }
   // Two log benches facing the fire.
   const benchGeometry = new THREE.CylinderGeometry(0.16, 0.16, 1.4, 10);
-  for (const side of [-1, 1]) {
+  for (const side of fromBlender ? [] : [-1, 1]) {
     const bench = new THREE.Mesh(benchGeometry, bark);
     bench.rotation.set(0, side * 0.5, Math.PI / 2);
     bench.position.set(side * 1.7, 0.16, -0.4);

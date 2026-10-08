@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { WORLD_HEIGHT, WORLD_WIDTH, defaultWorld } from "@petgame/shared";
 import { UNITS_PER_PIXEL } from "./coords.ts";
+import { propClone } from "./props.ts";
 
 /** Height of the sea surface; the ground slopes below it along the coast. */
 export const SEA_LEVEL = -0.32;
@@ -121,6 +122,21 @@ export function buildOcean(windTime: { value: number }, mask: { texture: THREE.T
 export function buildVolcano(scene: THREE.Scene): (t: number) => void {
   const { volcano } = defaultWorld().layout;
   const r = volcano.r * UNITS_PER_PIXEL;
+  const fromBlender = propClone("volcano");
+  if (fromBlender) {
+    fromBlender.position.set(volcano.x * UNITS_PER_PIXEL, 0, volcano.y * UNITS_PER_PIXEL);
+    const light = new THREE.PointLight(0xff6a2a, 8, 16, 1.6);
+    light.position.y = 6.5;
+    fromBlender.add(light);
+    scene.add(fromBlender);
+    const pool = fromBlender.getObjectByName("lava") as THREE.Mesh | undefined;
+    const lavaMaterial = pool?.material as THREE.MeshStandardMaterial | undefined;
+    return (t) => {
+      const flicker = 1 + Math.sin(t * 3.1) * 0.15 + Math.sin(t * 7.3) * 0.08;
+      light.intensity = 8 * flicker;
+      if (lavaMaterial) lavaMaterial.emissiveIntensity = 2.6 + Math.sin(t * 2.6) * 0.5;
+    };
+  }
   const group = new THREE.Group();
   group.position.set(volcano.x * UNITS_PER_PIXEL, 0, volcano.y * UNITS_PER_PIXEL);
   const rock = new THREE.MeshLambertMaterial({ color: 0x3d3532, flatShading: true });

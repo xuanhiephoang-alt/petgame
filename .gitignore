@@ -9,3 +9,4 @@ playwright-report/
 .cache/
 packages/server/data/
 shots/
+__pycache__/

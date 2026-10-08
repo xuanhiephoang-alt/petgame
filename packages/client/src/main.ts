@@ -3,6 +3,7 @@ import { loadPalModels } from "./game/assets.ts";
 import { loadCharacters } from "./game/characters.ts";
 import type { GameAssets } from "./game/Game.ts";
 import { loadNature } from "./game/world.ts";
+import { loadProps } from "./game/props.ts";
 import { connect, type GameRoom } from "./net/connection.ts";
 
 const lobby = document.getElementById("lobby")!;
@@ -15,7 +16,7 @@ const roomHint = document.getElementById("room-hint")!;
 const savedName = safeStorage(() => localStorage.getItem("petgame:name"));
 if (savedName) nameInput.value = savedName;
 // Start downloading models while the player types their name.
-const assets: Promise<GameAssets> = Promise.all([loadPalModels(), loadCharacters(), loadNature()]).then(
+const assets: Promise<GameAssets> = Promise.all([loadPalModels(), loadCharacters(), loadNature(), loadProps()]).then(
   ([pals, characters, nature]) => ({ pals, characters, nature }),
 );
 

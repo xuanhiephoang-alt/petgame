@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { defaultWorld } from "@petgame/shared";
 import { toScene } from "./coords.ts";
+import { propClone } from "./props.ts";
 
 const PER_BUSH = 7;
 
@@ -49,6 +50,11 @@ export class FruitLayer {
 
 /** A small log raft drawn under a player who is out at sea. */
 export function createRaft(): THREE.Group {
+  const fromBlender = propClone("raft");
+  if (fromBlender) {
+    fromBlender.visible = false;
+    return fromBlender;
+  }
   const raft = new THREE.Group();
   const wood = new THREE.MeshLambertMaterial({ color: 0x9a6b3c });
   const rope = new THREE.MeshLambertMaterial({ color: 0xd8c39a });

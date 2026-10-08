@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { PAL_SPECIES } from "@petgame/shared";
+import { loadProps, propClone, type PropName } from "./game/props.ts";
 import { loadPalModels, type PalInstance } from "./game/assets.ts";
 
 const CLIPS = ["idle", "walk", "attack", "hurt"] as const;
@@ -56,10 +57,30 @@ for (const clip of CLIPS) {
   bar.append(b);
 }
 
+// ?props=chest,palm shows Blender props instead of pals.
+const propNames = new URLSearchParams(location.search).get("props")?.split(",").filter(Boolean);
+if (propNames?.length) {
+  await loadProps();
+  let x = 0;
+  const row: THREE.Object3D[] = [];
+  for (const name of propNames) {
+    const prop = propClone(name as PropName);
+    if (!prop) continue;
+    const size = new THREE.Box3().setFromObject(prop).getSize(new THREE.Vector3());
+    prop.position.x = x + size.x / 2;
+    x += size.x + 0.6;
+    row.push(prop);
+    scene.add(prop);
+  }
+  row.forEach((p) => (p.position.x -= x / 2));
+  const fit = Math.max(3, x * 0.75);
+  camera.position.set(0, fit * 0.55, fit);
+  camera.lookAt(0, 0.8, 0);
+}
 const models = await loadPalModels();
 // ?only=leafkit,emberpup shows just those species (bigger on screen).
 const only = new URLSearchParams(location.search).get("only")?.split(",").filter(Boolean);
-const shown = only?.length ? PAL_SPECIES.filter((s) => only.includes(s.id)) : PAL_SPECIES;
+const shown = propNames?.length ? [] : only?.length ? PAL_SPECIES.filter((s) => only.includes(s.id)) : PAL_SPECIES;
 shown.forEach((species, i) => {
   const instance = models.create(species.id);
   instance.object.position.x = (i - (shown.length - 1) / 2) * 1.25;
@@ -79,6 +100,13 @@ play(new URLSearchParams(location.search).get("clip") ?? "idle");
 (window as any).__viewerReady = true;
 
 function resize() {
+  if (propNames?.length) {
+    renderer.setSize(innerWidth, innerHeight);
+    labels.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    return;
+  }
   renderer.setSize(innerWidth, innerHeight);
   labels.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;

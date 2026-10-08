@@ -272,6 +272,83 @@ def rig(root):
     return arm
 
 
+def bake_static(root, name):
+    """
+    Like rig() for props without bones: merges all parts into one vertex-colored
+    mesh. Parts tagged with obj["part"] = "<name>" stay as separate objects of that
+    name (the game finds them: flag, marker, lava, lantern...), and parts using a
+    material named "team" become the "team" object, recolored per player.
+    Returns the new root.
+    """
+    bpy.context.view_layer.update()
+    meshes = [o for o in root.children_recursive if o.type == "MESH"]
+    for m in meshes:
+        part = m.get("part") or next((p.get("part") for p in _ancestors(m) if p.get("part")), None)
+        for mod in list(m.modifiers):
+            with bpy.context.temp_override(object=m, active_object=m):
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+        m.data.transform(m.matrix_world)
+        m.parent = None
+        m.matrix_world = Matrix.Identity(4)
+        material = m.data.materials[0]
+        bsdf = material.node_tree.nodes["Principled BSDF"]
+        color = bsdf.inputs["Base Color"].default_value
+        glow = bsdf.inputs["Emission Strength"].default_value > 0
+        team = material.name.startswith("team")
+        col = m.data.color_attributes.new("Col", "BYTE_COLOR", "POINT")
+        for d in col.data:
+            d.color = (1, 1, 1, 1) if team else (color[0], color[1], color[2], 1)
+        m.data.materials.clear()
+        if team:
+            m.data.materials.append(_team_material())
+            key = part or "team"
+        elif glow:
+            m.data.materials.append(material)
+            key = f"{part or 'glow'}|{material.name}"
+        else:
+            m.data.materials.append(_base_material(False))
+            key = part or "mesh"
+        m["key"] = key
+        m["glow"] = material.name if glow else ""
+    for o in [root, *root.children_recursive]:
+        if o.type == "EMPTY":
+            bpy.data.objects.remove(o)
+    new_root = pivot(name)
+    groups = {}
+    for m in meshes:
+        groups.setdefault(m["key"], []).append(m)
+    for key, group in groups.items():
+        target = group[0]
+        if len(group) > 1:
+            with bpy.context.temp_override(active_object=target, selected_editable_objects=group, object=target):
+                bpy.ops.object.join()
+        target.name = key.split("|")[0] if not key.startswith("glow|") else f"{name}_glow"
+        target.data.name = target.name
+        target.parent = new_root
+    return new_root
+
+
+def _ancestors(obj):
+    p = obj.parent
+    while p:
+        yield p
+        p = p.parent
+
+
+def _team_material():
+    if "team" in _base:
+        return _base["team"]
+    m = bpy.data.materials.new("team")
+    m.use_nodes = True
+    nodes = m.node_tree.nodes
+    attr = nodes.new("ShaderNodeVertexColor")
+    attr.layer_name = "Col"
+    m.node_tree.links.new(attr.outputs["Color"], nodes["Principled BSDF"].inputs["Base Color"])
+    nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.7
+    _base["team"] = m
+    return m
+
+
 _base = {}
 
 
@@ -294,7 +371,7 @@ def _base_material(glow):
     return m
 
 
-def bake_shading(arm, top="#ffffff", bottom="#c8c8d8", ao_strength=0.55, rays=20, seed=7):
+def bake_shading(arm, top="#ffffff", bottom="#c8c8d8", ao_strength=0.55, rays=20, seed=7, reach=0.35):
     """
     Multiplies soft ambient occlusion and a gentle top-light/under-shade
     gradient into the vertex colors (COLOR_0) of the rigged meshes.
@@ -327,7 +404,7 @@ def bake_shading(arm, top="#ffffff", bottom="#c8c8d8", ao_strength=0.55, rays=20
             for d in dirs:
                 if d.dot(n) < 0:
                     d = -d
-                loc, *_ = bvh.ray_cast(p + n * 0.004, d, 0.35)
+                loc, *_ = bvh.ray_cast(p + n * 0.004, d, reach)
                 if loc is not None:
                     hit += 1
             ao = 1 - ao_strength * hit / len(dirs)

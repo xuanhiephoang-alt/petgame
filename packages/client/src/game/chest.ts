@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { propClone } from "./props.ts";
 
 const wood = new THREE.MeshStandardMaterial({ color: 0x8d5a2b, roughness: 0.85 });
 const woodDark = new THREE.MeshStandardMaterial({ color: 0x5d3a1a, roughness: 0.9 });
@@ -10,6 +11,8 @@ const gem = new THREE.MeshStandardMaterial({ color: 0x7cf3ff, emissive: 0x30c8ff
  * glowing gem hovering above so it can be spotted from afar.
  */
 export function createChestModel(): THREE.Group {
+  const fromBlender = propClone("chest");
+  if (fromBlender) return fromBlender;
   const chest = new THREE.Group();
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -41,5 +44,6 @@ export function animateChest(chest: THREE.Object3D, t: number) {
   const marker = chest.getObjectByName("marker");
   if (!marker) return;
   marker.rotation.y = t * 2;
-  marker.position.y = 1.25 + Math.sin(t * 2.5 + chest.position.x) * 0.08;
+  marker.userData.restY ??= marker.position.y;
+  marker.position.y = marker.userData.restY + Math.sin(t * 2.5 + chest.position.x) * 0.08;
 }
