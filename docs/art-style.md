@@ -15,3 +15,14 @@
 
 ## Tham khảo phong cách (chỉ để cảm nhận, không sao chép)
 Low-poly kiểu asset Quaternius / Kenney, phong cách "cozy" của các game nông trại 3D.
+
+## Ánh sáng, hậu kỳ và mức chất lượng (đợt 1 của visual-director)
+
+- **Mức chất lượng** (`packages/client/src/game/render/quality.ts`): `high` cho máy tính, `medium` cho điện thoại/máy tính bảng, `low` để thử nghiệm/máy yếu. Đổi bằng `?quality=low|medium|high` trên đường dẫn.
+- **Hậu kỳ** (`render/post.ts`): high = ambient occlusion (GTAO) + bloom + chỉnh màu + MSAA 4x; medium = bloom độ phân giải thấp + chỉnh màu; low = không hậu kỳ.
+- **Chỉnh màu**: bão hoà +5%, tương phản +7%, bóng tối hơi lạnh, vùng sáng hơi ấm, vignette nhẹ quanh màn hình.
+- **Chỉ vật thật sáng mới phát sáng** (bloom ngưỡng 0,88): lửa, dung nham, pha lê trên rương, đom đóm. Đừng đặt màu emissive mạnh cho vật thường.
+- **Mặt đất**: màu theo vùng + bóng tối nướng sẵn dưới cây/đá/bụi + texture nhiễu chi tiết + bóng mây trôi ban ngày.
+- **Cỏ dày quanh người chơi** (`render/grassfield.ts`): một draw call, lay theo gió, rẽ ra khi người chơi đi qua; chỉ là hình ảnh, không chặn đường.
+- **Nước**: biển có vùng nước nông màu ngọc và bọt sóng ở bờ (`render/watermask.ts`), hồ/ao tính độ sâu chính xác theo từng hình tròn.
+- **Ngân sách điện thoại** (đo bằng `npm run shots`, ảnh `phone*`): ≤ 400 draw call, ≤ 600 nghìn tam giác mỗi khung hình. Mức high trên máy tính được phép gấp đôi.

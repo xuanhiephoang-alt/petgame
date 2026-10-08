@@ -17,6 +17,9 @@ import {
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { UNITS_PER_PIXEL } from "./coords.ts";
 import { buildOcean, buildVolcano, makeCactus, makePalm } from "./scenery.ts";
+import { GrassField } from "./render/grassfield.ts";
+import { buildWaterMask } from "./render/watermask.ts";
+import type { Quality } from "./render/quality.ts";
 
 const W = WORLD_WIDTH * UNITS_PER_PIXEL;
 const H = WORLD_HEIGHT * UNITS_PER_PIXEL;
@@ -43,7 +46,7 @@ const PALETTE = {
   skyNight: new THREE.Color(0x111d33),
   sunDay: new THREE.Color(0xffeccc),
   sunDusk: new THREE.Color(0xff9a5c),
-  moon: new THREE.Color(0x8fa8ff),
+  moon: new THREE.Color(0xa0b6ff),
   hemiDay: new THREE.Color(0xd6ecff),
   hemiNight: new THREE.Color(0x34466e),
 };
@@ -60,7 +63,7 @@ export async function loadNature(): Promise<Map<string, THREE.Object3D>> {
   return models;
 }
 
-export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, highQuality: boolean): World {
+export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, quality: Quality): World {
   scene.background = new THREE.Color(SKY);
   scene.fog = new THREE.Fog(SKY, 28, 55);
 
@@ -68,26 +71,29 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffeccc, 2.8);
   sun.castShadow = true;
-  sun.shadow.mapSize.setScalar(highQuality ? 2048 : 1024);
+  sun.shadow.mapSize.setScalar(quality === "high" ? 2048 : 1024);
   sun.shadow.bias = -0.0005;
   sun.shadow.normalBias = 0.03;
+  // Just big enough for what the camera sees: fewer objects in the shadow pass.
   const s = sun.shadow.camera;
-  s.left = -18; s.right = 18; s.top = 18; s.bottom = -18; s.near = 1; s.far = 60;
+  s.left = -13; s.right = 13; s.top = 13; s.bottom = -13; s.near = 1; s.far = 50;
   scene.add(sun, sun.target);
-
-  scene.add(buildGround());
 
   const uniforms: WorldUniforms = {
     windTime: { value: 0 },
     focus: { value: new THREE.Vector3() },
     cameraPos: { value: new THREE.Vector3() },
+    daylight: { value: 1 },
   };
+  scene.add(buildGround(uniforms));
+  const waterMask = buildWaterMask();
   // Palms and cacti are built here; the rest comes from the KayKit pack.
   if (!nature.has("Palm")) nature.set("Palm", makePalm());
   if (!nature.has("Cactus")) nature.set("Cactus", makeCactus());
   scatterNature(scene, nature, uniforms);
   scene.add(buildLake(uniforms));
-  scene.add(buildOcean(uniforms.windTime));
+  scene.add(buildOcean(uniforms.windTime, waterMask));
+  const grass = new GrassField(scene, quality, uniforms.windTime, uniforms.focus);
   const volcano = buildVolcano(scene);
   const particles = new Particles(scene);
   const weather = new Weather(scene);
@@ -112,12 +118,15 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
       sun.color.lerpColors(PALETTE.moon, PALETTE.sunDay, d).lerp(PALETTE.sunDusk, warm);
       sun.intensity = 0.65 + 2.15 * d;
       hemi.color.lerpColors(PALETTE.hemiNight, PALETTE.hemiDay, d);
-      hemi.intensity = 0.7 + 0.45 * d;
+      hemi.intensity = 0.9 + 0.25 * d;
       // The sun (or moon) swings around the sky over the day.
       const az = dayTime * Math.PI * 2;
       sunOffset.set(Math.cos(az) * 9, 12 + 6 * d, Math.sin(az) * 5 + 5);
-      sun.position.copy(focus).add(sunOffset);
-      sun.target.position.copy(focus);
+      // Center the shadow area a little ahead of the player, where the camera looks.
+      sun.target.position.copy(focus).add(SHADOW_LEAD);
+      sun.position.copy(sun.target.position).add(sunOffset);
+      uniforms.daylight.value = d;
+      grass.update(focus);
 
       particles.update(timeSec, focus, 1 - d);
       weather.update(timeSec, focus);
@@ -131,11 +140,14 @@ export function buildWorld(scene: THREE.Scene, nature: Map<string, THREE.Object3
 // Ground
 // ---------------------------------------------------------------------------
 
+/** The camera looks north from the south: most of the view is north of the player. */
+const SHADOW_LEAD = new THREE.Vector3(0, 0, -4);
+
 /** Ground colors of each region (see shared terrain.ts). */
 const GROUND = {
-  grassDark: new THREE.Color(0x3c7a2e),
-  grass: new THREE.Color(0x5c9e3c),
-  grassLight: new THREE.Color(0x93bf52),
+  grassDark: new THREE.Color(0x3f7330),
+  grass: new THREE.Color(0x62973f),
+  grassLight: new THREE.Color(0xa3bf5a),
   dirt: new THREE.Color(0xa88a5c),
   sand: new THREE.Color(0xe3cf98),
   lakeBed: new THREE.Color(0x2c6f7f),
@@ -190,7 +202,7 @@ function groundColor(kind: TerrainKind, x: number, z: number, detail: number, ou
  * Ground for the whole world: region colors blended across their borders,
  * beaches along the coast, and the land sloping under the sea surface.
  */
-function buildGround(): THREE.Mesh {
+function buildGround(uniforms: WorldUniforms): THREE.Mesh {
   const size = new THREE.Vector2(W + BORDER * 2, H + BORDER * 2);
   // About one vertex per scene unit, enough for the region edges.
   const geometry = new THREE.PlaneGeometry(size.x, size.y, Math.round(size.x), Math.round(size.y));
@@ -199,7 +211,8 @@ function buildGround(): THREE.Mesh {
 
   const pos = geometry.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const { lake, terrain } = defaultWorld().layout;
+  const { lake, terrain, props } = defaultWorld().layout;
+  const ao = bakeGroundOcclusion(geometry, props);
   const U = 1 / UNITS_PER_PIXEL;
   const c = new THREE.Color();
   const sample = new THREE.Color();
@@ -235,6 +248,7 @@ function buildGround(): THREE.Mesh {
     shore /= U; // units from the water edge
     if (shore < 1.6) c.lerp(GROUND.sand, (1 - smoothstep(0.3, 1.6, shore)) * 0.85);
     if (shore < 0) c.lerp(GROUND.lakeBed, Math.min(1, -shore));
+    c.multiplyScalar(1 - ao[i]);
     colors.set([c.r, c.g, c.b], i * 3);
     // The coast slopes down under the sea surface (SEA_LEVEL).
     pos.setY(i, -(1 - landT) * 0.6);
@@ -242,9 +256,101 @@ function buildGround(): THREE.Mesh {
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
 
-  const ground = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const detail = noiseTexture();
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.detailTex = { value: detail };
+    shader.uniforms.windTime = uniforms.windTime;
+    shader.uniforms.daylight = uniforms.daylight;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vGroundPos;")
+      .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform sampler2D detailTex;\nuniform float windTime;\nuniform float daylight;\nvarying vec3 vGroundPos;")
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+        // Fine detail so the ground is never one flat color.
+        float n1 = texture2D(detailTex, vGroundPos.xz * 0.21).r;
+        float n2 = texture2D(detailTex, vGroundPos.xz * 1.3).r;
+        diffuseColor.rgb *= 0.86 + 0.2 * n1 + 0.12 * (n2 - 0.5);
+        // Soft cloud shadows drifting over the land by day.
+        float cloud = texture2D(detailTex, vGroundPos.xz * 0.013 + windTime * vec2(0.0045, 0.002)).r;
+        diffuseColor.rgb *= 1.0 - 0.24 * daylight * smoothstep(0.5, 0.72, cloud);`,
+      );
+  };
+  material.customProgramCacheKey = () => "ground";
+  const ground = new THREE.Mesh(geometry, material);
   ground.receiveShadow = true;
   return ground;
+}
+
+/**
+ * Darkens the ground under and around trees, rocks and bushes (baked ambient
+ * occlusion), so scenery sits on the ground instead of floating above it.
+ * Returns a darkening factor per ground vertex.
+ */
+function bakeGroundOcclusion(geometry: THREE.BufferGeometry, props: readonly Prop[]): Float32Array {
+  const pos = geometry.attributes.position;
+  const params = (geometry as THREE.PlaneGeometry).parameters;
+  const cols = params.widthSegments + 1;
+  const x0 = pos.getX(0), z0 = pos.getZ(0);
+  const dx = pos.getX(1) - x0, dz = pos.getZ(cols) - z0;
+  const ao = new Float32Array(pos.count);
+  const STRENGTH: Partial<Record<Prop["kind"], [number, number]>> = { tree: [1.7, 0.42], rock: [1.1, 0.3], bush: [0.9, 0.22] };
+  for (const p of props) {
+    const k = STRENGTH[p.kind];
+    if (!k) continue;
+    const x = p.x * UNITS_PER_PIXEL, z = p.y * UNITS_PER_PIXEL;
+    const r = k[0] * p.scale;
+    const i0 = Math.max(0, Math.floor((x - r - x0) / dx)), i1 = Math.min(cols - 1, Math.ceil((x + r - x0) / dx));
+    const rows = pos.count / cols;
+    const ja = Math.floor((z - r - z0) / dz), jb = Math.ceil((z + r - z0) / dz);
+    const j0 = Math.max(0, Math.min(ja, jb)), j1 = Math.min(rows - 1, Math.max(ja, jb));
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const v = j * cols + i;
+        const d = Math.hypot(pos.getX(v) - x, pos.getZ(v) - z);
+        if (d >= r) continue;
+        const t = 1 - d / r;
+        ao[v] = Math.min(0.55, ao[v] + k[1] * t * t);
+      }
+    }
+  }
+  return ao;
+}
+
+/** Small tileable noise texture for ground detail and cloud shadows. */
+function noiseTexture(): THREE.DataTexture {
+  const n = 128;
+  const rand = mulberry32(2024);
+  let a = new Float32Array(n * n).map(() => rand());
+  for (let pass = 0; pass < 3; pass++) {
+    const b = new Float32Array(n * n);
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        let sum = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) sum += a[((y + dy + n) % n) * n + ((x + dx + n) % n)];
+        b[y * n + x] = sum / 9;
+      }
+    }
+    a = b;
+  }
+  // Stretch the blurred values back to the full 0..1 range.
+  let min = 1, max = 0;
+  for (const v of a) { min = Math.min(min, v); max = Math.max(max, v); }
+  const data = new Uint8Array(n * n * 4);
+  for (let i = 0; i < n * n; i++) {
+    const v = ((a[i] - min) / (max - min)) * 255;
+    data.set([v, v, v, 255], i * 4);
+  }
+  const texture = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +359,8 @@ function buildGround(): THREE.Mesh {
 
 interface WorldUniforms {
   windTime: { value: number };
+  /** 1 in full day, 0 at night (see shared daycycle.ts). */
+  daylight: { value: number };
   /** Point the camera follows (the local player). */
   focus: { value: THREE.Vector3 };
   cameraPos: { value: THREE.Vector3 };
@@ -333,7 +441,8 @@ function scatterNature(scene: THREE.Scene, nature: Map<string, THREE.Object3D>, 
         im.setMatrixAt(i, instance.multiply(relative));
       });
       im.computeBoundingSphere();
-      im.castShadow = kind !== "grass";
+      // Bushes and grass are low: their shadows cost a lot of draw calls for little.
+      im.castShadow = kind === "tree" || kind === "rock";
       im.receiveShadow = true;
       scene.add(im);
     });
@@ -441,7 +550,10 @@ function decorateMaterial(material: THREE.Material, uniforms: WorldUniforms, swa
             float t = clamp(dot(vWorldPos - cameraPos, seg) / dot(seg, seg), 0.0, 1.0);
             float d = length(vWorldPos - (cameraPos + seg * t));
             // Fully cut out near the line, dithered rim further out, trunks kept.
-            float fade = (1.0 - smoothstep(1.8, 2.3, d)) * step(0.05, 1.0 - t) * smoothstep(0.9, 1.6, vWorldPos.y);
+            float fade = (1.0 - smoothstep(2.0, 2.8, d)) * step(0.05, 1.0 - t);
+            // Canopies right in front of the camera (south of the player) fade too.
+            float nearCam = (1.0 - smoothstep(0.55, 0.8, t)) * (1.0 - smoothstep(4.0, 6.0, d));
+            fade = max(fade, nearCam) * smoothstep(0.9, 1.6, vWorldPos.y);
             // 4x4 ordered dither: discard a growing share of pixels as fade rises.
             vec2 p = mod(floor(gl_FragCoord.xy), 4.0);
             float threshold = (mod(p.x * 2.0 + p.y * 3.0, 4.0) * 4.0 + mod(p.x + p.y * 2.0, 4.0) + 0.5) / 16.0;
@@ -471,16 +583,28 @@ function buildLake(uniforms: WorldUniforms): THREE.Mesh {
   const material = new THREE.MeshStandardMaterial({ color: 0x3aa3c9, roughness: 0.12, metalness: 0.05 });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.windTime = uniforms.windTime;
+    // Every pond as (x, z, radius) in scene units, for the exact distance to the shore.
+    shader.uniforms.ponds = { value: lake.map((c) => new THREE.Vector3(c.x, c.y, c.r).multiplyScalar(UNITS_PER_PIXEL)) };
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vWaterPos;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvWaterPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float windTime;\nvarying vec3 vWaterPos;")
+      .replace("#include <common>", `#include <common>
+        uniform float windTime;
+        uniform vec3 ponds[${lake.length}];
+        varying vec3 vWaterPos;`)
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>
         float ripple = sin(vWaterPos.x * 2.3 + windTime * 1.6) * sin(vWaterPos.z * 2.9 - windTime * 1.3);
-        diffuseColor.rgb += vec3(0.05, 0.08, 0.09) * ripple;`,
+        // Depth below the shore: how far inside the nearest pond circle we are.
+        float depth = -1e3;
+        for (int i = 0; i < ${lake.length}; i++) depth = max(depth, ponds[i].z - distance(vWaterPos.xz, ponds[i].xy));
+        diffuseColor.rgb = mix(vec3(0.3, 0.75, 0.72), vec3(0.1, 0.42, 0.55), smoothstep(0.2, 2.2, depth));
+        diffuseColor.rgb += vec3(0.05, 0.08, 0.09) * ripple;
+        float lap = sin(depth * 6.0 + windTime * 1.8) * 0.5 + 0.5;
+        float foam = (1.0 - smoothstep(0.08, 0.3, depth)) + (1.0 - smoothstep(0.3, 0.8, depth)) * smoothstep(0.8, 0.97, lap) * 0.6;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), clamp(foam, 0.0, 1.0) * 0.8);`,
       );
   };
   material.customProgramCacheKey = () => "lake";

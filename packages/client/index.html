@@ -39,8 +39,8 @@
       .boss-hp div { height: 100%; background: linear-gradient(90deg, #d50000, #ff6d00); transition: width 0.2s; }
       .party-skill { color: #8d6e63 !important; }
       .hud { position: absolute; inset: 0; pointer-events: none; color: #fff; z-index: 2; }
-      .hud-health { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
-        display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.45); padding: 5px 10px; border-radius: 10px;
+      .hud-health {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: rgba(0,0,0,0.45); padding: 5px 10px; border-radius: 10px;
         font-size: 14px; font-weight: 600; pointer-events: auto; }
       .hud-hp { width: 120px; height: 10px; background: rgba(255,255,255,0.25); border-radius: 5px; overflow: hidden; }
       .hud-hp div { height: 100%; background: #ef5350; transition: width 0.2s; }
@@ -52,7 +52,7 @@
       .float-text.cold { color: #b3e5fc; font-size: 13px; }
       .float-text.heat { color: #ffab91; font-size: 13px; }
       .eat-btn { border: none; border-radius: 8px; padding: 4px 8px; font-weight: 600; background: #7e57c2; color: #fff; cursor: pointer; min-height: 30px; }
-      .hud-left { position: absolute; top: max(52px, calc(env(safe-area-inset-top) + 40px)); left: max(12px, env(safe-area-inset-left));
+      .hud-left { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
         display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: min(460px, calc(100vw - 190px)); }
       .hud-status {
         background: rgba(0,0,0,0.45); padding: 6px 10px; border-radius: 8px; font-size: 14px; line-height: 1.5;
@@ -68,7 +68,22 @@
         overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.35); line-height: 0; }
       .minimap canvas { width: 100%; height: auto; image-rendering: auto; }
       .minimap.big { top: 50%; left: 50%; right: auto; transform: translate(-50%, -50%); width: min(92vw, 120vh); z-index: 4; }
-      @media (max-width: 600px) { .minimap { width: 120px; } .hud-left { max-width: calc(100vw - 150px); } }
+      .invite-btn { border: none; border-radius: 8px; padding: 3px 8px; margin-left: 4px; font-weight: 600; background: #29b6f6; color: #fff; }
+      @media (max-width: 600px) {
+        .hud-left { max-width: calc(100vw - 140px); gap: 4px; }
+        .hud-health { font-size: 12px; gap: 5px; padding: 4px 8px; }
+        .hud-hp { width: 64px; }
+        .hud-hp-text { font-size: 11px; }
+        .eat-btn, .sound-btn { min-height: 28px; padding: 2px 6px; font-size: 12px; }
+        .hud-status { font-size: 12px; padding: 4px 8px; line-height: 1.6; }
+        .hud-quest { font-size: 12px; padding: 4px 8px; }
+        .hud-quest small { font-size: 11px; }
+        .party-btn, .base-btn, .craft-btn { padding: 6px 10px; font-size: 13px; }
+        .base-btn { top: max(52px, calc(env(safe-area-inset-top) + 40px)); }
+        .craft-btn { top: max(92px, calc(env(safe-area-inset-top) + 80px)); }
+        .minimap { width: 112px; top: max(134px, calc(env(safe-area-inset-top) + 122px)); }
+        .party-panel { top: 132px; }
+      }
       .hud-status a { color: #b3e5fc; }
       .hud-toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.65);
         padding: 8px 14px; border-radius: 8px; font-size: 18px; opacity: 0; transition: opacity 0.2s; }

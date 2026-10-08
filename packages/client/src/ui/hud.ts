@@ -44,8 +44,16 @@ export class Hud {
     this.bossBar.hidden = true;
     this.root.append(this.bossBar);
     this.left = div("hud-left");
-    this.left.append(this.status);
-    this.root.append(this.health, this.left, this.toast);
+    this.left.append(this.health, this.status);
+    this.root.append(this.left, this.toast);
+    // Invite button (phones): share sheet if available, else copy the link.
+    this.status.addEventListener("click", (e) => {
+      const button = (e.target as HTMLElement).closest<HTMLButtonElement>(".invite-btn");
+      if (!button) return;
+      const link = button.dataset.link ?? "";
+      if (navigator.share) navigator.share({ title: "PetGame", text: "Vào chơi cùng mình!", url: link }).catch(() => {});
+      else navigator.clipboard?.writeText(link).then(() => this.showToast("Đã chép link mời 🔗"), () => this.showToast(link));
+    });
     const base = document.createElement("button");
     base.className = "base-btn";
     base.textContent = "🏕️ Đặt trại";
@@ -114,9 +122,12 @@ export class Hud {
       ? "Kéo bên trái để đi • Đánh • Bắt"
       : "WASD/↑↓←→ đi • Space đánh • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • N bản đồ • M âm thanh";
     const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ") + (gear ? ` &nbsp; ${gear}` : "");
-    const html =
-      `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +
-      `Mời bạn: <a href="${invite}" target="_blank" rel="noopener">${escapeHtml(invite)}</a>`;
+    // Phones get a compact panel: counts plus an invite button.
+    const html = this.isTouch
+      ? `👥 ${players}/${MAX_PLAYERS} &nbsp; 🐾 ${captured} &nbsp; ${items} ` +
+        `<button class="invite-btn" data-link="${escapeHtml(invite)}">🔗 Mời bạn</button>`
+      : `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +
+        `Mời bạn: <a href="${invite}" target="_blank" rel="noopener">${escapeHtml(invite)}</a>`;
     if (html === this.lastStatus) return;
     this.lastStatus = html;
     this.status.innerHTML = html;

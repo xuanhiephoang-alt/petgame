@@ -148,6 +148,8 @@ interface CompanionTimers {
 const BASE_CLEARANCE = 28;
 /** Two players' bases must be at least this far apart (pixels). */
 const BASE_SPACING = 140;
+/** The boss wanders at most this far (pixels) from its home when calm. */
+const BOSS_LEASH = 8 * 32;
 /** Saves are batched: at most one per player per this many ms. */
 const SAVE_DELAY_MS = 2000;
 
@@ -186,6 +188,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private shieldUntil = new Map<string, number>();
   /** Current boss (wild pal id) and who has hit it. */
   private bossId: string | undefined;
+  /** Where the boss lives; it wanders back there when not fighting. */
+  private bossHome: Vec2 = { x: 0, y: 0 };
   private bossHelpers = new Set<string>();
   private bossLastStompAt = 0;
   private daySyncTimer = 0;
@@ -379,6 +383,8 @@ export class GameRoom extends Room<{ state: GameState }> {
         return;
       }
       pal.angry = false;
+      // The boss stays near the volcano: stray too far and it heads home.
+      if (pal.boss && distance(pos, this.bossHome) > BOSS_LEASH) brain.target = { ...this.bossHome };
       stepWander(pos, brain, species.speed, dtMs, Math.random, { grid: this.obstacles, radius: species.size });
       if (isSea(this.terrain, pos.x, pos.y)) {
         // Turn back at the water's edge and wander somewhere else.
@@ -757,6 +763,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     boss.maxHp = scaledMaxHp(species.maxHp, BOSS.level) * BOSS.hpMultiplier;
     boss.hp = boss.maxHp;
     this.bossId = id;
+    this.bossHome = { ...pos };
     this.bossHelpers.clear();
   }
 

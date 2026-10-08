@@ -75,23 +75,39 @@ export function makeCactus(): THREE.Group {
 }
 
 /** The ocean: one large rippling surface under the whole world and past its edge. */
-export function buildOcean(windTime: { value: number }): THREE.Mesh {
+export function buildOcean(windTime: { value: number }, mask: { texture: THREE.Texture; size: THREE.Vector2 }): THREE.Mesh {
   const w = WORLD_WIDTH * UNITS_PER_PIXEL, h = WORLD_HEIGHT * UNITS_PER_PIXEL;
   const geometry = new THREE.PlaneGeometry(w + 200, h + 200).rotateX(-Math.PI / 2).translate(w / 2, 0, h / 2);
-  const material = new THREE.MeshStandardMaterial({ color: 0x2b8fc4, roughness: 0.15, metalness: 0.05, transparent: true, opacity: 0.86 });
+  const material = new THREE.MeshStandardMaterial({ color: 0x1f78b4, roughness: 0.12, metalness: 0.08, transparent: true, opacity: 0.9 });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.windTime = windTime;
+    shader.uniforms.shoreMask = { value: mask.texture };
+    shader.uniforms.maskSize = { value: mask.size };
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vSeaPos;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvSeaPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float windTime;\nvarying vec3 vSeaPos;")
+      .replace("#include <common>", `#include <common>
+        uniform float windTime;
+        uniform sampler2D shoreMask;
+        uniform vec2 maskSize;
+        varying vec3 vSeaPos;`)
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>
         float swell = sin(vSeaPos.x * 0.9 + windTime * 1.1) * sin(vSeaPos.z * 1.3 - windTime * 0.8);
         float chop = sin(vSeaPos.x * 3.1 - windTime * 2.3) * sin(vSeaPos.z * 2.7 + windTime * 1.9);
-        diffuseColor.rgb += vec3(0.05, 0.08, 0.1) * swell + vec3(0.04) * chop;`,
+        // How close the shore is: 0 in open sea, about 0.5 at the waterline.
+        float land = texture2D(shoreMask, vSeaPos.xz / maskSize).r;
+        vec3 deep = vec3(0.07, 0.3, 0.55);
+        vec3 shallow = vec3(0.2, 0.72, 0.78);
+        diffuseColor.rgb = mix(deep, shallow, smoothstep(0.0, 0.42, land));
+        diffuseColor.rgb += vec3(0.04, 0.07, 0.09) * swell + vec3(0.035) * chop;
+        // Foam: a bright line at the waterline and waves rolling in.
+        float waves = sin(land * 38.0 - windTime * 2.2 + swell * 1.5) * 0.5 + 0.5;
+        float foam = smoothstep(0.36, 0.48, land) + smoothstep(0.18, 0.34, land) * (1.0 - smoothstep(0.34, 0.4, land)) * smoothstep(0.75, 0.95, waves);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.98, 1.0), clamp(foam, 0.0, 1.0) * 0.85);
+        diffuseColor.a = mix(0.92, 0.7, smoothstep(0.2, 0.45, land));`,
       );
   };
   material.customProgramCacheKey = () => "ocean";

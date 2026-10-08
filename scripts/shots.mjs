@@ -29,6 +29,20 @@ for (let i = 0; i < 60; i++) {
   await new Promise((r) => setTimeout(r, 500));
 }
 
+/** Waits until the camera has caught up with the (teleported) player and a few frames have been drawn. */
+async function settle(page) {
+  await page.waitForTimeout(500);
+  const start = await page.evaluate(() => window.__petgame.game.renderer.info.render.frame);
+  await page.waitForFunction((start) => {
+    const g = window.__petgame.game;
+    const me = g.players.get(g.room.sessionId);
+    if (!me) return false;
+    const close = g.cameraTarget.distanceTo(me.model.position) < 0.2 && Math.hypot(me.pos.x - me.server.x, me.pos.y - me.server.y) < 4;
+    // Software WebGL can be slow: insist on several fresh frames, not just time.
+    return close && g.renderer.info.render.frame - start > 6;
+  }, start, { timeout: 120000, polling: 250 });
+}
+
 // [file, x, y, time of day]; positions match the shared world layout (WORLD_SEED).
 const SPOTS = [
   ["meadow-day", 3200, 2470, 0.3],
@@ -68,7 +82,7 @@ try {
       room.send("debug:setTime", { t });
       room.send("debug:teleport", { x, y });
     }, [x, y, t]);
-    await page.waitForTimeout(3500);
+    await settle(page);
     await shoot(file);
   }
   // Close-up of a wild pal next to the player.
@@ -77,20 +91,36 @@ try {
     room.send("debug:setTime", { t: 0.3 });
     room.send("debug:teleport", { x: 3200, y: 2470 });
   });
-  await page.waitForTimeout(1500);
+  await settle(page);
   await page.evaluate(() => window.__petgame.room.send("debug:spawnPal"));
   await page.waitForTimeout(2500);
   await shoot("pal-closeup");
 
-  // Phone in portrait at the spawn.
+  // Phone in portrait. Close the desktop page first: two software-rendered
+  // pages at once starve each other and drop the phone's connection.
+  await page.context().close();
   const phone = await (await browser.newContext({ ...devices["iPhone 13"] })).newPage();
   await phone.goto(url);
   await phone.fill("#name", "Phone");
   await phone.click("#join-btn");
   await phone.waitForFunction(() => window.__petgame?.room?.state?.pals?.size > 0, null, { timeout: 120000 });
-  await phone.waitForTimeout(3000);
-  await phone.screenshot({ path: join(out, "phone.png") });
-  report.push({ file: "phone" });
+  await settle(phone);
+  // Phones use the "medium" quality: these numbers are the iPhone budget.
+  const phoneShot = async (file) => {
+    await phone.screenshot({ path: join(out, `${file}.png`) });
+    const info = await phone.evaluate(() => {
+      const r = window.__petgame.game.renderer.info.render;
+      return { calls: r.calls, triangles: r.triangles };
+    });
+    report.push({ file, ...info });
+    console.log(file.padEnd(16), `${info.calls} calls`, `${Math.round(info.triangles / 1000)}k tris`, "(phone, medium)");
+  };
+  await phoneShot("phone");
+  for (const [file, x, y] of [["phone-swamp", 1520, 2400], ["phone-lake", 3730, 2130]]) {
+    await phone.evaluate(([x, y]) => window.__petgame.room.send("debug:teleport", { x, y }), [x, y]);
+    await settle(phone);
+    await phoneShot(file);
+  }
 } finally {
   await browser.close();
   server.kill();

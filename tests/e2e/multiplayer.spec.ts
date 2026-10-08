@@ -14,7 +14,8 @@ async function join(browser: Browser, name: string, path = "/"): Promise<Page> {
   const context = await browser.newContext();
   contexts.push(context);
   const page = await context.newPage();
-  await page.goto(path);
+  // Software-rendered WebGL here: skip post-processing so tests stay fast.
+  await page.goto(path + (path.includes("?") ? "&" : "?") + "quality=low");
   await page.fill("#name", name);
   await page.click("#join-btn");
   return page;

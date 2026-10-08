@@ -696,6 +696,17 @@ describe("regions and climate", () => {
     room.state.pals.forEach((pal) => expect(isSea(layout.terrain, pal.x, pal.y)).toBe(false));
   });
 
+  it("walks the boss back home when it strays", async () => {
+    const { room } = await setup();
+    const [bossId, boss] = bossOf(room)!;
+    const home = { x: boss.x, y: boss.y };
+    boss.x -= 600; // west, toward the meadow (east of the volcano is the sea)
+    (room as any).brains.get(bossId).idleMs = 0;
+    const before = distance(boss, home);
+    await ticks(room, 40);
+    expect(distance(boss, home)).toBeLessThan(before);
+  });
+
   it("saves crafted gear", async () => {
     const db = new SqliteStore(":memory:");
     useStore(db);

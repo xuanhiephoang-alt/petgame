@@ -56,6 +56,8 @@ import type { PalInstance, PalModelSet } from "./assets.ts";
 import type { AnimatedModel } from "./animated.ts";
 import { PlayerClip, type CharacterSet } from "./characters.ts";
 import { buildWorld, type World } from "./world.ts";
+import { PostFX } from "./render/post.ts";
+import { pickQuality } from "./render/quality.ts";
 import { animateBase, createBaseModel } from "./base.ts";
 
 interface Entity {
@@ -71,7 +73,7 @@ interface Entity {
 }
 
 /** Wild pals farther than this (pixels) from the camera target are not drawn or animated. */
-const PAL_DRAW_DISTANCE = 1300;
+const PAL_DRAW_DISTANCE = 1000;
 
 interface PalEntity extends Entity {
   anim: PalInstance;
@@ -103,6 +105,7 @@ export class Game {
   // Far plane just past the fog, so hidden scenery chunks are culled.
   private camera = new THREE.PerspectiveCamera(42, 1, 0.1, 64);
   private world: World;
+  private post: PostFX;
   private effects: Effects;
   private hud: Hud;
   private keyboard: Keyboard;
@@ -140,9 +143,14 @@ export class Game {
   private terrain = defaultWorld().layout.terrain;
 
   constructor(private container: HTMLElement, private room: GameRoom, private assets: GameAssets) {
-    const dpr = Math.min(window.devicePixelRatio, 2);
-    this.renderer = new THREE.WebGLRenderer({ antialias: dpr < 2, powerPreference: "high-performance" });
+    const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+    const quality = pickQuality(isTouch);
+    const dpr = Math.min(window.devicePixelRatio, quality === "low" ? 1.5 : 2);
+    // With post-processing the scene is anti-aliased in the composer instead.
+    this.renderer = new THREE.WebGLRenderer({ antialias: quality === "low" && dpr < 2, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(dpr);
+    // Count draw calls for the whole frame (all post passes), reset in frame().
+    this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -153,8 +161,8 @@ export class Game {
     this.labels.domElement.className = "labels";
     container.append(this.labels.domElement);
 
-    const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-    this.world = buildWorld(this.scene, assets.nature, !isTouch);
+    this.world = buildWorld(this.scene, assets.nature, quality);
+    this.post = new PostFX(this.renderer, this.scene, this.camera, quality);
     this.effects = new Effects(this.scene);
     this.fruits = new FruitLayer(this.scene);
 
@@ -205,6 +213,7 @@ export class Game {
   private resize() {
     const { clientWidth: w, clientHeight: h } = this.container;
     this.renderer.setSize(w, h);
+    this.post?.setSize(w, h);
     this.labels.setSize(w, h);
     this.camera.aspect = w / h;
     // Portrait phones see less width, so pull the camera back.
@@ -567,7 +576,9 @@ export class Game {
     this.chests.forEach((chest) => animateChest(chest, now / 1000));
     this.effects.update(dtSec);
     this.updateHud();
-    this.renderer.render(this.scene, this.camera);
+    this.post.setNight(1 - daylight(dayTime));
+    this.renderer.info.reset();
+    this.post.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
   }
 
