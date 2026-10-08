@@ -9,8 +9,11 @@
     "packages/server",
     "packages/client"
   ],
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
-    "dev": "npm run dev --workspace=@petgame/server & npm run dev --workspace=@petgame/client",
+    "dev": "node scripts/dev.mjs",
     "dev:server": "npm run dev --workspace=@petgame/server",
     "dev:client": "npm run dev --workspace=@petgame/client",
     "build": "npm run build --workspace=@petgame/client",

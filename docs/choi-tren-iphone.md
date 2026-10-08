@@ -8,7 +8,7 @@ Có 2 cách. **Cách A** nhanh và miễn phí, chơi trong cùng mạng Wi-Fi n
 
 ### Lần đầu cài đặt (trên máy tính Windows hoặc Mac)
 
-1. **Cài Node.js**: vào https://nodejs.org, tải bản **LTS** (22 trở lên), cài như phần mềm bình thường.
+1. **Cài Node.js**: vào https://nodejs.org, tải bản **LTS** (22.13 trở lên), cài như phần mềm bình thường. Kiểm tra bằng `node -v`.
 2. **Tải mã nguồn game**: vào trang GitHub của repo `xuanhiephoang-alt/petgame`, chọn nhánh **`claude/clever-galileo-23g43e`** (nút chọn nhánh ở góc trái), bấm **Code → Download ZIP**, rồi giải nén.
    - Nếu đã cài Git: `git clone -b claude/clever-galileo-23g43e https://github.com/xuanhiephoang-alt/petgame.git`
 3. Mở **Terminal** (Mac) hoặc **PowerShell** (Windows), đi vào thư mục vừa giải nén:
@@ -16,6 +16,9 @@ Có 2 cách. **Cách A** nhanh và miễn phí, chơi trong cùng mạng Wi-Fi n
    cd đường-dẫn-tới/petgame
    npm install
    ```
+   - **Windows PowerShell báo lỗi** `npm.ps1 cannot be loaded because running scripts is disabled`: chạy một lần lệnh
+     `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (gõ `Y` để đồng ý), rồi chạy lại `npm install`.
+     Hoặc không cần đổi gì: gõ `npm.cmd` thay cho `npm` (ví dụ `npm.cmd install`, `npm.cmd run play`), hoặc dùng cửa sổ **Command Prompt** (cmd) thay cho PowerShell.
 
 ### Mỗi lần chơi
 
