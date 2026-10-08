@@ -7,7 +7,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - `packages/server`: Colyseus 0.18, `GameRoom` có server quyết định mọi kết quả (authoritative)
 - `packages/client`: Three.js (3D, camera nhìn chéo từ trên xuống) + Vite; HUD và joystick là DOM overlay
 - `tests/e2e`: Playwright, nhiều người chơi
-- `.claude/agents`: 7 agent chuyên môn; mỗi agent chỉ sửa thư mục của mình (ghi trong file agent)
+- `.claude/agents`: 8 agent chuyên môn; mỗi agent chỉ sửa thư mục của mình (ghi trong file agent). `visual-director` giữ phong cách và chất lượng hình ảnh tổng thể
 
 ## Lệnh
 - `npm install`: cài đặt (npm workspaces)
@@ -17,6 +17,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - `npm run models:build`: dựng lại model GLB của thú từ `assets/pals/build.ts`; xem ở http://localhost:5173/model-viewer.html
 - `npm run play`: build rồi chạy server phục vụ luôn game (một cổng), in địa chỉ LAN cho điện thoại; xem `docs/choi-tren-iphone.md`.
 - Deploy: một container (hoặc Render qua `render.yaml`; `Dockerfile`, `fly.toml`) chạy server và phục vụ luôn client đã build; xem `docs/deploy.md`.
+- `npm run shots -- --name <tên>`: chụp bộ ảnh chuẩn (mọi vùng, ngày/đêm, cận cảnh thú, điện thoại) vào `shots/<tên>/` kèm số draw call/tam giác, để so sánh đồ họa trước/sau
 - `npm run assets:kaykit`: nhập lại asset CC0 KayKit (cây cỏ, 5 nhân vật, animation) theo `assets/kaykit/manifest.ts`
 
 ## Quy tắc chung

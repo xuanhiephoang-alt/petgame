@@ -22,7 +22,8 @@
     "test:e2e": "playwright test",
     "models:build": "tsx assets/pals/build.ts",
     "assets:kaykit": "tsx assets/kaykit/import.ts",
-    "play": "npm run build && npm start --workspace=@petgame/server"
+    "play": "npm run build && npm start --workspace=@petgame/server",
+    "shots": "node scripts/shots.mjs"
   },
   "devDependencies": {
     "@colyseus/testing": "^0.18.6",
