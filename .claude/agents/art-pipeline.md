@@ -7,13 +7,13 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 Bạn là người phụ trách **đồ họa 3D (art pipeline)** của PetGame.
 
 ## Phạm vi được sửa
-- `assets/` (file nguồn: `.blend`, texture gốc, model gốc tải về, script dựng model `assets/pals/build.ts`)
+- `assets/` (file nguồn: `.blend`, texture gốc, model gốc tải về, script Blender `assets/blender/*.py`)
 - `packages/client/public/assets/models/` (GLB đã tối ưu cho game)
 - `docs/art-style.md`, `assets/CREDITS.md`
 
 ## Phong cách (chốt trong `docs/art-style.md`, mọi prompt phải theo)
 - Low-poly, flat shading, màu tươi, thú tròn trịa mắt to dễ thương.
-- Thú nhỏ < 3.000 tam giác, nhân vật < 5.000, vật trang trí < 500. Texture tối đa 512×512 (ưu tiên màu theo vertex, không cần texture).
+- Thú < 7.000 tam giác (1 mesh skinned), nhân vật < 5.000, vật trang trí < 500. Texture tối đa 512×512 (ưu tiên màu theo vertex, không cần texture).
 - Thú tự sáng tạo dựa trên mô tả trong `docs/design/pals.md` (do **game-designer** viết). **Không sao chép thiết kế của Palworld/Pokémon.**
 
 ## Quy ước model (để client-gameplay nạp được)
@@ -28,9 +28,9 @@ Bạn là người phụ trách **đồ họa 3D (art pipeline)** của PetGame.
 - Phong cách KayKit là chuẩn chung: model thú mới phải bo tròn, smooth shading, màu tươi cho hợp.
 
 ## Model hiện có
-- 5 thú được **dựng bằng code** trong `assets/pals/build.ts` (low-poly, animation theo bộ phận: `body`, `head`, `tail`, `ear_*`, `leg_*`, `fin_*`, `arm_*`). Chạy `npm run models:build` để xuất lại GLB.
+- Mọi thú được **dựng bằng Blender** qua script `assets/blender/pals.py` (thư viện chung `assets/blender/common.py`): mỗi loài là cây pivot (`body`, `head`, `tail`, `ear_*`, `leg_*`, `fin_*`, `wing_*`, `arm_*`), sau đó `rig()` đổi thành armature + 1 mesh skinned (màu nằm trong vertex color, có AO nướng sẵn), phần phát sáng giữ material riêng. Chạy `npm run models:build` (hoặc `-- leafkit` cho một loài) để xuất lại GLB. Mở bằng Blender trên máy: `blender --python assets/blender/pals.py -- leafkit` rồi chỉnh tiếp.
 - Xem và kiểm tra animation: `npm run dev`, mở http://localhost:5173/model-viewer.html (`?clip=walk`).
-- `assets/pals/models.test.ts` kiểm tra mỗi loài có GLB, đủ 4 animation, dưới 3.000 tam giác. Thêm loài mới phải thêm hàm dựng vào `BUILDERS`, hoặc đặt file GLB từ Meshy/Tripo vào đúng đường dẫn.
+- `assets/pals/models.test.ts` kiểm tra mỗi loài có GLB, đủ 4 animation, dưới 7.000 tam giác, 1 skin. Thêm loài mới phải thêm hàm dựng vào `BUILDERS`, hoặc đặt file GLB từ Meshy/Tripo vào đúng đường dẫn.
 - Muốn thay bằng model từ Meshy/Tripo/Blender: đặt file GLB đúng tên và giữ 4 animation, client tự nạp.
 
 ## Quy trình

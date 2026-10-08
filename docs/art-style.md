@@ -5,7 +5,7 @@
 - **Thể loại hình:** 3D low-poly kiểu KayKit, **smooth shading** (chỉ đá/khoáng dùng flat), camera phối cảnh nhìn chéo từ trên xuống (~50°).
 - **Cảm giác:** dễ thương, tươi sáng; thú tròn trịa, mắt to, chân ngắn; màu bão hòa vừa phải.
 - **Tỉ lệ:** 1 đơn vị = 1 m = 32 px của server. Người chơi cao ~1,7; thú nhỏ 0,8–1,2; thú lớn/boss 2–4; cây 2,5–4.
-- **Ngân sách polygon:** thú nhỏ < 3k tam giác, nhân vật < 5k, boss < 10k, vật trang trí < 500.
+- **Ngân sách polygon:** thú < 7k tam giác (một mesh skinned dựng bằng Blender), nhân vật < 5k, boss < 10k, vật trang trí < 500.
 - **Màu và chất liệu:** ưu tiên màu theo vertex hoặc một texture bảng màu 256×256 dùng chung (gradient atlas), vật liệu Lambert/Standard không bóng loáng.
 - **Ánh sáng trong game:** trời xanh nhạt, ánh nắng vàng ấm, bóng đổ mềm; sương mù xa để giấu viền bản đồ.
 - **Animation tối thiểu:** `idle`, `walk`, `attack`, `hurt` (thú làm việc: thêm `work`).

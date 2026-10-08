@@ -34,7 +34,7 @@ Bảng tiêu chí tự chấm (mỗi mục 1–5, ghi vào báo cáo trước/sa
 
 ## Công cụ có sẵn trong repo
 - Three.js r186: `three/addons/postprocessing/*` (EffectComposer, UnrealBloomPass, SSAOPass/GTAOPass, OutputPass, ShaderPass), `three/addons/shaders/*`. Không cần cài thêm gói.
-- `npm run models:build` dựng lại model thú (`assets/pals/build.ts`), `npm run assets:kaykit` nhập asset KayKit (tải được từ GitHub).
+- `npm run models:build` dựng lại model thú bằng Blender (`assets/blender/pals.py`), `npm run assets:kaykit` nhập asset KayKit (tải được từ GitHub).
 - `npm run shots`: build client, bật server thử nghiệm, chụp bộ ảnh chuẩn (mỗi vùng ngày/đêm, cận cảnh thú, màn hình điện thoại) vào `shots/<tên>/`, in số draw call và tam giác. Dùng `npm run shots -- --name before` và `--name after` để so sánh.
 - Đọc ảnh PNG bằng công cụ Read để tự xem kết quả.
 

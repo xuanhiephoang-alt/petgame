@@ -57,9 +57,12 @@ for (const clip of CLIPS) {
 }
 
 const models = await loadPalModels();
-PAL_SPECIES.forEach((species, i) => {
+// ?only=leafkit,emberpup shows just those species (bigger on screen).
+const only = new URLSearchParams(location.search).get("only")?.split(",").filter(Boolean);
+const shown = only?.length ? PAL_SPECIES.filter((s) => only.includes(s.id)) : PAL_SPECIES;
+shown.forEach((species, i) => {
   const instance = models.create(species.id);
-  instance.object.position.x = (i - (PAL_SPECIES.length - 1) / 2) * 1.25;
+  instance.object.position.x = (i - (shown.length - 1) / 2) * 1.25;
   instance.object.rotation.y = 0.35;
   instance.object.traverse((o) => (o.castShadow = true));
   const div = document.createElement("div");
@@ -80,9 +83,10 @@ function resize() {
   labels.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   // Back off far enough to fit the whole row of species.
-  const halfWidth = (PAL_SPECIES.length * 1.25) / 2 + 0.5;
+  const halfWidth = (shown.length * 1.25) / 2 + 0.5;
   const fit = halfWidth / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / camera.aspect;
-  camera.position.set(0, 2.2 * Math.max(1, fit / 5.2), Math.max(5.2, fit));
+  const near = shown.length <= 2 ? 2.6 : 5.2;
+  camera.position.set(0, 2.2 * Math.max(near / 5.2, fit / 5.2), Math.max(near, fit));
   camera.lookAt(0, 0.45, 0);
   camera.updateProjectionMatrix();
 }

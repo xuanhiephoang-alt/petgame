@@ -1,7 +1,7 @@
 # Danh sách thú (pal)
 
 Chỉ số nằm ở `packages/shared/src/data/pals.json`. File này lưu mô tả ngoại hình để art-pipeline dựng model.
-Model 3D hiện tại: `assets/pals/build.ts` → `packages/client/public/assets/models/pal-<id>.glb` (xem ở http://localhost:5173/model-viewer.html).
+Model 3D hiện tại: dựng bằng Blender qua `assets/blender/pals.py` (`npm run models:build`) → `packages/client/public/assets/models/pal-<id>.glb` (xem ở http://localhost:5173/model-viewer.html).
 
 | id | Tên | Hệ | Mô tả ngoại hình |
 |---|---|---|---|

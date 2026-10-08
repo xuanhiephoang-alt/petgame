@@ -20,7 +20,7 @@
     "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/client && tsc -p assets",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "models:build": "tsx assets/pals/build.ts",
+    "models:build": "node scripts/blender.mjs assets/blender/pals.py",
     "assets:kaykit": "tsx assets/kaykit/import.ts",
     "play": "npm run build && npm start --workspace=@petgame/server",
     "shots": "node scripts/shots.mjs"

@@ -6,7 +6,8 @@ import { PAL_SPECIES } from "@petgame/shared";
 
 const MODELS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../packages/client/public/assets/models");
 const REQUIRED_CLIPS = ["idle", "walk", "attack", "hurt"];
-const MAX_TRIANGLES = 3000;
+/** Blender pals are smooth and skinned (one draw call each), so they can afford more triangles. */
+const MAX_TRIANGLES = 7000;
 
 /** Reads the JSON chunk of a binary glTF file. */
 function readGlbJson(file: string) {
@@ -35,6 +36,11 @@ describe.each(PAL_SPECIES.map((s) => s.id))("pal-%s.glb", (id) => {
       }
     }
     expect(triangles).toBeLessThanOrEqual(MAX_TRIANGLES);
+  });
+
+  it("is one skinned mesh plus at most a few glowing parts", () => {
+    expect(gltf.skins?.length ?? 0).toBe(1);
+    expect(gltf.meshes.length).toBeLessThanOrEqual(4);
   });
 
   it("has a body node for animations to drive", () => {

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { PAL_SPECIES, getSpecies } from "@petgame/shared";
 import { createPalModel, disposeModel } from "./models.ts";
 import { addRimLight, animatedModel, cloneMaterials, staticModel, type AnimatedModel } from "./animated.ts";
@@ -40,7 +41,8 @@ export async function loadPalModels(): Promise<PalModelSet> {
         const placeholder = createPalModel(getSpecies(speciesId));
         return staticModel(placeholder, () => disposeModel(placeholder));
       }
-      const object = model.scene.clone(true);
+      // Pals from Blender are skinned: each copy needs its own bones.
+      const object = SkeletonUtils.clone(model.scene) as THREE.Group;
       cloneMaterials(object);
       object.traverse((o) => {
         const mesh = o as THREE.Mesh;
