@@ -9,13 +9,15 @@ import pytest
 from photo3d.__main__ import find_photos
 from photo3d.calibrate import fit
 from photo3d.cameras import Camera
-from photo3d.carve import carve, intervals
+from photo3d.carve import Shape, carve, intervals, make_grid
 from photo3d.export import png_bytes, write_glb
 from photo3d.images import align, exif_orientation, exif_tags, key_out, load_image
 from photo3d.mesh import edges_of, extract, surface_nets
 from photo3d.pipeline import build
 from photo3d.prior import choose_shape
-from photo3d.texture import face_adjacency, texture
+from photo3d.rig import build as build_rig
+from photo3d.rig import quaternion, skin
+from photo3d.texture import TexturedMesh, face_adjacency, texture
 from photo3d.views import camera_for
 
 SIDES = ("front", "right", "back", "left")
@@ -263,3 +265,87 @@ def test_seam_leveling_evens_out_photos_of_different_brightness():
         jumps.append(np.abs(color[pairs[seam, 0]] - color[pairs[seam, 1]]).mean())
     assert jumps[0] > 0.1
     assert jumps[1] < 0.25 * jumps[0]
+
+
+def creature(kind):
+    """A simple animal (body, head in front, tail behind, four legs) or a
+    figure standing up (two legs, arms held out sideways), facing +Z."""
+    grid = make_grid(1.0, 1.0, 1.2, res=64)
+    X, Y, Z = np.meshgrid(*(grid.axis(a) for a in range(3)), indexing="ij")
+    if kind == "animal":
+        solid = (X / 0.3) ** 2 + ((Y - 0.45) / 0.2) ** 2 + (Z / 0.4) ** 2 < 1
+        solid |= X ** 2 + (Y - 0.7) ** 2 + (Z - 0.4) ** 2 < 0.18 ** 2
+        solid |= (X ** 2 + (Y - 0.5) ** 2 < 0.04 ** 2) & (Z > -0.56) & (Z < -0.3)
+        for x, z in ((-0.15, 0.22), (0.15, 0.22), (-0.15, -0.22), (0.15, -0.22)):
+            solid |= ((X - x) ** 2 + (Z - z) ** 2 < 0.06 ** 2) & (Y < 0.4)
+    else:
+        solid = (abs(X) < 0.15) & (Y > 0.28) & (Y < 0.66) & (abs(Z) < 0.1)
+        solid |= X ** 2 + (Y - 0.8) ** 2 + Z ** 2 < 0.15 ** 2
+        solid |= (abs(X) < 0.45) & (abs(Y - 0.55) < 0.04) & (abs(Z) < 0.04)
+        for x in (-0.08, 0.08):
+            solid |= ((X - x) ** 2 + Z ** 2 < 0.05 ** 2) & (Y < 0.3)
+    return Shape(grid, solid.astype(np.float32))
+
+
+def main_bone(rig, points):
+    joints, weights = skin(rig, np.asarray(points, float))
+    return [rig.names[j[0]] for j in joints], weights[:, 0]
+
+
+def test_rig_finds_the_legs_head_and_tail_of_an_animal():
+    rig = build_rig(creature("animal"))
+    assert rig.kind == "quadruped"
+    assert {"body", "head", "tail", "leg_fl", "leg_fr", "leg_bl", "leg_br"} <= set(rig.names)
+    fl = rig.heads[rig.bone("leg_fl")]
+    assert fl[0] < 0 and fl[2] > 0 and 0.2 < fl[1] < 0.45  # front left (-X like the pals) at the hip
+    names, weights = main_bone(rig, [(-0.15, 0.05, 0.22), (0.15, 0.05, -0.22), (0, 0.85, 0.4), (0, 0.5, -0.52)])
+    assert names == ["leg_fl", "leg_br", "head", "tail"]
+    assert (weights > 0.95).all()  # thin parts move as a whole
+
+
+def test_rig_swings_legs_and_sideways_arms_forward():
+    rig = build_rig(creature("figure"))
+    assert rig.kind == "biped"
+    assert {"leg_l", "leg_r", "arm_l", "arm_r", "head"} <= set(rig.names)
+    assert rig.heads[rig.bone("arm_l")][0] < 0
+    for bone in ("leg_l", "arm_l"):
+        b = rig.bone(bone)
+        reach = rig.tips[b] - rig.heads[b]
+        x, y, z, w = quaternion(rig.clips["walk"][bone][0][1]["rot"])
+        turn = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                         [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                         [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+        moved = turn @ reach - reach
+        assert abs(moved[2]) > 0.8 * np.linalg.norm(moved) > 0.1 * np.linalg.norm(reach), bone  # forward/back
+
+
+def test_rigged_glb_has_skin_and_looping_clips(tmp_path):
+    shape = creature("animal")
+    mesh = extract(shape, smooth=2)
+    tm = TexturedMesh(mesh.vertices, mesh.vertex_normals(), np.zeros((len(mesh.vertices), 2)), mesh.faces,
+                      np.full((4, 4, 3), 128, np.uint8), np.zeros(len(mesh.faces), int), ["front"])
+    rig = build_rig(shape)
+    path = tmp_path / "pal.glb"
+    write_glb(str(path), tm, rig=rig, jpeg=True)
+    data = path.read_bytes()
+    js_len = struct.unpack("<I", data[12:16])[0]
+    gltf = json.loads(data[20:20 + js_len])
+    binary = data[20 + js_len + 8:]
+
+    def read(i, dtype=np.float32):
+        acc = gltf["accessors"][i]
+        view = gltf["bufferViews"][acc["bufferView"]]
+        width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4, "MAT4": 16}[acc["type"]]
+        return np.frombuffer(binary, dtype, acc["count"] * width, view.get("byteOffset", 0)).reshape(-1, width)
+
+    skin_ = gltf["skins"][0]
+    assert [gltf["nodes"][j]["name"] for j in skin_["joints"]] == rig.names
+    attributes = gltf["meshes"][0]["primitives"][0]["attributes"]
+    assert np.allclose(read(attributes["WEIGHTS_0"]).sum(1), 1, atol=1e-4)
+    assert read(attributes["JOINTS_0"], np.uint16).max() < len(rig.names)
+    assert sorted(a["name"] for a in gltf["animations"]) == ["attack", "hurt", "idle", "walk"]
+    assert gltf["images"][0]["mimeType"] == "image/jpeg"
+    walk = next(a for a in gltf["animations"] if a["name"] == "walk")
+    for sampler in walk["samplers"]:
+        values = read(sampler["output"])
+        assert np.allclose(values[0], values[-1], atol=1e-5)  # loops without a jump

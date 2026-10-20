@@ -1,11 +1,11 @@
 # photo3d: tạo model 3D từ 4 ảnh chụp
 
-Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 45°** và ảnh **từ trên xuống** nếu có), công cụ dựng ra model 3D **có màu thật từ ảnh**, xuất `.glb` (dùng được trong game, Blender, web) hoặc `.obj`. Chạy trên máy thường, không cần GPU, mỗi model 2–7 giây.
+Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 45°** và ảnh **từ trên xuống** nếu có), công cụ dựng ra model 3D **có màu thật từ ảnh**, xuất `.glb` (dùng được trong game, Blender, web) hoặc `.obj`. Thêm `--rig` để model **có xương và 4 động tác của thú trong game** (đứng, đi, tấn công, bị đánh). Chạy trên máy thường, không cần GPU, mỗi model từ vài giây (ảnh nhỏ) đến khoảng 20 giây (ảnh điện thoại lớn).
 
 ```
 ảnh 4–9 phía ─► tách nền ─► căn chỉnh ─► hiệu chỉnh máy ảnh (chụp gần, chụp từ trên)
              ─► khắc khối từ bóng (tự chọn tròn hay vuông) ─► lưới tam giác, làm mịn
-             ─► dán màu từ ảnh ─► model.glb
+             ─► dán màu từ ảnh, hoà màu ở đường nối ─► (gắn xương + animation) ─► model.glb
 ```
 
 ## 1. Chụp ảnh thế nào cho tốt
@@ -78,8 +78,29 @@ Kết quả: `D:\anh\meo\model.glb` (đổi bằng `-o duong_dan.glb` hoặc `.o
 | `--cutout key` / `rembg` / `alpha` | cách tách nền: nền trơn / AI (cần `pip install rembg`) / PNG trong suốt. Mặc định tự chọn |
 | `--res 160` | độ chi tiết khi khắc khối (cao hơn = chậm hơn, chi tiết hơn) |
 | `--texture 2048` | độ phân giải texture (pixel trên một chiều cao vật) |
+| `--rig` | gắn xương và 4 animation của thú trong game: `idle`, `walk`, `attack`, `hurt` (chỉ `.glb`) |
+| `--no-level` | giữ nguyên màu từng ảnh ở đường nối (mặc định: hoà cho liền) |
+| `--jpeg` | lưu texture dạng JPEG: file nhỏ hơn khoảng 4 lần (`.glb`) |
 
-## 4. Chất lượng đo được
+## 4. Dùng model làm thú trong game
+
+```powershell
+python -m photo3d D:\anh\meo --rig --faces 4000 --texture 512 --jpeg -o packages\client\public\assets\models\pal-leafkit.glb
+```
+
+- `--rig` tự tìm các phần của vật từ khối đã dựng:
+  - **4 chân** (thú): xương `leg_fl`, `leg_fr`, `leg_bl`, `leg_br`;
+  - **2 chân** (người, thú đứng thẳng): `leg_l`, `leg_r`, thêm `arm_l`, `arm_r` nếu tay giang ra hai bên;
+  - **không thấy chân** (bóng, cá, vật tròn): thân nhún nhảy khi đi;
+  - luôn có `body`, thêm `head` và `tail` nếu thấy.
+- Tên xương và tên animation giống hệt thú làm bằng Blender (`assets/blender/pals.py`). Vì vậy đặt tên file `pal-<id>.glb` là game dùng được ngay, không phải sửa code.
+- Model cao 1 đơn vị, cùng cỡ với thú trong game (0,7–1,1). Mặt trước của vật (ảnh `truoc`) quay về hướng thú nhìn.
+- Dung lượng: với `--faces 4000 --texture 512 --jpeg` mỗi file khoảng 0,3 MB (thú làm bằng Blender: 0,13–0,17 MB). Để mặc định (20000 tam giác, texture PNG lớn) thì 1,5–2,7 MB, quá nặng cho điện thoại.
+- Thêm `--symmetric` nếu con vật đối xứng trái/phải.
+- Xem thử: `npm run dev` rồi mở http://localhost:5173/model-viewer.html?only=leafkit (bấm `walk`, `attack`...).
+- Loài mới (không thay loài có sẵn) còn cần khai báo trong dữ liệu game (`packages/shared/src/data/`).
+
+## 5. Chất lượng đo được
 
 Bộ thử: chụp (render) các model có sẵn của game và vài đồ vật bằng Blender, chạy công cụ, so với model gốc. Sai số Chamfer tính theo % chiều cao vật (thấp là tốt), F-score là tỉ lệ bề mặt nằm trong 2% chiều cao so với bản gốc (cao là tốt).
 
@@ -94,9 +115,16 @@ Bộ thử: chụp (render) các model có sẵn của game và vài đồ vật
 | 12 bộ ảnh kiểu điện thoại: cách 2–6 lần chiều cao vật, cầm cao hơn 0–25° | coi như chụp ngang từ xa (bản cũ) | 2,42 % | 0,58 |
 | | hiệu chỉnh từ EXIF | 2,35 % | 0,62 |
 
+**Đường nối màu:** chênh lệch màu trung bình giữa hai bên đường nối giảm còn khoảng 40 % (ví dụ leafkit xoay trước đèn: 0,154 xuống 0,064; quả bóng trơn: 0,068 xuống 0,005). Tốn thêm khoảng 1,5 giây.
+
+**Gắn xương:** thử trên 25 bộ ảnh thú và nhân vật (chụp xa, chụp gần, chụp từ trên, có ảnh chéo):
+- 24 bộ nhận đúng loại: cả 19 bộ thú 4 chân đều đủ 4 chân, 3 bộ cá bóng không chân, 2 bộ hiệp sĩ 2 chân.
+- Bộ sai: nhân vật ranger chụp gần từ trên cao. Hai chân dính nhau trong khối dựng nên nó chỉ nhún nhảy.
+- Model chạy đúng 4 animation trong trình xem model của game (three.js), cạnh thú gốc.
+
 Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ảnh. Để so sánh: khối thô (visual hull vuông) ban đầu sai khoảng 4,5 %.
 
-## 5. Giới hạn hiện tại (và cách khắc phục sau)
+## 6. Giới hạn hiện tại (và cách khắc phục sau)
 
 - **Chỗ lõm không thấy được từ 4 phía** (lòng bát, khoang trong) bị lấp đầy: giới hạn của phương pháp dựng từ bóng.
 - **Phần bị che phía sau** (đuôi sau thân, gai lưng) phải đoán độ dày: dùng giả định "mảnh và tròn"; thêm ảnh từ trên xuống sẽ chính xác hơn.
@@ -106,14 +134,20 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - Mặt trên của vật khi chụp từ trên xuống là phần khó nhất: có thể hơi phồng.
   - Chụp ngang từ xa vẫn cho kết quả tốt nhất.
 - **Tròn hay vuông với 4 ảnh:** đoán nhờ màu và bóng sáng. Vật một màu trơn dưới ánh sáng đều (không có bóng) được coi là tròn; vật vuông kiểu đó cần `--shape box` hoặc thêm ảnh chéo.
+- **Gắn xương (`--rig`):**
+  - Chân chỉ được nhận khi trong ảnh trước có **khe hở giữa các chân** ở sát đất. Chân khép sát hoặc váy dài thì vật chỉ nhún nhảy khi đi.
+  - Ảnh chụp quá gần từ trên cao có thể làm hỏng khối ở bàn chân. Khi đó một chân có xương nhưng đứng yên.
+  - Tai, cánh, ngón tay không có xương riêng: chúng đi theo đầu hoặc thân.
+  - Động tác là 4 động tác chung của thú trong game; muốn động tác riêng thì sửa trong Blender.
+- **Không có normal map:** khối dựng từ bóng vốn trơn, còn chi tiết nhỏ (lông, đường may, nếp nhăn) đã nằm sẵn trong màu ảnh, kèm cả bóng sáng thật. Một normal map đoán từ ảnh sẽ tạo nổi khối giả: bóng bị tính hai lần, trông bẩn hơn, và tốn thêm một texture trên điện thoại. Chỉ đáng làm khi có hình dạng chi tiết từ chế độ AI (lộ trình mục 2).
 
-## 6. Lộ trình
+## 7. Lộ trình
 
 1. ~~Dựng từ bóng + dán màu ảnh, xuất GLB, chạy trong Blender~~ (xong)
 2. Chế độ AI (cần GPU NVIDIA hoặc chờ lâu trên CPU): dùng model mã nguồn mở **Hunyuan3D-2mv** (nhận đúng 4 ảnh trước/trái/sau/phải), **TripoSR** hoặc **TRELLIS** để có hình dạng chi tiết hơn, rồi dán màu bằng bước chiếu ảnh của photo3d. Cần tải model từ Hugging Face.
 3. ~~Ảnh điện thoại chụp gần/từ trên (EXIF), ảnh chéo 45°, tự chọn khối tròn hay vuông~~ (xong)
-4. Bake texture liền mạch (hoà màu ở đường nối), sinh normal map.
-5. Tự gắn xương và animation đi/đứng (như Tripo), dọn lưới (retopology) bằng Blender.
+4. ~~Texture liền mạch (hoà màu ở đường nối)~~ (xong). Normal map: để sau, khi có chế độ AI (lý do ở phần Giới hạn).
+5. ~~Tự gắn xương và animation đứng/đi/tấn công/bị đánh như thú trong game~~ (xong). Còn lại: dọn lưới (retopology) bằng Blender.
 6. Trang web: kéo thả 4 ảnh, xem trước 3D, tải về.
 
 ## Cho lập trình viên
@@ -125,7 +159,8 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - `carve.py`: khắc khối.
   - `prior.py`: đoán tròn hay vuông.
   - `mesh.py`: lưới tam giác.
-  - `texture.py`: dán màu.
+  - `texture.py`: dán màu, hoà màu ở đường nối.
+  - `rig.py`: tìm chân, đầu, đuôi, tay; trọng số da; animation.
   - `export.py`: xuất GLB/OBJ.
   - `pipeline.py`: ghép tất cả lại.
 - Test: `cd tools/photo3d && python -m pytest`

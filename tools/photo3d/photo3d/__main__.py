@@ -72,6 +72,9 @@ def parse(argv):
                    help="35 mm equivalent focal length in mm (phone main camera ~26, 2x zoom ~52), "
                         "0 = far away with zoom, auto = from the photos' EXIF (default)")
     p.add_argument("--no-level", action="store_true", help="keep the photos' colors as they are at the seams")
+    p.add_argument("--rig", action="store_true",
+                   help="add bones and the game's idle/walk/attack/hurt animations (.glb)")
+    p.add_argument("--jpeg", action="store_true", help="JPEG texture: about 4x smaller files (.glb)")
     p.add_argument("--json", action="store_true", help="print a JSON report")
     return p.parse_args(argv)
 
@@ -92,7 +95,7 @@ def main(argv=None):
     report, _ = build(photos, out, res=args.res, mode=args.shape, exponent=args.roundness,
                       symmetric=args.symmetric, faces=args.faces or None, cutout=args.cutout,
                       texture_px=args.texture, thin=args.thin or None, elevation=elevation, focal=focal,
-                      level=not args.no_level)
+                      level=not args.no_level, rig=args.rig, jpeg=args.jpeg)
     if args.json:
         print(json.dumps(report, indent=2))
     return report

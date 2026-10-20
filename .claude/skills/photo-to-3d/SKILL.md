@@ -20,7 +20,9 @@ description: Turn photos of an object's sides (front/right/back/left, optional d
   - the cut-out method per photo;
   - the `camera:` line (degrees above, distance, "photos agree N%": below 95% means the photos do not fit together; check the labels, or try `--elevation 10/20/30` and keep the highest agreement);
   - the `shape:` line;
+  - with `--rig`, the `rig:` line (quadruped/biped/blob and the bones found);
   - warnings.
+- Colors are evened out where neighboring photos meet; `--no-level` keeps each photo's own colors.
 
 ## 3. Look at the result from new angles
 - With Blender MCP: in the running Blender execute
@@ -38,8 +40,17 @@ description: Turn photos of an object's sides (front/right/back/left, optional d
 | Box came out round, or round object boxy | `--shape box` / `--shape round`, or add diagonal photos (they settle it slice by slice) |
 | Model squashed or stretched, "photos agree" low | camera was raised: `--elevation 20` (try a few values); photos at different distances: retake |
 | Too many triangles for the game | `--faces 3000` |
+| File too big for phones | `--faces 4000 --texture 512 --jpeg` (about 0.3 MB) |
+| `rig:` says blob but the creature has legs | legs touch each other near the ground in the photos: retake with the legs apart (gap visible in the front photo), or rig in Blender |
+| Arm or leg does not move in an animation | that limb merged with the body in the carved shape; check `rig:` bones, rig in Blender if needed |
 
-## 5. Refine in Blender (optional)
-Blender MCP lets you clean up the imported model: Mirror modifier for symmetric objects, Smooth/Decimate, fix the origin (feet at 0, facing -Y in Blender = +Z in glTF), add an armature for animation, then export GLB to `packages/client/public/assets/models/` for the game.
+## 5. Use it as a pal in the game
+- `python -m photo3d <folder> --rig --faces 4000 --texture 512 --jpeg -o packages/client/public/assets/models/pal-<id>.glb`
+- `--rig` finds legs (4: `leg_fl/fr/bl/br`, 2: `leg_l/r`), `head`, `tail` and sideways arms (`arm_l/r`) from the carved shape and adds the pals' clips `idle`, `walk`, `attack`, `hurt`. Bone and clip names match `assets/blender/pals.py`, so the client loads it like any pal (`assets.ts`); no code change for an existing species id. A new species also needs its data in `packages/shared/src/data/` (game-designer).
+- Check it: `npm run dev`, open http://localhost:5173/model-viewer.html?only=<id> and press walk/attack/hurt.
+- The model is 1 unit tall like the pals and faces +Z (the front photo).
+
+## 6. Refine in Blender (optional)
+Blender MCP lets you clean up the imported model: Mirror modifier for symmetric objects, Smooth/Decimate, fix the origin (feet at 0, facing -Y in Blender = +Z in glTF), adjust the armature or weights from `--rig` (or add one), then export GLB to `packages/client/public/assets/models/` for the game.
 
 Quality reference and limits: tools/photo3d/README.md (Vietnamese).

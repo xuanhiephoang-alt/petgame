@@ -4,23 +4,26 @@ import time
 
 from .calibrate import calibrate
 from .carve import carve
-from .export import write_glb, write_obj
+from .export import Image, write_glb, write_obj
 from .images import load_views
 from .mesh import extract, fast_simplification
 from .prior import choose_shape
+from .rig import build as build_rig
 from .texture import texture
 from .views import DIAGONAL_VIEWS
 
 
 def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, faces=20000,
           cutout="auto", texture_px=1024, smooth=8, thin=1.2, elevation=None, focal="auto", level=True,
-          log=print):
+          rig=False, jpeg=False, log=print):
     """photos: {view name: path} with front/right/back/left (top and the
     diagonal ones optional). Writes `out` (.glb or .obj). Returns a report dict.
     mode: "round", "box", or "auto" (round with diagonal photos, which pick
     the roundness slice by slice; otherwise decided from the photos, see prior.py).
     elevation/focal: camera height and focal length (see calibrate.calibrate).
-    level: even out colors where neighboring photos meet (see texture.py)."""
+    level: even out colors where neighboring photos meet (see texture.py).
+    rig: add bones and the game's animations (see rig.py; .glb only).
+    jpeg: store the texture as JPEG (much smaller files; .glb only, needs Pillow)."""
     t0 = time.time()
     report = {}
     views, info = load_views(photos, method=cutout, texture_px=texture_px)
@@ -57,7 +60,18 @@ def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, face
         log("note: pip install fast-simplification to reduce the triangle count")
     tm = texture(mesh, views, shape, level=level)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    (write_obj if out.lower().endswith(".obj") else write_glb)(out, tm)
+    if out.lower().endswith(".obj"):
+        if rig:
+            log("note: OBJ files cannot hold bones; use .glb for a rigged model")
+        write_obj(out, tm)
+    else:
+        bones = build_rig(shape) if rig else None
+        if bones:
+            report["rig"] = {"kind": bones.kind, "bones": bones.names, "clips": list(bones.clips)}
+            log(f"rig: {bones.kind}, bones {', '.join(bones.names[1:])}; clips {', '.join(bones.clips)}")
+        if jpeg and Image is None:
+            log("note: pip install pillow for JPEG textures; wrote PNG")
+        write_glb(out, tm, rig=bones, jpeg=jpeg)
     report.update(triangles=int(len(tm.faces)), vertices=int(len(tm.vertices)),
                   texture=list(tm.image.shape[:2]), seconds=round(time.time() - t0, 2), out=out)
     log(f"wrote {out}: {report['triangles']} triangles, texture {tm.image.shape[1]}x{tm.image.shape[0]}, "
