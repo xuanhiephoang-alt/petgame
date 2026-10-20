@@ -1,20 +1,26 @@
 """
 Shape from silhouettes.
 
-With orthographic photos from the four sides, a point is inside the object
-only if it falls inside the cut-out in every photo (the "visual hull"). The
-front/back photos constrain (x, y), the side photos (z, y), so each
-horizontal slice of the hull is a set of rectangles. Real objects are
-rarely boxy, so by default each rectangle is replaced by the superellipse
-inscribed in it: it touches all four sides, so the silhouettes stay exactly
-the same, but the cross-section becomes round (exponent 2 = ellipse,
-larger = squarer, "box" mode keeps the plain hull).
+A point is inside the object only if it falls inside the cut-out in every
+photo (the "visual hull"). Seen from far away, the front/back photos
+constrain (x, y) and the side photos (z, y), so each horizontal slice of
+the hull is a set of rectangles. Real objects are rarely boxy, so by default
+each rectangle is replaced by the superellipse inscribed in it: it touches
+all four sides, so the silhouettes stay the same, but the cross-section
+becomes round (exponent 2 = ellipse, larger = squarer, "box" mode keeps the
+plain hull). With close-up, raised or diagonal photos the hull is carved
+with the real cameras and the rectangles come from its front and side
+outlines.
 """
 from dataclasses import dataclass
 
 import numpy as np
 
 from .images import bilinear
+from .views import DIAGONAL_VIEWS
+
+EXPONENTS = (3.0, 4.0, 6.0, 10.0)  # squarer cross-sections tried when diagonal photos need them
+COVER = 0.97  # share of a diagonal outline the rounded slice must fill
 
 
 @dataclass
@@ -46,17 +52,74 @@ def make_grid(width, height, depth, res=128, pad=3):
     return Grid(origin=origin, h=h, shape=(nx, ny, nz))
 
 
-def silhouette(view, horiz, ys):
-    """Samples a side view's cut-out on a (len(horiz), len(ys)) grid, where
-    `horiz` is the world coordinate along the view's image-right axis."""
-    uu, yy = np.meshgrid(horiz, ys, indexing="ij")
-    x_img = view.x0 + uu / view.scale
-    y_img = view.y0 - yy / view.scale  # image down = world -y for side views
-    return bilinear(view.mask, x_img - 0.5, y_img - 0.5)
+def hull(views, grid, symmetric=False, chunk=400_000):
+    """Soft visual hull on the grid: at every point, the lowest cut-out value
+    among the photos at the point's projection (0..1, 0.5 = the outline).
+    symmetric: the object is mirror-symmetric left/right; each photo's
+    constraint is averaged with its mirror image to cancel noise."""
+    xs, ys, zs = grid.axis(0), grid.axis(1), grid.axis(2)
+    nx, ny, nz = grid.shape
+    X, Z = np.meshgrid(xs, zs, indexing="ij")
+    field = np.ones(grid.shape, np.float32)
+    general = []
+    for v in views.values():
+        cam = v.camera
+        if not (cam.orthographic and cam.elev == 0):
+            general.append(v)
+            continue
+        # Level and far away: the photo constrains (u, y) with u the horizontal
+        # image axis, so sample it once on a fine u grid and look it up.
+        _, right, _ = cam.basis()
+        m = _level_profile(v, X * right[0] + Z * right[2], ys, grid.h)
+        if symmetric:
+            m = 0.5 * (m + _level_profile(v, -X * right[0] + Z * right[2], ys, grid.h))
+        np.minimum(field, m, out=field)
+    rows = max(1, chunk // X.size)
+    for j0 in range(0, ny, rows) if general else ():
+        yy = ys[j0:j0 + rows]
+        pts = np.empty((len(yy), X.size, 3))
+        pts[..., 0], pts[..., 1], pts[..., 2] = X.ravel(), yy[:, None], Z.ravel()
+        pts = pts.reshape(-1, 3)
+        block = field[:, j0:j0 + rows, :].transpose(1, 0, 2).reshape(-1)  # a copy, in pts order
+        for v in general:
+            alive = np.flatnonzero(block > 0)  # points already carved away stay at 0
+            m = _sample(v, pts[alive])
+            if symmetric:
+                m = 0.5 * (m + _sample(v, pts[alive] * (-1.0, 1.0, 1.0)))
+            block[alive] = np.minimum(block[alive], m)
+        field[:, j0:j0 + rows, :] = block.reshape(len(yy), nx, nz).transpose(1, 0, 2)
+    # The object stands on the ground (y = 0). Photos taken from above or from
+    # close by cannot see under it, so their cones would reach below.
+    field *= np.clip(0.5 + ys / grid.h, 0.0, 1.0)[None, :, None].astype(np.float32)
+    return field
+
+
+def _level_profile(view, u, ys, h):
+    """Cut-out of a level orthographic photo at horizontal image coordinate
+    u (world units, shape (nx, nz)) for every height in ys -> (nx, ny, nz)."""
+    step = h / 2
+    us = np.arange(u.min() - step, u.max() + 2 * step, step)
+    cam = view.camera
+    uu, yy = np.meshgrid(us, ys, indexing="ij")
+    pts = np.zeros((uu.size, 3))
+    _, right, _ = cam.basis()
+    pts[:, 0], pts[:, 2] = uu.ravel() * right[0], uu.ravel() * right[2]
+    pts[:, 1] = yy.ravel()
+    table = _sample(view, pts).reshape(len(us), len(ys))  # (nu, ny)
+    f = (u - us[0]) / step
+    i0 = np.clip(np.floor(f).astype(np.int64), 0, len(us) - 2)
+    w = np.clip(f - i0, 0.0, 1.0)[..., None]
+    out = table[i0] * (1 - w) + table[i0 + 1] * w  # (nx, nz, ny)
+    return out.transpose(0, 2, 1).astype(np.float32)
+
+
+def _sample(view, points):
+    px = view.project(points)
+    return bilinear(view.mask, px[:, 0] - 0.5, px[:, 1] - 0.5)
 
 
 def carve(views, width, height, depth, res=128, mode="round", exponent=2.0, symmetric=False, smooth_slices=3,
-          thin=1.2):
+          thin=1.2, grid=None):
     """Builds the occupancy field from aligned views (see images.align).
 
     mode: "round" (superellipse cross-sections) or "box" (plain visual hull).
@@ -65,42 +128,23 @@ def carve(views, width, height, depth, res=128, mode="round", exponent=2.0, symm
     thin: in round mode, parts hidden behind a wider part in one photo are
     assumed at most this many times wider than deep (None = plain hull).
     """
-    grid = make_grid(width, height, depth, res)
-    xs, ys, zs = grid.axis(0), grid.axis(1), grid.axis(2)
-    # (x, y) constraint from the front and back photos (the back sees x mirrored).
-    fx = [silhouette(views["front"], xs, ys)] if "front" in views else []
-    if "back" in views:
-        fx.append(silhouette(views["back"], -xs, ys))
-    # (z, y) constraint from the side photos (right sees +z on its right, left sees -z).
-    fz = [silhouette(views["right"], zs, ys)] if "right" in views else []
-    if "left" in views:
-        fz.append(silhouette(views["left"], -zs, ys))
-    if symmetric:
-        fx = [0.5 * (f + f[::-1]) for f in fx]  # x -> -x mirror (grid is symmetric about 0)
-        Fxy, Fzy = np.mean(fx, axis=0), np.mean(fz, axis=0)
-    else:
-        Fxy, Fzy = np.min(fx, axis=0), np.min(fz, axis=0)
-
-    field = _hull(Fxy, Fzy)
+    grid = grid or make_grid(width, height, depth, res)
+    xs, zs = grid.axis(0), grid.axis(2)
+    field = hull(views, grid, symmetric)
     if mode == "round":
-        rounded = _rounded(Fxy, Fzy, xs, zs, grid.h, exponent, thin)
+        # The hull's outlines seen from far away in front and from the side.
+        Fxy, Fzy = field.max(axis=2), field.max(axis=0).T
+        # Diagonal photos show how far the corners reach: each slice gets the
+        # roundest cross-section that still fills them.
+        diagonal = sorted({v.camera.yaw for v in views.values() if v.name in DIAGONAL_VIEWS})
+        rounded = _rounded(Fxy, Fzy, xs, zs, grid.h, exponent, thin, field if diagonal else None, diagonal)
         # Slices are rounded one by one; blend neighbors so they do not form terraces.
         for _ in range(smooth_slices):
             rounded[:, 1:-1, :] = 0.25 * rounded[:, :-2, :] + 0.5 * rounded[:, 1:-1, :] + 0.25 * rounded[:, 2:, :]
         field = np.minimum(field, rounded)
     elif mode != "box":
         raise ValueError(f"unknown mode {mode!r}")
-    if "top" in views:
-        top = views["top"]
-        xx, zz = np.meshgrid(xs, zs, indexing="ij")
-        Fxz = bilinear(top.mask, top.x0 + xx / top.scale - 0.5, top.y0 + zz / top.scale - 0.5)
-        field = np.minimum(field, Fxz[:, None, :])
     return Shape(grid=grid, field=field.astype(np.float32))
-
-
-def _hull(Fxy, Fzy):
-    """field[x, y, z] = min(Fxy[x, y], Fzy[z, y])."""
-    return np.minimum(Fxy[:, :, None], Fzy.T[None, :, :])
 
 
 def intervals(profile, coords, level=0.5):
@@ -162,8 +206,11 @@ def _pairs(ix, iz, thin):
     return rects
 
 
-def _rounded(Fxy, Fzy, xs, zs, h, p, thin=1.5):
-    """Union of superellipses inscribed in each rectangle of every horizontal slice."""
+def _rounded(Fxy, Fzy, xs, zs, h, p, thin=1.5, field=None, yaws=()):
+    """Union of superellipses inscribed in each rectangle of every horizontal
+    slice. With diagonal photos (yaws), a slice whose rounded shape would not
+    fill the hull's outline along those directions gets a squarer exponent,
+    or keeps the plain hull."""
     nx, ny = Fxy.shape
     nz = len(zs)
     out = np.zeros((nx, ny, nz), np.float32)
@@ -174,12 +221,41 @@ def _rounded(Fxy, Fzy, xs, zs, h, p, thin=1.5):
         iz = intervals(Fzy[:, j], zs)
         if not ix or not iz:
             continue
-        best = np.zeros((nx, nz), np.float32)
-        for cx, ax, cz, az in _pairs(ix, iz, thin):
-            ax, az = max(ax, 0.5 * h), max(az, 0.5 * h)
-            rho = ((np.abs(dx - cx) / ax) ** p + (np.abs(dz - cz) / az) ** p) ** (1.0 / p)
-            # Approximate signed distance (in cells) to the curve -> soft 0..1.
-            occ = np.clip(0.5 + (1.0 - rho) * min(ax, az) / h, 0.0, 1.0)
-            np.maximum(best, occ, out=best)
-        out[:, j, :] = best
+        rects = _pairs(ix, iz, thin)
+        if field is None:
+            out[:, j, :] = _superellipses(rects, dx, dz, h, p)
+            continue
+        hs = field[:, j, :]
+        target = [_profile(hs, dx, dz, yaw, h) for yaw in yaws]
+        for q in (p,) + tuple(e for e in EXPONENTS if e > p):
+            shape = np.minimum(_superellipses(rects, dx, dz, h, q), hs)
+            covers = [np.minimum(_profile(shape, dx, dz, yaw, h), t).sum() / max(t.sum(), 1e-6)
+                      for yaw, t in zip(yaws, target)]
+            if min(covers) >= COVER:
+                break
+        else:
+            shape = hs
+        out[:, j, :] = shape
     return out
+
+
+def _superellipses(rects, dx, dz, h, p):
+    best = np.zeros((dx.shape[0], dz.shape[1]), np.float32)
+    for cx, ax, cz, az in rects:
+        ax, az = max(ax, 0.5 * h), max(az, 0.5 * h)
+        rho = ((np.abs(dx - cx) / ax) ** p + (np.abs(dz - cz) / az) ** p) ** (1.0 / p)
+        # Approximate signed distance (in cells) to the curve -> soft 0..1.
+        occ = np.clip(0.5 + (1.0 - rho) * min(ax, az) / h, 0.0, 1.0)
+        np.maximum(best, occ, out=best)
+    return best
+
+
+def _profile(slice_, dx, dz, yaw, h):
+    """A slice seen from far away along a horizontal direction: the highest
+    occupancy over each strip (h wide) across the line of sight."""
+    a = np.radians(yaw)
+    u = dx * np.cos(a) + dz * np.sin(a)
+    idx = np.floor((u - u.min()) / h).astype(np.int64)
+    prof = np.zeros(idx.max() + 1)
+    np.maximum.at(prof, idx.ravel(), slice_.ravel())
+    return prof

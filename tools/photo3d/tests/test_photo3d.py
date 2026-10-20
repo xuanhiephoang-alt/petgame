@@ -7,12 +7,16 @@ import numpy as np
 import pytest
 
 from photo3d.__main__ import find_photos
+from photo3d.calibrate import fit
+from photo3d.cameras import Camera
 from photo3d.carve import carve, intervals
 from photo3d.export import png_bytes, write_glb
-from photo3d.images import align, exif_orientation, key_out
+from photo3d.images import align, exif_orientation, exif_tags, key_out, load_image
 from photo3d.mesh import edges_of, extract, surface_nets
 from photo3d.pipeline import build
+from photo3d.prior import choose_shape
 from photo3d.texture import texture
+from photo3d.views import camera_for
 
 SIDES = ("front", "right", "back", "left")
 
@@ -146,3 +150,98 @@ def test_full_pipeline_from_png_files(tmp_path):
     assert os.path.getsize(tmp_path / "out.glb") > 1000
     assert report["triangles"] <= 3000 * 1.1
     assert report["methods"]["front"] == "alpha"
+
+
+def test_cameras_project_like_the_named_photos():
+    p = np.array([[0.2, 0.75, -0.1]])  # a point on the object's left (+x), above the middle, toward the back
+    front = camera_for("front", scale=0.01, x0=50, y0=50).project(p)[0]
+    assert front == pytest.approx((70, 25))  # right of center and up in the front photo
+    right = camera_for("right", scale=0.01, x0=50, y0=50).project(p)[0]
+    assert right == pytest.approx((40, 25))  # the right photo has the front (+z) on its right
+    near, far = np.array([[0.1, 0.5, 0.3]]), np.array([[0.1, 0.5, -0.3]])
+    persp = Camera(yaw=0, focal=500.0, scale=0.004)  # 2 units away
+    assert persp.project(near)[0, 0] > persp.project(far)[0, 0]  # nearer parts look bigger
+
+
+def test_exif_focal_length_is_read(tmp_path):
+    from PIL import Image
+
+    exif = Image.Exif()
+    exif[0x8769] = {0xA405: 26}  # 35 mm equivalent, like a phone's main camera
+    path = tmp_path / "front.jpg"
+    Image.new("RGB", (400, 300)).save(path, exif=exif)
+    assert exif_tags(str(path))["focal35"] == 26  # the parser used inside Blender
+    _, _, focal = load_image(str(path))
+    assert focal == pytest.approx(26 * 500 / 43.27)  # pixels on the 500 px diagonal
+
+
+def test_find_photos_accepts_diagonal_names(tmp_path):
+    for name in ("front.png", "Trước phải.jpg", "sau_phai.png", "back-left.png", "TruocTrai.jpeg"):
+        (tmp_path / name).write_bytes(b"x")
+    assert set(find_photos(str(tmp_path))) == {"front", "front_right", "back_right", "back_left", "front_left"}
+
+
+def outline(width, size=200, height=160):
+    """Cut-out of an upright rectangle `width` wide (object height = 1 = `height` px)."""
+    rgb, mask = np.full((size, size, 3), 0.5, np.float32), np.zeros((size, size), np.float32)
+    half = width * height / 2
+    mask[20:20 + height, int(round(100 - half)):int(round(100 + half))] = 1
+    return rgb, mask, "alpha"
+
+
+def test_diagonal_photos_keep_box_corners_and_round_cylinders():
+    sides = ("front", "right", "back", "left")
+    diagonals = ("front_right", "back_right", "back_left", "front_left")
+    for diagonal_width, expected in ((np.sqrt(2) * 0.6, 0.6 ** 2), (0.6, np.pi * 0.3 ** 2)):  # box, cylinder
+        views, info = align({**{n: outline(0.6) for n in sides}, **{n: outline(diagonal_width) for n in diagonals}})
+        shape = carve(views, info["width"], 1.0, info["depth"], res=64, mode="round")
+        assert extract(shape, smooth=0).volume() == pytest.approx(expected, rel=0.06)
+
+
+def pattern(s, y, seed):
+    """A smooth random color pattern over surface coordinates (s, y)."""
+    rng = np.random.default_rng(seed)
+    out = np.zeros(s.shape + (3,))
+    for _ in range(4):
+        fs, fy, phase = rng.uniform(4, 12), rng.uniform(2, 8), rng.uniform(0, 2 * np.pi, 3)
+        out += np.cos((fs * s + fy * y)[..., None] + phase)
+    return 0.5 + 0.1 * out
+
+
+def textured_views(kind):
+    """Four side photos of a textured cylinder (r 0.4) or box (0.8 x 0.6), drawn analytically."""
+    views = {}
+    yy, xx = np.mgrid[0:200, 0:200] + 0.5
+    u, y = (xx - 100) / 160, (180 - yy) / 160
+    for i, name in enumerate(("front", "right", "back", "left")):
+        toward, right, _ = camera_for(name).basis()
+        if kind == "cylinder":
+            half = 0.4
+            depth = np.sqrt(np.clip(half ** 2 - u ** 2, 0, None))
+            px, pz = u * right[0] + depth * toward[0], u * right[2] + depth * toward[2]
+            rgb = pattern(0.4 * np.arctan2(px, pz), y, seed=1)  # wraps around the cylinder
+        else:
+            half = 0.4 if name in ("front", "back") else 0.3
+            rgb = pattern(u, y, seed=10 + i)  # one pattern per face
+        mask = ((np.abs(u) < half) & (y > 0) & (y < 1)).astype(np.float32)
+        views[name] = (rgb.astype(np.float32), mask, "alpha")
+    return align(views)
+
+
+def test_auto_shape_tells_a_box_from_a_cylinder():
+    for kind, expected in (("cylinder", "round"), ("box", "box")):
+        views, info = textured_views(kind)
+        mode, _ = choose_shape(views, (info["width"], info["depth"]))
+        assert mode == expected, kind
+
+
+def test_fit_finds_the_distance_of_close_up_photos():
+    # A ball (height 1) photographed level from 2 heights away with an 800 px lens:
+    # its outline is a circle of radius f * R / sqrt(d^2 - R^2).
+    radius = 800 * 0.5 / np.sqrt(2.0 ** 2 - 0.5 ** 2)
+    raw = {n: (*disk(size=600, radius=radius), "alpha") for n in ("front", "right", "back", "left")}
+    views, info = align(raw)
+    for v in views.values():
+        v.exif_focal = 800.0
+    fit(views, (info["width"], info["depth"]), elev=0.0, focal="exif", res=48, iterations=4)
+    assert np.median([v.camera.dist for v in views.values()]) == pytest.approx(2.0, abs=0.15)

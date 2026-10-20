@@ -2,9 +2,9 @@
 Runs photo3d on every test set in a folder and scores it against the
 ground truth (truth.obj written by render_views.py).
 
-    python tools/photo3d/samples/benchmark.py DATA_FOLDER [--top]
+    python tools/photo3d/samples/benchmark.py DATA_FOLDER [--top] [--diagonal] [--focal 0]
 
-Each subfolder holds front/right/back/left(/top).png and truth.obj.
+Each subfolder holds front/right/back/left(/top, diagonal).png and truth.obj.
 Chamfer is in % of the object's height (lower is better); F-score is the
 share of surface within 2% of the height (higher is better).
 """
@@ -22,17 +22,24 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("data")
     p.add_argument("--top", action="store_true", help="also use top.png")
-    p.add_argument("--shape", default="round")
+    p.add_argument("--shape", default="auto")
     p.add_argument("--thin", type=float, default=1.2)
+    p.add_argument("--diagonal", action="store_true", help="also use the diagonal photos")
+    p.add_argument("--focal", default="auto", help="auto (EXIF), 0 (far away) or 35 mm equivalent")
+    p.add_argument("--elevation", default=None, help="degrees, or auto")
     args = p.parse_args()
     names = ["front", "right", "back", "left"] + (["top"] if args.top else [])
+    names += ["front_right", "back_right", "back_left", "front_left"] if args.diagonal else []
+    focal = args.focal if args.focal == "auto" else float(args.focal)
+    elevation = args.elevation if args.elevation in (None, "auto") else float(args.elevation)
     rows = []
     for case in sorted(os.listdir(args.data)):
         d = os.path.join(args.data, case)
         if not os.path.exists(os.path.join(d, "truth.obj")):
             continue
         report, (mesh, *_rest) = build({n: os.path.join(d, f"{n}.png") for n in names}, os.path.join(d, "model.glb"),
-                                       mode=args.shape, thin=args.thin or None, log=lambda *a: None)
+                                       mode=args.shape, thin=args.thin or None, focal=focal, elevation=elevation,
+                                       log=lambda *a: None)
         m = compare((mesh.vertices, mesh.faces), read_obj(os.path.join(d, "truth.obj")))
         rows.append((case, m["chamfer"] * 100, m["fscore"], report["seconds"]))
         print(f"{case:18s} chamfer {m['chamfer'] * 100:5.2f}%   F-score {m['fscore']:.2f}   {report['seconds']:.1f} s")

@@ -1,27 +1,23 @@
 """
-Camera conventions. Output models use glTF axes: Y up, the object's front
-faces +Z, its left side is +X (seen from the front, +X is on the viewer's right).
+Photo names and directions. Output models use glTF axes: Y up, the object's
+front faces +Z, its left side is +X (seen from the front, +X is on the
+viewer's right).
 
-Each photo is an orthographic view: `toward` points from the object to the
-camera, `right` is the image's left-to-right axis and `down` its top-to-bottom
-axis, all as world directions.
+Side photos go around the object: front, right (the object's right flank),
+back, left, plus optional diagonal ones in between (front_right is taken
+from between the front and the right side, ...). The top photo looks
+straight down with the object's front at the bottom of the image.
 """
-import numpy as np
+from .cameras import Camera
 
-VIEW_NAMES = ("front", "right", "back", "left", "top")
 SIDE_VIEWS = ("front", "right", "back", "left")
+DIAGONAL_VIEWS = ("front_right", "back_right", "back_left", "front_left")
+VIEW_NAMES = SIDE_VIEWS + DIAGONAL_VIEWS + ("top",)
 
-AXES = {
-    #          toward camera     image right       image down
-    "front": ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
-    "right": ((-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, -1.0, 0.0)),
-    "back": ((0.0, 0.0, -1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
-    "left": ((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, -1.0, 0.0)),
-    "top": ((0.0, 1.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
-}
+YAW = {"front": 0.0, "front_right": 45.0, "right": 90.0, "back_right": 135.0,
+       "back": 180.0, "back_left": 225.0, "left": 270.0, "front_left": 315.0, "top": 0.0}
 
 
-def axes(name):
-    """(toward, right, down) unit vectors of a view as numpy arrays."""
-    t, r, d = AXES[name]
-    return np.array(t), np.array(r), np.array(d)
+def camera_for(name, **kw):
+    """A camera looking from the named direction (level, orthographic by default)."""
+    return Camera(yaw=YAW[name], elev=90.0 if name == "top" else 0.0, **kw)

@@ -13,7 +13,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from .images import bilinear
-from .views import axes
 
 try:
     from scipy import ndimage  # type: ignore
@@ -32,39 +31,44 @@ class TexturedMesh:
     view_names: list
 
 
-def depth_maps(shape, names):
-    """For each view, the depth of the nearest surface along its viewing
-    direction, on the grid columns facing that view (from the occupancy field)."""
+def surface_points(shape):
+    """Centers of the occupied cells that touch an empty one."""
     occ = shape.field > 0.5
-    g = shape.grid
-    out = {}
-    for name in names:
-        t, _, _ = axes(name)
-        a = int(np.argmax(np.abs(t)))  # axis-aligned views only
-        sign = np.sign(t[a])
-        coords = g.axis(a)
-        # The surface nearest the camera is the extreme occupied coordinate along a.
-        idx = np.arange(occ.shape[a]).reshape([-1 if i == a else 1 for i in range(3)])
-        if sign > 0:
-            best = np.where(occ, idx, -1).max(axis=a)
-            depth = np.where(best >= 0, coords[np.clip(best, 0, None)] * sign, -np.inf)
-        else:
-            best = np.where(occ, idx, occ.shape[a]).min(axis=a)
-            depth = np.where(best < occ.shape[a], coords[np.clip(best, None, occ.shape[a] - 1)] * sign, -np.inf)
-        out[name] = (a, depth)
-    return out
+    pad = np.pad(occ, 1)
+    inner = occ.copy()
+    for a in range(3):
+        for d in (-1, 1):
+            inner &= np.roll(pad, d, axis=a)[1:-1, 1:-1, 1:-1]
+    return shape.grid.origin + np.argwhere(occ & ~inner) * shape.grid.h
 
 
-def visible(points, name, maps, shape, tol_cells=2.5):
-    """Whether each point is the nearest surface toward the given view."""
-    a, depth = maps[name]
-    g = shape.grid
-    t, _, _ = axes(name)
-    ij = np.rint((points - g.origin) / g.h).astype(np.int64)
-    other = [i for i in range(3) if i != a]
-    i0 = np.clip(ij[:, other[0]], 0, depth.shape[0] - 1)
-    i1 = np.clip(ij[:, other[1]], 0, depth.shape[1] - 1)
-    return points @ t >= depth[i0, i1] - tol_cells * g.h
+def depth_buffer(view, points, h):
+    """Nearest-surface depth seen from a photo, on a coarse pixel grid about
+    one grid cell wide, from the hull's surface cells (splatted, then
+    gaps closed with a 3x3 minimum). Returns (buffer, pixel size)."""
+    px = view.project(points)
+    depth = view.camera.depth(points)
+    step = max(1.0, 0.75 * h / view.scale)
+    hgt, wid = view.mask.shape
+    buf = np.full((int(hgt / step) + 2, int(wid / step) + 2), np.inf)
+    ix = np.clip((px[:, 0] / step).astype(np.int64), 0, buf.shape[1] - 1)
+    iy = np.clip((px[:, 1] / step).astype(np.int64), 0, buf.shape[0] - 1)
+    np.minimum.at(buf, (iy, ix), depth)
+    pad = np.pad(buf, 1, constant_values=np.inf)
+    out = buf.copy()
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            np.minimum(out, pad[1 + dy:1 + dy + buf.shape[0], 1 + dx:1 + dx + buf.shape[1]], out=out)
+    return out, step
+
+
+def visible(points, view, buffer, tol):
+    """Whether each point is (within tol) the nearest surface toward the photo."""
+    buf, step = buffer
+    px = view.project(points)
+    ix = np.clip((px[:, 0] / step).astype(np.int64), 0, buf.shape[1] - 1)
+    iy = np.clip((px[:, 1] / step).astype(np.int64), 0, buf.shape[0] - 1)
+    return view.camera.depth(points) <= buf[iy, ix] + tol
 
 
 def face_adjacency(faces):
@@ -107,15 +111,15 @@ def rim_weight(view, points, height=1.0, band=0.05):
     return np.clip(d / (band * height), 0.0, 1.0)
 
 
-def observe(mesh, views, shape):
+def observe(mesh, views, shape, tol_cells=2.5):
     """How well each photo sees each face: (centers, facing, visible, rim) per face x photo."""
-    names = list(views)
     centers = mesh.vertices[mesh.faces].mean(axis=1)
     normals = mesh.face_normals()
-    maps = depth_maps(shape, names)
-    facing = np.stack([normals @ axes(n)[0] for n in names], 1)
-    vis = np.stack([visible(centers, n, maps, shape) for n in names], 1)
-    rim = np.stack([rim_weight(views[n], centers) for n in names], 1)
+    surface = surface_points(shape)
+    h = shape.grid.h
+    facing = np.stack([np.einsum("ij,ij->i", normals, v.camera.toward(centers)) for v in views.values()], 1)
+    vis = np.stack([visible(centers, v, depth_buffer(v, surface, h), tol_cells * h) for v in views.values()], 1)
+    rim = np.stack([rim_weight(v, centers) for v in views.values()], 1)
     return centers, facing, vis, rim
 
 
