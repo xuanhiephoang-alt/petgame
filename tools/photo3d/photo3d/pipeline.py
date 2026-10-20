@@ -13,12 +13,14 @@ from .views import DIAGONAL_VIEWS
 
 
 def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, faces=20000,
-          cutout="auto", texture_px=1024, smooth=8, thin=1.2, elevation=None, focal="auto", log=print):
+          cutout="auto", texture_px=1024, smooth=8, thin=1.2, elevation=None, focal="auto", level=True,
+          log=print):
     """photos: {view name: path} with front/right/back/left (top and the
     diagonal ones optional). Writes `out` (.glb or .obj). Returns a report dict.
     mode: "round", "box", or "auto" (round with diagonal photos, which pick
     the roundness slice by slice; otherwise decided from the photos, see prior.py).
-    elevation/focal: camera height and focal length (see calibrate.calibrate)."""
+    elevation/focal: camera height and focal length (see calibrate.calibrate).
+    level: even out colors where neighboring photos meet (see texture.py)."""
     t0 = time.time()
     report = {}
     views, info = load_views(photos, method=cutout, texture_px=texture_px)
@@ -46,15 +48,14 @@ def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, face
         else:
             mode, why = choose_shape(views, (width, depth))
             report["shape"] = why
-            ev = why["round_evidence"]
-            log(f"shape: {mode} (auto: roundness clues {'-' if ev is None else f'{ev:.2f}'}, "
-                f"straight sides {why['straight']:.0%})")
+            color = "-" if why["color"] is None else f"{why['color']:.2f}"
+            log(f"shape: {mode} (auto: roundness clue {color}, straight sides {why['straight']:.0%})")
     report["mode"] = mode
     shape = carve(views, width, 1.0, depth, res=res, mode=mode, exponent=exponent, symmetric=symmetric, thin=thin)
     mesh = extract(shape, smooth=smooth, target_faces=faces)
     if faces and len(mesh.faces) > faces * 1.5 and fast_simplification is None:
         log("note: pip install fast-simplification to reduce the triangle count")
-    tm = texture(mesh, views, shape)
+    tm = texture(mesh, views, shape, level=level)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     (write_obj if out.lower().endswith(".obj") else write_glb)(out, tm)
     report.update(triangles=int(len(tm.faces)), vertices=int(len(tm.vertices)),

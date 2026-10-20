@@ -12,7 +12,9 @@ each photo) and truth.obj: the model normalized the way the tool normalizes
 its output (height 1, standing on y = 0, centered, facing +Z, Y up).
 
 Phone-like photos: --perspective 2.5 (camera 2.5 object sizes away) and
---elevation 20 (camera raised 20 degrees). Diagonal photos: --views
+--elevation 20 (camera raised 20 degrees). An object turned on a table in
+front of a fixed lamp: --turntable (the light turns with the camera), and
+--jitter 1 varies exposure and white balance per photo (seeded). Diagonal photos: --views
 front_right,back_right,back_left,front_left. Previews from a raised
 three-quarter angle: --views preview_front_right,preview_back_left.
 """
@@ -20,6 +22,7 @@ import argparse
 import json
 import math
 import os
+import random
 import sys
 
 import bpy
@@ -47,6 +50,8 @@ def parse():
     p.add_argument("--background", default="", help="hex color such as #e8e4dc for an opaque backdrop")
     p.add_argument("--perspective", type=float, default=0, help="camera distance in object sizes (0 = orthographic)")
     p.add_argument("--elevation", type=float, default=0, help="raise the side cameras by this many degrees")
+    p.add_argument("--turntable", action="store_true", help="the key light stays fixed relative to the camera")
+    p.add_argument("--jitter", type=int, default=0, help="seed for per-photo exposure/white balance changes (0 = off)")
     p.add_argument("--samples", type=int, default=24)
     p.add_argument("--prefix", default="", help="prefix for the output file names")
     p.add_argument("--no-truth", action="store_true", help="do not write truth.obj")
@@ -109,6 +114,7 @@ def main():
     sun.data.angle = 0.6
     sun.rotation_euler = (math.radians(45), 0, math.radians(25))
     scene.collection.objects.link(sun)
+    rng = random.Random(args.jitter)
     if args.background:
         # A backdrop color the tool must cut away, like a wall or a sheet of paper.
         h = args.background.strip("#")
@@ -144,6 +150,11 @@ def main():
             cam.rotation_euler = (0, 0, 0)  # looks down -Z with +Y (the model's back) at the top of the image
         else:
             cam.rotation_euler = (-d).to_track_quat("-Z", "Y").to_euler()
+        if args.turntable:
+            sun.rotation_euler = (math.radians(45), 0, math.radians(25 - yaw))
+        if args.jitter:
+            scene.view_settings.exposure = rng.uniform(-0.35, 0.35)
+            sun.data.color = (1 + rng.uniform(-0.08, 0.08), 1.0, 1 + rng.uniform(-0.08, 0.08))
         scene.render.filepath = os.path.join(args.out, f"{args.prefix}{name}.png")
         bpy.ops.render.render(write_still=True)
         cameras[name] = {"yaw": yaw, "elevation": elevation, "distance": dist / size.z, "focal_px": focal,

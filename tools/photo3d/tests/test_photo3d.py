@@ -15,7 +15,7 @@ from photo3d.images import align, exif_orientation, exif_tags, key_out, load_ima
 from photo3d.mesh import edges_of, extract, surface_nets
 from photo3d.pipeline import build
 from photo3d.prior import choose_shape
-from photo3d.texture import texture
+from photo3d.texture import face_adjacency, texture
 from photo3d.views import camera_for
 
 SIDES = ("front", "right", "back", "left")
@@ -77,7 +77,7 @@ def test_each_side_gets_the_color_of_its_photo():
     views, info = align({n: (*square(color=c), "alpha") for n, c in colors.items()})
     shape = carve(views, info["width"], info["height"], info["depth"], res=48, mode="box")
     mesh = extract(shape, smooth=2)
-    tm = texture(mesh, views, shape, balance=False)
+    tm = texture(mesh, views, shape, balance=False, level=False)
     n = tm.vertices[tm.faces].mean(1)  # face centers
     normals = np.cross(tm.vertices[tm.faces[:, 1]] - tm.vertices[tm.faces[:, 0]],
                        tm.vertices[tm.faces[:, 2]] - tm.vertices[tm.faces[:, 0]])
@@ -245,3 +245,21 @@ def test_fit_finds_the_distance_of_close_up_photos():
         v.exif_focal = 800.0
     fit(views, (info["width"], info["depth"]), elev=0.0, focal="exif", res=48, iterations=4)
     assert np.median([v.camera.dist for v in views.values()]) == pytest.approx(2.0, abs=0.15)
+
+
+def test_seam_leveling_evens_out_photos_of_different_brightness():
+    raw = {n: (*disk(color=(g, g, g)), "alpha") for n, g in zip(SIDES, (0.4, 0.7, 0.5, 0.8))}
+    views, info = align(raw)
+    shape = carve(views, info["width"], 1.0, info["depth"], res=48)
+    mesh = extract(shape)
+    pairs = face_adjacency(mesh.faces)
+    jumps = []
+    for level in (False, True):
+        tm = texture(mesh, views, shape, balance=False, level=level)
+        uv = tm.uvs[tm.faces].mean(1)
+        h, w = tm.image.shape[:2]
+        color = tm.image[(uv[:, 1] * h).astype(int), (uv[:, 0] * w).astype(int), 0] / 255
+        seam = tm.face_views[pairs[:, 0]] != tm.face_views[pairs[:, 1]]
+        jumps.append(np.abs(color[pairs[seam, 0]] - color[pairs[seam, 1]]).mean())
+    assert jumps[0] > 0.1
+    assert jumps[1] < 0.25 * jumps[0]
