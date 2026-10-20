@@ -18,6 +18,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - `npm run play`: build rồi chạy server phục vụ luôn game (một cổng), in địa chỉ LAN cho điện thoại; xem `docs/choi-tren-iphone.md`.
 - Deploy: một container (hoặc Render qua `render.yaml`; `Dockerfile`, `fly.toml`) chạy server và phục vụ luôn client đã build; xem `docs/deploy.md`.
 - `npm run shots -- --name <tên>`: chụp bộ ảnh chuẩn (mọi vùng, ngày/đêm, cận cảnh thú, điện thoại) vào `shots/<tên>/` kèm số draw call/tam giác, để so sánh đồ họa trước/sau
+- `npm run photo3d -- <thư mục ảnh>`: công cụ tạo model 3D từ 4 ảnh chụp (trước/phải/sau/trái) trong `tools/photo3d` (Python + numpy, hoặc chạy bằng Python của Blender); test: `cd tools/photo3d && python -m pytest`; xem `tools/photo3d/README.md` và skill `.claude/skills/photo-to-3d`
 - `npm run assets:kaykit`: nhập lại asset CC0 KayKit (cây cỏ, 5 nhân vật, animation) theo `assets/kaykit/manifest.ts`
 
 ## Quy tắc chung
