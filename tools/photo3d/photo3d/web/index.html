@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>photo3d: tạo model 3D từ ảnh</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l11 6v14l-11 6-11-6V9z' fill='%232e7d32'/%3E%3Cpath d='M16 3l11 6-11 6-11-6z' fill='%2366bb6a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">
+    { "imports": { "three": "THREE_BASE/build/three.module.js", "three/addons/": "THREE_BASE/examples/jsm/" } }
+  </script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <h1>photo3d</h1>
+    <p>Tạo model 3D có màu thật từ ảnh chụp quanh một vật</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel controls" aria-label="Ảnh và tuỳ chọn">
+      <h2><span class="num">1</span>Ảnh của vật</h2>
+      <p class="hint">Bắt buộc 4 phía <b>trước, phải, sau, trái</b>. Thêm 4 ảnh chéo và ảnh từ trên để model chính xác hơn.
+        Kéo cả thư mục ảnh vào: ảnh tên <code>truoc</code>, <code>phai</code>... (hoặc <code>front</code>, <code>right</code>...) tự vào đúng ô.
+        Kéo ảnh từ ô này sang ô khác để đổi chỗ.</p>
+      <details class="tips">
+        <summary>Mẹo chụp ảnh</summary>
+        <ul>
+          <li>Đặt vật trên <b>nền trơn một màu khác màu vật</b> (tờ giấy, tấm vải, bức tường).</li>
+          <li>Cầm máy <b>ngang tầm giữa vật</b>; tốt nhất đứng xa 1–2 m và zoom 2x.</li>
+          <li>Giữ <b>cùng khoảng cách, cùng zoom</b> cho mọi ảnh; xoay vật đúng 90° mỗi lần (45° nếu chụp cả ảnh chéo).</li>
+          <li>Thấy <b>trọn vật</b> trong khung, không cắt mất chân, tai, đuôi.</li>
+          <li>Ánh sáng dịu, đều; tránh đèn flash và bóng đổ gắt.</li>
+          <li>Ảnh <b>phải</b> là sườn phải của vật: đầu vật quay về phía tay phải của bạn.</li>
+          <li>Thú muốn biết đi: chụp sao cho thấy <b>khe hở giữa các chân</b>.</li>
+        </ul>
+      </details>
+      <div class="slots" id="slots"></div>
+      <p class="note" id="slotNote" hidden></p>
+      <div class="row">
+        <label class="button ghost">Chọn nhiều ảnh<input type="file" id="many" accept="image/*,.heic,.heif" multiple class="vh"></label>
+        <button type="button" class="ghost" id="clear">Xoá hết ảnh</button>
+      </div>
+
+      <h2><span class="num">2</span>Dùng để làm gì?</h2>
+      <div class="presets" role="radiogroup" aria-label="Mục đích">
+        <label class="preset"><input type="radio" name="preset" value="pal" checked>
+          <span><b>Thú trong game</b><small>có xương, biết đi, tấn công; file nhẹ</small></span></label>
+        <label class="preset"><input type="radio" name="preset" value="prop">
+          <span><b>Đồ vật trong game</b><small>không xương; file nhẹ</small></span></label>
+        <label class="preset"><input type="radio" name="preset" value="hq">
+          <span><b>Chất lượng cao</b><small>nhiều chi tiết, cho Blender, in 3D</small></span></label>
+      </div>
+      <div class="fields">
+        <label class="field">Kiểu khối
+          <select id="shape">
+            <option value="auto">Tự chọn</option>
+            <option value="round">Tròn (thú, đồ chơi)</option>
+            <option value="box">Vuông (hộp, nhà, tủ)</option>
+          </select></label>
+        <label class="field">Tên file
+          <input id="name" value="model" maxlength="40" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="symmetric"> Vật đối xứng trái/phải (thú, đồ chơi, xe): bớt nhiễu</label>
+
+      <details class="advanced">
+        <summary>Nâng cao</summary>
+        <label class="check"><input type="checkbox" id="rig"> Gắn xương và 4 động tác của thú trong game</label>
+        <label class="check"><input type="checkbox" id="jpeg"> Texture JPEG (file nhẹ hơn khoảng 4 lần)</label>
+        <label class="check"><input type="checkbox" id="level" checked> Hoà màu ở đường nối giữa các ảnh</label>
+        <div class="fields">
+          <label class="field">Số tam giác (0 = giữ hết)
+            <input id="faces" type="number" min="0" max="200000" step="500" value="4000"></label>
+          <label class="field">Độ nét texture
+            <select id="texture">
+              <option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option>
+            </select></label>
+          <label class="field">Máy ảnh cao hơn vật
+            <select id="elevation">
+              <option value="">Tự đoán (ảnh có EXIF)</option>
+              <option value="auto">Luôn tự đoán</option>
+              <option value="0">0° (ngang tầm)</option>
+              <option value="10">10°</option><option value="20">20°</option><option value="30">30°</option>
+            </select></label>
+          <label class="field">Tiêu cự 35 mm
+            <input id="focal" type="number" min="0" max="400" step="1" placeholder="đọc từ EXIF"></label>
+          <label class="field">Tách nền
+            <select id="cutout">
+              <option value="auto">Tự chọn</option>
+              <option value="key">Nền trơn một màu</option>
+              <option value="rembg">AI (cần rembg)</option>
+              <option value="alpha">PNG trong suốt</option>
+            </select></label>
+          <label class="field">Độ chi tiết khối
+            <select id="res">
+              <option value="96">96 (nhanh)</option><option value="128" selected>128</option>
+              <option value="160">160</option><option value="192">192 (chậm)</option>
+            </select></label>
+        </div>
+      </details>
+
+      <button type="button" class="primary big" id="build">Dựng model 3D</button>
+      <p class="error" id="error" role="alert" hidden></p>
+    </section>
+
+    <section class="panel result" aria-label="Kết quả">
+      <div class="viewer" id="viewer">
+        <div class="overlay" id="empty">
+          <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6l22 12v28L32 58 10 46V18z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><path d="M10 18l22 12 22-12M32 30v28" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>
+          <p>Model 3D sẽ hiện ở đây</p>
+        </div>
+        <div class="overlay" id="progress" hidden>
+          <div class="bar"><i id="bar"></i></div>
+          <p id="step">Đang gửi ảnh...</p>
+        </div>
+        <div class="viewer-tools" id="tools" hidden>
+          <button type="button" class="chip on" id="spin" aria-pressed="true">Tự xoay</button>
+          <button type="button" class="chip" id="wire" aria-pressed="false">Lưới</button>
+        </div>
+        <div class="clips" id="clips" hidden></div>
+      </div>
+
+      <div id="done" hidden>
+        <p class="stats" id="stats"></p>
+        <ul class="facts" id="facts"></ul>
+        <ul class="warnings" id="warnings"></ul>
+        <div class="actions">
+          <a class="button primary" id="download" href="#" download>Tải model (.glb)</a>
+          <div class="install" id="install" hidden>
+            <label class="field">Thay model của loài
+              <select id="species"></select></label>
+            <button type="button" id="installBtn">Đưa vào game</button>
+          </div>
+        </div>
+        <p class="note" id="installNote" hidden></p>
+        <h3>Ảnh sau khi tách nền</h3>
+        <div class="cutouts" id="cutouts"></div>
+        <details class="log"><summary>Nhật ký</summary><pre id="log"></pre></details>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -14,6 +14,7 @@ description: Turn photos of an object's sides (front/right/back/left, optional d
 - Mirror-symmetric objects (animals, figures, vehicles): add `--symmetric`. Round vs boxy is decided automatically (`--shape auto`; the log says which and why); override with `--shape box` or `--shape round` if it is wrong.
 
 ## 2. Run
+- For people who prefer clicking: `npm run photo3d:web` opens a web page (http://localhost:8765, also reachable from a phone on the same Wi-Fi) to drop photos into, build, preview in 3D with the animations, download, or install as a pal. You run the command line yourself:
 - `npm run photo3d -- <folder> --faces 8000` (uses Python with numpy+Pillow, else Blender), or
   `blender --background --python tools/photo3d/blender_photo3d.py -- <folder>`.
 - Read the log:

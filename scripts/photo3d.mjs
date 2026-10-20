@@ -1,6 +1,7 @@
 // Runs the photo-to-3D tool (tools/photo3d) with whatever is installed:
 // a Python that has numpy and Pillow, otherwise Blender's own Python.
 // Usage: npm run photo3d -- PHOTOS_FOLDER [options]   (see tools/photo3d/README.md)
+//        npm run photo3d:web                          (the web page: drop photos, preview, download)
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

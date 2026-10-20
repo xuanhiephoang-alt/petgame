@@ -10,6 +10,8 @@ import numpy as np
 from .cameras import Camera
 from .views import DIAGONAL_VIEWS, SIDE_VIEWS, camera_for
 
+IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif")
+
 try:  # optional, much better cut-outs on busy backgrounds
     import rembg  # type: ignore
 except Exception:  # pragma: no cover - depends on the machine

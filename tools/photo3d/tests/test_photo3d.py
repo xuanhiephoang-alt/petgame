@@ -19,6 +19,7 @@ from photo3d.rig import build as build_rig
 from photo3d.rig import quaternion, skin
 from photo3d.texture import TexturedMesh, face_adjacency, texture
 from photo3d.views import camera_for
+from photo3d.web import App, file_name, options_from, parse_form, start
 
 SIDES = ("front", "right", "back", "left")
 
@@ -319,33 +320,149 @@ def test_rig_swings_legs_and_sideways_arms_forward():
         assert abs(moved[2]) > 0.8 * np.linalg.norm(moved) > 0.1 * np.linalg.norm(reach), bone  # forward/back
 
 
-def test_rigged_glb_has_skin_and_looping_clips(tmp_path):
-    shape = creature("animal")
-    mesh = extract(shape, smooth=2)
-    tm = TexturedMesh(mesh.vertices, mesh.vertex_normals(), np.zeros((len(mesh.vertices), 2)), mesh.faces,
-                      np.full((4, 4, 3), 128, np.uint8), np.zeros(len(mesh.faces), int), ["front"])
-    rig = build_rig(shape)
-    path = tmp_path / "pal.glb"
-    write_glb(str(path), tm, rig=rig, jpeg=True)
+SIZES = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
+WIDTHS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
+DTYPES = {5121: np.uint8, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
+
+
+def read_glb(path):
+    """(glTF JSON, accessor reader) of a .glb; every accessor must fit in its buffer view."""
     data = path.read_bytes()
     js_len = struct.unpack("<I", data[12:16])[0]
     gltf = json.loads(data[20:20 + js_len])
     binary = data[20 + js_len + 8:]
 
-    def read(i, dtype=np.float32):
+    def read(i):
         acc = gltf["accessors"][i]
         view = gltf["bufferViews"][acc["bufferView"]]
-        width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4, "MAT4": 16}[acc["type"]]
-        return np.frombuffer(binary, dtype, acc["count"] * width, view.get("byteOffset", 0)).reshape(-1, width)
+        width, size = WIDTHS[acc["type"]], SIZES[acc["componentType"]]
+        assert acc["count"] * width * size <= view["byteLength"], acc  # what a viewer would read
+        assert view.get("byteOffset", 0) % size == 0
+        return np.frombuffer(binary, DTYPES[acc["componentType"]], acc["count"] * width,
+                             view.get("byteOffset", 0)).reshape(-1, width)
 
+    for i in range(len(gltf["accessors"])):
+        read(i)
+    return gltf, read
+
+
+def flat_texture(mesh):
+    return TexturedMesh(mesh.vertices, mesh.vertex_normals(), np.zeros((len(mesh.vertices), 2)), mesh.faces,
+                        np.full((4, 4, 3), 128, np.uint8), np.zeros(len(mesh.faces), int), ["front"])
+
+
+def test_rigged_glb_has_skin_and_looping_clips(tmp_path):
+    shape = creature("animal")
+    rig = build_rig(shape)
+    path = tmp_path / "pal.glb"
+    write_glb(str(path), flat_texture(extract(shape, smooth=2)), rig=rig, jpeg=True)
+    gltf, read = read_glb(path)
     skin_ = gltf["skins"][0]
     assert [gltf["nodes"][j]["name"] for j in skin_["joints"]] == rig.names
     attributes = gltf["meshes"][0]["primitives"][0]["attributes"]
     assert np.allclose(read(attributes["WEIGHTS_0"]).sum(1), 1, atol=1e-4)
-    assert read(attributes["JOINTS_0"], np.uint16).max() < len(rig.names)
+    assert read(attributes["JOINTS_0"]).max() < len(rig.names)
     assert sorted(a["name"] for a in gltf["animations"]) == ["attack", "hurt", "idle", "walk"]
     assert gltf["images"][0]["mimeType"] == "image/jpeg"
     walk = next(a for a in gltf["animations"] if a["name"] == "walk")
     for sampler in walk["samplers"]:
         values = read(sampler["output"])
         assert np.allclose(values[0], values[-1], atol=1e-5)  # loops without a jump
+
+
+def test_rig_with_few_bones_still_writes_four_joints_per_vertex(tmp_path):
+    grid = make_grid(1.0, 1.0, 1.0, res=48)
+    X, Y, Z = np.meshgrid(*(grid.axis(a) for a in range(3)), indexing="ij")
+    snowman = (X ** 2 + (Y - 0.32) ** 2 + Z ** 2 < 0.3 ** 2) | (X ** 2 + (Y - 0.78) ** 2 + Z ** 2 < 0.2 ** 2)
+    shape = Shape(grid, snowman.astype(np.float32))
+    rig = build_rig(shape)
+    assert rig.kind == "blob" and len(rig.names) < 4  # root, body, head
+    path = tmp_path / "blob.glb"
+    write_glb(str(path), flat_texture(extract(shape, smooth=2)), rig=rig)
+    gltf, read = read_glb(path)  # checks that JOINTS_0/WEIGHTS_0 really hold 4 values per vertex
+    attributes = gltf["meshes"][0]["primitives"][0]["attributes"]
+    assert read(attributes["JOINTS_0"]).max() < len(rig.names)
+    assert np.allclose(read(attributes["WEIGHTS_0"]).sum(1), 1, atol=1e-4)
+
+
+def multipart(fields, files):
+    """A multipart/form-data body like a browser's FormData: (body, content type)."""
+    boundary = "----photo3dTestBoundary7MA4YWxk"
+    body = b""
+    for name, value in fields.items():
+        body += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+    for name, (filename, data) in files.items():
+        body += (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                 "Content-Type: image/png\r\n\r\n").encode() + data + b"\r\n"
+    return body + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
+
+
+def test_web_form_keeps_photos_byte_for_byte():
+    data = bytes(range(256)) * 4 + b"\r\n--not-the-boundary\r\n\r\n"
+    body, kind = multipart({"name": "Mèo con", "options": "{}"}, {"front": ("Trước.png", data)})
+    fields = parse_form(kind, body)
+    assert fields["front"] == ("Trước.png", data)
+    assert fields["name"] == (None, "Mèo con".encode())
+    assert file_name("Mèo con đỏ") == "Meo_con_do"
+
+
+def test_web_options_are_checked():
+    o = options_from('{"rig": true, "faces": 999999, "shape": "cube", "elevation": "20", "focal": "", "texture": "x"}')
+    assert o["rig"] and o["faces"] == 200000 and o["mode"] == "auto" and o["elevation"] == 20.0
+    assert o["focal"] == "auto" and o["texture_px"] == 1024 and o["level"]
+    assert options_from("not json")["mode"] == "auto"
+    assert options_from('{"elevation": ""}')["elevation"] is None
+    assert options_from('{"elevation": "auto"}')["elevation"] == "auto"
+    assert options_from('{"elevation": "0", "faces": 0}')["elevation"] == 0.0
+    assert options_from('{"faces": 0}')["faces"] is None  # 0 keeps every triangle, as on the command line
+
+
+def test_web_page_builds_shows_and_installs_a_model(tmp_path):
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    models = tmp_path / "models"
+    models.mkdir()
+    species = tmp_path / "pals.json"
+    species.write_text(json.dumps([{"id": "leafkit", "name": "Leafkit"}, {"id": "../evil", "name": "x"}]))
+    app = App(root=str(tmp_path / "jobs"), models=str(models), species=str(species))
+    server = start(app, port=0, host="127.0.0.1")
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def post(path, body, kind):
+        return urlopen(Request(base + path, data=body, headers={"Content-Type": kind}))
+
+    try:
+        page = urlopen(base + "/").read().decode()
+        assert "Dựng model 3D" in page and "THREE_BASE" not in page
+        assert json.load(urlopen(base + "/api/info"))["species"] == [{"id": "leafkit", "name": "Leafkit"}]
+        with pytest.raises(HTTPError) as err:
+            urlopen(base + "/vendor/three/../../../package.json")
+        assert err.value.code == 404
+        rgb, mask = disk()
+        photo = png_bytes((np.dstack([rgb, mask]) * 255).astype(np.uint8))
+        with pytest.raises(HTTPError) as err:  # one photo is not enough
+            post("/api/jobs", *multipart({}, {"front": ("a.png", photo)}))
+        assert err.value.code == 400 and "phải" in json.load(err.value)["error"]
+
+        options = json.dumps({"rig": True, "res": 48, "faces": 1500})
+        body, kind = multipart({"options": options, "name": "quả bóng"}, {v: (f"{v}.png", photo) for v in SIDES})
+        job = json.load(post("/api/jobs", body, kind))["id"]
+        assert json.load(urlopen(f"{base}/api/jobs/{job}"))["state"] == "waiting"
+        assert app.run_next(timeout=5).id == job  # models are built on the calling thread
+        status = json.load(urlopen(f"{base}/api/jobs/{job}"))
+        assert status["state"] == "done", status["error"]
+        assert status["report"]["rig"]["kind"] == "blob" and status["cutouts"] == sorted(SIDES)
+        glb = urlopen(f"{base}/api/jobs/{job}/model.glb?download=1")
+        assert glb.headers["Content-Disposition"] == 'attachment; filename="qua_bong.glb"'
+        assert glb.read()[:4] == b"glTF"
+        assert urlopen(f"{base}/api/jobs/{job}/cutout/front.png").read()[:8] == b"\x89PNG\r\n\x1a\n"
+
+        with pytest.raises(HTTPError) as err:  # only the game's own species ids
+            post(f"/api/jobs/{job}/install", json.dumps({"species": "../evil"}).encode(), "application/json")
+        assert err.value.code == 400
+        out = json.load(post(f"/api/jobs/{job}/install", json.dumps({"species": "leafkit"}).encode(), "application/json"))
+        assert out["species"] == "leafkit" and (models / "pal-leafkit.glb").read_bytes()[:4] == b"glTF"
+    finally:
+        server.shutdown()
+        app.close()

@@ -15,5 +15,8 @@ photo3d = "photo3d.__main__:main"
 [tool.setuptools]
 packages = ["photo3d"]
 
+[tool.setuptools.package-data]
+photo3d = ["web/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

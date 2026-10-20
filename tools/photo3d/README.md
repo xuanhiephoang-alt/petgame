@@ -38,6 +38,21 @@ D:\anh\meo\  truoc.jpg  phai.jpg  sau.jpg  trai.jpg                       (bắt
 
 ## 2. Chạy
 
+**Cách dễ nhất: trang web**
+```powershell
+npm.cmd run photo3d:web
+```
+Trình duyệt tự mở http://localhost:8765. Trên trang:
+1. Kéo thả ảnh vào 9 ô, hoặc kéo cả thư mục ảnh vào: ảnh tên `truoc`, `phai`... tự vào đúng ô. Kéo ảnh từ ô này sang ô khác để đổi chỗ.
+2. Chọn dùng để làm gì: **Thú trong game** (có xương, file nhẹ), **Đồ vật trong game** hoặc **Chất lượng cao**.
+3. Bấm **Dựng model 3D**: thanh tiến trình cho biết đang làm bước nào.
+4. Xoay model bằng chuột hoặc ngón tay. Bấm **Đứng, Đi, Tấn công, Bị đánh** để xem động tác, **Lưới** để xem khung tam giác.
+5. Bấm **Tải model (.glb)**, hoặc **Đưa vào game** để thay model của một loài thú (xem mục 4).
+
+Bên dưới model có ảnh sau khi tách nền, để kiểm tra nền đã được bỏ sạch chưa, và các cảnh báo (ảnh đặt nhầm ô, vật chạm mép ảnh...).
+
+**Chụp bằng điện thoại, gửi thẳng lên trang:** cho máy tính và điện thoại vào cùng mạng Wi-Fi. Mở trên điện thoại địa chỉ được in ra ở dòng "Mở trên điện thoại" (dạng `http://192.168.1.5:8765`), chạm vào từng ô để chụp. Lần đầu Windows hỏi tường lửa thì cho phép mạng riêng (Private). Mọi máy cùng Wi-Fi đều mở được trang này khi nó đang chạy; tắt bằng Ctrl+C. Đổi cổng: `npm.cmd run photo3d:web -- --port 9000`.
+
 **Cách 1: chỉ cần Blender (không cài thêm gì)**
 ```powershell
 blender --background --python tools\photo3d\blender_photo3d.py -- D:\anh\meo
@@ -97,6 +112,7 @@ python -m photo3d D:\anh\meo --rig --faces 4000 --texture 512 --jpeg -o packages
 - Model cao 1 đơn vị, cùng cỡ với thú trong game (0,7–1,1). Mặt trước của vật (ảnh `truoc`) quay về hướng thú nhìn.
 - Dung lượng: với `--faces 4000 --texture 512 --jpeg` mỗi file khoảng 0,3 MB (thú làm bằng Blender: 0,13–0,17 MB). Để mặc định (20000 tam giác, texture PNG lớn) thì 1,5–2,7 MB, quá nặng cho điện thoại.
 - Thêm `--symmetric` nếu con vật đối xứng trái/phải.
+- Trên trang web (mục 2): chọn **Thú trong game**, dựng xong chọn loài rồi bấm **Đưa vào game**. Trang ghi đè `pal-<id>.glb` của loài đó; lấy lại model cũ bằng `git checkout -- packages/client/public/assets/models/pal-<id>.glb`.
 - Xem thử: `npm run dev` rồi mở http://localhost:5173/model-viewer.html?only=leafkit (bấm `walk`, `attack`...).
 - Loài mới (không thay loài có sẵn) còn cần khai báo trong dữ liệu game (`packages/shared/src/data/`).
 
@@ -139,6 +155,7 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - Ảnh chụp quá gần từ trên cao có thể làm hỏng khối ở bàn chân. Khi đó một chân có xương nhưng đứng yên.
   - Tai, cánh, ngón tay không có xương riêng: chúng đi theo đầu hoặc thân.
   - Động tác là 4 động tác chung của thú trong game; muốn động tác riêng thì sửa trong Blender.
+- **Trang web** chạy trên máy của bạn, không phải trên internet: điện thoại phải cùng mạng Wi-Fi. Ảnh HEIC của iPhone cần `pip install pillow-heif`, hoặc chọn Cài đặt > Camera > Định dạng > Tương thích nhất để máy chụp JPG.
 - **Không có normal map:** khối dựng từ bóng vốn trơn, còn chi tiết nhỏ (lông, đường may, nếp nhăn) đã nằm sẵn trong màu ảnh, kèm cả bóng sáng thật. Một normal map đoán từ ảnh sẽ tạo nổi khối giả: bóng bị tính hai lần, trông bẩn hơn, và tốn thêm một texture trên điện thoại. Chỉ đáng làm khi có hình dạng chi tiết từ chế độ AI (lộ trình mục 2).
 
 ## 7. Lộ trình
@@ -148,7 +165,7 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
 3. ~~Ảnh điện thoại chụp gần/từ trên (EXIF), ảnh chéo 45°, tự chọn khối tròn hay vuông~~ (xong)
 4. ~~Texture liền mạch (hoà màu ở đường nối)~~ (xong). Normal map: để sau, khi có chế độ AI (lý do ở phần Giới hạn).
 5. ~~Tự gắn xương và animation đứng/đi/tấn công/bị đánh như thú trong game~~ (xong). Còn lại: dọn lưới (retopology) bằng Blender.
-6. Trang web: kéo thả 4 ảnh, xem trước 3D, tải về.
+6. ~~Trang web: kéo thả ảnh, xem trước 3D có động tác, tải về, đưa vào game; dùng được từ điện thoại cùng Wi-Fi~~ (xong: `npm run photo3d:web`)
 
 ## Cho lập trình viên
 
@@ -163,6 +180,7 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - `rig.py`: tìm chân, đầu, đuôi, tay; trọng số da; animation.
   - `export.py`: xuất GLB/OBJ.
   - `pipeline.py`: ghép tất cả lại.
+  - `web.py` và `web/`: trang web (chỉ dùng thư viện chuẩn của Python; three.js lấy từ `node_modules` của game, không có thì lấy từ CDN).
 - Test: `cd tools/photo3d && python -m pytest`
 - Tạo bộ ảnh thử từ model có sẵn: `blender --background --python tools/photo3d/samples/render_views.py -- --model model.glb --out thu_muc`
   - Ảnh chéo: thêm `--views front,right,back,left,front_right,back_right,back_left,front_left`.

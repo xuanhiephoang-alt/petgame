@@ -85,17 +85,25 @@ def find_legs(occ, grid):
         label, sizes = components(occ[:, j, :])
         big = [k + 1 for k in np.flatnonzero(sizes >= max(3, 0.15 * sizes.max()))]
         pieces.append([label == k for k in big])
-    # The legs zone: from the ground up while there are at least two pieces.
-    top = 0
-    while top < len(pieces) and len(pieces[top]) >= 2:
-        top += 1
-    if top < 3 or ys[rows[top]] - ys[bottom] < 0.04 * height:
+    # The legs zone: from the first slice near the ground with two or more
+    # pieces up to the last one before the body is in one piece for good. A
+    # foot may reach lower than the others (photos from above), and a few
+    # one-piece slices in between are noise (a thin ankle).
+    multi = [k for k, p in enumerate(pieces) if len(p) >= 2]
+    if not multi or ys[rows[multi[0]]] - ys[bottom] > 0.15 * height:
+        return [], 0.0
+    start = top = multi[0]
+    for k in multi:
+        if k - top > 3:
+            break
+        top = k + 1
+    if top - start < 3 or ys[rows[top]] - ys[bottom] < 0.04 * height:
         return [], 0.0
     # The feet: the pieces of the slice with the most. Each is followed up
     # and down slice by slice; a leg ends where it merges with another piece
     # being followed (both reached the body), so legs that join the body at
     # different heights each keep their own hip.
-    best = max(range(top), key=lambda k: (len(pieces[k]), -k))
+    best = max(range(start, top), key=lambda k: (len(pieces[k]), -k))
     tracks = [{best: p} for p in pieces[best]]
     for steps in (range(best + 1, top), range(best - 1, -1, -1)):
         alive, last = list(range(len(tracks))), best
@@ -113,8 +121,8 @@ def find_legs(occ, grid):
             last = k
     legs = []
     for track in tracks:
-        if min(track) > max(2, 0.4 * top):
-            continue  # does not reach the ground: a bump under the belly
+        if min(track) > start + 0.5 * (top - start):
+            continue  # starts high up: a bump under the belly, not a foot
         cells = np.zeros(occ.shape, bool)
         for k, piece in track.items():
             cells[:, rows[k], :] = piece
@@ -251,9 +259,12 @@ def skin(rig, vertices, influences=4):
         cw = np.prod(np.where(o, t, 1 - t), axis=1)
         w += cw[:, None] * rig.regions[:, idx[:, 0], idx[:, 1], idx[:, 2]].T
     w[:, 1] += 1e-4  # vertices outside every region follow the body
-    joints = np.argsort(-w, axis=1)[:, :influences]
+    if w.shape[1] < influences:  # fewer bones than influences: pad with unused, zero-weight slots
+        w = np.pad(w, ((0, 0), (0, influences - w.shape[1])))
+    joints = np.argsort(-w, axis=1, kind="stable")[:, :influences]
     weights = np.take_along_axis(w, joints, axis=1)
     weights /= weights.sum(1, keepdims=True)
+    joints[weights == 0] = 0  # padding points at a real bone (the root), with no weight
     return joints.astype(np.uint16), weights.astype(np.float32)
 
 

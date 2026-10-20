@@ -1,4 +1,5 @@
 """Command line: python -m photo3d PHOTOS_FOLDER [options]
+               python -m photo3d --web     (a web page to drop photos into, see web.py)
 
 The folder holds the photos named by side, in English or Vietnamese:
   front / truoc, right / phai, back / sau, left / trai, optionally top / tren
@@ -13,8 +14,9 @@ import os
 import sys
 import unicodedata
 
+from .images import IMAGE_EXT
 from .pipeline import build
-from .views import VIEW_NAMES
+from .views import VIEW_NAMES, missing_sides
 
 ALIASES = {
     "front": ("front", "truoc", "mattruoc"),
@@ -27,7 +29,6 @@ ALIASES = {
     "back_left": ("backleft", "leftback", "sautrai", "traisau"),
     "front_left": ("frontleft", "leftfront", "truoctrai", "traitruoc"),
 }
-IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic")
 
 
 def _plain(name):
@@ -76,17 +77,23 @@ def parse(argv):
                    help="add bones and the game's idle/walk/attack/hurt animations (.glb)")
     p.add_argument("--jpeg", action="store_true", help="JPEG texture: about 4x smaller files (.glb)")
     p.add_argument("--json", action="store_true", help="print a JSON report")
+    p.add_argument("--web", action="store_true", help="open the web page instead (drop photos, preview, download)")
+    p.add_argument("--port", type=int, default=8765, help="port of the web page")
     return p.parse_args(argv)
 
 
 def main(argv=None):
     args = parse(sys.argv[1:] if argv is None else argv)
+    if args.web:
+        from .web import serve
+
+        return serve(port=args.port)
     photos = find_photos(args.folder) if args.folder else {}
     for v in VIEW_NAMES:
         if getattr(args, v):
             photos[v] = getattr(args, v)
-    missing = [v for v in ("front", "right", "back", "left") if v not in photos]
-    if len(missing) > 2 or ("front" not in photos and "back" not in photos) or ("right" not in photos and "left" not in photos):
+    missing = missing_sides(photos)
+    if missing:
         sys.exit(f"need photos of the sides; missing: {', '.join(missing)} "
                  f"(name them front/right/back/left or truoc/phai/sau/trai)")
     out = args.out or os.path.join(args.folder or os.path.dirname(photos["front"]), "model.glb")

@@ -1,12 +1,15 @@
 """
 Writers for the textured mesh: binary glTF (.glb, for games, Blender, the
 web) and Wavefront OBJ + MTL + PNG. PNG encoding uses only the standard
-library, so this works inside Blender too; JPEG textures need Pillow.
+library, so this works inside Blender too; JPEG textures use Pillow, or
+Blender's image writer when run inside Blender.
 """
 import io
 import json
 import os
+import shutil
 import struct
+import tempfile
 import zlib
 
 import numpy as np
@@ -30,19 +33,47 @@ def png_bytes(image):
             + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 
+def can_jpeg():
+    """Whether JPEG textures can be written here (Pillow, or Blender)."""
+    if Image is not None:
+        return True
+    try:
+        import bpy  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def jpeg_bytes(image, quality=90):
     """Encodes an (H, W, 3) uint8 array as JPEG: photo textures shrink to
-    about a quarter of the PNG. None without Pillow."""
-    if Image is None:
+    about a quarter of the PNG. None if neither Pillow nor Blender is there."""
+    if Image is not None:
+        out = io.BytesIO()
+        Image.fromarray(image[..., :3]).save(out, "JPEG", quality=quality)
+        return out.getvalue()
+    try:
+        import bpy
+    except ImportError:
         return None
-    out = io.BytesIO()
-    Image.fromarray(image[..., :3]).save(out, "JPEG", quality=quality)
-    return out.getvalue()
+    h, w = image.shape[:2]
+    img = bpy.data.images.new("photo3d_texture", w, h, alpha=False)
+    folder = tempfile.mkdtemp()
+    try:
+        pixels = np.ones((h, w, 4), np.float32)
+        pixels[..., :3] = image[::-1, :, :3] / 255.0  # Blender stores rows bottom-up
+        img.pixels.foreach_set(pixels.ravel())
+        img.file_format = "JPEG"
+        img.save(filepath=os.path.join(folder, "texture.jpg"), quality=quality)
+        with open(os.path.join(folder, "texture.jpg"), "rb") as f:
+            return f.read()
+    finally:
+        bpy.data.images.remove(img)
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def write_glb(path, tm, name="photo3d", rig=None, jpeg=False):
     """Writes a TexturedMesh as a single-mesh .glb with an embedded PNG
-    texture (JPEG with jpeg=True, if Pillow is installed); with a rig (see
+    texture (JPEG with jpeg=True, see jpeg_bytes); with a rig (see
     rig.py) also its skin, bones and animations."""
     blobs, views, accessors, offset = [], [], [], 0
 
