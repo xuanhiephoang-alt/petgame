@@ -243,7 +243,7 @@ function showAiChoice() {
   hint.textContent = local === "cuda" ? "Chạy bằng GPU NVIDIA: khoảng 1–2 phút một model; lần đầu còn phải tải model AI (vài GB)."
     : local === "cpu" ? "Máy không có GPU NVIDIA nên AI chạy bằng CPU: có thể mất 20–40 phút một model."
     : info.ai?.why === "checking" ? "Đang kiểm tra AI trên máy này..."
-    : "Máy này chưa cài AI. Cài một lần bằng lệnh npm run photo3d:ai-setup (cần Python 3.10–3.12, nên có GPU NVIDIA).";
+    : "Máy này chưa cài AI. Cài một lần: bấm đúp photo3d-ai-setup.cmd trong thư mục game (cần Python 3.10–3.13, nên có GPU NVIDIA).";
 }
 
 function missingSides() {
@@ -415,7 +415,9 @@ function errorText(e) {
   if (/cannot identify image file/.test(e)) return "Có ảnh không đọc được: hãy dùng ảnh JPG hoặc PNG.";
   if (/has no transparency/.test(e)) return "Ảnh không có nền trong suốt: ở Nâng cao, chọn Tách nền là Tự chọn hoặc Nền trơn.";
   if (/rembg is not installed/.test(e)) return "Chưa cài rembg để tách nền bằng AI (pip install rembg), hoặc chọn cách tách nền khác.";
-  if (/(PyTorch|hy3dgen) is not installed/.test(e)) return "Máy này chưa cài AI: chạy một lần lệnh npm run photo3d:ai-setup.";
+  if (/(PyTorch|torchvision|transformers|hy3dgen) is not installed|transformers 5 cannot load/.test(e)) {
+    return "Máy này chưa cài đủ AI: bấm đúp photo3d-ai-setup.cmd trong thư mục game (hoặc npm run photo3d:ai-setup).";
+  }
   if (/returned an empty shape/.test(e)) return "AI không tạo được hình từ các ảnh này: thử ảnh rõ hơn, nền tách sạch hơn.";
   if (/out of memory/i.test(e)) return "GPU không đủ bộ nhớ: đóng bớt chương trình nặng (game, trình duyệt nhiều tab) rồi thử lại.";
   if (/unsupported mesh format|no triangles found|is compressed/.test(e)) {

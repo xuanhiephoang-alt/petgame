@@ -589,12 +589,22 @@ def test_pipeline_takes_the_shape_from_an_ai_mesh_file(tmp_path):
     assert "carve" not in steps
 
 
-def test_hunyuan_gets_the_cut_out_photos_by_side(monkeypatch):
+@pytest.fixture
+def fake_hunyuan(monkeypatch, tmp_path):
+    """Stand-ins for PyTorch, torchvision, transformers, hy3dgen and
+    huggingface_hub. The returned dict records what photo3d asks of them and
+    steers them: "cuda", "smi" (the driver sees a GPU), "transformers" (its
+    version), "offline" or "fail" (errors to raise), "result" (what the
+    pipeline returns)."""
     import importlib.machinery
+    import importlib.metadata
     import sys
     import types
 
-    calls = {}
+    calls = {"cuda": False, "transformers": "4.57.6", "model": str(tmp_path / "snapshot")}
+    for f in ai.HUNYUAN_FILES:
+        os.makedirs(os.path.dirname(os.path.join(calls["model"], f)), exist_ok=True)
+        open(os.path.join(calls["model"], f), "w").close()
 
     class FakeMesh:
         vertices = np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
@@ -608,7 +618,15 @@ def test_hunyuan_gets_the_cut_out_photos_by_side(monkeypatch):
 
         def __call__(self, image, **kw):
             calls["images"], calls["kw"] = image, kw
-            return [FakeMesh()]
+            if "fail" in calls:
+                raise calls["fail"]
+            return calls.get("result", [FakeMesh()])
+
+    def snapshot_download(repo, allow_patterns=None):
+        calls.setdefault("downloads", []).append((repo, allow_patterns))
+        if "offline" in calls:
+            raise calls["offline"]
+        return calls["model"]
 
     def module(name, **attrs):
         m = types.ModuleType(name)
@@ -616,20 +634,35 @@ def test_hunyuan_gets_the_cut_out_photos_by_side(monkeypatch):
         m.__dict__.update(attrs)
         return m
 
-    fake_torch = module("torch", float16="f16", float32="f32", manual_seed=lambda n: ("seed", n),
-                        cuda=types.SimpleNamespace(is_available=lambda: False))
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
-    monkeypatch.setitem(sys.modules, "hy3dgen", module("hy3dgen"))
-    monkeypatch.setitem(sys.modules, "hy3dgen.shapegen",
-                        module("hy3dgen.shapegen", Hunyuan3DDiTFlowMatchingPipeline=FakePipeline))
+    cuda = types.SimpleNamespace(is_available=lambda: calls["cuda"], get_device_name=lambda i: "Fake RTX",
+                                 get_device_properties=lambda i: types.SimpleNamespace(total_memory=8 * 2 ** 30),
+                                 max_memory_allocated=lambda: 5 * 2 ** 30)
+    for m in (module("torch", __version__="2.9.0+cu126", float16="f16", float32="f32",
+                     manual_seed=lambda n: ("seed", n), cuda=cuda),
+              module("torchvision"), module("transformers"), module("hy3dgen"),
+              module("hy3dgen.shapegen", Hunyuan3DDiTFlowMatchingPipeline=FakePipeline),
+              module("huggingface_hub", snapshot_download=snapshot_download)):
+        monkeypatch.setitem(sys.modules, m.__name__, m)
+    version = importlib.metadata.version
+    monkeypatch.setattr(importlib.metadata, "version",
+                        lambda name: calls["transformers"] if name == "transformers" else version(name))
     monkeypatch.setattr(ai, "_pipelines", {})
+    monkeypatch.setattr(ai, "_nvidia_gpu", lambda: "Fake RTX" if calls.get("smi") else "")
+    return calls
+
+
+def test_hunyuan_gets_the_cut_out_photos_by_side(fake_hunyuan):
+    calls = fake_hunyuan
     assert ai.hunyuan_status() == ("cpu", "")
     views, _ = align({n: (*disk(), "alpha") for n in SIDES})
     for _ in range(2):
         vertices, faces = ai.hunyuan(views, steps=12, log=lambda *a: None)
     assert len(calls["loads"]) == 1  # loaded once, kept for the next model
     model, kw = calls["loads"][0]
-    assert model == "tencent/Hunyuan3D-2mv" and kw["subfolder"] == "hunyuan3d-dit-v2-mv"
+    # only the files hy3dgen loads are downloaded, and it gets their folder
+    assert calls["downloads"] == [("tencent/Hunyuan3D-2mv", list(ai.HUNYUAN_FILES))]
+    assert model == calls["model"] and kw["subfolder"] == "hunyuan3d-dit-v2-mv" and kw["variant"] == "fp16"
+    assert all(f.startswith(kw["subfolder"] + "/") for f in ai.HUNYUAN_FILES)
     assert kw["device"] == "cpu" and kw["dtype"] == "f32"
     assert list(calls["images"]) == ["front", "left", "back", "right"]
     assert all(im.mode == "RGBA" for im in calls["images"].values())
@@ -637,6 +670,47 @@ def test_hunyuan_gets_the_cut_out_photos_by_side(monkeypatch):
     assert alpha.max() == 255 and alpha.min() == 0  # the cut-out travels as transparency
     assert calls["kw"]["num_inference_steps"] == 12 and calls["kw"]["output_type"] == "trimesh"
     assert vertices.shape == (4, 3) and faces.shape == (4, 3)
+
+
+def test_ai_check_says_what_is_wrong(fake_hunyuan, monkeypatch):
+    import sys
+
+    from photo3d.__main__ import main
+
+    calls, quiet = fake_hunyuan, (lambda *a: None)
+    with pytest.raises(SystemExit) as done:  # python -m photo3d --ai-check, as the setup runs it
+        main(["--ai-check"])
+    assert done.value.code == 0  # CPU only: the model is downloaded, no test shape
+    assert len(calls["downloads"]) == 1 and "loads" not in calls
+    calls["smi"] = True
+    assert ai.hunyuan_check(quiet) == 3  # the driver sees a GPU this PyTorch cannot use
+    assert len(calls["downloads"]) == 2  # the model is downloaded all the same
+    calls["cuda"] = True
+    assert ai.hunyuan_check(quiet) == 0  # with the GPU: a quick shape from drawn photos
+    assert list(calls["images"]) == list(ai.HUNYUAN_VIEWS) and calls["kw"]["octree_resolution"] == 128
+    calls["result"] = [None]
+    assert ai.hunyuan_check(quiet) == 0  # an empty test shape still ran every step
+    calls["fail"] = RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
+    assert ai.hunyuan_check(quiet) == 4
+    calls["fail"] = RuntimeError("DefaultCPUAllocator: not enough memory: you tried to allocate 1073741824 bytes.")
+    assert ai.hunyuan_check(quiet) == 5
+    calls["fail"] = ValueError("something else")
+    assert ai.hunyuan_check(quiet) == 1
+    calls["offline"] = OSError("Connection refused")
+    assert ai.hunyuan_check(quiet) == 6
+    calls["transformers"] = "5.20.2"  # renamed the weights of Hunyuan3D-2mv's image encoder
+    assert ai.hunyuan_status()[0] is None and ai.hunyuan_check(quiet) == 2
+    calls["transformers"] = "4.57.6"
+    monkeypatch.setitem(sys.modules, "torchvision", None)
+    assert ai.hunyuan_status()[0] is None and ai.hunyuan_check(quiet) == 2
+    assert ai._failure(OSError("[WinError 1455] The paging file is too small for this operation to complete")) == 5
+    assert ai._failure(MemoryError()) == 5
+    for error, code in ((ImportError("DLL load failed while importing _C"), 7),
+                        (ImportError("No module named 'skimage'"), 2)):
+        def status():
+            raise error
+        monkeypatch.setattr(ai, "hunyuan_status", status)
+        assert ai.hunyuan_check(quiet) == code  # no Visual C++ runtime, a missing library
 
 
 def test_web_page_takes_the_shape_from_an_uploaded_ai_mesh(tmp_path):

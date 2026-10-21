@@ -134,12 +134,28 @@ Dựng từ bóng không thấy được chỗ lõm và phải đoán độ dày
 Có hai cách lấy hình AI.
 
 **Cách 1: Hunyuan3D-2mv chạy ngay trên máy bạn.** Đây là model mã nguồn mở của Tencent, nhận đúng 4 ảnh trước, trái, sau, phải.
-- Cần: GPU NVIDIA có từ 6 GB bộ nhớ (không có thì chạy bằng CPU, 20–40 phút một model), Python 3.10–3.12, khoảng 10 GB ổ đĩa, có mạng ở lần đầu.
+- Cần:
+  - GPU NVIDIA có từ 6 GB bộ nhớ. Không có thì AI chạy bằng CPU, 20–40 phút một model.
+  - RAM 16 GB.
+  - Python 3.10 đến 3.13, nên dùng 3.12. Bản 3.14 mới nhất trên python.org chưa chạy được. Bản cài Windows của 3.12: [python-3.12.10](https://www.python.org/downloads/release/python-31210/), chọn "Windows installer (64-bit)", khi cài tích "Add python.exe to PATH".
+  - Khoảng 20 GB ổ đĩa trống, có mạng ở lần đầu (tải tổng cộng khoảng 8 GB).
 - Cài một lần: bấm đúp file `photo3d-ai-setup.cmd` trong thư mục game, hoặc mở PowerShell trong thư mục game rồi chạy:
   ```powershell
   npm.cmd run photo3d:ai-setup
   ```
-  Lệnh tạo môi trường Python riêng `tools/photo3d/.venv-ai`, cài PyTorch (bản CUDA khi thấy GPU NVIDIA) và `hy3dgen`, rồi tải model (vài GB). Sau đó `npm run photo3d` và `npm run photo3d:web` tự dùng môi trường này.
+  Lệnh này:
+  - tạo môi trường Python riêng `tools/photo3d/.venv-ai`;
+  - cài PyTorch và torchvision (bản CUDA khi thấy GPU NVIDIA), cùng `hy3dgen`;
+  - tải đúng 2 file model cần dùng về thư mục `C:\Users\<tên>\.cache\huggingface`;
+  - chạy thử: nạp model lên GPU và dựng nhanh một hình thử.
+
+  Thấy dòng "Xong, AI đã sẵn sàng" là dùng được. Sau đó `npm run photo3d` và `npm run photo3d:web` tự dùng môi trường này. Chạy lại lệnh cài thì nhanh (phần đã cài, đã tải được giữ lại) và nó kiểm tra lại từ đầu.
+- Nếu lỗi, mấy dòng cuối nói nguyên nhân và cách sửa:
+  - Có GPU NVIDIA nhưng PyTorch không dùng được: cập nhật driver NVIDIA rồi chạy lại. Lệnh cài tự đổi PyTorch bản CPU sang bản GPU.
+  - Windows thiếu Microsoft Visual C++ Redistributable: cài [vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) rồi chạy lại.
+  - Card không đủ bộ nhớ, hoặc máy thiếu RAM: đóng bớt chương trình nặng rồi chạy lại.
+  - Không tải được model: kiểm tra mạng rồi chạy lại, phần đã tải được giữ lại.
+  - Thông báo có chữ "Long Path": chuyển thư mục game ra chỗ có đường dẫn ngắn, ví dụ `D:\petgame`.
 - Dùng: trên trang web chọn **Hình dạng: AI trên máy này**. Hoặc dòng lệnh:
   ```powershell
   npm.cmd run photo3d -- D:\anh\meo --ai hunyuan --rig --faces 4000 --texture 512 --jpeg
@@ -241,7 +257,7 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - `rig.py`: tìm chân, đầu, đuôi, tay; trọng số da; animation.
   - `export.py`: xuất GLB/OBJ.
   - `meshio.py`: đọc hình 3D `.obj`, `.glb`, `.stl` của công cụ khác.
-  - `ai.py`: chế độ AI: chạy Hunyuan3D-2mv, xoay và căn hình cho khớp ảnh, chuyển thành lưới khối.
+  - `ai.py`: chế độ AI: chạy Hunyuan3D-2mv (kiểm tra cài đặt: `python -m photo3d --ai-check`), xoay và căn hình cho khớp ảnh, chuyển thành lưới khối.
   - `pipeline.py`: ghép tất cả lại.
   - `web.py` và `web/`: trang web (chỉ dùng thư viện chuẩn của Python; three.js lấy từ `node_modules` của game, không có thì lấy từ CDN).
 - Test: `cd tools/photo3d && python -m pytest`

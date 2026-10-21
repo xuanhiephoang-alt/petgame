@@ -1,5 +1,6 @@
 """Command line: python -m photo3d PHOTOS_FOLDER [options]
-               python -m photo3d --web     (a web page to drop photos into, see web.py)
+               python -m photo3d --web       (a web page to drop photos into, see web.py)
+               python -m photo3d --ai-check  (does --ai hunyuan work here? see ai.hunyuan_check)
 
 The folder holds the photos named by side, in English or Vietnamese:
   front / truoc, right / phai, back / sau, left / trai, optionally top / tren
@@ -82,6 +83,9 @@ def parse(argv):
     p.add_argument("--ai-steps", type=int, default=30, help="Hunyuan3D-2mv sampling steps (more = slower, finer)")
     p.add_argument("--no-clip", action="store_true",
                    help="with --ai: keep parts of the AI shape that stick out of the photos' outlines")
+    p.add_argument("--ai-check", action="store_true",
+                   help="check that --ai hunyuan works here: downloads the model, makes a test shape on a GPU; "
+                        "the exit code says what is wrong")
     p.add_argument("--json", action="store_true", help="print a JSON report")
     p.add_argument("--web", action="store_true", help="open the web page instead (drop photos, preview, download)")
     p.add_argument("--port", type=int, default=8765, help="port of the web page")
@@ -94,6 +98,10 @@ def main(argv=None):
         from .web import serve
 
         return serve(port=args.port)
+    if args.ai_check:
+        from .ai import hunyuan_check
+
+        sys.exit(hunyuan_check())
     photos = find_photos(args.folder) if args.folder else {}
     for v in VIEW_NAMES:
         if getattr(args, v):

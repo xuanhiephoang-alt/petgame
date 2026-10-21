@@ -17,8 +17,14 @@ into a voxel field on photo3d's grid and, by default, trimmed to the hull
 of the photos (an AI may invent parts no photo shows), so texturing and
 rigging work exactly as for carved shapes.
 """
+import importlib.metadata
 import importlib.util
 import math
+import os
+import shutil
+import subprocess
+import time
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -28,6 +34,9 @@ from .images import _resize
 from .mesh import Mesh, components, drop_small_parts
 
 HUNYUAN = "tencent/Hunyuan3D-2mv"
+HUNYUAN_SUBFOLDER = "hunyuan3d-dit-v2-mv"
+# The files hy3dgen loads (the repo holds other variants too: no need to download them).
+HUNYUAN_FILES = (f"{HUNYUAN_SUBFOLDER}/config.yaml", f"{HUNYUAN_SUBFOLDER}/model.fp16.safetensors")
 # Hunyuan3D-2mv's views (hy3dgen MVImageProcessorV2: front, front turned 90
 # degrees, back, front turned 270), placed with the cameras of hy3dgen's own
 # renderer (texgen camera_utils), show the same sides as photo3d's photos
@@ -302,12 +311,28 @@ def shape_from_mesh(vertices, faces, views, size, res=128, clip=True, symmetric=
 
 def hunyuan_status():
     """("cuda" or "cpu", "") when Hunyuan3D-2mv can run here, else (None, what is missing)."""
-    for module, name in (("torch", "PyTorch"), ("hy3dgen", "hy3dgen")):
+    # torchvision: hy3dgen imports it without listing it in its requirements
+    for module, name in (("torch", "PyTorch"), ("torchvision", "torchvision"), ("transformers", "transformers"),
+                         ("hy3dgen", "hy3dgen")):
         if importlib.util.find_spec(module) is None:
             return None, f"{name} is not installed (npm run photo3d:ai-setup)"
+    if int(importlib.metadata.version("transformers").split(".")[0]) >= 5:  # renamed the image encoder's weights
+        return None, "transformers 5 cannot load Hunyuan3D-2mv (npm run photo3d:ai-setup installs 4.x)"
     import torch
 
     return ("cuda" if torch.cuda.is_available() else "cpu"), ""
+
+
+def hunyuan_model():
+    """The folder holding Hunyuan3D-2mv's files: downloaded from Hugging Face
+    the first time, then read from its cache (also without internet)."""
+    from huggingface_hub import snapshot_download
+
+    folder = snapshot_download(HUNYUAN, allow_patterns=list(HUNYUAN_FILES))
+    missing = [f for f in HUNYUAN_FILES if not os.path.isfile(os.path.join(folder, f))]
+    if missing:
+        raise RuntimeError(f"{HUNYUAN} has no {', '.join(missing)}")
+    return folder
 
 
 _pipelines = {}  # loaded once per process: the web page builds many models
@@ -316,16 +341,20 @@ _pipelines = {}  # loaded once per process: the web page builds many models
 def hunyuan(views, steps=30, octree=256, seed=1234, log=print):
     """A mesh from Hunyuan3D-2mv given the cut-out side photos (the model is
     downloaded from Hugging Face the first time). Returns (vertices, faces)."""
+    device, why = hunyuan_status()
+    if device is None:
+        raise RuntimeError(why)
     import torch
     from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
     from PIL import Image
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     pipeline = _pipelines.get(device)
     if pipeline is None:
         log(f"ai: loading {HUNYUAN} on {device} (the first time downloads it, a few GB)")
+        # given a folder, not the repo's name, hy3dgen loads it as it is instead of
+        # downloading every variant in the repo's subfolder
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            HUNYUAN, subfolder="hunyuan3d-dit-v2-mv", variant="fp16", device=device,
+            hunyuan_model(), subfolder=HUNYUAN_SUBFOLDER, variant="fp16", device=device,
             dtype=torch.float16 if device == "cuda" else torch.float32)
         _pipelines[device] = pipeline
     images = {}
@@ -341,3 +370,89 @@ def hunyuan(views, steps=30, octree=256, seed=1234, log=print):
     if mesh is None or len(mesh.faces) == 0:
         raise RuntimeError("Hunyuan3D-2mv returned an empty shape")
     return np.asarray(mesh.vertices, np.float64), np.asarray(mesh.faces, np.int64)
+
+
+def hunyuan_check(log=print):
+    """Makes sure Hunyuan3D-2mv works here (the last step of npm run
+    photo3d:ai-setup): downloads the model and, with a GPU, loads it and makes
+    a quick shape from drawn photos of a ball. Returns 0 when all is well, else
+    what is wrong, for the setup to explain: 2 a library is missing, 3 PyTorch
+    cannot use the NVIDIA GPU (the model is downloaded all the same), 4 too
+    little GPU memory, 5 too little memory, 6 the download failed, 7 Windows
+    lacks the Visual C++ runtime, 1 anything else."""
+    try:
+        device, why = hunyuan_status()
+        if device is not None:
+            importlib.import_module("hy3dgen.shapegen")  # with all it needs, before a long download
+    except Exception as e:  # PyTorch's libraries failing to load, a missing dependency
+        log(f"ai check: {type(e).__name__}: {e}")
+        code = _failure(e)
+        return 2 if code == 1 and isinstance(e, ImportError) else code
+    if device is None:
+        log(f"ai check: {why}")
+        return 2
+    import torch
+
+    unused = "" if device == "cuda" else _nvidia_gpu()
+    if device == "cuda":
+        memory = torch.cuda.get_device_properties(0).total_memory / 2 ** 30
+        log(f"ai check: PyTorch {torch.__version__} on {torch.cuda.get_device_name(0)} ({memory:.1f} GB)")
+    elif unused:
+        log(f"ai check: PyTorch {torch.__version__} cannot use the {unused} (a CPU-only build, or an old driver)")
+    else:
+        log(f"ai check: PyTorch {torch.__version__}, no NVIDIA GPU: the AI runs on the CPU, slowly")
+    try:
+        log(f"ai check: model files in {hunyuan_model()}")
+    except Exception as e:
+        log(f"ai check: downloading {HUNYUAN} failed: {type(e).__name__}: {e}")
+        return 6
+    if device == "cpu":
+        return 3 if unused else 0  # a test shape would take minutes and most of the memory
+    start = time.time()
+    try:
+        _, faces = hunyuan(_ball_views(), steps=10, octree=128, log=log)
+    except Exception as e:
+        if "empty shape" in str(e):  # it still went through every step
+            log("ai check: the test shape came out empty, but the model runs")
+            return 0
+        log(f"ai check: making the test shape failed: {type(e).__name__}: {e}")
+        return _failure(e)
+    log(f"ai check: test shape of {len(faces)} triangles in {time.time() - start:.0f} s, "
+        f"{torch.cuda.max_memory_allocated() / 2 ** 30:.1f} GB of GPU memory")
+    return 0
+
+
+def _failure(e):
+    """hunyuan_check's code for an error: 4 out of GPU memory, 5 out of memory,
+    7 PyTorch's DLLs not loading (no Visual C++ runtime), else 1."""
+    text = f"{type(e).__name__}: {e}".lower()
+    if "out of memory" in text:  # torch.cuda.OutOfMemoryError, CUDA error: out of memory
+        return 4
+    if isinstance(e, MemoryError) or any(s in text for s in ("not enough memory", "can't allocate memory",
+                                                               "paging file")):  # Windows: WinError 1455
+        return 5
+    if "winerror 126" in text or "dll load failed" in text:
+        return 7
+    return 1
+
+
+def _nvidia_gpu():
+    """The NVIDIA GPU's name according to its driver, "" without one."""
+    if not shutil.which("nvidia-smi"):
+        return ""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    names = out.stdout.strip().splitlines() if out.returncode == 0 else []
+    return names[0].strip() if names else ""
+
+
+def _ball_views():
+    """Drawn photos of a shaded ball, the same from every side."""
+    y, x = np.mgrid[-1:1:256j, -1:1:256j]
+    shade = np.clip(0.9 - 0.3 * (x + y), 0, 1)
+    ball = SimpleNamespace(rgb=np.dstack([shade, 0.6 * shade, 0.3 * shade]),
+                           mask=(x * x + y * y < 0.36).astype(np.float64))
+    return {name: ball for name in HUNYUAN_VIEWS}

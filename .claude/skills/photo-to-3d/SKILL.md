@@ -46,7 +46,7 @@ description: Turn photos of an object's sides (front/right/back/left, optional d
 | Arm or leg does not move in an animation | that limb merged with the body in the carved shape; check `rig:` bones, rig in Blender if needed |
 
 ## 5. AI shapes (more detail than the carved hull)
-- `--ai hunyuan`: Hunyuan3D-2mv makes the shape from the front/left/back/right cut-outs on this machine. It needs a one-time `npm run photo3d:ai-setup` (Python 3.10–3.12, an NVIDIA GPU recommended; the model downloads from Hugging Face). Without it, `ai.hunyuan_status()` says what is missing.
+- `--ai hunyuan`: Hunyuan3D-2mv makes the shape from the front/left/back/right cut-outs on this machine. It needs a one-time `npm run photo3d:ai-setup` (Python 3.10–3.13, an NVIDIA GPU with 6 GB recommended, 16 GB RAM; it downloads the model's two files from Hugging Face and ends with `python -m photo3d --ai-check`, whose exit code says what is wrong). Without it, `ai.hunyuan_status()` says what is missing.
 - `--ai shape.glb` (or .obj/.stl): a mesh made by any image-to-3D tool (Hunyuan3D demo, Tripo, Meshy, TRELLIS, TripoSR). The mesh's own texture is ignored; colors come from the photos.
 - Either way photo3d stands the mesh up, turns and scales it to the photos and trims what sticks out of their outlines (`--no-clip` keeps it). Read the `ai fit:` log lines: "outlines match the photos N%" should be 95% or more; below 88% a warning says to compare with the carved model (run without `--ai`).
 - License: Hunyuan3D-2 output must not be used or shown in the EU, UK or South Korea. Warn before putting such a model into a game released there; TRELLIS and TripoSR are MIT-licensed alternatives through `--ai file`.
