@@ -38,7 +38,11 @@ D:\anh\meo\  truoc.jpg  phai.jpg  sau.jpg  trai.jpg                       (bắt
 
 ## 2. Chạy
 
-**Cách dễ nhất: trang web**
+Mọi lệnh `npm.cmd run ...` phải chạy **trong thư mục gốc của game**, tức thư mục có file `package.json` cùng các thư mục `packages`, `tools`, `scripts`.
+- Cách mở PowerShell đúng chỗ: mở thư mục game trong File Explorer, bấm vào thanh địa chỉ, gõ `powershell` rồi Enter.
+- Báo lỗi `Could not read package.json` nghĩa là đang đứng sai thư mục.
+
+**Cách dễ nhất: trang web.** Bấm đúp file `photo3d-web.cmd` trong thư mục game (giữ cửa sổ đen mở trong lúc dùng). Hoặc chạy:
 ```powershell
 npm.cmd run photo3d:web
 ```
@@ -131,7 +135,7 @@ Có hai cách lấy hình AI.
 
 **Cách 1: Hunyuan3D-2mv chạy ngay trên máy bạn.** Đây là model mã nguồn mở của Tencent, nhận đúng 4 ảnh trước, trái, sau, phải.
 - Cần: GPU NVIDIA có từ 6 GB bộ nhớ (không có thì chạy bằng CPU, 20–40 phút một model), Python 3.10–3.12, khoảng 10 GB ổ đĩa, có mạng ở lần đầu.
-- Cài một lần:
+- Cài một lần: bấm đúp file `photo3d-ai-setup.cmd` trong thư mục game, hoặc mở PowerShell trong thư mục game rồi chạy:
   ```powershell
   npm.cmd run photo3d:ai-setup
   ```
