@@ -41,6 +41,8 @@ const PRESETS = {
 const STEPS = {
   photos: "Tách nền và căn chỉnh ảnh",
   camera: "Hiệu chỉnh máy ảnh",
+  ai: "Tạo hình bằng AI",
+  fit: "Xoay và căn hình AI cho khớp ảnh",
   shape: "Chọn kiểu khối",
   carve: "Khắc khối 3D",
   mesh: "Tạo lưới tam giác",
@@ -52,12 +54,14 @@ const CLIPS = [["idle", "Đứng"], ["walk", "Đi"], ["attack", "Tấn công"], 
 const ONE_SHOTS = ["attack", "hurt"];
 const KINDS = { quadruped: "thú 4 chân", biped: "đứng bằng 2 chân", blob: "không thấy chân, nhún nhảy khi đi" };
 const CUTOUTS = { alpha: "PNG trong suốt", key: "nền trơn", rembg: "AI" };
+const MESH_EXT = /\.(glb|gltf|obj|stl)$/i;
 
 const $ = (id) => document.getElementById(id);
 const photos = {}; // view -> File
 const thumbs = {}; // view -> object URL
-let info = { species: [] };
+let info = { species: [], ai: { hunyuan: null, why: "checking" } };
 let job = null; // status of the last finished job
+let aiMesh = null; // a mesh made by an AI tool, to take the shape from
 let viewer = null; // the 3D preview, once three.js has loaded
 
 // ---------------------------------------------------------------------------
@@ -126,8 +130,11 @@ function renderSlots() {
       const from = e.dataTransfer.getData("text/x-photo3d-view");
       if (from) return swap(from, view);
       const files = await droppedFiles(e.dataTransfer);
-      if (files.length === 1) setPhoto(view, files[0]);
-      else if (files.length) assign(files);
+      const mesh = files.find((f) => MESH_EXT.test(f.name));
+      if (mesh) setAiMesh(mesh);
+      const images = files.filter(isImage);
+      if (images.length === 1) setPhoto(view, images[0]);
+      else if (images.length) assign(images);
     });
     box.append(slot);
   }
@@ -189,7 +196,8 @@ function assign(files) {
 /** Files dropped on the page, including the photos inside dropped folders. */
 async function droppedFiles(dt) {
   const entries = [...(dt.items || [])].map((item) => item.webkitGetAsEntry?.()).filter(Boolean);
-  if (!entries.length) return [...dt.files].filter(isImage);
+  const wanted = (f) => isImage(f) || MESH_EXT.test(f.name);
+  if (!entries.length) return [...dt.files].filter(wanted);
   const files = [];
   const walk = async (entry, depth) => {
     if (entry.isFile) files.push(await new Promise((ok, fail) => entry.file(ok, fail)));
@@ -204,11 +212,38 @@ async function droppedFiles(dt) {
     }
   };
   for (const entry of entries) await walk(entry, 0);
-  return files.filter(isImage);
+  return files.filter(wanted);
 }
 
 function cleanName(name) {
   return name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d").replace(/[^\w-]+/g, "_").slice(0, 40) || "model";
+}
+
+// ---------------------------------------------------------------------------
+// Shape from an AI
+// ---------------------------------------------------------------------------
+
+function setAiMesh(file) {
+  aiMesh = file;
+  $("ai").value = "file";
+  $("meshName").textContent = `${file.name} (${fileSize(file.size)})`;
+  $("meshDrop").classList.add("filled");
+  showAiChoice();
+}
+
+/** What the "Hình dạng" choice needs: the mesh drop zone, or how Hunyuan3D runs here. */
+function showAiChoice() {
+  const choice = $("ai").value;
+  const local = info.ai?.hunyuan;
+  $("meshDrop").hidden = choice !== "file";
+  $("aiLocal").textContent = "AI trên máy này: Hunyuan3D-2mv" +
+    (local === "cuda" ? " (GPU)" : local === "cpu" ? " (chỉ CPU, rất chậm)" : info.ai?.why === "checking" ? "" : " (chưa cài)");
+  const hint = $("aiHint");
+  hint.hidden = choice !== "hunyuan";
+  hint.textContent = local === "cuda" ? "Chạy bằng GPU NVIDIA: khoảng 1–2 phút một model; lần đầu còn phải tải model AI (vài GB)."
+    : local === "cpu" ? "Máy không có GPU NVIDIA nên AI chạy bằng CPU: có thể mất 20–40 phút một model."
+    : info.ai?.why === "checking" ? "Đang kiểm tra AI trên máy này..."
+    : "Máy này chưa cài AI. Cài một lần bằng lệnh npm run photo3d:ai-setup (cần Python 3.10–3.12, nên có GPU NVIDIA).";
 }
 
 function missingSides() {
@@ -235,6 +270,9 @@ function options() {
     focal: $("focal").value,
     cutout: $("cutout").value,
     res: Number($("res").value),
+    ai: $("ai").value === "hunyuan" ? "hunyuan" : "",
+    clip: $("clip").checked,
+    ai_steps: Number($("aiSteps").value) || 30,
   };
 }
 
@@ -253,9 +291,13 @@ async function startBuild() {
     return showError(`Thiếu ảnh: ${missing.map((v) => LABEL[v]).join(", ")}. Cần ít nhất ảnh trước (hoặc sau) ` +
       "và ảnh phải (hoặc trái), tốt nhất đủ cả 4 phía.");
   }
+  const choice = $("ai").value;
+  if (choice === "file" && !aiMesh) return showError("Chưa chọn file hình 3D làm bằng công cụ AI.");
+  if (choice === "hunyuan" && !info.ai?.hunyuan) return showError($("aiHint").textContent);
   const opts = options();
   const form = new FormData();
   for (const [view, file] of Object.entries(photos)) form.append(view, file, file.name);
+  if (choice === "file") form.append("ai_mesh", aiMesh, aiMesh.name);
   form.append("options", JSON.stringify(opts));
   form.append("name", $("name").value.trim() || "model");
   setBusy(true);
@@ -266,7 +308,7 @@ async function startBuild() {
     hideProgress();
     return showError(sent.error);
   }
-  await follow(sent.id, opts);
+  await follow(sent.id, opts, choice);
   setBusy(false);
 }
 
@@ -288,8 +330,10 @@ function upload(form, onProgress) {
   });
 }
 
-async function follow(id, opts) {
-  const steps = Object.keys(STEPS).filter((s) => s !== "rig" || opts.rig);
+async function follow(id, opts, choice) {
+  const fromAi = (s) => s === "ai" || s === "fit";
+  const steps = Object.keys(STEPS).filter((s) =>
+    (s !== "rig" || opts.rig) && (choice ? s !== "shape" && s !== "carve" : !fromAi(s)));
   let failures = 0;
   for (;;) {
     let s;
@@ -318,7 +362,9 @@ async function follow(id, opts) {
       showProgress(s.ahead ? `Đang chờ lượt: ${s.ahead} model đang dựng trước` : "Sắp bắt đầu...", 0.08);
     } else {
       const k = Math.max(0, steps.indexOf(s.step));
-      showProgress(`${STEPS[s.step] ?? "Đang dựng"}... (${Math.round(s.seconds)} giây)`, 0.08 + (0.92 * (k + 0.5)) / steps.length);
+      const first = s.step === "ai" && choice === "hunyuan" ? " Lần đầu phải tải model AI (vài GB) nên lâu hơn." : "";
+      showProgress(`${STEPS[s.step] ?? "Đang dựng"}... (${Math.round(s.seconds)} giây)${first}`,
+        0.08 + (0.92 * (k + 0.5)) / steps.length);
     }
     await new Promise((resolve) => setTimeout(resolve, 400));
   }
@@ -353,6 +399,11 @@ function warningText(w) {
   if (/fast-simplification/.test(w)) return "Chưa giảm được số tam giác: cài thêm gói fast-simplification (pip install fast-simplification).";
   if (/pillow for JPEG/.test(w)) return "Texture được lưu PNG vì máy thiếu Pillow (pip install pillow).";
   if (/OBJ files cannot hold bones/.test(w)) return "File OBJ không chứa được xương.";
+  if ((m = w.match(/AI shape does not match the photos well \(outlines (\d+)%\)/))) {
+    return `Hình AI không khớp ảnh lắm (đường viền khớp ${m[1]}%): kiểm tra ảnh đã vào đúng ô chưa, ` +
+      "hoặc so với model dựng từ đường viền (Hình dạng: Dựng từ đường viền các ảnh).";
+  }
+  if (/trained on level photos/.test(w)) return "Hunyuan3D-2mv học từ ảnh chụp ngang tầm: ảnh chụp từ trên cao làm hình AI kém chính xác hơn.";
   return w;
 }
 
@@ -364,6 +415,12 @@ function errorText(e) {
   if (/cannot identify image file/.test(e)) return "Có ảnh không đọc được: hãy dùng ảnh JPG hoặc PNG.";
   if (/has no transparency/.test(e)) return "Ảnh không có nền trong suốt: ở Nâng cao, chọn Tách nền là Tự chọn hoặc Nền trơn.";
   if (/rembg is not installed/.test(e)) return "Chưa cài rembg để tách nền bằng AI (pip install rembg), hoặc chọn cách tách nền khác.";
+  if (/(PyTorch|hy3dgen) is not installed/.test(e)) return "Máy này chưa cài AI: chạy một lần lệnh npm run photo3d:ai-setup.";
+  if (/returned an empty shape/.test(e)) return "AI không tạo được hình từ các ảnh này: thử ảnh rõ hơn, nền tách sạch hơn.";
+  if (/out of memory/i.test(e)) return "GPU không đủ bộ nhớ: đóng bớt chương trình nặng (game, trình duyệt nhiều tab) rồi thử lại.";
+  if (/unsupported mesh format|no triangles found|is compressed/.test(e)) {
+    return "Không đọc được file hình 3D: dùng .glb (không nén Draco), .obj hoặc .stl.";
+  }
   return e;
 }
 
@@ -385,7 +442,12 @@ function showResult(s) {
   const where = cam.elevation ? `cao hơn vật ${number(cam.elevation)}°` : "ngang tầm vật";
   const far = cam.distance ? `cách khoảng ${number(cam.distance, 1)} lần chiều cao vật` : "chụp từ xa";
   if (cam.agreement !== undefined) facts.push(`Máy ảnh: ${where}, ${far}; các ảnh khớp nhau ${number(cam.agreement * 100)}%.`);
-  facts.push(`Khối ${r.mode === "box" ? "vuông, sắc cạnh" : "tròn"}${r.shape ? " (tự chọn theo ảnh)" : ""}.`);
+  if (r.ai) {
+    facts.push(`Hình dạng từ AI (${r.ai.source}): đường viền khớp ảnh ${number(r.ai.agreement * 100)}%` +
+      (r.ai.trimmed > 0.02 ? `; đã cắt ${number(r.ai.trimmed * 100)}% phần nhô ra ngoài ảnh.` : "."));
+  } else {
+    facts.push(`Khối ${r.mode === "box" ? "vuông, sắc cạnh" : "tròn"}${r.shape ? " (tự chọn theo ảnh)" : ""}.`);
+  }
   const methods = [...new Set(Object.values(r.methods || {}))].map((m) => CUTOUTS[m] ?? m);
   if (methods.length) facts.push(`Tách nền: ${methods.join(", ")}.`);
   if (r.rig) facts.push(`Xương: ${KINDS[r.rig.kind] ?? r.rig.kind} (${r.rig.bones.slice(1).join(", ")}).`);
@@ -658,18 +720,34 @@ document.addEventListener("dragleave", (e) => {
 document.addEventListener("drop", async (e) => {
   e.preventDefault();
   document.body.classList.remove("dragging");
+  $("meshDrop").classList.remove("over");
   const files = await droppedFiles(e.dataTransfer);
-  if (files.length) assign(files);
+  const mesh = files.find((f) => MESH_EXT.test(f.name));
+  if (mesh) setAiMesh(mesh);
+  const images = files.filter(isImage);
+  if (images.length) assign(images);
 });
+$("ai").addEventListener("change", () => {
+  hideError();
+  showAiChoice();
+});
+$("aiMesh").addEventListener("change", (e) => e.target.files[0] && setAiMesh(e.target.files[0]));
+$("meshDrop").addEventListener("dragover", () => $("meshDrop").classList.add("over"));
+$("meshDrop").addEventListener("dragleave", () => $("meshDrop").classList.remove("over"));
 
-fetch("/api/info")
-  .then((res) => res.json())
-  .then((data) => {
-    info = data;
-    $("species").replaceChildren(...info.species.map((s) =>
-      Object.assign(document.createElement("option"), { value: s.id, textContent: s.name })));
-  })
-  .catch(() => {});
+/** Species for "Đưa vào game", and whether Hunyuan3D runs here (checked by the server in the background). */
+async function loadInfo() {
+  try {
+    info = await (await fetch("/api/info")).json();
+  } catch {
+    return;
+  }
+  $("species").replaceChildren(...info.species.map((s) =>
+    Object.assign(document.createElement("option"), { value: s.id, textContent: s.name })));
+  showAiChoice();
+  if (info.ai?.why === "checking") setTimeout(loadInfo, 2000);
+}
+loadInfo();
 
 try {
   viewer = await createViewer($("viewer"));

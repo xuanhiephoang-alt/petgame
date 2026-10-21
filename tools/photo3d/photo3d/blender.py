@@ -10,7 +10,8 @@ from .pipeline import build
 def run(folder, out=None, place=True, **options):
     """Builds a model from the photos in `folder`, imports it into the open
     scene and returns the new object(s). Options are those of pipeline.build
-    (res, faces, mode, exponent, symmetric, thin, cutout, texture_px, elevation, focal, level, rig)."""
+    (res, faces, mode, exponent, symmetric, thin, cutout, texture_px, elevation, focal, level, rig, jpeg,
+    ai, ai_steps, clip; ai="hunyuan" needs PyTorch, which Blender does not have)."""
     photos = find_photos(folder)
     out = out or os.path.join(folder, "model.glb")
     report, _ = build(photos, out, **options)

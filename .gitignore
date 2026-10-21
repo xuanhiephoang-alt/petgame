@@ -11,3 +11,4 @@ packages/server/data/
 shots/
 __pycache__/
 *.egg-info/
+.venv-ai/

@@ -76,6 +76,12 @@ def parse(argv):
     p.add_argument("--rig", action="store_true",
                    help="add bones and the game's idle/walk/attack/hurt animations (.glb)")
     p.add_argument("--jpeg", action="store_true", help="JPEG texture: about 4x smaller files (.glb)")
+    p.add_argument("--ai", metavar="SOURCE",
+                   help="take the shape from an AI: 'hunyuan' runs Hunyuan3D-2mv here (npm run photo3d:ai-setup), "
+                        "or give a mesh (.glb/.obj/.stl) made by any image-to-3D tool")
+    p.add_argument("--ai-steps", type=int, default=30, help="Hunyuan3D-2mv sampling steps (more = slower, finer)")
+    p.add_argument("--no-clip", action="store_true",
+                   help="with --ai: keep parts of the AI shape that stick out of the photos' outlines")
     p.add_argument("--json", action="store_true", help="print a JSON report")
     p.add_argument("--web", action="store_true", help="open the web page instead (drop photos, preview, download)")
     p.add_argument("--port", type=int, default=8765, help="port of the web page")
@@ -102,7 +108,8 @@ def main(argv=None):
     report, _ = build(photos, out, res=args.res, mode=args.shape, exponent=args.roundness,
                       symmetric=args.symmetric, faces=args.faces or None, cutout=args.cutout,
                       texture_px=args.texture, thin=args.thin or None, elevation=elevation, focal=focal,
-                      level=not args.no_level, rig=args.rig, jpeg=args.jpeg)
+                      level=not args.no_level, rig=args.rig, jpeg=args.jpeg, ai=args.ai, ai_steps=args.ai_steps,
+                      clip=not args.no_clip)
     if args.json:
         print(json.dumps(report, indent=2))
     return report

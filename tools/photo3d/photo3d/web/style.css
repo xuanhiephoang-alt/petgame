@@ -205,6 +205,22 @@ body.dragging .slots { outline: 2px dashed var(--accent); outline-offset: 4px; }
   font-size: 15px;
 }
 .check { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; font-size: 14px; }
+.field.wide { margin: 4px 0 8px; }
+.meshdrop {
+  display: block;
+  margin: 0 0 10px;
+  padding: 14px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+}
+.meshdrop.filled { border-style: solid; border-color: var(--accent); color: var(--text); font-weight: 600; }
+.meshdrop.over { background: var(--accent-soft); }
+.meshdrop input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 4px; }
 .check input { width: 17px; height: 17px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
 details.advanced { margin: 12px 0 4px; padding-top: 8px; border-top: 1px solid var(--line); }
 details.tips { margin: 0 0 6px; font-size: 14px; }

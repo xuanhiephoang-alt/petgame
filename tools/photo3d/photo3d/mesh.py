@@ -139,21 +139,23 @@ def taubin(mesh, iterations=10, lam=0.5, mu=-0.53):
 
 
 def components(mesh):
-    """Label of the connected component of each face."""
+    """Label of the connected component of each face (vectorized union-find:
+    hook roots to the smaller root across every edge, then jump pointers)."""
     parent = np.arange(len(mesh.vertices))
-
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for a, b in edges_of(mesh.faces):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-    roots = np.array([find(i) for i in range(len(parent))])
-    return roots[mesh.faces[:, 0]]
+    edges = edges_of(mesh.faces)
+    while True:
+        a, b = parent[edges[:, 0]], parent[edges[:, 1]]
+        differ = a != b
+        if not differ.any():
+            break
+        lo, hi = np.minimum(a[differ], b[differ]), np.maximum(a[differ], b[differ])
+        np.minimum.at(parent, hi, lo)
+        while True:
+            jumped = parent[parent]
+            if np.array_equal(jumped, parent):
+                break
+            parent = jumped
+    return parent[mesh.faces[:, 0]]
 
 
 def drop_small_parts(mesh, keep=0.01):

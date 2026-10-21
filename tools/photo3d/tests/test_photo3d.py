@@ -6,6 +6,7 @@ import struct
 import numpy as np
 import pytest
 
+from photo3d import ai
 from photo3d.__main__ import find_photos
 from photo3d.calibrate import fit
 from photo3d.cameras import Camera
@@ -13,6 +14,7 @@ from photo3d.carve import Shape, carve, intervals, make_grid
 from photo3d.export import png_bytes, write_glb
 from photo3d.images import align, exif_orientation, exif_tags, key_out, load_image
 from photo3d.mesh import edges_of, extract, surface_nets
+from photo3d.meshio import load_mesh
 from photo3d.pipeline import build
 from photo3d.prior import choose_shape
 from photo3d.rig import build as build_rig
@@ -415,6 +417,9 @@ def test_web_options_are_checked():
     assert options_from('{"elevation": "auto"}')["elevation"] == "auto"
     assert options_from('{"elevation": "0", "faces": 0}')["elevation"] == 0.0
     assert options_from('{"faces": 0}')["faces"] is None  # 0 keeps every triangle, as on the command line
+    assert options_from('{"ai": "hunyuan", "ai_steps": 500, "clip": false}') | {} == {
+        **options_from('{}'), "ai": "hunyuan", "ai_steps": 100, "clip": False}
+    assert options_from('{"ai": "C:/secret.obj"}')["ai"] is None  # a mesh comes as an upload, never as a path
 
 
 def test_web_page_builds_shows_and_installs_a_model(tmp_path):
@@ -466,3 +471,204 @@ def test_web_page_builds_shows_and_installs_a_model(tmp_path):
     finally:
         server.shutdown()
         app.close()
+
+
+# ---------------------------------------------------------------------------
+# AI shapes (ai.py, meshio.py)
+# ---------------------------------------------------------------------------
+
+def silhouettes(shape, size=200):
+    """Photos (gray, cut-out) of a voxel shape from the four sides, level and from far away."""
+    solid = np.stack(np.nonzero(shape.field > 0.5), -1) * shape.grid.h + shape.grid.origin
+    photos = {}
+    for name in SIDES:
+        cam = camera_for(name, scale=1.5 / size, x0=size / 2, y0=size / 2)
+        uv = np.floor(cam.project(solid)).astype(int)
+        mask = np.zeros((size, size), np.float32)
+        r = int(np.ceil(shape.grid.h / cam.scale / 2))
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                mask[np.clip(uv[:, 1] + dy, 0, size - 1), np.clip(uv[:, 0] + dx, 0, size - 1)] = 1.0
+        photos[name] = (np.full((size, size, 3), 0.6, np.float32), mask)
+    return photos
+
+
+def random_pose(vertices, seed):
+    """The mesh as an AI tool might hand it over: lying on another axis, turned, scaled and moved."""
+    rng = np.random.default_rng(seed)
+    turn = np.linalg.inv(ai._turn(rng.uniform(0, 360)) @ ai.UP[list(ai.UP)[rng.integers(6)]])
+    return vertices @ turn.T * rng.uniform(0.2, 5) + rng.uniform(-3, 3, 3)
+
+
+def test_mesh_files_load_back(tmp_path):
+    mesh = surface_nets(creature("animal").field, np.zeros(3), 0.02)
+    n = len(mesh.vertices)
+    with open(tmp_path / "a.obj", "w") as f:  # quads and negative indices, as some tools write
+        f.write("".join(f"v {x} {y} {z}\n" for x, y, z in mesh.vertices))
+        f.write("v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf -4 -3 -2 -1\n")
+        f.write("".join(f"f {a + 1}/1/1 {b + 1}/1/1 {c + 1}/1/1\n" for a, b, c in mesh.faces))
+    v, f = load_mesh(str(tmp_path / "a.obj"))
+    assert len(v) == n + 4 and len(f) == len(mesh.faces) + 2
+    soup = mesh.vertices[mesh.faces].astype(np.float32)  # binary STL: unshared corners, welded on loading
+    with open(tmp_path / "a.stl", "wb") as fh:
+        fh.write(b"\0" * 80 + struct.pack("<I", len(soup)))
+        for tri in soup:
+            fh.write(struct.pack("<3f", 0, 0, 0) + tri.tobytes() + b"\0\0")
+    v, f = load_mesh(str(tmp_path / "a.stl"))
+    assert len(v) == n and len(f) == len(mesh.faces)
+    write_glb(str(tmp_path / "a.glb"), flat_texture(mesh))
+    v, f = load_mesh(str(tmp_path / "a.glb"))
+    assert len(f) == len(mesh.faces) and np.allclose(v.min(0), mesh.vertices.min(0), atol=1e-5)
+    # glTF with its buffer inside the JSON and a moved, scaled node
+    gltf = json.loads(open(tmp_path / "a.glb", "rb").read()[20:20 + struct.unpack("<I", open(tmp_path / "a.glb", "rb").read()[12:16])[0]])
+    data = open(tmp_path / "a.glb", "rb").read()
+    js_len = struct.unpack("<I", data[12:16])[0]
+    import base64
+    gltf["buffers"] = [{"byteLength": len(data) - js_len - 28,
+                        "uri": "data:application/octet-stream;base64," + base64.b64encode(data[20 + js_len + 8:]).decode()}]
+    gltf["nodes"][0].update(translation=[1.0, 2.0, 3.0], scale=[2.0, 2.0, 2.0])
+    (tmp_path / "b.gltf").write_text(json.dumps(gltf))
+    v2, f2 = load_mesh(str(tmp_path / "b.gltf"))
+    assert np.allclose(v2.min(0), mesh.vertices.min(0) * 2 + [1, 2, 3], atol=1e-4)
+
+
+def test_voxelize_fills_closed_meshes_and_overlapping_parts():
+    from scipy.spatial import ConvexHull
+    th, ph = np.meshgrid(np.linspace(0, np.pi, 30), np.linspace(0, 2 * np.pi, 60, endpoint=False), indexing="ij")
+    unit = np.stack([np.sin(th) * np.cos(ph), np.cos(th), np.sin(th) * np.sin(ph)], -1).reshape(-1, 3)
+    faces = ConvexHull(unit).simplices
+    grid = make_grid(1.0, 1.0, 1.0, res=64)
+    one = ai.voxelize(unit * 0.3 + [0, 0.5, 0], faces, grid)
+    assert one.sum() * grid.h ** 3 == pytest.approx(4 / 3 * np.pi * 0.3 ** 3, rel=0.03)
+    # Two overlapping balls (separate pieces, like a head on a body) make their union.
+    two = ai.voxelize(np.concatenate([unit * 0.3 + [-0.1, 0.5, 0], unit * 0.3 + [0.1, 0.5, 0]]),
+                      np.concatenate([faces, faces + len(unit)]), grid)
+    assert (two > 0.5).sum() > 1.2 * (one > 0.5).sum()
+    assert two[grid.shape[0] // 2, grid.shape[1] // 2, grid.shape[2] // 2] == pytest.approx(1.0)
+
+
+def test_ai_mesh_is_stood_up_turned_and_scaled_onto_the_photos():
+    shape = creature("animal")  # with a bag on its left side, so a mirror image would show
+    X, Y, Z = np.meshgrid(*(shape.grid.axis(a) for a in range(3)), indexing="ij")
+    shape.field = np.maximum(shape.field, ((X - 0.3) ** 2 + (Y - 0.45) ** 2 + (Z + 0.1) ** 2 < 0.1 ** 2).astype(np.float32))
+    views, info = align({n: (*rgb_mask, "alpha") for n, rgb_mask in silhouettes(shape).items()})
+    size = (info["width"], info["depth"])
+    mesh = surface_nets(shape.field, shape.grid.origin, shape.grid.h)
+    scale, offset = ai._box_map(mesh.vertices, size)
+    expected = mesh.vertices * scale + offset  # the same mesh in the photos' frame
+    grid = make_grid(*size[:1], 1.0, size[1], 64)
+    fitted, report = ai.fit(random_pose(mesh.vertices, 3), mesh.faces, views, size, carve_hull(views, grid), grid)
+    assert np.abs(fitted - expected).mean() < 0.01 and not report["mirrored"]
+    shape2, report = ai.shape_from_mesh(random_pose(mesh.vertices, 4), mesh.faces, views, size, res=64)
+    assert report["agreement"] > 0.9
+    assert build_rig(shape2).kind == "quadruped"
+
+
+def carve_hull(views, grid):
+    from photo3d.carve import hull
+    return hull(views, grid)
+
+
+def test_pipeline_takes_the_shape_from_an_ai_mesh_file(tmp_path):
+    from PIL import Image
+
+    shape = creature("animal")
+    photos = {}
+    for name, (rgb, mask) in silhouettes(shape).items():
+        photos[name] = str(tmp_path / f"{name}.png")
+        Image.fromarray((np.dstack([rgb, mask]) * 255).astype(np.uint8)).save(photos[name])
+    mesh = surface_nets(shape.field, shape.grid.origin, shape.grid.h)
+    with open(tmp_path / "ai.obj", "w") as f:
+        f.write("".join(f"v {x} {y} {z}\n" for x, y, z in random_pose(mesh.vertices, 7)))
+        f.write("".join(f"f {a + 1} {b + 1} {c + 1}\n" for a, b, c in mesh.faces))
+    steps = []
+    report, _ = build(photos, str(tmp_path / "m.glb"), res=48, faces=2000, ai=str(tmp_path / "ai.obj"), rig=True,
+                      log=lambda *a: None, progress=steps.append)
+    assert report["mode"] == "ai" and report["ai"]["source"] == "ai.obj" and report["ai"]["agreement"] > 0.85
+    assert report["rig"]["kind"] == "quadruped" and steps[:4] == ["photos", "camera", "ai", "fit"]
+    assert "carve" not in steps
+
+
+def test_hunyuan_gets_the_cut_out_photos_by_side(monkeypatch):
+    import importlib.machinery
+    import sys
+    import types
+
+    calls = {}
+
+    class FakeMesh:
+        vertices = np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        faces = np.array([[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]])
+
+    class FakePipeline:
+        @classmethod
+        def from_pretrained(cls, model, **kw):
+            calls.setdefault("loads", []).append((model, kw))
+            return cls()
+
+        def __call__(self, image, **kw):
+            calls["images"], calls["kw"] = image, kw
+            return [FakeMesh()]
+
+    def module(name, **attrs):
+        m = types.ModuleType(name)
+        m.__spec__ = importlib.machinery.ModuleSpec(name, None)
+        m.__dict__.update(attrs)
+        return m
+
+    fake_torch = module("torch", float16="f16", float32="f32", manual_seed=lambda n: ("seed", n),
+                        cuda=types.SimpleNamespace(is_available=lambda: False))
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "hy3dgen", module("hy3dgen"))
+    monkeypatch.setitem(sys.modules, "hy3dgen.shapegen",
+                        module("hy3dgen.shapegen", Hunyuan3DDiTFlowMatchingPipeline=FakePipeline))
+    monkeypatch.setattr(ai, "_pipelines", {})
+    assert ai.hunyuan_status() == ("cpu", "")
+    views, _ = align({n: (*disk(), "alpha") for n in SIDES})
+    for _ in range(2):
+        vertices, faces = ai.hunyuan(views, steps=12, log=lambda *a: None)
+    assert len(calls["loads"]) == 1  # loaded once, kept for the next model
+    model, kw = calls["loads"][0]
+    assert model == "tencent/Hunyuan3D-2mv" and kw["subfolder"] == "hunyuan3d-dit-v2-mv"
+    assert kw["device"] == "cpu" and kw["dtype"] == "f32"
+    assert list(calls["images"]) == ["front", "left", "back", "right"]
+    assert all(im.mode == "RGBA" for im in calls["images"].values())
+    alpha = np.asarray(calls["images"]["front"])[..., 3]
+    assert alpha.max() == 255 and alpha.min() == 0  # the cut-out travels as transparency
+    assert calls["kw"]["num_inference_steps"] == 12 and calls["kw"]["output_type"] == "trimesh"
+    assert vertices.shape == (4, 3) and faces.shape == (4, 3)
+
+
+def test_web_page_takes_the_shape_from_an_uploaded_ai_mesh(tmp_path):
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    shape = creature("animal")
+    photos = {}
+    for name, (rgb, mask) in silhouettes(shape).items():
+        photos[name] = (f"{name}.png", png_bytes((np.dstack([rgb, mask]) * 255).astype(np.uint8)))
+    mesh = surface_nets(shape.field, shape.grid.origin, shape.grid.h)
+    obj = "".join(f"v {x} {y} {z}\n" for x, y, z in random_pose(mesh.vertices, 2))
+    obj += "".join(f"f {a + 1} {b + 1} {c + 1}\n" for a, b, c in mesh.faces)
+    app = App(root=str(tmp_path / "jobs"), models=None)
+    server = start(app, port=0, host="127.0.0.1")
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        assert set(json.load(urlopen(base + "/api/info"))["ai"]) == {"hunyuan", "why"}
+        options = json.dumps({"res": 48, "faces": 1500})
+        with pytest.raises(HTTPError) as err:  # not a mesh file
+            urlopen(Request(base + "/api/jobs", *_form(photos, options, ("shape.zip", b"PK"))))
+        assert err.value.code == 400
+        job = json.load(urlopen(Request(base + "/api/jobs", *_form(photos, options, ("shape.obj", obj.encode())))))["id"]
+        app.run_next(timeout=5)
+        status = json.load(urlopen(f"{base}/api/jobs/{job}"))
+        assert status["state"] == "done", status["error"]
+        assert status["report"]["mode"] == "ai" and status["report"]["ai"]["agreement"] > 0.85
+    finally:
+        server.shutdown()
+        app.close()
+
+
+def _form(photos, options, mesh):
+    body, kind = multipart({"options": options}, {**photos, "ai_mesh": mesh})
+    return body, {"Content-Type": kind}

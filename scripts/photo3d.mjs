@@ -1,16 +1,19 @@
 // Runs the photo-to-3D tool (tools/photo3d) with whatever is installed:
-// a Python that has numpy and Pillow, otherwise Blender's own Python.
+// the AI environment made by `npm run photo3d:ai-setup`, a Python that has
+// numpy and Pillow, otherwise Blender's own Python.
 // Usage: npm run photo3d -- PHOTOS_FOLDER [options]   (see tools/photo3d/README.md)
 //        npm run photo3d:web                          (the web page: drop photos, preview, download)
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tool = join(root, "tools", "photo3d");
 const args = process.argv.slice(2);
+const aiPython = join(tool, ".venv-ai", process.platform === "win32" ? "Scripts\\python.exe" : "bin/python");
 
-for (const python of [process.env.PHOTO3D_PYTHON, "python3", "python", "py"].filter(Boolean)) {
+for (const python of [process.env.PHOTO3D_PYTHON, existsSync(aiPython) && aiPython, "python3", "python", "py"].filter(Boolean)) {
   const probe = spawnSync(python, ["-c", "import numpy, PIL"], { stdio: "ignore" });
   if (probe.status !== 0) continue;
   const run = spawnSync(python, ["-m", "photo3d", ...args], {

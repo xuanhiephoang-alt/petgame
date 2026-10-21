@@ -51,6 +51,17 @@
         <label class="preset"><input type="radio" name="preset" value="hq">
           <span><b>Chất lượng cao</b><small>nhiều chi tiết, cho Blender, in 3D</small></span></label>
       </div>
+      <label class="field wide">Hình dạng
+        <select id="ai">
+          <option value="">Dựng từ đường viền các ảnh (nhanh)</option>
+          <option value="hunyuan" id="aiLocal">AI trên máy này: Hunyuan3D-2mv (chi tiết hơn)</option>
+          <option value="file">Hình 3D làm sẵn bằng công cụ AI (.glb, .obj, .stl)</option>
+        </select></label>
+      <p class="hint" id="aiHint" hidden></p>
+      <label class="meshdrop" id="meshDrop" hidden>
+        <input type="file" id="aiMesh" accept=".glb,.gltf,.obj,.stl" class="vh">
+        <span id="meshName">Thả file hình 3D vào đây hoặc bấm để chọn (Hunyuan3D, Tripo, Meshy, TRELLIS...). photo3d tự xoay cho khớp ảnh, dán màu từ ảnh thật.</span>
+      </label>
       <div class="fields">
         <label class="field">Kiểu khối
           <select id="shape">
@@ -68,6 +79,7 @@
         <label class="check"><input type="checkbox" id="rig"> Gắn xương và 4 động tác của thú trong game</label>
         <label class="check"><input type="checkbox" id="jpeg"> Texture JPEG (file nhẹ hơn khoảng 4 lần)</label>
         <label class="check"><input type="checkbox" id="level" checked> Hoà màu ở đường nối giữa các ảnh</label>
+        <label class="check"><input type="checkbox" id="clip" checked> Hình AI: cắt phần nhô ra ngoài đường viền ảnh</label>
         <div class="fields">
           <label class="field">Số tam giác (0 = giữ hết)
             <input id="faces" type="number" min="0" max="200000" step="500" value="4000"></label>
@@ -91,6 +103,8 @@
               <option value="rembg">AI (cần rembg)</option>
               <option value="alpha">PNG trong suốt</option>
             </select></label>
+          <label class="field">Số bước AI (nhiều = lâu, mịn)
+            <input id="aiSteps" type="number" min="5" max="100" step="5" value="30"></label>
           <label class="field">Độ chi tiết khối
             <select id="res">
               <option value="96">96 (nhanh)</option><option value="128" selected>128</option>

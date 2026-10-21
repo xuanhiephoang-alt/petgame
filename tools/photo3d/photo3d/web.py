@@ -30,8 +30,10 @@ from urllib.parse import parse_qs, urlsplit
 
 import numpy as np
 
+from .ai import hunyuan_status
 from .export import png_bytes
 from .images import IMAGE_EXT, _resize
+from .meshio import FORMATS as MESH_EXT
 from .pipeline import build
 from .views import VIEW_NAMES, missing_sides
 
@@ -102,6 +104,8 @@ def options_from(text):
     focal = o.get("focal")
     focal = "auto" if focal in (None, "", "auto") else num("focal", 0.0, 400.0, 0.0)
     return dict(res=num("res", 48, 256, 128, int), faces=num("faces", 0, 200000, 20000, int) or None,
+                ai="hunyuan" if o.get("ai") == "hunyuan" else None, ai_steps=num("ai_steps", 5, 100, 30, int),
+                clip=o.get("clip", True) is not False,
                 mode=choice("shape", ("auto", "round", "box")), symmetric=bool(o.get("symmetric")),
                 cutout=choice("cutout", ("auto", "key", "rembg", "alpha")),
                 texture_px=num("texture", 128, 4096, 1024, int), thin=num("thin", 0.0, 5.0, 1.2) or None,
@@ -158,12 +162,23 @@ class App:
         self.jobs = {}
         self.todo = queue.Queue()
         self.lock = threading.Lock()
+        self.ai = {"hunyuan": None, "why": "checking"}  # filled in the background: importing PyTorch takes a while
+        threading.Thread(target=self._check_ai, daemon=True).start()
+
+    def _check_ai(self):
+        try:
+            device, why = hunyuan_status()
+        except Exception as e:  # a broken PyTorch install
+            device, why = None, str(e)
+        self.ai = {"hunyuan": device, "why": why}
 
     def info(self):
-        return {"species": self.species if self.models else [], "three": "local" if os.path.isdir(THREE) else "cdn"}
+        return {"species": self.species if self.models else [], "three": "local" if os.path.isdir(THREE) else "cdn",
+                "ai": self.ai}
 
-    def submit(self, photos, options, name="model"):
-        """photos: {view: (file name, bytes)}. Queues the job and returns it."""
+    def submit(self, photos, options, name="model", ai_mesh=None):
+        """photos: {view: (file name, bytes)}; ai_mesh: (file name, bytes) of a
+        mesh to take the shape from. Queues the job and returns it."""
         folder = tempfile.mkdtemp(prefix="job-", dir=self.root)
         paths = {}
         for view, (filename, data) in photos.items():
@@ -171,6 +186,11 @@ class App:
             paths[view] = os.path.join(folder, view + (ext if ext in IMAGE_EXT else ".jpg"))
             with open(paths[view], "wb") as f:
                 f.write(data)
+        if ai_mesh:
+            stem, ext = os.path.splitext(ai_mesh[0])
+            options = dict(options, ai=os.path.join(folder, file_name(stem) + ext.lower()))  # its name shows on the page
+            with open(options["ai"], "wb") as f:
+                f.write(ai_mesh[1])
         job = Job(folder, paths, options, name)
         with self.lock:
             self.jobs[job.id] = job
@@ -343,7 +363,13 @@ class Handler(BaseHTTPRequestHandler):
                                     "(hoặc trái), tốt nhất đủ cả 4 phía.")
         options = options_from(fields.get("options", (None, b"{}"))[1].decode("utf-8", "replace"))
         name = file_name(fields.get("name", (None, b"model"))[1].decode("utf-8", "replace"))
-        job = self.app.submit(photos, options, name)
+        ai_mesh = fields.get("ai_mesh")
+        if ai_mesh and ai_mesh[1]:
+            if os.path.splitext(ai_mesh[0] or "")[1].lower() not in MESH_EXT:
+                return self._error(400, "File hình 3D phải là .glb, .obj hoặc .stl.")
+        else:
+            ai_mesh = None
+        job = self.app.submit(photos, options, name, ai_mesh)
         return self._json({"id": job.id})
 
     def _page(self):

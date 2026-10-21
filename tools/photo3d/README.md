@@ -1,10 +1,10 @@
 # photo3d: tạo model 3D từ 4 ảnh chụp
 
-Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 45°** và ảnh **từ trên xuống** nếu có), công cụ dựng ra model 3D **có màu thật từ ảnh**, xuất `.glb` (dùng được trong game, Blender, web) hoặc `.obj`. Thêm `--rig` để model **có xương và 4 động tác của thú trong game** (đứng, đi, tấn công, bị đánh). Chạy trên máy thường, không cần GPU, mỗi model từ vài giây (ảnh nhỏ) đến khoảng 20 giây (ảnh điện thoại lớn).
+Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 45°** và ảnh **từ trên xuống** nếu có), công cụ dựng ra model 3D **có màu thật từ ảnh**, xuất `.glb` (dùng được trong game, Blender, web) hoặc `.obj`. Thêm `--rig` để model **có xương và 4 động tác của thú trong game** (đứng, đi, tấn công, bị đánh). Chạy trên máy thường, không cần GPU, mỗi model từ vài giây (ảnh nhỏ) đến khoảng 20 giây (ảnh điện thoại lớn). Muốn **hình dạng chi tiết hơn** thì dùng chế độ AI (mục 5): Hunyuan3D-2mv chạy trên máy có GPU NVIDIA, hoặc hình 3D làm bằng bất kỳ công cụ AI nào.
 
 ```
 ảnh 4–9 phía ─► tách nền ─► căn chỉnh ─► hiệu chỉnh máy ảnh (chụp gần, chụp từ trên)
-             ─► khắc khối từ bóng (tự chọn tròn hay vuông) ─► lưới tam giác, làm mịn
+             ─► khắc khối từ bóng (tự chọn tròn hay vuông) hoặc hình từ AI ─► lưới tam giác, làm mịn
              ─► dán màu từ ảnh, hoà màu ở đường nối ─► (gắn xương + animation) ─► model.glb
 ```
 
@@ -96,6 +96,10 @@ Kết quả: `D:\anh\meo\model.glb` (đổi bằng `-o duong_dan.glb` hoặc `.o
 | `--rig` | gắn xương và 4 animation của thú trong game: `idle`, `walk`, `attack`, `hurt` (chỉ `.glb`) |
 | `--no-level` | giữ nguyên màu từng ảnh ở đường nối (mặc định: hoà cho liền) |
 | `--jpeg` | lưu texture dạng JPEG: file nhỏ hơn khoảng 4 lần (`.glb`) |
+| `--ai hunyuan` | hình dạng do Hunyuan3D-2mv tạo trên máy này (mục 5) |
+| `--ai D:\hinh.glb` | hình dạng lấy từ file `.glb`, `.obj` hoặc `.stl` làm bằng công cụ AI khác (mục 5) |
+| `--ai-steps 50` | số bước của Hunyuan3D-2mv (mặc định 30; nhiều hơn thì lâu hơn, mịn hơn) |
+| `--no-clip` | giữ cả phần hình AI nhô ra ngoài đường viền các ảnh (mặc định: cắt bỏ) |
 
 ## 4. Dùng model làm thú trong game
 
@@ -116,7 +120,44 @@ python -m photo3d D:\anh\meo --rig --faces 4000 --texture 512 --jpeg -o packages
 - Xem thử: `npm run dev` rồi mở http://localhost:5173/model-viewer.html?only=leafkit (bấm `walk`, `attack`...).
 - Loài mới (không thay loài có sẵn) còn cần khai báo trong dữ liệu game (`packages/shared/src/data/`).
 
-## 5. Chất lượng đo được
+## 5. Chế độ AI: hình dạng chi tiết hơn
+
+Dựng từ bóng không thấy được chỗ lõm và phải đoán độ dày phần bị che. Chế độ AI để một model AI tạo hình dạng 3D từ chính các ảnh của bạn. Sau đó photo3d:
+- tự dựng đứng, xoay, co giãn hình cho khớp ảnh (thử cả 6 trục đứng, mọi góc xoay, cả hình soi gương);
+- cắt bỏ phần AI tự bịa nhô ra ngoài đường viền các ảnh;
+- dán màu từ ảnh thật, rồi gắn xương như thường.
+
+Có hai cách lấy hình AI.
+
+**Cách 1: Hunyuan3D-2mv chạy ngay trên máy bạn.** Đây là model mã nguồn mở của Tencent, nhận đúng 4 ảnh trước, trái, sau, phải.
+- Cần: GPU NVIDIA có từ 6 GB bộ nhớ (không có thì chạy bằng CPU, 20–40 phút một model), Python 3.10–3.12, khoảng 10 GB ổ đĩa, có mạng ở lần đầu.
+- Cài một lần:
+  ```powershell
+  npm.cmd run photo3d:ai-setup
+  ```
+  Lệnh tạo môi trường Python riêng `tools/photo3d/.venv-ai`, cài PyTorch (bản CUDA khi thấy GPU NVIDIA) và `hy3dgen`, rồi tải model (vài GB). Sau đó `npm run photo3d` và `npm run photo3d:web` tự dùng môi trường này.
+- Dùng: trên trang web chọn **Hình dạng: AI trên máy này**. Hoặc dòng lệnh:
+  ```powershell
+  npm.cmd run photo3d -- D:\anh\meo --ai hunyuan --rig --faces 4000 --texture 512 --jpeg
+  ```
+- Hunyuan3D-2mv học từ ảnh chụp ngang tầm, nền đã tách. Chụp ngang tầm vật cho kết quả tốt nhất.
+
+**Cách 2: hình 3D làm bằng bất kỳ công cụ AI nào.** Ví dụ trang demo Hunyuan3D trên Hugging Face, Tripo, Meshy, TRELLIS, TripoSR. Tải hình về dạng `.glb` (không nén Draco), `.obj` hoặc `.stl`, rồi:
+- trên trang web: chọn **Hình 3D làm sẵn bằng công cụ AI** và thả file vào;
+- hoặc dòng lệnh: `--ai D:\hinh.glb`.
+
+Màu của file AI bị bỏ qua; màu luôn lấy từ ảnh thật của bạn.
+
+**Đọc kết quả:** dòng "đường viền khớp ảnh" (trên trang web và trong nhật ký) cho biết hình AI khớp ảnh đến đâu.
+- Từ 95 % trở lên là tốt.
+- Dưới 88 % thì có cảnh báo. Hãy kiểm tra ảnh đã đúng ô chưa, hoặc so với model dựng từ đường viền (không dùng AI).
+
+**Giấy phép Hunyuan3D-2:** dùng Tencent Hunyuan 3D 2.0 Community License.
+- Không được dùng ở **Liên minh châu Âu, Anh và Hàn Quốc**, kể cả model nó tạo ra. Vì vậy đừng đưa model do Hunyuan3D tạo vào bản game phát hành ở các nơi đó.
+- Dùng thương mại được khi sản phẩm dưới 1 triệu người dùng mỗi tháng.
+- Muốn tránh các điều kiện này thì dùng cách 2 với model có giấy phép MIT, như TRELLIS hoặc TripoSR.
+
+## 6. Chất lượng đo được
 
 Bộ thử: chụp (render) các model có sẵn của game và vài đồ vật bằng Blender, chạy công cụ, so với model gốc. Sai số Chamfer tính theo % chiều cao vật (thấp là tốt), F-score là tỉ lệ bề mặt nằm trong 2% chiều cao so với bản gốc (cao là tốt).
 
@@ -138,9 +179,21 @@ Bộ thử: chụp (render) các model có sẵn của game và vài đồ vật
 - Bộ sai: nhân vật ranger chụp gần từ trên cao. Hai chân dính nhau trong khối dựng nên nó chỉ nhún nhảy.
 - Model chạy đúng 4 animation trong trình xem model của game (three.js), cạnh thú gốc.
 
+**Chế độ AI** (đo trên 7 bộ ảnh; model AI thật không chạy được trong môi trường phát triển nên dùng hình chuẩn thay cho hình AI, xoay và co giãn ngẫu nhiên như file AI xuất ra):
+- Tìm lại đúng tư thế: lệch trung bình 0,1 % chiều cao với thú có chân, dưới 1,5 % với vật tròn hay hộp; mất khoảng 3 giây.
+
+| Hình dạng | Sai số | F-score |
+|---|---|---|
+| Dựng từ đường viền (không AI) | 2,32 % | 0,68 |
+| Hình AI đúng hoàn toàn | 1,50 % | 0,84 |
+| Hình AI sai lệch đến 4 % chiều cao, có cắt theo đường viền | 2,44 % | 0,58 |
+| Như trên, không cắt (`--no-clip`) | 2,70 % | 0,51 |
+
+Hình đúng hoàn toàn chạm mức tốt nhất mà phép đo này cho phép, vì model gốc có các mặt chồng bên trong. Vậy chế độ AI tốt hơn rõ khi AI tạo hình sát với vật thật; nếu AI sai nhiều thì nên so với cách dựng từ đường viền.
+
 Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ảnh. Để so sánh: khối thô (visual hull vuông) ban đầu sai khoảng 4,5 %.
 
-## 6. Giới hạn hiện tại (và cách khắc phục sau)
+## 7. Giới hạn hiện tại (và cách khắc phục sau)
 
 - **Chỗ lõm không thấy được từ 4 phía** (lòng bát, khoang trong) bị lấp đầy: giới hạn của phương pháp dựng từ bóng.
 - **Phần bị che phía sau** (đuôi sau thân, gai lưng) phải đoán độ dày: dùng giả định "mảnh và tròn"; thêm ảnh từ trên xuống sẽ chính xác hơn.
@@ -156,12 +209,16 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - Tai, cánh, ngón tay không có xương riêng: chúng đi theo đầu hoặc thân.
   - Động tác là 4 động tác chung của thú trong game; muốn động tác riêng thì sửa trong Blender.
 - **Trang web** chạy trên máy của bạn, không phải trên internet: điện thoại phải cùng mạng Wi-Fi. Ảnh HEIC của iPhone cần `pip install pillow-heif`, hoặc chọn Cài đặt > Camera > Định dạng > Tương thích nhất để máy chụp JPG.
-- **Không có normal map:** khối dựng từ bóng vốn trơn, còn chi tiết nhỏ (lông, đường may, nếp nhăn) đã nằm sẵn trong màu ảnh, kèm cả bóng sáng thật. Một normal map đoán từ ảnh sẽ tạo nổi khối giả: bóng bị tính hai lần, trông bẩn hơn, và tốn thêm một texture trên điện thoại. Chỉ đáng làm khi có hình dạng chi tiết từ chế độ AI (lộ trình mục 2).
+- **Chế độ AI:**
+  - Phần không ảnh nào thấy (dưới bụng, kẽ chân) là AI đoán, và màu ở đó vẫn bị kéo giãn từ ảnh gần nhất.
+  - Hình AI được ghép với ảnh qua lưới khối (128 ô theo chiều dài nhất, `--res` để tăng), nên chi tiết nhỏ hơn khoảng 1 % chiều cao bị làm mịn.
+  - Phần chạy Hunyuan3D-2mv viết theo mã nguồn thư viện `hy3dgen` 2.0.2. Lần chạy thật đầu tiên sẽ trên máy bạn.
+- **Không có normal map:** khối dựng từ bóng vốn trơn, còn chi tiết nhỏ (lông, đường may, nếp nhăn) đã nằm sẵn trong màu ảnh, kèm cả bóng sáng thật. Một normal map đoán từ ảnh sẽ tạo nổi khối giả: bóng bị tính hai lần, trông bẩn hơn, và tốn thêm một texture trên điện thoại. Hình từ chế độ AI cũng được làm mịn khi ghép với ảnh, nên normal map vẫn để sau.
 
-## 7. Lộ trình
+## 8. Lộ trình
 
 1. ~~Dựng từ bóng + dán màu ảnh, xuất GLB, chạy trong Blender~~ (xong)
-2. Chế độ AI (cần GPU NVIDIA hoặc chờ lâu trên CPU): dùng model mã nguồn mở **Hunyuan3D-2mv** (nhận đúng 4 ảnh trước/trái/sau/phải), **TripoSR** hoặc **TRELLIS** để có hình dạng chi tiết hơn, rồi dán màu bằng bước chiếu ảnh của photo3d. Cần tải model từ Hugging Face.
+2. ~~Chế độ AI: Hunyuan3D-2mv trên máy có GPU, hoặc hình từ công cụ AI bất kỳ; tự căn cho khớp ảnh, dán màu từ ảnh thật~~ (xong, mục 5). Còn lại: chạy TRELLIS (giấy phép MIT) ngay trong photo3d.
 3. ~~Ảnh điện thoại chụp gần/từ trên (EXIF), ảnh chéo 45°, tự chọn khối tròn hay vuông~~ (xong)
 4. ~~Texture liền mạch (hoà màu ở đường nối)~~ (xong). Normal map: để sau, khi có chế độ AI (lý do ở phần Giới hạn).
 5. ~~Tự gắn xương và animation đứng/đi/tấn công/bị đánh như thú trong game~~ (xong). Còn lại: dọn lưới (retopology) bằng Blender.
@@ -179,6 +236,8 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - `texture.py`: dán màu, hoà màu ở đường nối.
   - `rig.py`: tìm chân, đầu, đuôi, tay; trọng số da; animation.
   - `export.py`: xuất GLB/OBJ.
+  - `meshio.py`: đọc hình 3D `.obj`, `.glb`, `.stl` của công cụ khác.
+  - `ai.py`: chế độ AI: chạy Hunyuan3D-2mv, xoay và căn hình cho khớp ảnh, chuyển thành lưới khối.
   - `pipeline.py`: ghép tất cả lại.
   - `web.py` và `web/`: trang web (chỉ dùng thư viện chuẩn của Python; three.js lấy từ `node_modules` của game, không có thì lấy từ CDN).
 - Test: `cd tools/photo3d && python -m pytest`
