@@ -8,17 +8,18 @@ import pytest
 
 from photo3d import ai
 from photo3d.__main__ import find_photos
-from photo3d.calibrate import fit
+from photo3d.calibrate import calibrate, fit
 from photo3d.cameras import Camera
 from photo3d.carve import Shape, carve, intervals, make_grid
 from photo3d.export import png_bytes, write_glb
-from photo3d.images import align, exif_orientation, exif_tags, key_out, load_image
+from photo3d.images import align, bbox, cut_out, exif_orientation, exif_tags, key_out, load_image, load_views
 from photo3d.mesh import edges_of, extract, surface_nets
 from photo3d.meshio import load_mesh
 from photo3d.pipeline import build
 from photo3d.prior import choose_shape
 from photo3d.rig import build as build_rig
 from photo3d.rig import quaternion, skin
+from photo3d.sheet import MAP, RING4, RING8, parse_grid, split_sheet
 from photo3d.texture import TexturedMesh, face_adjacency, texture
 from photo3d.views import camera_for
 from photo3d.web import App, file_name, options_from, parse_form, start
@@ -446,8 +447,8 @@ def test_web_page_builds_shows_and_installs_a_model(tmp_path):
         assert err.value.code == 404
         rgb, mask = disk()
         photo = png_bytes((np.dstack([rgb, mask]) * 255).astype(np.uint8))
-        with pytest.raises(HTTPError) as err:  # one photo is not enough
-            post("/api/jobs", *multipart({}, {"front": ("a.png", photo)}))
+        with pytest.raises(HTTPError) as err:  # two photos but no side one
+            post("/api/jobs", *multipart({}, {"front": ("a.png", photo), "back": ("b.png", photo)}))
         assert err.value.code == 400 and "phải" in json.load(err.value)["error"]
 
         options = json.dumps({"rig": True, "res": 48, "faces": 1500})
@@ -746,3 +747,214 @@ def test_web_page_takes_the_shape_from_an_uploaded_ai_mesh(tmp_path):
 def _form(photos, options, mesh):
     body, kind = multipart({"options": options}, {**photos, "ai_mesh": mesh})
     return body, {"Content-Type": kind}
+
+
+TURN9 = ("front", "front_right", "right", "back_right", "back", "back_left", "left", "front_left", "top")
+
+
+def render_view(shape, name, size=120):
+    """A photo of a voxel shape from the named side on a white backdrop,
+    colored by position so that every side looks different: (rgb, mask)."""
+    solid = np.stack(np.nonzero(shape.field > 0.5), -1) * shape.grid.h + shape.grid.origin
+    cam = camera_for(name, scale=1.4 / size, x0=size / 2, y0=size / 2)
+    order = np.argsort(-cam.depth(solid))  # far points first, the near ones painted over them
+    uv = np.floor(cam.project(solid[order])).astype(int)
+    colors = np.clip(0.2 + 0.6 * (solid[order] - solid.min(0)) / np.ptp(solid, 0), 0, 1)
+    rgb, mask = np.ones((size, size, 3), np.float32), np.zeros((size, size), bool)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            y, x = np.clip(uv[:, 1] + dy, 0, size - 1), np.clip(uv[:, 0] + dx, 0, size - 1)
+            rgb[y, x], mask[y, x] = colors, True
+    return rgb, mask
+
+
+def sheet_image(names, cols, size=120, gap=16, lines=False, captions=False, top_up=False):
+    """Photos of the test animal from the named sides on one white sheet, `cols`
+    to a row (None leaves a cell empty); top_up turns the top view's front up."""
+    shape = creature("animal")
+    rows = -(-len(names) // cols)
+    img = np.ones((rows * size + (rows + 1) * gap, cols * size + (cols + 1) * gap, 3), np.float32)
+    for k, name in enumerate(names):
+        if name is None:
+            continue
+        rgb, mask = render_view(shape, name, size)
+        if top_up and name == "top":
+            rgb, mask = rgb[::-1, ::-1], mask[::-1, ::-1]
+        y0, x0 = gap + (k // cols) * (size + gap), gap + (k % cols) * (size + gap)
+        img[y0:y0 + size, x0:x0 + size][mask] = rgb[mask]
+        if captions:  # a label under each view
+            img[y0 + size + 3:y0 + size + 9, x0 + size // 3:x0 + 2 * size // 3] = 0.1
+    if lines:  # grid lines and a frame
+        for r in range(rows + 1):
+            img[r * (size + gap) + gap // 2] = 0.0
+        for c in range(cols + 1):
+            img[:, c * (size + gap) + gap // 2] = 0.0
+    return img
+
+
+def boxed_iou(a, b):
+    """Overlap of two cut-outs, each cropped to its own box."""
+    (l, t, r, bt), (l2, t2, r2, b2) = bbox(a), bbox(b)
+    a, b = a[t:bt, l:r], b[t2:b2, l2:r2]
+    h, w = min(a.shape[0], b.shape[0]), min(a.shape[1], b.shape[1])
+    return (a[:h, :w] & b[:h, :w]).sum() / (a[:h, :w] | b[:h, :w]).sum()
+
+
+def test_sheet_views_are_found_named_and_cut_clean():
+    truth = {n: render_view(creature("animal"), n)[1] for n in TURN9}
+    photos, report = split_sheet(sheet_image(TURN9, 3, lines=True, captions=True), layout="turn")
+    assert report["grid"] == [3, 3] and report["layout"] == "turn" and list(photos) == list(TURN9)
+    for name, (rgb, alpha) in photos.items():
+        mask = cut_out(rgb, alpha, "key")[0] > 0.5  # without the caption under it, nothing lost
+        assert abs(int(mask.sum()) - int(truth[name].sum())) < 0.02 * truth[name].sum(), name
+    views, info = load_views(photos, method="key")
+    _, cams = calibrate(views, (info["width"], info["depth"]))
+    assert cams["agreement"] > 0.97
+
+
+def test_sheet_layouts_and_grids():
+    for names, cols in ((RING4, 4), (RING8, 4), (RING4 + ("top", None), 3)):
+        photos, _ = split_sheet(sheet_image(names, cols))
+        assert list(photos) == [n for n in names if n], names
+    photos, report = split_sheet(sheet_image(RING4 + ("top", None), 3), grid=(2, 3))  # equal cells
+    assert list(photos) == list(RING4) + ["top"] and report["grid"] == [2, 3]
+    cells = [n for row in MAP for n in row]  # each view where its camera stands, the top one front up
+    photos, report = split_sheet(sheet_image(cells, 3, top_up=True))  # the layout for 3 x 3 sheets
+    assert sorted(photos) == sorted(cells) and report["layout"] == "map"
+    top, truth = cut_out(*photos["top"], "key")[0] > 0.5, render_view(creature("animal"), "top")[1]
+    assert boxed_iou(top, truth) > 0.9 > boxed_iou(top, truth[::-1, ::-1])  # turned back to front down
+    with pytest.raises(ValueError, match="grid"):
+        split_sheet(sheet_image(RING8[:6], 3))  # six views make no layout
+    with pytest.raises(ValueError, match="3 x 3"):
+        split_sheet(sheet_image(RING4, 4), layout="map")
+    one = sheet_image(["front"], 1)
+    photos, report = split_sheet(one, single="front")
+    assert list(photos) == ["front"] and photos["front"][0] is one and report["layout"] == "single"
+    assert parse_grid("2x4") == (2, 4) and parse_grid("auto") is None
+
+
+def test_model_from_a_sheet_image(tmp_path):
+    from photo3d.__main__ import main
+
+    path = str(tmp_path / "sheet.png")
+    img = sheet_image([n for row in MAP for n in row], 3, lines=True, top_up=True)
+    with open(path, "wb") as f:
+        f.write(png_bytes((img * 255).astype(np.uint8)))
+    report = main([path, "--res", "48", "--faces", "1500", "--cutout", "key"])
+    assert report["sheet"]["grid"] == [3, 3] and report["camera"]["agreement"] > 0.95
+    assert os.path.isfile(str(tmp_path / "sheet.glb"))
+
+
+def spotted_front(size=160):
+    """A photo of the test animal from the front with a red spot on its face: (rgb, mask)."""
+    rgb, mask = render_view(creature("animal"), "front", size)
+    yy, xx = np.mgrid[0:size, 0:size]
+    rgb[mask & (np.hypot(xx - size / 2, yy - 0.31 * size) < 0.045 * size)] = (0.9, 0.1, 0.1)
+    return rgb, mask.astype(np.float32)
+
+
+def red(rgb, mask):
+    """Share of the cut-out that is the red spot's color."""
+    spot = (rgb[..., 0] > 0.7) & (rgb[..., 1] < 0.3) & (mask > 0.5)
+    return spot.sum() / max((mask > 0.5).sum(), 1)
+
+
+def test_single_photo_is_blown_up_and_colored_all_round(tmp_path):
+    from photo3d.texture import fill_views
+
+    report, (mesh, tm, views, shape) = build({"front": spotted_front()}, str(tmp_path / "m.glb"), res=48,
+                                              faces=2000, log=lambda *a: None)
+    assert report["mode"] == "inflate" and report["single"] == "front" and "agreement" not in report["camera"]
+    assert 0.3 < report["depth"] < report["width"] + 0.05  # round cross sections: about as deep as wide
+    assert tm.view_names == ["front", "right", "back", "left", "top"]
+    counts = np.bincount(tm.face_views, minlength=5)
+    assert counts[0] > 0.25 * counts.sum() and counts[2] > 0.15 * counts.sum()  # the back is not the photo's
+    filled = fill_views(mesh, views, shape, ["back"])["back"]
+    assert red(views["front"].rgb, views["front"].mask) > 0.01 and red(filled.rgb, filled.mask) < 0.001
+
+
+def test_single_photo_takes_an_ai_shape(tmp_path):
+    shape = creature("animal")
+    mesh = surface_nets(shape.field, shape.grid.origin, shape.grid.h)
+    path = str(tmp_path / "ai.obj")
+    with open(path, "w") as f:  # an image-to-3D tool's mesh: its own size and place, standing on +Y facing +Z
+        f.writelines(f"v {x} {y} {z}\n" for x, y, z in mesh.vertices * 3.0 + (5.0, 1.0, -2.0))
+        f.writelines(f"f {a + 1} {b + 1} {c + 1}\n" for a, b, c in mesh.faces)
+    report, _ = build({"front": spotted_front()}, str(tmp_path / "m.glb"), res=48, faces=2000, ai=path,
+                      log=lambda *a: None)
+    fit = report["ai"]
+    assert fit["up"] == "+y" and min(fit["yaw"], 360 - fit["yaw"]) < 15 and not fit["mirrored"]
+    assert fit["agreement"] > 0.85 and abs(report["depth"] / report["width"] - 1.2 / 0.633) < 0.2  # its depth
+
+
+def test_single_side_photo_goes_to_hunyuan_as_its_front(fake_hunyuan, tmp_path):
+    from types import SimpleNamespace
+
+    shape = creature("animal")
+    mesh = surface_nets(shape.field, shape.grid.origin, shape.grid.h)
+    # Hunyuan3D makes the side it was shown its front (+Z): here the animal's right flank
+    fake_hunyuan["result"] = [SimpleNamespace(vertices=mesh.vertices @ ai._turn(90).T, faces=mesh.faces)]
+    rgb, mask = render_view(shape, "right", 160)
+    report, _ = build({"right": (rgb, mask.astype(np.float32))}, str(tmp_path / "m.glb"), res=48, faces=2000,
+                      ai="hunyuan", log=lambda *a: None)
+    assert list(fake_hunyuan["images"]) == ["front"]
+    assert abs((report["ai"]["yaw"] + 180) % 360 - 180) <= 10 and report["ai"]["agreement"] > 0.85
+    assert report["depth"] > 1.5 * report["width"]  # turned back: long from front to back, as the animal is
+
+
+def test_one_photo_on_the_command_line(tmp_path):
+    from photo3d.__main__ import main
+
+    rgb, mask = spotted_front()
+    path = str(tmp_path / "meo.png")
+    with open(path, "wb") as f:  # a plain photo: the animal on white
+        f.write(png_bytes((np.where(mask[..., None] > 0.5, rgb, 1.0) * 255).astype(np.uint8)))
+    report = main([path, "--res", "40", "--faces", "1200", "--cutout", "key"])
+    assert report["single"] == "front" and report["sheet"]["layout"] == "single"
+    assert os.path.isfile(str(tmp_path / "meo.glb"))
+
+
+def test_web_page_reads_one_image(tmp_path):
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    app = App(root=str(tmp_path / "jobs"), models=None)
+    server = start(app, port=0, host="127.0.0.1")
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def post(path, fields, files):
+        body, kind = multipart(fields, files)
+        return urlopen(Request(base + path, data=body, headers={"Content-Type": kind}))
+
+    def png(img):
+        return png_bytes((img * 255).astype(np.uint8))
+
+    sheet = png(sheet_image([n for row in MAP for n in row], 3, top_up=True))
+    rgb, mask = spotted_front()
+    photo = png(np.where(mask[..., None] > 0.5, rgb, 1.0))
+    try:
+        found = json.load(post("/api/split", {"options": "{}"}, {"image": ("s.png", sheet)}))
+        assert found["layout"] == "map" and found["grid"] == [3, 3] and len(found["boxes"]) == 9
+        assert found["size"] == [424, 424]
+        turned = json.load(post("/api/split", {"options": json.dumps({"layout": "turn"})}, {"image": ("s.png", sheet)}))
+        assert list(turned["boxes"])[:2] == ["front", "front_right"]
+        one = json.load(post("/api/split", {"options": json.dumps({"view": "front_right"})}, {"image": ("m.png", photo)}))
+        assert one["layout"] == "single" and list(one["boxes"]) == ["front_right"]
+        with pytest.raises(HTTPError) as err:  # six views make no layout
+            post("/api/split", {"options": "{}"}, {"image": ("six.png", png(sheet_image(RING8[:6], 3)))})
+        assert err.value.code == 400 and "found 6 views" in json.load(err.value)["error"]
+
+        options = json.dumps({"res": 40, "faces": 1200, "cutout": "key"})
+        job = json.load(post("/api/jobs", {"options": options}, {"image": ("s.png", sheet)}))["id"]
+        app.run_next(timeout=5)
+        status = json.load(urlopen(f"{base}/api/jobs/{job}"))
+        assert status["state"] == "done", status["error"]
+        assert status["report"]["sheet"]["layout"] == "map" and len(status["cutouts"]) == 9
+        job = json.load(post("/api/jobs", {"options": options}, {"front": ("m.png", photo)}))["id"]  # one photo, in its slot
+        app.run_next(timeout=5)
+        status = json.load(urlopen(f"{base}/api/jobs/{job}"))
+        assert status["state"] == "done", status["error"]
+        assert status["report"]["single"] == "front" and status["report"]["mode"] == "inflate"
+    finally:
+        server.shutdown()
+        app.close()

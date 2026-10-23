@@ -1,7 +1,8 @@
 """
-The photo3d web page: drop the photos in, pick what the model is for, follow
-the progress, turn the model around in 3D (with its animations), download it
-or put it straight into the game.
+The photo3d web page: drop the photos in (or one image: a sheet of views or
+a single photo, see sheet.py), pick what the model is for, follow the
+progress, turn the model around in 3D (with its animations), download it or
+put it straight into the game.
 
     python -m photo3d --web        (or: npm run photo3d:web)
 
@@ -32,9 +33,10 @@ import numpy as np
 
 from .ai import hunyuan_status
 from .export import png_bytes
-from .images import IMAGE_EXT, _resize
+from .images import IMAGE_EXT, _resize, load_image
 from .meshio import FORMATS as MESH_EXT
 from .pipeline import build
+from .sheet import LAYOUTS, parse_grid, split_sheet
 from .views import VIEW_NAMES, missing_sides
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -113,6 +115,24 @@ def options_from(text):
                 rig=bool(o.get("rig")), jpeg=bool(o.get("jpeg")))
 
 
+def sheet_options(text):
+    """How to read one uploaded image, from the page's JSON: the layout and
+    grid of a sheet, and the side a single photo shows (split_sheet's keywords)."""
+    try:
+        o = json.loads(text or "{}")
+    except ValueError:
+        o = {}
+    if not isinstance(o, dict):
+        o = {}
+    try:
+        grid = parse_grid(o.get("grid"))
+    except ValueError:
+        grid = None
+    view = o.get("view")
+    return {"layout": o.get("layout") if o.get("layout") in LAYOUTS else "auto", "grid": grid,
+            "single": view if view in VIEW_NAMES and view != "top" else "front"}
+
+
 def file_name(text):
     """A safe ASCII file name ("Mèo con" -> "Meo_con")."""
     text = unicodedata.normalize("NFD", text).replace("đ", "d").replace("Đ", "D")
@@ -135,9 +155,10 @@ def _jsonable(value):
 class Job:
     """One model being built: its photos, options, progress and result."""
 
-    def __init__(self, folder, photos, options, name):
+    def __init__(self, folder, photos, options, name, image=None, how=None):
         self.id = secrets.token_hex(8)
         self.folder, self.photos, self.options, self.name = folder, photos, options, name
+        self.image, self.how = image, how  # one image to split (see sheet.py) instead of photos
         self.state = "waiting"  # running, done, failed
         self.step, self.log, self.error, self.report = "", [], None, None
         self.cutouts = {}  # view -> PNG of the cut-out photo
@@ -176,26 +197,44 @@ class App:
         return {"species": self.species if self.models else [], "three": "local" if os.path.isdir(THREE) else "cdn",
                 "ai": self.ai}
 
-    def submit(self, photos, options, name="model", ai_mesh=None):
-        """photos: {view: (file name, bytes)}; ai_mesh: (file name, bytes) of a
-        mesh to take the shape from. Queues the job and returns it."""
+    def submit(self, photos, options, name="model", ai_mesh=None, image=None, how=None):
+        """photos: {view: (file name, bytes)}, or image: (file name, bytes) of
+        one image holding them, read as `how` says (sheet_options); ai_mesh:
+        (file name, bytes) of a mesh to take the shape from. Queues the job
+        and returns it."""
         folder = tempfile.mkdtemp(prefix="job-", dir=self.root)
         paths = {}
-        for view, (filename, data) in photos.items():
+        for view, (filename, data) in dict(photos, **({"image": image} if image else {})).items():
             ext = os.path.splitext(filename or "")[1].lower()
             paths[view] = os.path.join(folder, view + (ext if ext in IMAGE_EXT else ".jpg"))
             with open(paths[view], "wb") as f:
                 f.write(data)
+        image = paths.pop("image", None)
         if ai_mesh:
             stem, ext = os.path.splitext(ai_mesh[0])
             options = dict(options, ai=os.path.join(folder, file_name(stem) + ext.lower()))  # its name shows on the page
             with open(options["ai"], "wb") as f:
                 f.write(ai_mesh[1])
-        job = Job(folder, paths, options, name)
+        job = Job(folder, paths, options, name, image, how)
         with self.lock:
             self.jobs[job.id] = job
         self.todo.put(job)
         return job
+
+    def split(self, image, how):
+        """What split_sheet makes of an uploaded image (file name, bytes):
+        {layout, grid, boxes, size} for the page to show before building."""
+        filename, data = image
+        ext = os.path.splitext(filename or "")[1].lower()
+        fd, path = tempfile.mkstemp(suffix=ext if ext in IMAGE_EXT else ".jpg", dir=self.root)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        try:
+            rgb, alpha, _ = load_image(path)
+        finally:
+            os.remove(path)
+        _, sheet = split_sheet(rgb, alpha, **how)
+        return dict(sheet, size=[int(rgb.shape[1]), int(rgb.shape[0])])
 
     def status(self, job):
         with self.lock:
@@ -224,7 +263,15 @@ class App:
             job.step = step
 
         try:
-            report, (_, _, views, _) = build(job.photos, job.model, log=log, progress=progress, **job.options)
+            photos, sheet = job.photos, None
+            if job.image:
+                rgb, alpha, _ = load_image(job.image)
+                photos, sheet = split_sheet(rgb, alpha, **job.how)
+                log("image: " + ("a single photo" if sheet["layout"] == "single" else
+                                 f"{len(photos)} views ({sheet['grid'][0]} x {sheet['grid'][1]}, {sheet['layout']})"))
+            report, (_, _, views, _) = build(photos, job.model, log=log, progress=progress, **job.options)
+            if sheet:
+                report["sheet"] = sheet
             job.cutouts = {n: cutout_png(v) for n, v in views.items()}
             job.report = json.loads(json.dumps(report, default=_jsonable))
             job.state = "done"
@@ -338,6 +385,8 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         if path == "/api/jobs":
             return self._new_job(body)
+        if path == "/api/split":
+            return self._split(body)
         m = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/install", path)
         if m:
             job = self.app.jobs.get(m.group(1))
@@ -355,13 +404,15 @@ class Handler(BaseHTTPRequestHandler):
             fields = parse_form(self.headers.get("Content-Type", ""), body)
         except ValueError:
             return self._error(400, "Yêu cầu không hợp lệ.")
-        photos = {v: fields[v] for v in VIEW_NAMES if v in fields and fields[v][1]}
-        missing = missing_sides(photos)
+        image = fields.get("image") if fields.get("image", (None, b""))[1] else None
+        photos = {} if image else {v: fields[v] for v in VIEW_NAMES if v in fields and fields[v][1]}
+        missing = missing_sides(photos) if len(photos) != 1 and not image else []  # one photo: the rest is guessed
         if missing:
             names = ", ".join(SIDES_VI[v] for v in missing)
             return self._error(400, f"Thiếu ảnh: {names}. Cần ít nhất ảnh trước (hoặc sau) và ảnh phải "
-                                    "(hoặc trái), tốt nhất đủ cả 4 phía.")
-        options = options_from(fields.get("options", (None, b"{}"))[1].decode("utf-8", "replace"))
+                                    "(hoặc trái), tốt nhất đủ cả 4 phía; hoặc chỉ một ảnh.")
+        text = fields.get("options", (None, b"{}"))[1].decode("utf-8", "replace")
+        options = options_from(text)
         name = file_name(fields.get("name", (None, b"model"))[1].decode("utf-8", "replace"))
         ai_mesh = fields.get("ai_mesh")
         if ai_mesh and ai_mesh[1]:
@@ -369,8 +420,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(400, "File hình 3D phải là .glb, .obj hoặc .stl.")
         else:
             ai_mesh = None
-        job = self.app.submit(photos, options, name, ai_mesh)
+        job = self.app.submit(photos, options, name, ai_mesh, image, sheet_options(text) if image else None)
         return self._json({"id": job.id})
+
+    def _split(self, body):
+        try:
+            fields = parse_form(self.headers.get("Content-Type", ""), body)
+        except ValueError:
+            return self._error(400, "Yêu cầu không hợp lệ.")
+        image = fields.get("image")
+        if not image or not image[1]:
+            return self._error(400, "Chưa có ảnh.")
+        how = sheet_options(fields.get("options", (None, b"{}"))[1].decode("utf-8", "replace"))
+        try:
+            return self._json(self.app.split(image, how))
+        except Exception as e:  # unreadable image, nothing found, a layout that does not fit: told on the page
+            return self._error(400, str(e) or type(e).__name__)
 
     def _page(self):
         with open(os.path.join(PAGE, "index.html"), encoding="utf-8") as f:

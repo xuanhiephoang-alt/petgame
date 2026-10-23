@@ -20,9 +20,83 @@
   <main class="layout">
     <section class="panel controls" aria-label="Ảnh và tuỳ chọn">
       <h2><span class="num">1</span>Ảnh của vật</h2>
+      <div class="modes" role="radiogroup" aria-label="Cách đưa ảnh vào">
+        <label class="mode"><input type="radio" name="mode" value="slots" checked><span>Mỗi phía một ảnh</span></label>
+        <label class="mode"><input type="radio" name="mode" value="one"><span>Một ảnh</span></label>
+      </div>
+      <div id="onePanel" hidden>
+        <p class="hint">Một <b>ảnh chụp vật</b>: AI đoán các mặt còn lại. Hoặc một <b>ảnh ghép nhiều góc</b> của vật
+          (9 góc 3 × 3, 4 hoặc 8 góc), xếp như hướng dẫn bên dưới: photo3d tự tách từng góc.</p>
+        <label class="onedrop" id="oneDrop">
+          <input type="file" id="oneFile" accept="image/*,.heic,.heif" class="vh">
+          <span class="oneempty" id="oneEmpty">
+            <svg viewBox="0 0 40 40" aria-hidden="true"><rect x="5" y="8" width="30" height="24" rx="4" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M9 28l8-9 6 6 4-4 5 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="27" cy="15" r="2.6" fill="currentColor"/></svg>
+            <b>Thả một ảnh vào đây</b><small>hoặc bấm để chọn ảnh</small></span>
+          <span class="onepreview" id="onePreview" hidden><img id="oneImg" alt="Ảnh đã chọn"><span class="boxes" id="oneBoxes"></span></span>
+        </label>
+        <p class="note" id="oneNote" role="status" hidden></p>
+        <div class="fields">
+          <label class="field">Thứ tự các góc
+            <select id="layout">
+              <option value="auto">Tự chọn</option>
+              <option value="map">Bản đồ (như các ô ảnh)</option>
+              <option value="turn">Lần lượt quanh vật</option>
+            </select></label>
+          <label class="field">Số ô
+            <select id="grid">
+              <option value="auto">Tự tìm</option>
+              <option value="1x1">1 ảnh duy nhất</option>
+              <option value="3x3">3 × 3</option>
+              <option value="2x4">2 × 4</option>
+              <option value="2x2">2 × 2</option>
+              <option value="1x4">1 × 4</option>
+            </select></label>
+          <label class="field" id="viewField" hidden>Ảnh chụp từ phía
+            <select id="oneView">
+              <option value="front">Trước</option>
+              <option value="front_right">Trước-phải</option>
+              <option value="right">Phải</option>
+              <option value="back_right">Sau-phải</option>
+              <option value="back">Sau</option>
+              <option value="back_left">Sau-trái</option>
+              <option value="left">Trái</option>
+              <option value="front_left">Trước-trái</option>
+            </select></label>
+        </div>
+        <details class="tips">
+          <summary>Cách xếp ảnh ghép nhiều góc</summary>
+          <div class="layouts">
+            <figure>
+              <div class="mapgrid" aria-hidden="true">
+                <span>Trước-trái</span><span>Trước</span><span>Trước-phải</span>
+                <span>Trái</span><span class="mid">Trên</span><span>Phải</span>
+                <span>Sau-trái</span><span>Sau</span><span>Sau-phải</span>
+              </div>
+              <figcaption><b>3 × 3, kiểu bản đồ</b> (như các ô ảnh): mỗi góc nằm ở ô đúng chỗ máy ảnh đứng, nhìn từ trên xuống,
+                mặt trước của vật hướng lên trên. Ô giữa là ảnh từ trên xuống, mặt trước của vật ở phía trên ảnh.</figcaption>
+            </figure>
+            <figure>
+              <div class="turnrow" aria-hidden="true"><span>Trước</span><span>Phải</span><span>Sau</span><span>Trái</span></div>
+              <figcaption><b>Lần lượt quanh vật</b>, đọc từ trái sang phải, trên xuống dưới, bắt đầu từ mặt trước:
+                4 góc trước, phải, sau, trái (thêm ảnh trên thành 5); 8 góc cách nhau 45° (trước, trước-phải, phải,
+                sau-phải, sau, sau-trái, trái, trước-trái), thêm ảnh trên thành 9. Ảnh trên để mặt trước của vật
+                ở phía dưới ảnh.</figcaption>
+            </figure>
+          </div>
+          <ul>
+            <li>Nền trơn một màu, mọi góc cùng cỡ, không để các vật chạm nhau. Đường kẻ ô và chữ chú thích nhỏ không sao.</li>
+            <li>Ảnh <b>phải</b> là sườn phải của vật: đầu vật quay về phía tay phải của bạn.</li>
+          </ul>
+          <p class="hint">Chỉ có 1 ảnh? Nhờ AI vẽ ảnh (ChatGPT, Gemini...) vẽ thêm các góc: gửi ảnh kèm câu lệnh dưới đây,
+            rồi thả ảnh ghép AI vẽ vào ô bên trên (thứ tự: Lần lượt quanh vật).</p>
+          <pre class="prompt" id="prompt">Draw a turnaround sheet of exactly this object (same shape, colors and details): 4 views in one row on a plain white background, left to right: front view, right side view (facing right), back view, left side view (facing left). Same size and scale in every view, camera at the object's mid height, no perspective, no shadows, no text, views not touching.</pre>
+          <button type="button" class="ghost" id="copyPrompt">Chép câu lệnh</button>
+        </details>
+      </div>
+      <div id="slotsPanel">
       <p class="hint">Bắt buộc 4 phía <b>trước, phải, sau, trái</b>. Thêm 4 ảnh chéo và ảnh từ trên để model chính xác hơn.
         Kéo cả thư mục ảnh vào: ảnh tên <code>truoc</code>, <code>phai</code>... (hoặc <code>front</code>, <code>right</code>...) tự vào đúng ô.
-        Kéo ảnh từ ô này sang ô khác để đổi chỗ.</p>
+        Kéo ảnh từ ô này sang ô khác để đổi chỗ. Chỉ có 1 ảnh, hoặc 1 ảnh ghép nhiều góc: chọn <b>Một ảnh</b>.</p>
       <details class="tips">
         <summary>Mẹo chụp ảnh</summary>
         <ul>
@@ -41,6 +115,7 @@
         <label class="button ghost">Chọn nhiều ảnh<input type="file" id="many" accept="image/*,.heic,.heif" multiple class="vh"></label>
         <button type="button" class="ghost" id="clear">Xoá hết ảnh</button>
       </div>
+      </div>
 
       <h2><span class="num">2</span>Dùng để làm gì?</h2>
       <div class="presets" role="radiogroup" aria-label="Mục đích">
@@ -53,7 +128,7 @@
       </div>
       <label class="field wide">Hình dạng
         <select id="ai">
-          <option value="">Dựng từ đường viền các ảnh (nhanh)</option>
+          <option value="" id="aiNone">Dựng từ đường viền các ảnh (nhanh)</option>
           <option value="hunyuan" id="aiLocal">AI trên máy này: Hunyuan3D-2mv (chi tiết hơn)</option>
           <option value="file">Hình 3D làm sẵn bằng công cụ AI (.glb, .obj, .stl)</option>
         </select></label>

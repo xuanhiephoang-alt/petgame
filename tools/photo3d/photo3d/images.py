@@ -352,9 +352,13 @@ def align(raw, texture_px=1024, margin=0.04):
     orthographic projection is the projection of the 3D box, so the four
     sides agree). The top view takes its scale from the side views' widths.
     Returns (views dict, report dict with sizes and consistency warnings).
+    A single photo (of any side but the top) is aligned the same way; the
+    sizes it cannot show (the depth seen from the front...) are None.
     """
     views, report, warnings = {}, {}, []
     widths = {}
+    if len(raw) == 1:
+        return _align_single(raw, texture_px, margin)
     for name in [n for n in SIDE_VIEWS + DIAGONAL_VIEWS + ("top",) if n in raw]:
         mask = raw[name][1] > 0.5
         if mask[0].any() or mask[-1].any() or mask[:, 0].any() or mask[:, -1].any():
@@ -387,6 +391,26 @@ def align(raw, texture_px=1024, margin=0.04):
     report.update(width=float(wx), depth=float(wz), height=1.0, warnings=warnings,
                   methods={n: v.method for n, v in views.items()})
     return views, report
+
+
+def _align_single(raw, texture_px, margin):
+    ((name, item),) = raw.items()
+    if name == "top":
+        raise ValueError("a single photo must show a side of the object, not its top")
+    rgb, mask, method, focal = _unpack(item)
+    warnings = []
+    m = mask > 0.5
+    if m[0].any() or m[-1].any() or m[:, 0].any() or m[:, -1].any():
+        warnings.append(f"the object touches the edge of the {name} photo: it may be cut off "
+                        "(keep the whole object in the frame)")
+    l, t, r, b = bbox(mask)
+    scale = 1.0 / (b - t)
+    view = _crop(name, rgb, mask, method, focal, l, t, r, b, scale, (l + r) / 2, b - 0.5 / scale, margin, texture_px)
+    seen = (r - l) * scale
+    width = seen if name in ("front", "back") else None
+    depth = seen if name in ("right", "left") else None
+    return {name: view}, {"width": width, "depth": depth, "height": 1.0, "warnings": warnings,
+                          "methods": {name: method}}
 
 
 def _unpack(item):
@@ -423,10 +447,11 @@ def _crop(name, rgb, mask, method, focal, l, t, r, b, scale, cx, cy, margin, tex
 
 
 def load_views(paths, method="auto", texture_px=1024):
-    """{view name: photo path} -> (aligned Views, report)."""
+    """{view name: photo path, or (rgb, alpha or None) already loaded (a
+    view cut from a sheet)} -> (aligned Views, report)."""
     raw = {}
     for name, path in paths.items():
-        rgb, alpha, focal = load_image(path)
+        rgb, alpha, focal = load_image(path) if isinstance(path, str) else (*path, math.inf)
         mask, used = cut_out(rgb, alpha, method)
         raw[name] = (rgb, mask, used, focal)
     return align(raw, texture_px=texture_px)

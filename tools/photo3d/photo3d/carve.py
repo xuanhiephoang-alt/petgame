@@ -16,7 +16,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .images import bilinear
+from .images import _resize, bilinear
+from .texture import inner_distance
 from .views import DIAGONAL_VIEWS
 
 EXPONENTS = (3.0, 4.0, 6.0, 10.0)  # squarer cross-sections tried when diagonal photos need them
@@ -145,6 +146,43 @@ def carve(views, width, height, depth, res=128, mode="round", exponent=2.0, symm
     elif mode != "box":
         raise ValueError(f"unknown mode {mode!r}")
     return Shape(grid=grid, field=field.astype(np.float32))
+
+
+def inflate(view, res=128, levels=24):
+    """A rounded shape from a single photo's outline, as if blown up like a
+    balloon (no AI): every part is as thick as it is wide, so legs and tails
+    become tubes and a body a rounded loaf. At each point of the outline the
+    thickness is that of a round cross section through the biggest disc
+    that fits in the outline over the point. Returns (shape, (width, depth))."""
+    cam = view.camera
+    k = min(1.0, 2.0 * res / view.mask.shape[0])  # a working size about two pixels per cell
+    h, w = max(2, round(view.mask.shape[0] * k)), max(2, round(view.mask.shape[1] * k))
+    soft = np.clip(_resize(view.mask.astype(np.float32), h, w), 0, 1)
+    inside = soft > 0.5
+    big = int(max(h, w))
+    d = inner_distance(soft, max_px=big)  # pixels to the outline
+    radius = np.zeros_like(d)  # the biggest fitting disc over each pixel
+    for r in np.linspace(1.0, max(1.0, float(d.max())), levels):
+        centers = d >= r
+        if not centers.any():
+            break
+        near = inner_distance((~centers).astype(np.float32), max_px=int(r) + 2) <= r
+        radius[near & inside] = r
+    half = np.sqrt(np.clip(2 * radius * d - d * d, 0, None)) * cam.scale / k  # half-thickness, world units
+    toward, right, _ = cam.basis()
+    cols = np.flatnonzero(inside.any(axis=0))
+    u = (np.array([cols[0], cols[-1] + 1]) / k - cam.x0) * cam.scale  # the outline's sideways extent
+    corners = [a * right + b * toward for a in u for b in (-half.max(), half.max())]
+    width = 2 * max(abs(c[0]) for c in corners) + 2 * cam.scale / k
+    depth = 2 * max(abs(c[2]) for c in corners) + 2 * cam.scale / k
+    grid = make_grid(width, 1.0, depth, res)
+    pts = np.stack(np.meshgrid(*(grid.axis(a) for a in range(3)), indexing="ij"), -1).reshape(-1, 3)
+    px = cam.project(pts) * k
+    thick = bilinear(half, px[:, 0] - 0.5, px[:, 1] - 0.5)
+    outline = bilinear(soft, px[:, 0] - 0.5, px[:, 1] - 0.5)
+    off = np.abs((pts - (0.0, 0.5, 0.0)) @ toward)  # distance from the plane through the middle, facing the camera
+    field = np.minimum(np.clip(0.5 + (thick - off) / grid.h, 0, 1), outline)
+    return Shape(grid=grid, field=field.reshape(grid.shape).astype(np.float32)), (width, depth)
 
 
 def intervals(profile, coords, level=0.5):

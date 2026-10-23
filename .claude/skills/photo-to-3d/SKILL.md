@@ -1,6 +1,6 @@
 ---
 name: photo-to-3d
-description: Turn photos of an object's sides (front/right/back/left, optional diagonal and top photos) into a textured 3D model (.glb/.obj) with tools/photo3d, check the result, and refine it in Blender (Blender MCP if connected). Use when the user gives photos of a toy, figure, animal, product or prop and wants a 3D model, or asks about the photo-to-3D tool.
+description: Turn photos of an object's sides (front/right/back/left, optional diagonal and top photos), one image holding several views (a contact or turnaround sheet), or a single photo into a textured 3D model (.glb/.obj) with tools/photo3d, check the result, and refine it in Blender (Blender MCP if connected). Use when the user gives photos of a toy, figure, animal, product or prop and wants a 3D model, or asks about the photo-to-3D tool.
 ---
 
 # Photo to 3D (tools/photo3d)
@@ -51,13 +51,18 @@ description: Turn photos of an object's sides (front/right/back/left, optional d
 - Either way photo3d stands the mesh up, turns and scales it to the photos and trims what sticks out of their outlines (`--no-clip` keeps it). Read the `ai fit:` log lines: "outlines match the photos N%" should be 95% or more; below 88% a warning says to compare with the carved model (run without `--ai`).
 - License: Hunyuan3D-2 output must not be used or shown in the EU, UK or South Korea. Warn before putting such a model into a game released there; TRELLIS and TripoSR are MIT-licensed alternatives through `--ai file`.
 
-## 6. Use it as a pal in the game
+## 6. One image: a sheet of views, or a single photo
+- Pass the image instead of a folder: `npm run photo3d -- <image> [--ai hunyuan] [--rig]`. Several separate objects on a plain backdrop make a sheet; one object is a single photo. The first log line says which views were found (`report["sheet"]` has the grid and each view's box). On the web page: **Một ảnh**, which shows the views found on the image before building.
+- Sheet layouts (sheet.py): `map` (3 x 3, each view in the cell where its camera stands seen from above, front up, top view in the middle with the object's front up; the same layout as the page's photo slots) or `turn` (read like text, going round the object from the front: 4 = front, right, back, left; 8 = 45-degree steps; plus top as the 5th/9th, front down). Default `--layout auto`: map for 3 x 3, turn otherwise. Grid lines, frames and small captions are ignored; empty cells skipped. `--grid RxC` splits into equal cells when the views are not found (each cell with its own backdrop).
+- Single photo: taken as the front (`--view front_right` etc. for another side). Shape: `--ai hunyuan` (Hunyuan3D-2mv given that photo as its front, turned back by the photo's yaw; depth from the AI mesh's proportions) or `--ai shape.glb`; without an AI the outline is blown up into round cross sections (`carve.inflate`), fine for plush and pillows only. Hidden sides are colored by spreading the seen colors over the surface (`texture.fill_views`: made-up views of the back, sides and top), never the front projected through. For real colors on the back, have an image AI draw a 4-view turnaround of the photo (prompt in the README, section 6) and use it as a sheet.
+
+## 7. Use it as a pal in the game
 - `python -m photo3d <folder> --rig --faces 4000 --texture 512 --jpeg -o packages/client/public/assets/models/pal-<id>.glb`
 - `--rig` finds legs (4: `leg_fl/fr/bl/br`, 2: `leg_l/r`), `head`, `tail` and sideways arms (`arm_l/r`) from the carved shape and adds the pals' clips `idle`, `walk`, `attack`, `hurt`. Bone and clip names match `assets/blender/pals.py`, so the client loads it like any pal (`assets.ts`); no code change for an existing species id. A new species also needs its data in `packages/shared/src/data/` (game-designer).
 - Check it: `npm run dev`, open http://localhost:5173/model-viewer.html?only=<id> and press walk/attack/hurt.
 - The model is 1 unit tall like the pals and faces +Z (the front photo).
 
-## 7. Refine in Blender (optional)
+## 8. Refine in Blender (optional)
 Blender MCP lets you clean up the imported model: Mirror modifier for symmetric objects, Smooth/Decimate, fix the origin (feet at 0, facing -Y in Blender = +Z in glTF), adjust the armature or weights from `--rig` (or add one), then export GLB to `packages/client/public/assets/models/` for the game.
 
 Quality reference and limits: tools/photo3d/README.md (Vietnamese).

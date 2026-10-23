@@ -18,8 +18,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .images import _blur, bilinear
+from .images import View, _blur, _clean_mask, bilinear
 from .mesh import edges_of
+from .views import camera_for
 
 try:
     from scipy import ndimage, sparse  # type: ignore
@@ -133,6 +134,7 @@ def harmonize(views, centers, facing, vis, rim, limit=(0.7, 1.4)):
     Returns {name: (3,) gain}."""
     names = list(views)
     good = (facing > 0.3) & vis & (rim > 0.3)
+    good[:, [i for i, v in enumerate(views.values()) if v.method == "filled"]] = False  # made of the others' colors
     colors = []
     for i, n in enumerate(names):
         px = views[n].project(centers)
@@ -165,7 +167,8 @@ def choose_views(mesh, views, shape, smooth=2, seen=None):
     """Index (into list(views)) of the photo each face should use."""
     names = list(views)
     centers, facing, vis, rim = seen or observe(mesh, views, shape)
-    score = np.clip(facing, 0, None) ** 3 * vis * (0.15 + 0.85 * rim)
+    trust = np.array([FILLED if v.method == "filled" else 1.0 for v in views.values()])
+    score = np.clip(facing, 0, None) ** 3 * vis * (0.15 + 0.85 * rim) * trust
     label = np.argmax(score, axis=1)
     hidden = score.max(axis=1) <= 1e-6  # seen by no photo: fall back to facing only
     label[hidden] = np.argmax(facing[hidden], axis=1)
@@ -285,13 +288,125 @@ def _conjugate_gradient(matvec, b, inv_diag, iterations=300, tol=1e-4):
     return x
 
 
-def rasterize(corners, values, shape, chunk=2_000_000):
+# ---------------------------------------------------------------------------
+# Sides no photo shows (a single photo)
+# ---------------------------------------------------------------------------
+
+FILLED = 0.3  # how much a made-up view counts against a real photo seeing the same face
+
+
+def fill_views(mesh, views, shape, names):
+    """Made-up photos of the sides no photo shows (`names`): the mesh drawn
+    from there, colored by the photos where they see it well and smoothly
+    filled in where they do not (surface_colors). With them a single photo
+    textures the whole object instead of being projected straight through
+    it, its front showing up again on the back. Returns {name: View}."""
+    colors = surface_colors(mesh, views, shape)
+    scale = min(v.scale for v in views.values())
+    return {name: draw_view(mesh, colors, name, scale) for name in names}
+
+
+def surface_colors(mesh, views, shape, sure=0.15):
+    """A color for every vertex: from the photos that see it well (facing
+    them, not hidden, away from their outlines; softened to about the mesh's
+    edge length), and for the rest the smoothest fill joining those."""
+    pts, normals = mesh.vertices, mesh.vertex_normals()
+    surface = surface_points(shape)
+    edge = np.linalg.norm(pts[mesh.faces[:, 0]] - pts[mesh.faces[:, 1]], axis=1).mean()
+    color, weight = np.zeros((len(pts), 3)), np.zeros(len(pts))
+    for v in views.values():
+        facing = np.einsum("ij,ij->i", normals, v.camera.toward(pts))
+        seen = visible(pts, v, depth_buffer(v, surface, shape.grid.h), 2.5 * shape.grid.h)
+        w = np.clip(facing, 0, None) ** 2 * seen * rim_weight(v, pts)
+        radius = max(1, int(round(0.5 * edge / v.scale)))
+        soft = fill_background(v.rgb, v.mask)
+        soft = np.stack([_blur(soft[..., c], radius) for c in range(3)], -1)
+        px = v.project(pts)
+        color += w[:, None] * bilinear(soft, px[:, 0] - 0.5, px[:, 1] - 0.5)
+        weight += w
+    known = weight > sure
+    color[known] /= weight[known, None]
+    return harmonic_fill(mesh, color, known)
+
+
+def harmonic_fill(mesh, values, known, reg=1e-4):
+    """`values` with those of the unknown vertices replaced so that each is
+    the average of its neighbors': the smoothest fill joining the known ones
+    (parts no known vertex reaches get their mean)."""
+    if known.all():
+        return values
+    if not known.any():
+        return np.full_like(values, 0.5)
+    n = len(values)
+    unknown = np.flatnonzero(~known)
+    index = -np.ones(n, np.int64)
+    index[unknown] = np.arange(len(unknown))
+    mean = values[known].mean(0)
+    e = edges_of(mesh.faces)
+    a, b = np.concatenate([e[:, 0], e[:, 1]]), np.concatenate([e[:, 1], e[:, 0]])  # both directions
+    rows = index[a] >= 0
+    a, b = a[rows], b[rows]
+    degree = np.bincount(index[a], minlength=len(unknown)) + reg
+    rhs = reg * np.broadcast_to(mean, (len(unknown), 3)).copy()
+    from_known = known[b]
+    np.add.at(rhs, index[a[from_known]], values[b[from_known]])
+    i, j = index[a[~from_known]], index[b[~from_known]]  # unknown neighbors
+
+    def matvec(x):
+        out = degree[:, None] * x
+        np.subtract.at(out, i, x[j])
+        return out
+
+    start = np.broadcast_to(mean, (len(unknown), 3))
+    filled = start + _conjugate_gradient(matvec, rhs - matvec(start), 1.0 / degree[:, None], iterations=2000)
+    out = values.copy()
+    out[unknown] = filled
+    return out
+
+
+def draw_view(mesh, colors, name, scale, margin=3):
+    """A picture of the mesh with per-vertex colors seen from the named side,
+    `scale` world units per pixel, as a View marked "filled"."""
+    cam = camera_for(name, scale=scale)
+    px = cam.project(mesh.vertices)
+    lo, hi = px.min(0) - margin, px.max(0) + margin
+    cam.x0, cam.y0 = -lo[0], -lo[1]
+    px = px - lo
+    h, w = int(np.ceil(hi[1] - lo[1])), int(np.ceil(hi[0] - lo[0]))
+    image, covered = rasterize(px[mesh.faces], colors[mesh.faces], (h, w), depth=cam.depth(mesh.vertices)[mesh.faces])
+    mask = _clean_mask(covered).astype(np.float32)  # no pinholes between tiny triangles
+    return View(name=name, rgb=fill_background(image.astype(np.float32), mask), mask=mask, camera=cam,
+                method="filled")
+
+
+def rasterize(corners, values, shape, chunk=2_000_000, depth=None):
     """Paints triangles (corners: (F, 3, 2) pixel positions) with values
     interpolated from their corners ((F, 3, C)). Returns (image (h, w, C),
-    coverage (h, w)); pixels hit by several triangles get the average."""
+    coverage (h, w)); pixels hit by several triangles get the average, or
+    with `depth` ((F, 3), smaller = nearer) the nearest triangle's value."""
     h, w = shape
     out = np.zeros((h, w, values.shape[2]))
     hits = np.zeros((h, w))
+    nearest = np.full((h, w), np.inf)
+    for pass_ in range(1 if depth is None else 2):  # with depth: find the nearest first, then paint it
+        for f, x, y, lam in _pixels(corners, shape, chunk):
+            if depth is not None:
+                d = np.einsum("nk,nk->n", lam, depth[f])
+                if pass_ == 0:
+                    np.minimum.at(nearest, (y, x), d)
+                    continue
+                front = d <= nearest[y, x] + 1e-9
+                f, x, y, lam = f[front], x[front], y[front], lam[front]
+            np.add.at(out, (y, x), np.einsum("nk,nkc->nc", lam, values[f]))
+            np.add.at(hits, (y, x), 1)
+    out /= np.maximum(hits, 1)[..., None]
+    return out, hits > 0
+
+
+def _pixels(corners, shape, chunk):
+    """The pixels (centers) covered by each triangle, in chunks:
+    (triangle index, x, y, barycentric weights (n, 3))."""
+    h, w = shape
     lo = np.clip(np.floor(corners.min(1) - 0.5), 0, [w - 1, h - 1]).astype(np.int64)
     hi = np.clip(np.ceil(corners.max(1) - 0.5), 0, [w - 1, h - 1]).astype(np.int64)
     size = hi - lo + 1
@@ -311,14 +426,8 @@ def rasterize(corners, values, shape, chunk=2_000_000):
         l2 = (v0[:, 0] * v2[:, 1] - v2[:, 0] * v0[:, 1]) / den
         l0 = 1 - l1 - l2
         inside = (l0 >= -1e-6) & (l1 >= -1e-6) & (l2 >= -1e-6)
-        f, x, y = f[inside], x[inside], y[inside]
-        lam = np.stack([l0[inside], l1[inside], l2[inside]], 1)
-        val = np.einsum("nk,nkc->nc", lam, values[f])
-        np.add.at(out, (y, x), val)
-        np.add.at(hits, (y, x), 1)
+        yield f[inside], x[inside], y[inside], np.stack([l0[inside], l1[inside], l2[inside]], 1)
         start = stop
-    out /= np.maximum(hits, 1)[..., None]
-    return out, hits > 0
 
 
 def seam_distance(mesh, keys, rings=4):

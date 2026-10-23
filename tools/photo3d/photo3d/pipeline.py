@@ -2,24 +2,28 @@
 import os
 import time
 
-from .ai import hunyuan, shape_from_mesh
+from .ai import _turn, hunyuan, shape_from_mesh
 from .calibrate import calibrate
-from .carve import carve
+from .carve import carve, inflate
 from .export import can_jpeg, write_glb, write_obj
 from .images import load_views
 from .mesh import extract, fast_simplification
 from .meshio import load_mesh
 from .prior import choose_shape
 from .rig import build as build_rig
-from .texture import texture
-from .views import DIAGONAL_VIEWS
+from .texture import fill_views, texture
+from .views import DIAGONAL_VIEWS, SIDE_VIEWS, YAW
 
 
 def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, faces=20000,
           cutout="auto", texture_px=1024, smooth=8, thin=1.2, elevation=None, focal="auto", level=True,
           rig=False, jpeg=False, ai=None, ai_steps=30, clip=True, log=print, progress=None):
-    """photos: {view name: path} with front/right/back/left (top and the
-    diagonal ones optional). Writes `out` (.glb or .obj). Returns a report dict.
+    """photos: {view name: path, or (rgb, alpha) already loaded} with
+    front/right/back/left (top and the diagonal ones optional), or a single
+    photo of any side: its shape then comes from the AI or, without one,
+    from blowing up its outline (carve.inflate), and the sides it does not
+    show are colored from it (texture.fill_views). Writes `out` (.glb or
+    .obj). Returns a report dict.
     mode: "round", "box", or "auto" (round with diagonal photos, which pick
     the roundness slice by slice; otherwise decided from the photos, see prior.py).
     elevation/focal: camera height and focal length (see calibrate.calibrate).
@@ -37,30 +41,44 @@ def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, face
     step("photos")
     views, info = load_views(photos, method=cutout, texture_px=texture_px)
     report.update(info)
-    log(f"photos: {', '.join(f'{n} ({v.method})' for n, v in views.items())}; "
-        f"size w={info['width']:.2f} d={info['depth']:.2f} (height 1)")
+    single = next(iter(views)) if len(views) == 1 else None  # the side a single photo shows
     step("camera")
-    (width, depth), cams = calibrate(views, (info["width"], info["depth"]), elevation, focal)
+    if single:
+        log(f"photos: one, of the {single} ({views[single].method}); the other sides are guessed")
+        if isinstance(elevation, (int, float)):
+            views[single].camera.elev = float(elevation)
+        width, depth = info["width"], info["depth"]
+        cams = {"elevation": views[single].camera.elev, "perspective": False}
+        report["single"] = single
+    else:
+        log(f"photos: {', '.join(f'{n} ({v.method})' for n, v in views.items())}; "
+            f"size w={info['width']:.2f} d={info['depth']:.2f} (height 1)")
+        (width, depth), cams = calibrate(views, (info["width"], info["depth"]), elevation, focal)
+        log(f"camera: {cams['elevation']:g} degrees above"
+            + (f", {cams['distance']:g} object heights away" if "distance" in cams else ", far away (no perspective)")
+            + f"; photos agree {cams['agreement']:.0%}")
+        if cams["elevation"] or cams["perspective"]:
+            # Width differences between opposite photos came from the far-away
+            # assumption; the calibrated cameras account for them.
+            info["warnings"] = [w for w in info["warnings"] if "disagree on width" not in w or cams["agreement"] < 0.97]
+        if cams["agreement"] < 0.95:
+            info["warnings"].append("the photos do not agree well: mislabeled photos, different distances, "
+                                    "or a raised or close camera (try --elevation, e.g. 20)")
     report["camera"] = cams
-    log(f"camera: {cams['elevation']:g} degrees above"
-        + (f", {cams['distance']:g} object heights away" if "distance" in cams else ", far away (no perspective)")
-        + f"; photos agree {cams['agreement']:.0%}")
-    if cams["elevation"] or cams["perspective"]:
-        # Width differences between opposite photos came from the far-away
-        # assumption; the calibrated cameras account for them.
-        info["warnings"] = [w for w in info["warnings"] if "disagree on width" not in w or cams["agreement"] < 0.97]
-    if cams["agreement"] < 0.95:
-        info["warnings"].append("the photos do not agree well: mislabeled photos, different distances, "
-                                "or a raised or close camera (try --elevation, e.g. 20)")
     report["warnings"] = info["warnings"]
     for w in info["warnings"]:
         log("warning:", w)
     if ai:
         step("ai")
+        known = False
         if ai == "hunyuan":
             if cams["elevation"] > 10:
                 log("note: Hunyuan3D-2mv was trained on level photos; photos from above make its shape less exact")
-            mesh_in = hunyuan(views, steps=ai_steps, log=log)
+            if single:  # given as its front, then turned so that front faces where the photo was taken
+                vertices, faces_in = hunyuan({"front": views[single]}, steps=ai_steps, log=log)
+                mesh_in, known = (vertices @ _turn(-YAW[single]).T, faces_in), True
+            else:
+                mesh_in = hunyuan(views, steps=ai_steps, log=log)
             report["ai"] = {"source": "Hunyuan3D-2mv"}
         else:
             mesh_in = load_mesh(ai)
@@ -68,14 +86,20 @@ def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, face
         log(f"ai: shape from {report['ai']['source']}, {len(mesh_in[1])} triangles")
         step("fit")
         shape, fitted = shape_from_mesh(*mesh_in, views, (width, depth), res=res, clip=clip,
-                                        symmetric=symmetric, log=log)
+                                        symmetric=symmetric, known=known, log=log)
         report["ai"].update(fitted)
+        width, depth = fitted.get("size", (width, depth))
         if fitted["agreement"] < 0.88:
             warning = (f"the AI shape does not match the photos well (outlines {fitted['agreement']:.0%}): "
                        "check that the photos are in the right places, or compare with a model made without --ai")
             report["warnings"].append(warning)
             log("warning:", warning)
         mode = "ai"
+    elif single:
+        step("shape")
+        shape, (width, depth) = inflate(views[single], res=res)
+        mode = "inflate"
+        log(f"shape: the outline blown up into a rounded shape, {depth:.2f} deep (an AI shape is truer: --ai hunyuan)")
     elif mode == "auto":
         step("shape")
         if any(n in views for n in DIAGONAL_VIEWS):
@@ -87,7 +111,9 @@ def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, face
             color = "-" if why["color"] is None else f"{why['color']:.2f}"
             log(f"shape: {mode} (auto: roundness clue {color}, straight sides {why['straight']:.0%})")
     report["mode"] = mode
-    if mode != "ai":
+    if single:
+        report.update(width=round(float(width), 3), depth=round(float(depth), 3))
+    if mode not in ("ai", "inflate"):
         step("carve")
         shape = carve(views, width, 1.0, depth, res=res, mode=mode, exponent=exponent, symmetric=symmetric, thin=thin)
     step("mesh")
@@ -95,7 +121,12 @@ def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, face
     if faces and len(mesh.faces) > faces * 1.5 and fast_simplification is None:
         log("note: pip install fast-simplification to reduce the triangle count")
     step("texture")
-    tm = texture(mesh, views, shape, level=level)
+    if single:
+        filled = fill_views(mesh, views, shape, [n for n in SIDE_VIEWS + ("top",) if n not in views])
+        log(f"texture: the {', '.join(filled)} colored from the photo, spread over what it does not show")
+        tm = texture(mesh, {**views, **filled}, shape, level=level)
+    else:
+        tm = texture(mesh, views, shape, level=level)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     if out.lower().endswith(".obj"):
         if rig:

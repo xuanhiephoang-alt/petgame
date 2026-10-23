@@ -69,9 +69,13 @@ def _turn(yaw=0.0, tilt_x=0.0, tilt_z=0.0):
 
 def _box_map(points, size):
     """Scale and offset (per axis) putting the points' box on the photos'
-    box: x in [-w/2, w/2], y in [0, 1], z in [-d/2, d/2]."""
+    box: x in [-w/2, w/2], y in [0, 1], z in [-d/2, d/2]. A size no photo
+    shows (None: the depth seen from the front only) keeps the points'
+    proportions."""
     lo, hi = points.min(0), points.max(0)
-    scale = np.array([size[0], 1.0, size[1]]) / np.maximum(hi - lo, 1e-9)
+    span = np.maximum(hi - lo, 1e-9)
+    scale = np.array([size[0] or np.nan, 1.0, size[1] or np.nan]) / span
+    scale[np.isnan(scale)] = np.exp(np.log(scale[~np.isnan(scale)]).mean())
     offset = -np.array([(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2]) * scale
     return scale, offset
 
@@ -121,11 +125,13 @@ def _inside(points, field, grid):
     return float(np.where(within, value, 0.0).mean())
 
 
-def fit(vertices, faces, views, size, outline, grid, samples=20000, log=None):
+def fit(vertices, faces, views, size, outline, grid, samples=20000, known=False, log=None):
     """Turns, scales and moves a mesh onto the photos. Tries the six ways of
     standing it up, turns of 10 degrees and mirror images, scored by how
     well its outlines fill the photos' cut-outs and how much of it stays
     inside their hull (`outline` on `grid`), then refines the best poses.
+    known: the mesh already stands on +Y facing the way photo3d's front
+    does (Hunyuan3D's own frame); only small turns are tried.
     Returns (vertices in photo3d's frame, report)."""
     surface = sample_surface(vertices, faces, samples, seed=1)
     few = surface[: samples // 4]  # enough to rank the coarse poses
@@ -137,12 +143,17 @@ def fit(vertices, faces, views, size, outline, grid, samples=20000, log=None):
         inside = _inside(points, outline, grid)
         return inside if fine else inside * _agreement(points, views, targets)
 
-    candidates = []
-    for up, stand in UP.items():
-        for yaw in range(0, 360, 10):
-            for mirror in (1.0, -1.0):
-                candidates.append((score(np.diag([mirror, 1.0, 1.0]) @ _turn(yaw) @ stand), up, yaw, mirror))
+    poses = ([("+y", yaw, 1.0) for yaw in range(-30, 31, 10)] if known else
+             [(up, yaw, mirror) for up in UP for yaw in range(0, 360, 10) for mirror in (1.0, -1.0)])
+    candidates = [(score(np.diag([mirror, 1.0, 1.0]) @ _turn(yaw) @ UP[up]), up, yaw, mirror)
+                  for up, yaw, mirror in poses]
     candidates.sort(key=lambda c: -c[0])
+    if len(views) == 1 and not known:
+        # One photo cannot tell a front from a back seen in a mirror: among the
+        # poses it rates alike, keep the mesh standing on +Y and facing +Z
+        # (glTF's way, which image-to-3D tools follow).
+        near = [c for c in candidates if c[0] >= candidates[0][0] - 0.01]
+        candidates = [min(near, key=lambda c: (c[1] != "+y", min(c[2], 360 - c[2]), c[3] < 0))]
     best = None
     for coarse, up, yaw, mirror in candidates[:3]:
         pose = [float(yaw), 0.0, 0.0]  # yaw, tilt about X, tilt about Z
@@ -283,13 +294,24 @@ def outline_agreement(field, grid, views):
     return float(np.mean(scores))
 
 
-def shape_from_mesh(vertices, faces, views, size, res=128, clip=True, symmetric=False, log=None):
+def shape_from_mesh(vertices, faces, views, size, res=128, clip=True, symmetric=False, known=False, log=None):
     """The fitted AI mesh as a Shape on photo3d's grid (trimmed to the
-    photos' hull when `clip`). Returns (shape, report)."""
+    photos' hull when `clip`). size: (width, depth) from the photos, None
+    for one they do not show (a single photo): the mesh's own proportions
+    decide it. known: see fit. Returns (shape, report)."""
     mesh = drop_small_parts(Mesh(np.asarray(vertices, np.float64), np.asarray(faces, np.int64)))  # stray bits
-    grid = make_grid(size[0], 1.0, size[1], res)
-    outline = hull(views, grid)
-    fitted, report = fit(mesh.vertices, mesh.faces, views, size, outline, grid, log=log)
+    if None in size:  # a roomy grid to fit in, then one around the fitted mesh
+        room = 3.0 * max(size[0] or 1.0, size[1] or 1.0, 1.0)
+        grid = make_grid(room, 1.0, room, res)
+        fitted, report = fit(mesh.vertices, mesh.faces, views, size, hull(views, grid), grid, known=known, log=log)
+        size = tuple(2 * np.abs(fitted[:, a]).max() for a in (0, 2))
+        report["size"] = [round(float(s), 3) for s in size]
+        grid = make_grid(size[0], 1.0, size[1], res)
+        outline = hull(views, grid)
+    else:
+        grid = make_grid(size[0], 1.0, size[1], res)
+        outline = hull(views, grid)
+        fitted, report = fit(mesh.vertices, mesh.faces, views, size, outline, grid, known=known, log=log)
     field = voxelize(fitted, mesh.faces, grid)
     if symmetric:
         field = 0.5 * (field + field[::-1])

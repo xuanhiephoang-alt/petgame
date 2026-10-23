@@ -1,6 +1,6 @@
-# photo3d: tạo model 3D từ 4 ảnh chụp
+# photo3d: tạo model 3D từ ảnh chụp
 
-Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 45°** và ảnh **từ trên xuống** nếu có), công cụ dựng ra model 3D **có màu thật từ ảnh**, xuất `.glb` (dùng được trong game, Blender, web) hoặc `.obj`. Thêm `--rig` để model **có xương và 4 động tác của thú trong game** (đứng, đi, tấn công, bị đánh). Chạy trên máy thường, không cần GPU, mỗi model từ vài giây (ảnh nhỏ) đến khoảng 20 giây (ảnh điện thoại lớn). Muốn **hình dạng chi tiết hơn** thì dùng chế độ AI (mục 5): Hunyuan3D-2mv chạy trên máy có GPU NVIDIA, hoặc hình 3D làm bằng bất kỳ công cụ AI nào.
+Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 45°** và ảnh **từ trên xuống** nếu có), công cụ dựng ra model 3D **có màu thật từ ảnh**, xuất `.glb` (dùng được trong game, Blender, web) hoặc `.obj`. Thêm `--rig` để model **có xương và 4 động tác của thú trong game** (đứng, đi, tấn công, bị đánh). Chạy trên máy thường, không cần GPU, mỗi model từ vài giây (ảnh nhỏ) đến khoảng 20 giây (ảnh điện thoại lớn). Muốn **hình dạng chi tiết hơn** thì dùng chế độ AI (mục 5): Hunyuan3D-2mv chạy trên máy có GPU NVIDIA, hoặc hình 3D làm bằng bất kỳ công cụ AI nào. Chỉ có **một ảnh** cũng được (mục 6): một ảnh ghép nhiều góc của vật, hoặc một ảnh duy nhất để AI đoán các mặt còn lại.
 
 ```
 ảnh 4–9 phía ─► tách nền ─► căn chỉnh ─► hiệu chỉnh máy ảnh (chụp gần, chụp từ trên)
@@ -47,7 +47,7 @@ Mọi lệnh `npm.cmd run ...` phải chạy **trong thư mục gốc của game
 npm.cmd run photo3d:web
 ```
 Trình duyệt tự mở http://localhost:8765. Trên trang:
-1. Kéo thả ảnh vào 9 ô, hoặc kéo cả thư mục ảnh vào: ảnh tên `truoc`, `phai`... tự vào đúng ô. Kéo ảnh từ ô này sang ô khác để đổi chỗ.
+1. Kéo thả ảnh vào 9 ô, hoặc kéo cả thư mục ảnh vào: ảnh tên `truoc`, `phai`... tự vào đúng ô. Kéo ảnh từ ô này sang ô khác để đổi chỗ. Chỉ có một ảnh (ảnh ghép nhiều góc, hoặc một ảnh duy nhất): chọn **Một ảnh** (mục 6).
 2. Chọn dùng để làm gì: **Thú trong game** (có xương, file nhẹ), **Đồ vật trong game** hoặc **Chất lượng cao**.
 3. Bấm **Dựng model 3D**: thanh tiến trình cho biết đang làm bước nào.
 4. Xoay model bằng chuột hoặc ngón tay. Bấm **Đứng, Đi, Tấn công, Bị đánh** để xem động tác, **Lưới** để xem khung tam giác.
@@ -104,6 +104,9 @@ Kết quả: `D:\anh\meo\model.glb` (đổi bằng `-o duong_dan.glb` hoặc `.o
 | `--ai D:\hinh.glb` | hình dạng lấy từ file `.glb`, `.obj` hoặc `.stl` làm bằng công cụ AI khác (mục 5) |
 | `--ai-steps 50` | số bước của Hunyuan3D-2mv (mặc định 30; nhiều hơn thì lâu hơn, mịn hơn) |
 | `--no-clip` | giữ cả phần hình AI nhô ra ngoài đường viền các ảnh (mặc định: cắt bỏ) |
+| `--layout map` / `turn` | thứ tự các góc trong ảnh ghép: bản đồ 3 × 3 hoặc lần lượt quanh vật (mục 6; mặc định tự chọn) |
+| `--grid 3x3` | số hàng × số cột của ảnh ghép khi không tự tìm ra các ô; `1x1` = một ảnh duy nhất (mục 6) |
+| `--view front_right` | phía mà một ảnh duy nhất chụp (mặc định `front`, mục 6) |
 
 ## 4. Dùng model làm thú trong game
 
@@ -177,7 +180,40 @@ Màu của file AI bị bỏ qua; màu luôn lấy từ ảnh thật của bạn
 - Dùng thương mại được khi sản phẩm dưới 1 triệu người dùng mỗi tháng.
 - Muốn tránh các điều kiện này thì dùng cách 2 với model có giấy phép MIT, như TRELLIS hoặc TripoSR.
 
-## 6. Chất lượng đo được
+## 6. Chỉ có một ảnh
+
+Trên trang web chọn **Một ảnh** rồi thả ảnh vào: trang hiện tên từng góc photo3d tìm thấy ngay trên ảnh. Dòng lệnh: đưa đường dẫn ảnh thay cho thư mục.
+```powershell
+npm.cmd run photo3d -- D:\anh\meo.png --rig
+```
+photo3d tự nhận biết: thấy nhiều vật tách rời trên nền trơn là **ảnh ghép nhiều góc**, thấy một vật là **ảnh duy nhất**.
+
+**Ảnh ghép nhiều góc** (tự ghép, hoặc AI vẽ): photo3d tách từng góc ra rồi dựng như khi có từng ảnh riêng.
+- 3 × 3, kiểu **bản đồ**, giống 9 ô ảnh trên trang web. Mỗi góc nằm ở ô đúng chỗ máy ảnh đứng, nhìn từ trên xuống, mặt trước của vật hướng lên trên. Ô giữa là ảnh từ trên xuống, mặt trước của vật ở phía trên ảnh.
+  ```
+  trước-trái | trước | trước-phải
+  trái       | trên  | phải
+  sau-trái   | sau   | sau-phải
+  ```
+- Các kiểu khác xếp **lần lượt quanh vật**: đọc từ trái sang phải, trên xuống dưới, bắt đầu từ mặt trước.
+  - 4 góc (1 × 4 hoặc 2 × 2): trước, phải, sau, trái; thêm ảnh trên thành 5.
+  - 8 góc (2 × 4): trước, trước-phải, phải, sau-phải, sau, sau-trái, trái, trước-trái; thêm ảnh trên thành 9. Ảnh trên để mặt trước của vật ở phía dưới ảnh.
+- Mặc định 3 × 3 là kiểu bản đồ, các lưới khác là kiểu lần lượt. Ép kiểu xếp bằng `--layout map` hoặc `--layout turn`. Ô để trống được bỏ qua.
+- Ảnh mỗi ô một nền khác nhau thì photo3d có thể không tự tìm ra các ô: cho số ô bằng `--grid 3x3`, ảnh được chia đều.
+- Nên dùng nền trơn một màu, các góc cùng cỡ, không chạm nhau. Đường kẻ ô, khung và chữ chú thích nhỏ được tự bỏ đi.
+
+**Một ảnh duy nhất:** ảnh được coi là chụp mặt trước; ảnh chụp chéo thì cho biết phía bằng `--view front_right` (trên trang web: ô "Ảnh chụp từ phía"). Các mặt còn lại phải đoán.
+- **Hình dạng:**
+  - Có AI (`--ai hunyuan`, cài như mục 5): Hunyuan3D-2mv dựng hình từ ảnh; chiều sâu lấy theo tỉ lệ của hình AI. Hình 3D làm bằng công cụ AI khác cũng dùng được (`--ai D:\hinh.glb`).
+  - Không có AI: đường viền được **thổi phồng** thành khối tròn, mỗi phần dày bằng bề ngang của nó, nên chân và đuôi thành ống tròn. Nhanh, nhưng chỉ hợp với vật tròn trịa như thú bông, gối, quả bóng.
+- **Màu:** phần ảnh thấy rõ lấy màu thật. Phần khuất (lưng, hai bên) được tô bằng màu **lan mượt từ phần nhìn thấy**, chứ không in xuyên mặt trước ra sau lưng. Vì vậy ở đó không có chi tiết thật (hoa văn sau lưng, mắt nhìn từ bên).
+- Chỉ có 1 ảnh mà muốn mặt sau có màu và chi tiết: nhờ một AI vẽ ảnh (ChatGPT, Gemini...) vẽ thêm các góc thành ảnh ghép, rồi dùng cách ảnh ghép ở trên (thứ tự lần lượt). Gửi ảnh kèm câu lệnh (trang web có nút chép):
+  ```
+  Draw a turnaround sheet of exactly this object (same shape, colors and details): 4 views in one row on a plain white background, left to right: front view, right side view (facing right), back view, left side view (facing left). Same size and scale in every view, camera at the object's mid height, no perspective, no shadows, no text, views not touching.
+  ```
+  Các góc AI vẽ chưa chắc khớp tỉ lệ với nhau: xem dòng "các ảnh khớp nhau" sau khi dựng. Thêm `--ai hunyuan` thì model ít phụ thuộc vào độ khớp đó hơn.
+
+## 7. Chất lượng đo được
 
 Bộ thử: chụp (render) các model có sẵn của game và vài đồ vật bằng Blender, chạy công cụ, so với model gốc. Sai số Chamfer tính theo % chiều cao vật (thấp là tốt), F-score là tỉ lệ bề mặt nằm trong 2% chiều cao so với bản gốc (cao là tốt).
 
@@ -213,7 +249,12 @@ Hình đúng hoàn toàn chạm mức tốt nhất mà phép đo này cho phép,
 
 Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ảnh. Để so sánh: khối thô (visual hull vuông) ban đầu sai khoảng 4,5 %.
 
-## 7. Giới hạn hiện tại (và cách khắc phục sau)
+**Một ảnh** (đo bằng ảnh vẽ từ thú mẫu):
+- Ảnh ghép 3 × 3 có đường kẻ ô và chữ chú thích: các góc tách ra khớp nhau 99 %, như 9 ảnh riêng; đường viền mỗi góc lệch dưới 2 % số điểm ảnh so với ảnh gốc.
+- Một ảnh mặt trước cùng hình AI đúng (thay cho Hunyuan3D): hình được dựng đúng chiều, đường viền khớp 92 %, chiều sâu lệch khoảng 5 %.
+- Một ảnh, không AI: khoảng 1 giây một model.
+
+## 8. Giới hạn hiện tại (và cách khắc phục sau)
 
 - **Chỗ lõm không thấy được từ 4 phía** (lòng bát, khoang trong) bị lấp đầy: giới hạn của phương pháp dựng từ bóng.
 - **Phần bị che phía sau** (đuôi sau thân, gai lưng) phải đoán độ dày: dùng giả định "mảnh và tròn"; thêm ảnh từ trên xuống sẽ chính xác hơn.
@@ -233,9 +274,14 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - Phần không ảnh nào thấy (dưới bụng, kẽ chân) là AI đoán, và màu ở đó vẫn bị kéo giãn từ ảnh gần nhất.
   - Hình AI được ghép với ảnh qua lưới khối (128 ô theo chiều dài nhất, `--res` để tăng), nên chi tiết nhỏ hơn khoảng 1 % chiều cao bị làm mịn.
   - Phần chạy Hunyuan3D-2mv viết theo mã nguồn thư viện `hy3dgen` 2.0.2. Lần chạy thật đầu tiên sẽ trên máy bạn.
+- **Một ảnh:**
+  - Mặt khuất chỉ có màu lan từ phần nhìn thấy, không có chi tiết thật.
+  - Khối thổi phồng (không AI) luôn tròn trịa: vật dẹt, vuông hay dài theo chiều sâu đều ra sai.
+  - Hunyuan3D-2mv đoán từ một ảnh kém chính xác hơn từ 4 ảnh.
+  - Ảnh ghép do AI vẽ thường lệch tỉ lệ giữa các góc.
 - **Không có normal map:** khối dựng từ bóng vốn trơn, còn chi tiết nhỏ (lông, đường may, nếp nhăn) đã nằm sẵn trong màu ảnh, kèm cả bóng sáng thật. Một normal map đoán từ ảnh sẽ tạo nổi khối giả: bóng bị tính hai lần, trông bẩn hơn, và tốn thêm một texture trên điện thoại. Hình từ chế độ AI cũng được làm mịn khi ghép với ảnh, nên normal map vẫn để sau.
 
-## 8. Lộ trình
+## 9. Lộ trình
 
 1. ~~Dựng từ bóng + dán màu ảnh, xuất GLB, chạy trong Blender~~ (xong)
 2. ~~Chế độ AI: Hunyuan3D-2mv trên máy có GPU, hoặc hình từ công cụ AI bất kỳ; tự căn cho khớp ảnh, dán màu từ ảnh thật~~ (xong, mục 5). Còn lại: chạy TRELLIS (giấy phép MIT) ngay trong photo3d.
@@ -243,17 +289,19 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
 4. ~~Texture liền mạch (hoà màu ở đường nối)~~ (xong). Normal map: để sau, khi có chế độ AI (lý do ở phần Giới hạn).
 5. ~~Tự gắn xương và animation đứng/đi/tấn công/bị đánh như thú trong game~~ (xong). Còn lại: dọn lưới (retopology) bằng Blender.
 6. ~~Trang web: kéo thả ảnh, xem trước 3D có động tác, tải về, đưa vào game; dùng được từ điện thoại cùng Wi-Fi~~ (xong: `npm run photo3d:web`)
+7. ~~Một ảnh: ảnh ghép nhiều góc, hoặc một ảnh duy nhất (AI hoặc thổi phồng, tô màu mặt khuất)~~ (xong, mục 6). Còn lại: AI vẽ màu thật cho mặt khuất (như Hunyuan3D-Paint).
 
 ## Cho lập trình viên
 
 - Mã nguồn trong `photo3d/`, lõi chỉ cần numpy nên chạy được trong Python của Blender:
   - `images.py`: đọc ảnh và EXIF, tách nền, căn chỉnh ban đầu.
+  - `sheet.py`: tách ảnh ghép nhiều góc thành từng ảnh.
   - `cameras.py`: máy ảnh (hướng, góc chúc, phối cảnh).
   - `calibrate.py`: hiệu chỉnh máy ảnh theo độ khớp đường viền.
-  - `carve.py`: khắc khối.
+  - `carve.py`: khắc khối; thổi phồng một ảnh (`inflate`).
   - `prior.py`: đoán tròn hay vuông.
   - `mesh.py`: lưới tam giác.
-  - `texture.py`: dán màu, hoà màu ở đường nối.
+  - `texture.py`: dán màu, hoà màu ở đường nối, tô màu mặt khuất khi chỉ có một ảnh (`fill_views`).
   - `rig.py`: tìm chân, đầu, đuôi, tay; trọng số da; animation.
   - `export.py`: xuất GLB/OBJ.
   - `meshio.py`: đọc hình 3D `.obj`, `.glb`, `.stl` của công cụ khác.

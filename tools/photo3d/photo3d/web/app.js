@@ -1,6 +1,7 @@
-// photo3d web page: photo slots, options, progress and the 3D preview.
-// Talks to photo3d/web.py: POST /api/jobs, GET /api/jobs/<id>, the model
-// and cut-out files, POST /api/jobs/<id>/install.
+// photo3d web page: photo slots (or one image: a sheet of views or a single
+// photo), options, progress and the 3D preview. Talks to photo3d/web.py:
+// POST /api/split, POST /api/jobs, GET /api/jobs/<id>, the model and cut-out
+// files, POST /api/jobs/<id>/install.
 
 // Slots laid out like a map seen from above: the object in the middle facing
 // up (its front at the top, its right side on the right).
@@ -63,6 +64,11 @@ let info = { species: [], ai: { hunyuan: null, why: "checking" } };
 let job = null; // status of the last finished job
 let aiMesh = null; // a mesh made by an AI tool, to take the shape from
 let viewer = null; // the 3D preview, once three.js has loaded
+let mode = "slots"; // or "one": a single image, a sheet of views or one photo
+let oneImage = null; // its File
+let oneUrl = null;
+let split = null; // how photo3d reads it: {layout, grid, boxes, size} or {error}
+let splitTicket = 0; // answers to older questions are dropped
 
 // ---------------------------------------------------------------------------
 // Photo slots
@@ -138,6 +144,7 @@ function renderSlots() {
     });
     box.append(slot);
   }
+  showAiChoice(); // one photo alone is blown up without an AI
 }
 
 function setPhoto(view, file, render = true) {
@@ -220,6 +227,98 @@ function cleanName(name) {
 }
 
 // ---------------------------------------------------------------------------
+// One image: a sheet of views, or a single photo
+// ---------------------------------------------------------------------------
+
+function setMode(next) {
+  mode = next;
+  document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
+  $("slotsPanel").hidden = mode !== "slots";
+  $("onePanel").hidden = mode !== "one";
+  hideError();
+  showAiChoice();
+}
+
+function setOneImage(file) {
+  if (oneUrl) URL.revokeObjectURL(oneUrl);
+  oneImage = file;
+  oneUrl = URL.createObjectURL(file);
+  $("oneImg").src = oneUrl;
+  $("oneEmpty").hidden = true;
+  $("onePreview").hidden = false;
+  $("oneDrop").classList.add("filled");
+  if (["", "model"].includes($("name").value.trim())) $("name").value = cleanName(file.name.replace(/\.[^.]+$/, ""));
+  hideError();
+  refreshSplit();
+}
+
+function sheetOptions() {
+  return { layout: $("layout").value, grid: $("grid").value, view: $("oneView").value };
+}
+
+function isSingle() {
+  return mode === "one" ? split?.layout === "single" : Object.keys(photos).length === 1;
+}
+
+/** Asks photo3d how it reads the image (which views it finds, where) and shows that on the image. */
+async function refreshSplit() {
+  if (!oneImage) return;
+  const ticket = ++splitTicket;
+  const form = new FormData();
+  form.append("image", oneImage, oneImage.name);
+  form.append("options", JSON.stringify(sheetOptions()));
+  $("oneNote").hidden = false;
+  $("oneNote").classList.remove("bad");
+  $("oneNote").textContent = "Đang tìm các góc trong ảnh...";
+  let out;
+  try {
+    const res = await fetch("/api/split", { method: "POST", body: form });
+    out = await res.json();
+  } catch {
+    out = { error: "Không gửi được ảnh: cửa sổ chạy photo3d còn mở không?" };
+  }
+  if (ticket !== splitTicket) return;
+  split = out;
+  $("oneBoxes").replaceChildren();
+  if (!out.error) {
+    const [w, h] = out.size;
+    for (const [view, [x0, y0, x1, y1]] of Object.entries(out.boxes)) {
+      const box = document.createElement("span");
+      box.className = "box";
+      Object.assign(box.style, {
+        left: `${(100 * x0) / w}%`, top: `${(100 * y0) / h}%`,
+        width: `${(100 * (x1 - x0)) / w}%`, height: `${(100 * (y1 - y0)) / h}%`,
+      });
+      box.append(Object.assign(document.createElement("i"), { textContent: NAME[view] ?? view }));
+      $("oneBoxes").append(box);
+    }
+  }
+  showAiChoice(); // and showSplit: a single photo is blown up when no AI is chosen
+}
+
+/** What photo3d found in the image and what it will do with it. */
+function showSplit() {
+  const note = $("oneNote");
+  $("viewField").hidden = split?.layout !== "single" && $("grid").value !== "1x1";
+  if (!split) return;
+  note.hidden = false;
+  note.classList.toggle("bad", Boolean(split.error));
+  if (split.error) {
+    note.textContent = errorText(split.error);
+  } else if (split.layout === "single") {
+    const choice = $("ai").value;
+    note.textContent = `Một ảnh duy nhất, chụp phía ${LABEL[$("oneView").value]}. ` + (choice === "hunyuan"
+      ? "AI dựng hình dạng; màu mặt khuất được lan từ màu ảnh."
+      : choice === "file" ? "Hình dạng lấy từ file AI; màu mặt khuất được lan từ màu ảnh."
+      : "Không dùng AI: đường viền được thổi phồng thành khối tròn. Chọn Hình dạng: AI để có hình đúng hơn.");
+  } else {
+    const n = Object.keys(split.boxes).length;
+    note.textContent = `Ảnh ghép ${split.grid[0]} × ${split.grid[1]}: ${n} góc, thứ tự ` +
+      `${split.layout === "map" ? "bản đồ" : "lần lượt quanh vật"}. Xem tên từng góc trên ảnh; sai thì đổi Thứ tự hoặc Số ô.`;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Shape from an AI
 // ---------------------------------------------------------------------------
 
@@ -236,6 +335,8 @@ function showAiChoice() {
   const choice = $("ai").value;
   const local = info.ai?.hunyuan;
   $("meshDrop").hidden = choice !== "file";
+  $("aiNone").textContent = isSingle() ? "Thổi phồng từ đường viền (nhanh, không cần AI)" : "Dựng từ đường viền các ảnh (nhanh)";
+  if (mode === "one") showSplit();
   $("aiLocal").textContent = "AI trên máy này: Hunyuan3D-2mv" +
     (local === "cuda" ? " (GPU)" : local === "cpu" ? " (chỉ CPU, rất chậm)" : info.ai?.why === "checking" ? "" : " (chưa cài)");
   const hint = $("aiHint");
@@ -286,17 +387,25 @@ function applyPreset(name) {
 
 async function startBuild() {
   hideError();
-  const missing = missingSides();
-  if (missing.length) {
-    return showError(`Thiếu ảnh: ${missing.map((v) => LABEL[v]).join(", ")}. Cần ít nhất ảnh trước (hoặc sau) ` +
-      "và ảnh phải (hoặc trái), tốt nhất đủ cả 4 phía.");
+  if (mode === "one") {
+    if (!oneImage) return showError("Chưa có ảnh: thả một ảnh vào ô.");
+    if (split?.error) return showError(errorText(split.error));
+  } else {
+    const missing = missingSides();
+    const count = Object.keys(photos).length;
+    if (count === 1 && photos.top) return showError(errorText("a single photo must show a side"));
+    if (missing.length && count !== 1) {
+      return showError(`Thiếu ảnh: ${missing.map((v) => LABEL[v]).join(", ")}. Cần ít nhất ảnh trước (hoặc sau) ` +
+        "và ảnh phải (hoặc trái), tốt nhất đủ cả 4 phía; hoặc chỉ một ảnh.");
+    }
   }
   const choice = $("ai").value;
   if (choice === "file" && !aiMesh) return showError("Chưa chọn file hình 3D làm bằng công cụ AI.");
   if (choice === "hunyuan" && !info.ai?.hunyuan) return showError($("aiHint").textContent);
-  const opts = options();
+  const opts = { ...options(), ...(mode === "one" ? sheetOptions() : {}) };
   const form = new FormData();
-  for (const [view, file] of Object.entries(photos)) form.append(view, file, file.name);
+  if (mode === "one") form.append("image", oneImage, oneImage.name);
+  else for (const [view, file] of Object.entries(photos)) form.append(view, file, file.name);
   if (choice === "file") form.append("ai_mesh", aiMesh, aiMesh.name);
   form.append("options", JSON.stringify(opts));
   form.append("name", $("name").value.trim() || "model");
@@ -308,7 +417,7 @@ async function startBuild() {
     hideProgress();
     return showError(sent.error);
   }
-  await follow(sent.id, opts, choice);
+  await follow(sent.id, opts, choice, isSingle());
   setBusy(false);
 }
 
@@ -330,10 +439,11 @@ function upload(form, onProgress) {
   });
 }
 
-async function follow(id, opts, choice) {
+async function follow(id, opts, choice, single) {
   const fromAi = (s) => s === "ai" || s === "fit";
   const steps = Object.keys(STEPS).filter((s) =>
-    (s !== "rig" || opts.rig) && (choice ? s !== "shape" && s !== "carve" : !fromAi(s)));
+    (s !== "rig" || opts.rig) && (choice ? s !== "shape" && s !== "carve" : !fromAi(s)) && !(single && s === "carve"));
+  const label = (step) => (single && step === "shape" ? "Thổi phồng đường viền thành khối" : STEPS[step]);
   let failures = 0;
   for (;;) {
     let s;
@@ -363,7 +473,7 @@ async function follow(id, opts, choice) {
     } else {
       const k = Math.max(0, steps.indexOf(s.step));
       const first = s.step === "ai" && choice === "hunyuan" ? " Lần đầu phải tải model AI (vài GB) nên lâu hơn." : "";
-      showProgress(`${STEPS[s.step] ?? "Đang dựng"}... (${Math.round(s.seconds)} giây)${first}`,
+      showProgress(`${label(s.step) ?? "Đang dựng"}... (${Math.round(s.seconds)} giây)${first}`,
         0.08 + (0.92 * (k + 0.5)) / steps.length);
     }
     await new Promise((resolve) => setTimeout(resolve, 400));
@@ -423,6 +533,18 @@ function errorText(e) {
   if (/unsupported mesh format|no triangles found|is compressed/.test(e)) {
     return "Không đọc được file hình 3D: dùng .glb (không nén Draco), .obj hoặc .stl.";
   }
+  let m;
+  if (/a single photo must show a side/.test(e)) {
+    return "Một ảnh duy nhất phải chụp một phía của vật (trước, bên, sau...), không phải từ trên xuống.";
+  }
+  if (/no object found/.test(e)) return "Không tìm thấy vật trong ảnh: nên chụp vật trên nền trơn một màu, khác màu vật.";
+  if ((m = e.match(/found (\d+) views on the image \((\d+) x (\d+)\)/))) {
+    return `Tìm thấy ${m[1]} góc trong ảnh (${m[2]} × ${m[3]}), không thành bộ ảnh nào: cần 2–5, 8 hoặc 9 góc. ` +
+      "Nếu photo3d tách sai, chọn đúng Số ô; chỉ một vật thì chọn Số ô: 1 ảnh duy nhất.";
+  }
+  if ((m = e.match(/map layout needs a 3 x 3 sheet; found (\d+) x (\d+)/))) {
+    return `Thứ tự bản đồ cần ảnh ghép 3 × 3, ảnh này là ${m[1]} × ${m[2]}: chọn Thứ tự: Lần lượt quanh vật.`;
+  }
   return e;
 }
 
@@ -443,10 +565,17 @@ function showResult(s) {
   const cam = r.camera || {};
   const where = cam.elevation ? `cao hơn vật ${number(cam.elevation)}°` : "ngang tầm vật";
   const far = cam.distance ? `cách khoảng ${number(cam.distance, 1)} lần chiều cao vật` : "chụp từ xa";
+  if (r.sheet && r.sheet.layout !== "single") {
+    facts.push(`Ảnh ghép ${r.sheet.grid[0]} × ${r.sheet.grid[1]}: ${Object.keys(r.sheet.boxes).length} góc ` +
+      `(thứ tự ${r.sheet.layout === "map" ? "bản đồ" : "lần lượt quanh vật"}).`);
+  }
+  if (r.single) facts.push(`Chỉ có 1 ảnh (phía ${LABEL[r.single] ?? r.single}): các mặt khác được đoán, màu mặt khuất lan từ màu ảnh.`);
   if (cam.agreement !== undefined) facts.push(`Máy ảnh: ${where}, ${far}; các ảnh khớp nhau ${number(cam.agreement * 100)}%.`);
   if (r.ai) {
     facts.push(`Hình dạng từ AI (${r.ai.source}): đường viền khớp ảnh ${number(r.ai.agreement * 100)}%` +
       (r.ai.trimmed > 0.02 ? `; đã cắt ${number(r.ai.trimmed * 100)}% phần nhô ra ngoài ảnh.` : "."));
+  } else if (r.mode === "inflate") {
+    facts.push("Khối thổi phồng từ đường viền ảnh (không dùng AI): mỗi phần dày bằng bề ngang của nó.");
   } else {
     facts.push(`Khối ${r.mode === "box" ? "vuông, sắc cạnh" : "tròn"}${r.shape ? " (tự chọn theo ảnh)" : ""}.`);
   }
@@ -723,11 +852,31 @@ document.addEventListener("drop", async (e) => {
   e.preventDefault();
   document.body.classList.remove("dragging");
   $("meshDrop").classList.remove("over");
+  $("oneDrop").classList.remove("over");
   const files = await droppedFiles(e.dataTransfer);
   const mesh = files.find((f) => MESH_EXT.test(f.name));
   if (mesh) setAiMesh(mesh);
   const images = files.filter(isImage);
-  if (images.length) assign(images);
+  if (mode === "one" && images.length) setOneImage(images[0]);
+  else if (images.length) assign(images);
+});
+document.querySelectorAll('input[name="mode"]').forEach((radio) => radio.addEventListener("change", () => setMode(radio.value)));
+$("oneFile").addEventListener("change", (e) => {
+  if (e.target.files[0]) setOneImage(e.target.files[0]);
+  e.target.value = "";
+});
+$("oneDrop").addEventListener("dragover", () => $("oneDrop").classList.add("over"));
+$("oneDrop").addEventListener("dragleave", () => $("oneDrop").classList.remove("over"));
+for (const id of ["layout", "grid", "oneView"]) $(id).addEventListener("change", refreshSplit);
+$("copyPrompt").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("prompt").textContent);
+    $("copyPrompt").textContent = "Đã chép";
+  } catch {
+    getSelection().selectAllChildren($("prompt")); // no clipboard (plain http from a phone): select it to copy by hand
+    $("copyPrompt").textContent = "Đã chọn, bấm Sao chép";
+  }
+  setTimeout(() => ($("copyPrompt").textContent = "Chép câu lệnh"), 2500);
 });
 $("ai").addEventListener("change", () => {
   hideError();
