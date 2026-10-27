@@ -19,7 +19,7 @@ Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 
 | Thấy trọn vật, có khoảng trống quanh vật | Cắt mất chân, tai, đuôi |
 | Ánh sáng dịu, đều (gần cửa sổ, trời râm) | Đèn flash, bóng đổ gắt |
 
-**Ảnh "phải"** là ảnh chụp *sườn phải của vật* (đứng bên phải vật nhìn vào: đầu vật quay về phía tay phải của bạn). **Ảnh "trái"** ngược lại.
+**Ảnh "phải"** là ảnh chụp *sườn phải của vật* (đứng bên phải vật nhìn vào: đầu vật quay về phía tay phải của bạn). **Ảnh "trái"** ngược lại. Lỡ đặt ngược hai ảnh này thì photo3d thường tự nhận ra và đổi lại (có cảnh báo): đầu ảnh bên giống ảnh trước là đầu phía trước của vật.
 
 **Ảnh điện thoại chụp gần hoặc từ trên xuống:** giữ nguyên file ảnh gốc (JPG có EXIF, không cắt). Công cụ đọc tiêu cự trong EXIF, tự đoán máy cầm cao hơn vật bao nhiêu độ và hiệu chỉnh. Ảnh đã cắt hoặc tách nền thì mất EXIF và được coi là chụp ngang từ xa. Nếu ảnh đó chụp từ trên xuống, hãy cho biết góc bằng `--elevation 20`.
 
@@ -201,6 +201,7 @@ photo3d tự nhận biết: thấy nhiều vật tách rời trên nền trơn l
 - Mặc định 3 × 3 là kiểu bản đồ, các lưới khác là kiểu lần lượt. Ép kiểu xếp bằng `--layout map` hoặc `--layout turn`. Ô để trống được bỏ qua.
 - Ảnh mỗi ô một nền khác nhau thì photo3d có thể không tự tìm ra các ô: cho số ô bằng `--grid 3x3`, ảnh được chia đều.
 - Nên dùng nền trơn một màu, các góc cùng cỡ, không chạm nhau. Đường kẻ ô, khung và chữ chú thích nhỏ được tự bỏ đi.
+- AI vẽ ảnh hay đặt hai góc bên ngược chiều, ví dụ trước, **trái**, sau, **phải**. photo3d tự nhận ra nhờ màu và đổi lại: đầu nào của ảnh bên giống ảnh trước (mặt, ngực) thì đó là phía trước, đầu giống ảnh sau (lưng, đuôi) là phía sau.
 
 **Một ảnh duy nhất:** ảnh được coi là chụp mặt trước; ảnh chụp chéo thì cho biết phía bằng `--view front_right` (trên trang web: ô "Ảnh chụp từ phía"). Các mặt còn lại phải đoán.
 - **Hình dạng:**
@@ -279,6 +280,8 @@ Thời gian 2–3 giây một model; 3–7 giây khi có hiệu chỉnh máy ả
   - Khối thổi phồng (không AI) luôn tròn trịa: vật dẹt, vuông hay dài theo chiều sâu đều ra sai.
   - Hunyuan3D-2mv đoán từ một ảnh kém chính xác hơn từ 4 ảnh.
   - Ảnh ghép do AI vẽ thường lệch tỉ lệ giữa các góc.
+- **Tự đổi ảnh trái/phải** chỉ chạy được khi mặt trước và mặt sau của vật trông khác nhau. Vật trước sau như nhau thì phải tự đặt đúng ảnh.
+- **Khối ma:** tai chìa ra trong ảnh trước và đuôi chìa ra trong ảnh bên có thể tạo khối thừa mà không ảnh nào xoá được. Mảnh rời nhỏ hơn 5 % thân chính được tự bỏ đi; khối ma dính liền vào thân thì vẫn còn (chế độ AI không bị).
 - **Không có normal map:** khối dựng từ bóng vốn trơn, còn chi tiết nhỏ (lông, đường may, nếp nhăn) đã nằm sẵn trong màu ảnh, kèm cả bóng sáng thật. Một normal map đoán từ ảnh sẽ tạo nổi khối giả: bóng bị tính hai lần, trông bẩn hơn, và tốn thêm một texture trên điện thoại. Hình từ chế độ AI cũng được làm mịn khi ghép với ảnh, nên normal map vẫn để sau.
 
 ## 9. Lộ trình

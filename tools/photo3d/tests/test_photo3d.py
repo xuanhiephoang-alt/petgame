@@ -13,7 +13,7 @@ from photo3d.cameras import Camera
 from photo3d.carve import Shape, carve, intervals, make_grid
 from photo3d.export import png_bytes, write_glb
 from photo3d.images import align, bbox, cut_out, exif_orientation, exif_tags, key_out, load_image, load_views
-from photo3d.mesh import edges_of, extract, surface_nets
+from photo3d.mesh import components, edges_of, extract, surface_nets
 from photo3d.meshio import load_mesh
 from photo3d.pipeline import build
 from photo3d.prior import choose_shape
@@ -958,3 +958,34 @@ def test_web_page_reads_one_image(tmp_path):
     finally:
         server.shutdown()
         app.close()
+
+
+def test_swapped_side_photos_are_put_back(tmp_path):
+    from photo3d.calibrate import MIRROR, sides_swapped, swap_sides
+
+    shape = creature("animal")
+    photos = {n: (rgb, mask.astype(np.float32)) for n, (rgb, mask) in
+              ((n, render_view(shape, n)) for n in ("front", "right", "back", "left", "front_right"))}
+    views, _ = load_views(photos, method="alpha")
+    assert not sides_swapped(views)[0]
+    swapped = {MIRROR.get(n, n): p for n, p in photos.items()}  # the object faces the other way in the side photos
+    views, _ = load_views(swapped, method="alpha")
+    assert sides_swapped(views)[0]
+    back = swap_sides(views)
+    assert back["right"].camera.yaw == 90 and back["front_right"].name == "front_right" and set(back) == set(photos)
+    quiet = dict(res=48, faces=1500, log=lambda *a: None)
+    right_report, (_, _, _, right_shape) = build(photos, str(tmp_path / "a.glb"), **quiet)
+    report, (_, _, _, fixed) = build(swapped, str(tmp_path / "b.glb"), **quiet)
+    assert "swapped" not in right_report and "swapped" in report
+    assert any("looked swapped" in w for w in report["warnings"])
+    a, b = right_shape.field > 0.5, fixed.field > 0.5
+    assert a.shape == b.shape and (a & b).sum() / (a | b).sum() > 0.97  # the same animal, head in front
+
+
+def test_loose_blobs_are_dropped():
+    grid = make_grid(1.0, 1.0, 1.0, res=48)
+    X, Y, Z = np.meshgrid(*(grid.axis(a) for a in range(3)), indexing="ij")
+    body = X ** 2 + (Y - 0.5) ** 2 + Z ** 2 < 0.3 ** 2
+    blob = (X - 0.42) ** 2 + (Y - 0.8) ** 2 + (Z + 0.4) ** 2 < 0.06 ** 2  # a phantom of the hull, apart from it
+    mesh = extract(Shape(grid, (body | blob).astype(np.float32)), smooth=0)
+    assert len(np.unique(components(mesh))) == 1 and mesh.vertices[:, 0].max() < 0.35

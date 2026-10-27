@@ -3,7 +3,7 @@ import os
 import time
 
 from .ai import _turn, hunyuan, shape_from_mesh
-from .calibrate import calibrate
+from .calibrate import MIRROR, calibrate, sides_swapped, swap_sides
 from .carve import carve, inflate
 from .export import can_jpeg, write_glb, write_obj
 from .images import load_views
@@ -40,6 +40,13 @@ def build(photos, out, res=128, mode="auto", exponent=2.0, symmetric=False, face
     report = {}
     step("photos")
     views, info = load_views(photos, method=cutout, texture_px=texture_px)
+    swapped, looks = sides_swapped(views)
+    if swapped:  # the object faces the other way in the side photos than their names say
+        views = swap_sides(views)
+        info["methods"] = {MIRROR.get(n, n): m for n, m in info["methods"].items()}
+        info["warnings"].append("the right and left photos looked swapped (the object faced the other way in "
+                                "them): swapped them back")
+        report["swapped"] = looks
     report.update(info)
     single = next(iter(views)) if len(views) == 1 else None  # the side a single photo shows
     step("camera")

@@ -501,6 +501,10 @@ function warningText(w) {
     return `Ảnh ${LABEL[m[1]] ?? m[1]} và ảnh ${LABEL[m[2]] ?? m[2]} cho bề ngang khác nhau: chụp ở khoảng cách ` +
       "hoặc độ zoom khác nhau, máy bị nghiêng, hoặc đặt nhầm ô.";
   }
+  if (/right and left photos looked swapped/.test(w)) {
+    return "Ảnh bên phải và bên trái có vẻ bị đặt ngược (vật quay đầu ngược hướng trong ảnh, hay gặp ở ảnh ghép do AI vẽ): " +
+      "photo3d đã tự đổi lại. Ảnh phải là ảnh vật quay đầu sang phải.";
+  }
   if (/top photo proportions/.test(w)) return "Ảnh từ trên không khớp tỉ lệ với các ảnh bên: mặt trước của vật phải ở phía dưới ảnh.";
   if (/do not agree well/.test(w)) {
     return "Các ảnh không khớp nhau lắm: kiểm tra ảnh đã vào đúng ô chưa (nhất là trái và phải), có cùng khoảng cách không. " +

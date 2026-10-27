@@ -218,7 +218,10 @@ def _decimate_bpy(mesh, target_faces):
 def extract(shape, smooth=8, target_faces=None):
     """Field -> clean, smooth (and optionally simplified) triangle mesh."""
     mesh = surface_nets(shape.field, shape.grid.origin, shape.grid.h)
-    mesh = drop_small_parts(mesh)
+    # One object makes one piece. Loose blobs are the hull's phantoms, where
+    # parts sticking out in two photos line up (ears seen from the front,
+    # a tail seen from the side) and no photo can carve them away.
+    mesh = drop_small_parts(mesh, keep=0.05)
     if smooth:
         mesh = taubin(mesh, smooth)
     mesh, _ = simplify(mesh, target_faces)

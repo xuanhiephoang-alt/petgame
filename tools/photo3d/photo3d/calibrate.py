@@ -19,6 +19,7 @@ drops from 2.42 % to 2.35 % of the object's height (F-score 0.58 -> 0.62). Witho
 the photos are treated as level and taken from far away (zoomed shots).
 """
 import copy
+import dataclasses
 import math
 
 import numpy as np
@@ -26,11 +27,13 @@ import numpy as np
 from .carve import hull, intervals, make_grid
 from .images import bbox, bilinear
 from .mesh import surface_nets
-from .views import DIAGONAL_VIEWS
+from .views import DIAGONAL_VIEWS, YAW
 
 ELEVATIONS = (0.0, 10.0, 20.0, 30.0)  # coarse search, refined by +-5 degrees around the best
 MARGIN = 0.004  # a raised camera must explain the photos this much better than a level one
 LEVEL = 0.35  # thin tips survive in the coarse grid used for fitting
+MIRROR = {"right": "left", "left": "right", "front_right": "front_left", "front_left": "front_right",
+          "back_right": "back_left", "back_left": "back_right"}  # the same photo seen as the other side
 
 
 def occupied_points(field, grid, level=0.5):
@@ -122,6 +125,55 @@ def coherence(views, size, res=64):
         inside = bilinear(v.mask, (xx + 0.5) * step - 0.5, (yy + 0.5) * step - 0.5) > 0.5
         covered.append((hit & inside).sum() / max(inside.sum(), 1))
     return float(np.mean(covered))
+
+
+def swap_sides(views):
+    """The views with those of the object's right-hand and left-hand sides
+    swapped (copies; front, back and top stay where they are)."""
+    out = {}
+    for name, v in views.items():
+        other = MIRROR.get(name, name)
+        out[other] = dataclasses.replace(v, name=other, camera=dataclasses.replace(v.camera, yaw=YAW[other]))
+    return out
+
+
+def sides_swapped(views, margin=0.06):
+    """Whether the photos of the object's right-hand and left-hand sides look
+    swapped: put in each other's places, or a sheet drawn going round the
+    object the other way (image AIs often do). Outlines cannot tell, as
+    either way the hull is the other's mirror image front to back. Colors
+    can: the end of a side photo nearest the object's front looks like the
+    front photo (a face, a chest), the other end like the back photo (a
+    tail). In a right photo the front is on the right. Returns (swapped,
+    {side: how much its labels look right, -1..1}), swapped when they look
+    wrong by more than `margin` on average."""
+    ends = {n: _colors(views[n].rgb, views[n].mask > 0.5) for n in ("front", "back") if n in views}
+    found = {}
+    for name, facing in (("right", 1.0), ("left", -1.0)):
+        if name not in views or not ends:
+            continue
+        v = views[name]
+        m = v.mask > 0.5
+        cols = np.flatnonzero(m.any(axis=0))
+        right_half = np.arange(m.shape[1])[None, :] >= (cols[0] + cols[-1] + 1) / 2
+        halves = _colors(v.rgb, m & ~right_half), _colors(v.rgb, m & right_half)
+        # > 0: its right end looks like the front photo (and its left end like the back)
+        toward_right = sum((_apart(halves[0], c) - _apart(halves[1], c)) * (1 if end == "front" else -1)
+                           for end, c in ends.items()) / len(ends)
+        found[name] = round(float(facing * toward_right), 3)
+    return bool(found) and float(np.mean(list(found.values()))) < -margin, found
+
+
+def _colors(rgb, mask, bins=6):
+    """Share of the masked pixels in each of bins^3 color boxes."""
+    idx = np.clip((rgb[mask] * bins).astype(np.int64), 0, bins - 1)
+    counts = np.bincount((idx[:, 0] * bins + idx[:, 1]) * bins + idx[:, 2], minlength=bins ** 3)
+    return counts / max(counts.sum(), 1)
+
+
+def _apart(a, b):
+    """How different two color shares are: 0 the same, 1 nothing in common."""
+    return 0.5 * np.abs(a - b).sum()
 
 
 def estimate_elevation(views, size, focal, margin=MARGIN):
