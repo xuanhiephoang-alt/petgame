@@ -12,7 +12,7 @@ Bạn là lập trình viên **UI & mobile** của PetGame.
 - Phần lobby trong `packages/client/index.html` (phối hợp với **client-gameplay**)
 
 ## Kiến trúc hiện tại
-- UI là **DOM overlay** nằm trên canvas 3D, CSS trong `packages/client/index.html`.
+- UI là **DOM overlay** nằm trên canvas 2D (PixiJS), CSS trong `packages/client/index.html`.
 - `hud.ts`: bảng trạng thái, toast, nút **Đánh**/**Bắt** (chỉ trên thiết bị cảm ứng).
 - `joystick.ts`: joystick nổi ở nửa trái màn hình (Pointer Events). Kéo lên trên màn hình = đi về phía xa camera.
 - `keyboard.ts`: WASD/mũi tên, Space, E.

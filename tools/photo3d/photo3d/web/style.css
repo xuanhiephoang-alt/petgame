@@ -401,8 +401,11 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .warnings:empty { display: none; }
 .warnings li { padding: 8px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: 14px; }
 .actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 14px 0 6px; }
-.install { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
-.install .field { min-width: 180px; }
+.spritebox { margin: 14px 0 6px; padding: 12px; border: 1px solid var(--line, #d8dde3); border-radius: 12px; }
+.spritebox h3 { margin: 0 0 4px; font-size: 15px; }
+.spriterow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.spriterow .field { min-width: 180px; flex: 1; }
+.spritepreview { display: block; width: 100%; margin-top: 10px; border-radius: 10px; background: #7fbf55; }
 .note { padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 14px; overflow-wrap: anywhere; }
 .cutouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
 .cutouts figure { margin: 0; color: var(--muted); font-size: 12px; text-align: center; }

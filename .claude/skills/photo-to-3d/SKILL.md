@@ -56,13 +56,14 @@ description: Turn photos of an object's sides (front/right/back/left, optional d
 - Sheet layouts (sheet.py): `map` (3 x 3, each view in the cell where its camera stands seen from above, front up, top view in the middle with the object's front up; the same layout as the page's photo slots) or `turn` (read like text, going round the object from the front: 4 = front, right, back, left; 8 = 45-degree steps; plus top as the 5th/9th, front down). Default `--layout auto`: map for 3 x 3, turn otherwise. Grid lines, frames and small captions are ignored; empty cells skipped. `--grid RxC` splits into equal cells when the views are not found (each cell with its own backdrop).
 - Single photo: taken as the front (`--view front_right` etc. for another side). Shape: `--ai hunyuan` (Hunyuan3D-2mv given that photo as its front, turned back by the photo's yaw; depth from the AI mesh's proportions) or `--ai shape.glb`; without an AI the outline is blown up into round cross sections (`carve.inflate`), fine for plush and pillows only. Hidden sides are colored by spreading the seen colors over the surface (`texture.fill_views`: made-up views of the back, sides and top), never the front projected through. For real colors on the back, have an image AI draw a 4-view turnaround of the photo (prompt in the README, section 6) and use it as a sheet.
 
-## 7. Use it as a pal in the game
-- `python -m photo3d <folder> --rig --faces 4000 --texture 512 --jpeg -o packages/client/public/assets/models/pal-<id>.glb`
-- `--rig` finds legs (4: `leg_fl/fr/bl/br`, 2: `leg_l/r`), `head`, `tail` and sideways arms (`arm_l/r`) from the carved shape and adds the pals' clips `idle`, `walk`, `attack`, `hurt`. Bone and clip names match `assets/blender/pals.py`, so the client loads it like any pal (`assets.ts`); no code change for an existing species id. A new species also needs its data in `packages/shared/src/data/` (game-designer).
-- Check it: `npm run dev`, open http://localhost:5173/model-viewer.html?only=<id> and press walk/attack/hurt.
-- The model is 1 unit tall like the pals and faces +Z (the front photo).
+## 7. Use it as a pal in the game (2D sprite, not a 3D model)
+- The game is 2D (PixiJS): pals are sprites, one cell per view. Make one straight from the picture: `npm run sprite -- <image or folder> --pal <id>` (photo3d `--sprite`, sprite.py). It cuts each view out, removes the backdrop's color from the edges, puts the views in one row of equal cells (feet on the bottom edge, one scale), fixes swapped side views, and writes `packages/client/public/assets/pals/<id>.png` plus its entry in `index.json` there. Without `--pal` it only saves `<image>-sprite.png`.
+- On the web page: **Một ảnh** mode, then **Hình 2D cho game** → **Đưa vào game** (POST /api/sprite).
+- Check it: `npm run dev`, open http://localhost:5173/sprites.html, or play. Removing the PNG and its index.json entry brings back the drawn default.
+- Image-AI prompts for each species (a 4-view turnaround on a plain backdrop): `docs/art-style.md` and `docs/design/pals.md`. A new species also needs its data in `packages/shared/src/data/` (game-designer).
+- `--rig` still makes rigged GLBs (`idle`, `walk`, `attack`, `hurt`) for use outside the game.
 
 ## 8. Refine in Blender (optional)
-Blender MCP lets you clean up the imported model: Mirror modifier for symmetric objects, Smooth/Decimate, fix the origin (feet at 0, facing -Y in Blender = +Z in glTF), adjust the armature or weights from `--rig` (or add one), then export GLB to `packages/client/public/assets/models/` for the game.
+Blender MCP lets you clean up the imported model: Mirror modifier for symmetric objects, Smooth/Decimate, fix the origin (feet at 0, facing -Y in Blender = +Z in glTF), adjust the armature or weights from `--rig` (or add one), then export GLB. (The game itself is 2D and uses sprites, see section 7.)
 
 Quality reference and limits: tools/photo3d/README.md (Vietnamese).

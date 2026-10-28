@@ -1,0 +1,11 @@
+{
+  "emberpup": {
+    "file": "emberpup.png",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  }
+}

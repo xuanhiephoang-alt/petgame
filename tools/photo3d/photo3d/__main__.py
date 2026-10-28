@@ -1,5 +1,6 @@
 """Command line: python -m photo3d PHOTOS_FOLDER [options]
                python -m photo3d IMAGE [options]   (one image: a sheet of views, or a single photo)
+               python -m photo3d IMAGE --sprite [--pal ID]  (a 2D sprite for the game, see sprite.py)
                python -m photo3d --web       (a web page to drop photos into, see web.py)
                python -m photo3d --ai-check  (does --ai hunyuan work here? see ai.hunyuan_check)
 
@@ -98,6 +99,10 @@ def parse(argv):
     p.add_argument("--ai-check", action="store_true",
                    help="check that --ai hunyuan works here: downloads the model, makes a test shape on a GPU; "
                         "the exit code says what is wrong")
+    p.add_argument("--sprite", action="store_true",
+                   help="make a 2D sprite sheet for the game from IMAGE (or the photos) instead of a 3D model")
+    p.add_argument("--pal", metavar="ID", help="with --sprite: put it in the game as this pal species (e.g. emberpup)")
+    p.add_argument("--sprite-height", type=int, default=256, help="with --sprite: pixel height of the sprite cells")
     p.add_argument("--json", action="store_true", help="print a JSON report")
     p.add_argument("--web", action="store_true", help="open the web page instead (drop photos, preview, download)")
     p.add_argument("--port", type=int, default=8765, help="port of the web page")
@@ -114,6 +119,8 @@ def main(argv=None):
         from .ai import hunyuan_check
 
         sys.exit(hunyuan_check())
+    if args.sprite:
+        return make_sprite_file(args)
     sheet = None
     if args.folder and os.path.isfile(args.folder):
         rgb, alpha, _ = load_image(args.folder)
@@ -146,6 +153,49 @@ def main(argv=None):
     if args.json:
         print(json.dumps(report, indent=2))
     return report
+
+
+def make_sprite_file(args):
+    """--sprite: one row of cut-out views for the game, saved or put in the game."""
+    from .sprite import PALS, install, make_sprite, save_png, sprite_from_photos
+
+    if args.folder and os.path.isfile(args.folder):
+        rgb, alpha, _ = load_image(args.folder)
+        try:
+            rgba, views, report = make_sprite(rgb, alpha, args.layout, parse_grid(args.grid), single=args.view,
+                                              cutout=args.cutout, height=args.sprite_height)
+        except ValueError as e:
+            sys.exit(f"{args.folder}: {e}")
+        default_out = os.path.splitext(args.folder)[0] + "-sprite.png"
+    else:
+        paths = find_photos(args.folder) if args.folder else {}
+        for v in VIEW_NAMES:
+            if getattr(args, v):
+                paths[v] = getattr(args, v)
+        if not paths:
+            sys.exit("give an image, or a folder with front/right/back/left photos")
+        photos = {}
+        for view, path in paths.items():
+            rgb, alpha, _ = load_image(path)
+            photos[view] = (rgb, alpha)
+        rgba, views, report = sprite_from_photos(photos, args.cutout, args.sprite_height)
+        default_out = os.path.join(args.folder or os.path.dirname(next(iter(paths.values()))), "sprite.png")
+    if args.pal:
+        species = {s["id"] for s in json.load(open(SPECIES_FILE, encoding="utf-8"))} if os.path.exists(SPECIES_FILE) else set()
+        if species and args.pal not in species:
+            sys.exit(f"no pal species {args.pal!r}; the game has: {', '.join(sorted(species))}")
+        out = install(rgba, views, args.pal, PALS)
+    else:
+        out = args.out or default_out
+        save_png(rgba, out)
+    swapped = " (the side views looked swapped: put back)" if report.get("swapped") else ""
+    print(f"sprite: {', '.join(views)}{swapped} -> {out}")
+    if args.json:
+        print(json.dumps(report, indent=2))
+    return report
+
+
+SPECIES_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "packages", "shared", "src", "data", "pals.json")
 
 
 if __name__ == "__main__":

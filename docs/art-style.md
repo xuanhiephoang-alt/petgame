@@ -1,28 +1,32 @@
-# Phong cách đồ họa 3D
+# Phong cách đồ họa 2D
 
-> **Chuẩn hiện tại: phong cách KayKit** (chibi, bo tròn, smooth shading, màu tươi, texture gradient). Mọi asset mới phải hợp với cây cỏ và nhân vật KayKit đang dùng (xem `assets/CREDITS.md`).
+> **Chuẩn hiện tại: hoạt hình 2D viền mảnh**, giống ảnh thú do AI vẽ (xem `packages/client/public/assets/pals/emberpup.png`). Mọi hình mới, vẽ bằng code hay bằng AI, phải hợp với nó.
 
-- **Thể loại hình:** 3D low-poly kiểu KayKit, **smooth shading** (chỉ đá/khoáng dùng flat), camera phối cảnh nhìn chéo từ trên xuống (~50°).
-- **Cảm giác:** dễ thương, tươi sáng; thú tròn trịa, mắt to, chân ngắn; màu bão hòa vừa phải.
-- **Tỉ lệ:** 1 đơn vị = 1 m = 32 px của server. Người chơi cao ~1,7; thú nhỏ 0,8–1,2; thú lớn/boss 2–4; cây 2,5–4.
-- **Ngân sách polygon:** thú < 7k tam giác (một mesh skinned dựng bằng Blender), nhân vật < 5k, boss < 10k, vật trang trí < 500.
-- **Màu và chất liệu:** ưu tiên màu theo vertex hoặc một texture bảng màu 256×256 dùng chung (gradient atlas), vật liệu Lambert/Standard không bóng loáng.
-- **Ánh sáng trong game:** trời xanh nhạt, ánh nắng vàng ấm, bóng đổ mềm; sương mù xa để giấu viền bản đồ.
-- **Animation tối thiểu:** `idle`, `walk`, `attack`, `hurt` (thú làm việc: thêm `work`).
+- **Góc nhìn:** từ trên xuống. Mặt đất nhìn thẳng từ trên; cây, người, thú đứng thẳng (nhìn từ trước hơi chếch), sắp xếp trước sau theo chân (y).
+- **Nét vẽ:** viền mảnh màu đậm cùng tông với màu tô (không dùng đen), tô 2 tông: phần sáng ở trên bên trái, phần tối ở dưới bên phải, thêm một mảng sáng nhỏ. Ánh sáng luôn từ trên bên trái.
+- **Cảm giác:** dễ thương, tươi sáng; thú tròn trịa, đầu to, mắt to bóng (tròng màu, hai đốm sáng), chân ngắn, má hồng nhạt; màu bão hòa vừa phải.
+- **Tỉ lệ (pixel của server = pixel thế giới):** người chơi cao ~50; thú 37–62 tùy `size` trong `pals.json` (`palHeight` = size × 3,1); boss gấp 2,4; cây 100–130; bụi 30; rương 26.
+- **Hướng:** mỗi loài có 3 hình: trước (đi xuống màn hình), sau (đi lên), bên (đi sang phải; sang trái là hình bên lật lại). Ảnh PNG có thể có đủ 4 hướng.
+- **Chuyển động:** không vẽ từng khung hình. Thú nhún nhảy, phồng xẹp, lao tới khi đánh, rung khi bị đánh; người chơi đung đưa tay chân (ghép từ các mảnh). Cây, bụi lay theo gió.
+- **Mặt đất:** màu theo vùng hòa vào nhau, bãi cát quanh biển và hồ, cỏ, hoa, sỏi vẽ thẳng vào nền (không tốn gì khi chơi), bóng mềm dưới cây/đá.
+- **Nước:** dải màu nông/sâu rõ ràng kiểu hoạt hình, viền bọt trắng ở bờ, sóng lăn vào, vài đốm lấp lánh.
+- **Ngày đêm:** ban đêm tối xanh, sáng quanh đèn lồng người chơi, lửa trại, dung nham, đèn trại, rương; hoàng hôn ấm màu cam.
 
-## Prompt mẫu cho Meshy / Tripo
-`cute chubby <mô tả thú>, low poly stylized game character, flat shading, vibrant colors, big eyes, short legs, T-pose, clean topology, under 3000 triangles`
+## Hình thú bằng AI vẽ ảnh
 
-## Tham khảo phong cách (chỉ để cảm nhận, không sao chép)
-Low-poly kiểu asset Quaternius / Kenney, phong cách "cozy" của các game nông trại 3D.
+Câu lệnh mẫu (thay phần mô tả bằng mô tả trong `docs/design/pals.md`):
 
-## Ánh sáng, hậu kỳ và mức chất lượng (đợt 1 của visual-director)
+```
+Character turnaround sheet of a cute chibi creature for a 2D game: <mô tả bằng tiếng Anh>.
+Four views in one row, same size, standing on the same ground line: front view, left side view,
+back view, right side view. Clean cartoon style, thin dark colored outline, two-tone cel shading,
+big glossy eyes, soft pastel colors. Plain flat light green background, no text, no shadow on the ground.
+```
 
-- **Mức chất lượng** (`packages/client/src/game/render/quality.ts`): `high` cho máy tính, `medium` cho điện thoại/máy tính bảng, `low` để thử nghiệm/máy yếu. Đổi bằng `?quality=low|medium|high` trên đường dẫn.
-- **Hậu kỳ** (`render/post.ts`): high = ambient occlusion (GTAO) + bloom + chỉnh màu + MSAA 4x; medium = bloom độ phân giải thấp + chỉnh màu; low = không hậu kỳ.
-- **Chỉnh màu**: bão hoà +5%, tương phản +7%, bóng tối hơi lạnh, vùng sáng hơi ấm, vignette nhẹ quanh màn hình.
-- **Chỉ vật thật sáng mới phát sáng** (bloom ngưỡng 0,88): lửa, dung nham, pha lê trên rương, đom đóm. Đừng đặt màu emissive mạnh cho vật thường.
-- **Mặt đất**: màu theo vùng + bóng tối nướng sẵn dưới cây/đá/bụi + texture nhiễu chi tiết + bóng mây trôi ban ngày.
-- **Cỏ dày quanh người chơi** (`render/grassfield.ts`): một draw call, lay theo gió, rẽ ra khi người chơi đi qua; chỉ là hình ảnh, không chặn đường.
-- **Nước**: biển có vùng nước nông màu ngọc và bọt sóng ở bờ (`render/watermask.ts`), hồ/ao tính độ sâu chính xác theo từng hình tròn.
-- **Ngân sách điện thoại** (đo bằng `npm run shots`, ảnh `phone*`): ≤ 400 draw call, ≤ 600 nghìn tam giác mỗi khung hình. Mức high trên máy tính được phép gấp đôi.
+Rồi `npm run sprite -- anh.png --pal <id>` (hoặc trang `npm run photo3d:web`, chế độ **Một ảnh**). Công cụ tự tách nền, tự nhận ra khi hai ảnh bên bị đổi chỗ.
+
+## Ngân sách hiệu năng (điện thoại)
+
+- Mục tiêu 60 FPS trên iPhone đời 2020 trở lên.
+- Mỗi khung hình ≤ 600 sprite (đo bằng `npm run shots`); mặt đất nướng sẵn theo mảng 512 px, nhớ tối đa 24 mảng.
+- Hình vẽ bằng code được vẽ ở độ nét vừa đủ cho màn hình (`setArtScale`), ảnh PNG của thú cao 256 px mỗi ô.

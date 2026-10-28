@@ -35,7 +35,8 @@ export class PartyPanel {
   private list: HTMLDivElement;
   private lastKey = "";
 
-  constructor(parent: HTMLElement, private actions: PartyActions) {
+  /** `portrait` gives a picture of a species (data URL) for its card; without it, a color dot. */
+  constructor(parent: HTMLElement, private actions: PartyActions, private portrait?: (speciesId: string) => string | undefined) {
     this.button = document.createElement("button");
     this.button.className = "party-btn";
     this.button.addEventListener("click", () => this.toggle());
@@ -111,6 +112,12 @@ export class PartyPanel {
     swatch.style.background = species.color;
     swatch.textContent = String(entry.level);
     swatch.title = `Cấp ${entry.level}`;
+    const picture = this.portrait?.(entry.speciesId);
+    if (picture) {
+      swatch.classList.add("portrait");
+      swatch.style.backgroundImage = `url(${picture})`;
+      swatch.style.backgroundColor = `${species.color}33`;
+    }
 
     const info = document.createElement("div");
     info.className = "party-info";

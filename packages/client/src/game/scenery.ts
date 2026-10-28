@@ -1,168 +1,132 @@
-import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { WORLD_HEIGHT, WORLD_WIDTH, defaultWorld } from "@petgame/shared";
-import { UNITS_PER_PIXEL } from "./coords.ts";
-import { propClone } from "./props.ts";
+import { Container, Sprite, type Rectangle } from "pixi.js";
+import { terrainAt, type Circle, type Prop, type TerrainKind, type Vec2, type WorldLayout } from "@petgame/shared";
+import { berriesArt, propArt, type PropArt, type Tint } from "./art/nature.ts";
+import { campfireArt, flameArt, volcanoArt } from "./art/props.ts";
 
-/** Height of the sea surface; the ground slopes below it along the coast. */
-export const SEA_LEVEL = -0.32;
+const TINTS: Partial<Record<TerrainKind, Tint>> = { snow: "frost", swamp: "swamp", volcano: "ash", desert: "sand" };
 
-const lambert = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
-
-/** Merges geometries into one mesh per material, so an instanced copy is one draw call each. */
-function meshes(parts: [THREE.BufferGeometry, THREE.Material][]): THREE.Group {
-  const group = new THREE.Group();
-  const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>();
-  for (const [g, m] of parts) {
-    const geometry = g.index ? g.toNonIndexed() : g;
-    geometry.deleteAttribute("uv");
-    byMaterial.set(m, [...(byMaterial.get(m) ?? []), geometry]);
-  }
-  for (const [material, list] of byMaterial) {
-    const mesh = new THREE.Mesh(mergeGeometries(list), material);
-    mesh.castShadow = true;
-    group.add(mesh);
-  }
-  return group;
+/** How a prop is painted in the region it stands in. */
+export function regionTint(layout: WorldLayout, p: Prop): Tint {
+  return TINTS[terrainAt(layout.terrain, p.x, p.y)] ?? "";
 }
 
-/** Palm tree: a curved ringed trunk, drooping fronds and coconuts. About 4 m tall. */
-export function makePalm(): THREE.Group {
-  const bark = lambert(0x9c7347), leaf = lambert(0x2f7f2f, { side: THREE.DoubleSide }), nut = lambert(0x6b4a26);
-  const parts: [THREE.BufferGeometry, THREE.Material][] = [];
-  const segments = 7;
-  let top = new THREE.Vector3();
-  for (let i = 0; i < segments; i++) {
-    const t = i / segments;
-    const x = Math.pow(t, 2) * 0.8, y = t * 3.6;
-    const r = 0.17 - t * 0.06;
-    parts.push([new THREE.CylinderGeometry(r * 0.9, r, 0.56, 7).translate(x, y + 0.28, 0), bark]);
-    top = new THREE.Vector3(x + 0.12, y + 0.56, 0);
-  }
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    // A long thin leaf bent downward, from the crown outward.
-    const frond = new THREE.PlaneGeometry(0.42, 1.5, 1, 4).translate(0, 0.75, 0);
-    const p = frond.attributes.position;
-    for (let k = 0; k < p.count; k++) {
-      const along = p.getY(k) / 1.5;
-      p.setZ(k, -along * along * 0.9);
-      p.setX(k, p.getX(k) * (1 - along * 0.7));
+interface PropSprite {
+  sprite: Sprite;
+  prop: Prop;
+  art: PropArt;
+  /** Fade (0 solid .. 1 see-through) for canopies hiding the player. */
+  fade: number;
+}
+
+/**
+ * Trees, bushes and rocks of the shared world layout as sprites sorted with
+ * everything else by their base. Only the ones near the camera are drawn;
+ * canopies sway in the wind and turn see-through when the player walks
+ * behind them. Also the spawn campfire and the volcano.
+ */
+export class Scenery {
+  private props: PropSprite[] = [];
+  private berries: Sprite[] = [];
+  private flames: Sprite[] = [];
+  private campfire: Vec2;
+  private volcano: Circle;
+
+  constructor(objects: Container, layout: WorldLayout) {
+    for (const prop of layout.props) {
+      if (prop.model.startsWith("Grass")) continue; // baked into the ground
+      const art = propArt(prop.model, regionTint(layout, prop));
+      const sprite = new Sprite(art.texture);
+      sprite.anchor.set(art.anchor.x, art.anchor.y);
+      // Mirror half of them for variety (the yaw is random).
+      sprite.scale.set(prop.yaw > Math.PI ? -prop.scale : prop.scale, prop.scale);
+      sprite.position.set(prop.x, prop.y);
+      sprite.zIndex = prop.y;
+      sprite.visible = false;
+      objects.addChild(sprite);
+      this.props.push({ sprite, prop, art, fade: 0 });
     }
-    frond.rotateX(-Math.PI / 2 + 0.45).rotateY(a).translate(top.x, top.y, top.z);
-    parts.push([frond, leaf]);
+
+    const berry = berriesArt();
+    for (const spot of layout.fruits) {
+      const sprite = new Sprite(berry.texture);
+      sprite.anchor.set(berry.anchor.x, berry.anchor.y);
+      sprite.scale.set(1.25);
+      sprite.position.set(spot.x, spot.y);
+      sprite.zIndex = spot.y + 0.5;
+      sprite.visible = false;
+      objects.addChild(sprite);
+      this.berries.push(sprite);
+    }
+
+    this.campfire = layout.campfire;
+    const camp = campfireArt();
+    const fire = new Sprite(camp.texture);
+    fire.anchor.set(camp.anchor.x, camp.anchor.y);
+    fire.position.set(layout.campfire.x, layout.campfire.y);
+    fire.zIndex = layout.campfire.y - 1;
+    objects.addChild(fire);
+    const flame = flameArt();
+    for (const [tint, size, dx] of [[0xff6a00, 1.25, 0], [0xffa000, 0.95, -2], [0xffe066, 0.6, 1]] as const) {
+      const sprite = new Sprite(flame.texture);
+      sprite.anchor.set(flame.anchor.x, flame.anchor.y);
+      sprite.tint = tint;
+      sprite.position.set(layout.campfire.x + dx, layout.campfire.y);
+      sprite.scale.set(size);
+      sprite.zIndex = layout.campfire.y;
+      sprite.blendMode = "normal";
+      objects.addChild(sprite);
+      this.flames.push(sprite);
+    }
+
+    this.volcano = layout.volcano;
+    const volcano = volcanoArt(layout.volcano.r);
+    const cone = new Sprite(volcano.texture);
+    cone.anchor.set(volcano.anchor.x, volcano.anchor.y);
+    cone.position.set(layout.volcano.x, layout.volcano.y + layout.volcano.r * 0.55);
+    cone.zIndex = layout.volcano.y + layout.volcano.r * 0.55;
+    objects.addChild(cone);
   }
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    parts.push([new THREE.SphereGeometry(0.11, 6, 5).translate(top.x + Math.cos(a) * 0.15, top.y - 0.15, Math.sin(a) * 0.15), nut]);
+
+  /** Shows or hides the berries of fruit bush `index` ("fruit<index>" in the state). */
+  setRipe(index: number, ripe: boolean) {
+    const sprite = this.berries[index];
+    if (sprite) sprite.visible = ripe;
   }
-  return meshes(parts);
+
+  /** Light sources in the scenery (world px), for the night overlay. */
+  lights(): { x: number; y: number; radius: number; color: number }[] {
+    return [
+      { x: this.campfire.x, y: this.campfire.y - 12, radius: 190, color: 0xff9a40 },
+      { x: this.volcano.x, y: this.volcano.y - this.volcano.r * 1.3, radius: 260, color: 0xff6a2a },
+    ];
+  }
+
+  update(view: Rectangle, timeSec: number, focus: Vec2 | undefined) {
+    const x0 = view.x, x1 = view.x + view.width, y0 = view.y, y1 = view.y + view.height;
+    for (const p of this.props) {
+      const { prop, sprite, art } = p;
+      // Generous bounds: tall trees reach far above their base.
+      const visible = prop.x > x0 - 80 && prop.x < x1 + 80 && prop.y > y0 - 20 && prop.y < y1 + 160;
+      sprite.visible = visible;
+      if (!visible) continue;
+      if (art.sway) sprite.skew.x = Math.sin(timeSec * 1.6 + prop.x * 0.013 + prop.y * 0.007) * art.sway;
+      // Canopies between the camera and the player turn see-through.
+      let want = 0;
+      if (focus && art.canopy && focus.y < prop.y - 4) {
+        const c = art.canopy;
+        const s = prop.scale;
+        const above = prop.y - focus.y;
+        if (Math.abs(focus.x - prop.x) < c.halfWidth * s && above > c.bottom * s * 0.4 - 10 && above < c.top * s) want = 1;
+      }
+      p.fade += (want - p.fade) * 0.15;
+      sprite.alpha = 1 - p.fade * 0.6;
+    }
+    for (const [i, f] of this.flames.entries()) {
+      const k = 1 + Math.sin(timeSec * (9 + i * 3) + i) * 0.12 + Math.sin(timeSec * 23 + i * 2) * 0.06;
+      const base = [1.25, 0.95, 0.6][i];
+      f.scale.set(base / Math.sqrt(k), base * k);
+      f.skew.x = Math.sin(timeSec * (5 + i)) * 0.08;
+    }
+  }
 }
 
-/** Saguaro-style cactus with two arms. About 1.8 m tall. */
-export function makeCactus(): THREE.Group {
-  const green = lambert(0x4f9a3c), flower = lambert(0xff6fa5);
-  const parts: [THREE.BufferGeometry, THREE.Material][] = [
-    [new THREE.CylinderGeometry(0.2, 0.23, 1.6, 8).translate(0, 0.8, 0), green],
-    [new THREE.SphereGeometry(0.2, 8, 6).translate(0, 1.6, 0), green],
-    [new THREE.SphereGeometry(0.07, 6, 4).translate(0, 1.8, 0), flower],
-  ];
-  for (const [side, h, up] of [[1, 0.7, 0.55], [-1, 0.95, 0.4]] as const) {
-    parts.push([new THREE.CylinderGeometry(0.11, 0.11, 0.35, 7).rotateZ(Math.PI / 2).translate(side * 0.35, h, 0), green]);
-    parts.push([new THREE.CylinderGeometry(0.12, 0.12, up, 7).translate(side * 0.52, h + up / 2, 0), green]);
-    parts.push([new THREE.SphereGeometry(0.12, 7, 5).translate(side * 0.52, h + up, 0), green]);
-  }
-  return meshes(parts);
-}
-
-/** The ocean: one large rippling surface under the whole world and past its edge. */
-export function buildOcean(windTime: { value: number }, mask: { texture: THREE.Texture; size: THREE.Vector2 }): THREE.Mesh {
-  const w = WORLD_WIDTH * UNITS_PER_PIXEL, h = WORLD_HEIGHT * UNITS_PER_PIXEL;
-  const geometry = new THREE.PlaneGeometry(w + 200, h + 200).rotateX(-Math.PI / 2).translate(w / 2, 0, h / 2);
-  const material = new THREE.MeshStandardMaterial({ color: 0x1f78b4, roughness: 0.12, metalness: 0.08, transparent: true, opacity: 0.9 });
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.windTime = windTime;
-    shader.uniforms.shoreMask = { value: mask.texture };
-    shader.uniforms.maskSize = { value: mask.size };
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vSeaPos;")
-      .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvSeaPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>
-        uniform float windTime;
-        uniform sampler2D shoreMask;
-        uniform vec2 maskSize;
-        varying vec3 vSeaPos;`)
-      .replace(
-        "#include <color_fragment>",
-        `#include <color_fragment>
-        float swell = sin(vSeaPos.x * 0.9 + windTime * 1.1) * sin(vSeaPos.z * 1.3 - windTime * 0.8);
-        float chop = sin(vSeaPos.x * 3.1 - windTime * 2.3) * sin(vSeaPos.z * 2.7 + windTime * 1.9);
-        // How close the shore is: 0 in open sea, about 0.5 at the waterline.
-        float land = texture2D(shoreMask, vSeaPos.xz / maskSize).r;
-        vec3 deep = vec3(0.07, 0.3, 0.55);
-        vec3 shallow = vec3(0.2, 0.72, 0.78);
-        diffuseColor.rgb = mix(deep, shallow, smoothstep(0.0, 0.42, land));
-        diffuseColor.rgb += vec3(0.04, 0.07, 0.09) * swell + vec3(0.035) * chop;
-        // Foam: a bright line at the waterline and waves rolling in.
-        float waves = sin(land * 38.0 - windTime * 2.2 + swell * 1.5) * 0.5 + 0.5;
-        float foam = smoothstep(0.36, 0.48, land) + smoothstep(0.18, 0.34, land) * (1.0 - smoothstep(0.34, 0.4, land)) * smoothstep(0.75, 0.95, waves);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.98, 1.0), clamp(foam, 0.0, 1.0) * 0.85);
-        diffuseColor.a = mix(0.92, 0.7, smoothstep(0.2, 0.45, land));`,
-      );
-  };
-  material.customProgramCacheKey = () => "ocean";
-  const sea = new THREE.Mesh(geometry, material);
-  sea.position.y = SEA_LEVEL;
-  sea.receiveShadow = true;
-  return sea;
-}
-
-/** The volcano in the east: a dark cone with a glowing crater. Returns the per-frame updater. */
-export function buildVolcano(scene: THREE.Scene): (t: number) => void {
-  const { volcano } = defaultWorld().layout;
-  const r = volcano.r * UNITS_PER_PIXEL;
-  const fromBlender = propClone("volcano");
-  if (fromBlender) {
-    fromBlender.position.set(volcano.x * UNITS_PER_PIXEL, 0, volcano.y * UNITS_PER_PIXEL);
-    const light = new THREE.PointLight(0xff6a2a, 8, 16, 1.6);
-    light.position.y = 6.5;
-    fromBlender.add(light);
-    scene.add(fromBlender);
-    const pool = fromBlender.getObjectByName("lava") as THREE.Mesh | undefined;
-    const lavaMaterial = pool?.material as THREE.MeshStandardMaterial | undefined;
-    return (t) => {
-      const flicker = 1 + Math.sin(t * 3.1) * 0.15 + Math.sin(t * 7.3) * 0.08;
-      light.intensity = 8 * flicker;
-      if (lavaMaterial) lavaMaterial.emissiveIntensity = 2.6 + Math.sin(t * 2.6) * 0.5;
-    };
-  }
-  const group = new THREE.Group();
-  group.position.set(volcano.x * UNITS_PER_PIXEL, 0, volcano.y * UNITS_PER_PIXEL);
-  const rock = new THREE.MeshLambertMaterial({ color: 0x3d3532, flatShading: true });
-  const cone = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.32, r * 1.25, 5.5, 14, 4, true), rock);
-  // Rough up the slopes.
-  const p = cone.geometry.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const k = 1 + (Math.sin(p.getX(i) * 3.1 + p.getY(i) * 2.3) * Math.cos(p.getZ(i) * 2.7)) * 0.08;
-    p.setX(i, p.getX(i) * k);
-    p.setZ(i, p.getZ(i) * k);
-  }
-  cone.geometry.computeVertexNormals();
-  cone.position.y = 2.75;
-  cone.castShadow = cone.receiveShadow = true;
-  const lava = new THREE.Mesh(
-    new THREE.CircleGeometry(r * 0.3, 18).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0xff5a1a }),
-  );
-  lava.position.y = 5.2;
-  const light = new THREE.PointLight(0xff6a2a, 8, 16, 1.6);
-  light.position.y = 6.5;
-  group.add(cone, lava, light);
-  scene.add(group);
-  return (t) => {
-    const flicker = 1 + Math.sin(t * 3.1) * 0.15 + Math.sin(t * 7.3) * 0.08;
-    light.intensity = 8 * flicker;
-    (lava.material as THREE.MeshBasicMaterial).color.setHSL(0.04 + Math.sin(t * 2) * 0.01, 1, 0.5 + Math.sin(t * 2.6) * 0.05);
-  };
-}

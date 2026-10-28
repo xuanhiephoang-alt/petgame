@@ -13,7 +13,7 @@ Bạn là **QA / tester** của PetGame.
 ## Công cụ
 - `npm test`: Vitest cho logic thuần (`packages/**/src/**/*.test.ts`).
 - `npm run test:e2e`: Playwright tự bật server (cổng 2567) và Vite (cổng 5173), mở nhiều trình duyệt như nhiều người chơi.
-- Chromium headless vẽ WebGL bằng phần mềm nên trang 3D tải chậm (timeout 180 giây trong `playwright.config.ts`).
+- Chromium headless vẽ WebGL bằng phần mềm nên game tải chậm hơn máy thật (timeout 180 giây trong `playwright.config.ts`). Chờ `window.__petgame.game.frames` tăng thay vì chờ theo thời gian.
 - Chromium đã cài sẵn; `@playwright/test` được ghim 1.56.1 cho khớp. **Không chạy `playwright install`.**
 - Đọc state trong trình duyệt qua `window.__petgame.room.state`.
 

@@ -2,10 +2,8 @@
 
 | Asset | Nguồn | Giấy phép |
 |---|---|---|
-| `packages/client/public/assets/models/pal-*.glb` | Dựng bằng Blender qua script `assets/blender/pals.py` | Thuộc dự án |
-| `packages/client/public/assets/env/nature.glb` | KayKit Forest Nature Pack 1.0, Kay Lousberg ([kaylousberg.com](https://www.kaylousberg.com)) | CC0 (`assets/kaykit/LICENSE-KayKit-CC0.txt`) |
-| `packages/client/public/assets/characters/*.glb` | KayKit Adventurers 2.0 + Character Animations 1.1, Kay Lousberg | CC0 |
+| Cây cối, đá, cỏ, nước, nhân vật, trại, hiệu ứng và hình mặc định của các loài thú | Vẽ bằng code: `packages/client/src/game/art/` | Thuộc dự án |
+| `packages/client/public/assets/pals/emberpup.png` | Ảnh Emberpup 4 góc do chủ dự án làm bằng AI vẽ ảnh, tách nền bằng `npm run sprite` | Thuộc dự án |
 
-Các file KayKit được tạo bằng `npm run assets:kaykit` (lấy từ bản mirror công khai của "The Complete KayKit Collection v6"). Không bắt buộc ghi công nhưng tác giả mong được ghi: "Kay Lousberg, www.kaylousberg.com".
-
+Hình của một loài thú có thể thay bằng ảnh PNG trong `packages/client/public/assets/pals/` (xem `npm run sprite`).
 Mọi asset lấy từ bên ngoài phải ghi vào bảng này kèm giấy phép.

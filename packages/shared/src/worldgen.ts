@@ -15,7 +15,7 @@ export type PropKind = "tree" | "bush" | "rock" | "grass";
 
 export interface Prop {
   kind: PropKind;
-  /** Model name inside nature.glb (see assets/kaykit/manifest.ts), or "Palm" / "Cactus" (built by the client). */
+  /** Which tree, bush, rock or grass this is (Tree_1_A, Palm, Cactus...): the client draws each name its own way (art/nature.ts). */
   model: string;
   x: number;
   y: number;

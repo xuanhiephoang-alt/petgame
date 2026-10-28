@@ -11,6 +11,6 @@
   "dependencies": {
     "@colyseus/sdk": "^0.18.5",
     "@petgame/shared": "*",
-    "three": "^0.186.1"
+    "pixi.js": "^8.22.0"
   }
 }

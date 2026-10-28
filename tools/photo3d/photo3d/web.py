@@ -1,8 +1,8 @@
 """
 The photo3d web page: drop the photos in (or one image: a sheet of views or
 a single photo, see sheet.py), pick what the model is for, follow the
-progress, turn the model around in 3D (with its animations), download it or
-put it straight into the game.
+progress, turn the model around in 3D (with its animations) and download
+it. One image can also become a pal's 2D sprite in the game (sprite.py).
 
     python -m photo3d --web        (or: npm run photo3d:web)
 
@@ -12,6 +12,7 @@ library is used, so this also runs in Blender's Python: requests are
 answered on a background thread while models are built one at a time on the
 main thread (Blender's API must stay on the main thread).
 """
+import base64
 import json
 import os
 import queue
@@ -37,6 +38,7 @@ from .images import IMAGE_EXT, _resize, load_image
 from .meshio import FORMATS as MESH_EXT
 from .pipeline import build
 from .sheet import LAYOUTS, parse_grid, split_sheet
+from .sprite import PALS, install, make_sprite, png
 from .views import VIEW_NAMES, missing_sides
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,7 +46,6 @@ PAGE = os.path.join(HERE, "web")
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 THREE = os.path.join(REPO, "node_modules", "three")  # three.js from the game's npm install
 THREE_CDN = "https://cdn.jsdelivr.net/npm/three@0.186.1/"  # used when it is not installed
-MODELS = os.path.join(REPO, "packages", "client", "public", "assets", "models")
 SPECIES = os.path.join(REPO, "packages", "shared", "src", "data", "pals.json")
 MAX_UPLOAD = 300 << 20
 KEEP = 8  # finished jobs whose files are kept
@@ -174,10 +175,11 @@ class App:
     """The jobs and their files, shared by the request handler (background
     thread) and the builder (main thread)."""
 
-    def __init__(self, root=None, models=MODELS, species=SPECIES, echo=False):
+    def __init__(self, root=None, pals=PALS, species=SPECIES, echo=False):
         self.root = root or tempfile.mkdtemp(prefix="photo3d-web-")
         os.makedirs(self.root, exist_ok=True)
-        self.models = models if models and os.path.isdir(models) else None
+        # The game's sprite folder (its parent must exist: the game is next to this tool).
+        self.pals = pals if pals and os.path.isdir(os.path.dirname(pals)) else None
         self.species = _species(species)
         self.echo = echo  # also print the build logs here
         self.jobs = {}
@@ -194,7 +196,7 @@ class App:
         self.ai = {"hunyuan": device, "why": why}
 
     def info(self):
-        return {"species": self.species if self.models else [], "three": "local" if os.path.isdir(THREE) else "cdn",
+        return {"species": self.species if self.pals else [], "three": "local" if os.path.isdir(THREE) else "cdn",
                 "ai": self.ai}
 
     def submit(self, photos, options, name="model", ai_mesh=None, image=None, how=None):
@@ -220,6 +222,29 @@ class App:
             self.jobs[job.id] = job
         self.todo.put(job)
         return job
+
+    def sprite(self, image, how, species=None):
+        """A pal's 2D sprite from an uploaded image (file name, bytes), read
+        as `how` says; put in the game as `species` when given. Returns
+        {preview (PNG data URL), views, swapped, path, species}."""
+        if species and (not self.pals or species not in {s["id"] for s in self.species}):
+            raise ValueError(f"no pal species {species!r} in the game")
+        filename, data = image
+        ext = os.path.splitext(filename or "")[1].lower()
+        fd, path = tempfile.mkstemp(suffix=ext if ext in IMAGE_EXT else ".jpg", dir=self.root)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        try:
+            rgb, alpha, _ = load_image(path)
+        finally:
+            os.remove(path)
+        rgba, views, report = make_sprite(rgb, alpha, **how)
+        out = {"preview": "data:image/png;base64," + base64.b64encode(png(rgba)).decode("ascii"), "views": views,
+               "swapped": bool(report.get("swapped")), "species": species or None, "path": None}
+        if species:
+            saved = install(rgba, views, species, self.pals)
+            out["path"] = os.path.relpath(saved, REPO).replace(os.sep, "/")
+        return out
 
     def split(self, image, how):
         """What split_sheet makes of an uploaded image (file name, bytes):
@@ -284,14 +309,6 @@ class App:
         job.seconds = time.time() - started
         self._prune()
         return job
-
-    def install(self, job, species):
-        """Copies the model into the game as pal-<species>.glb. Returns its path in the repo."""
-        if not self.models or species not in {s["id"] for s in self.species}:
-            raise ValueError(species)
-        path = os.path.join(self.models, f"pal-{species}.glb")
-        shutil.copyfile(job.model, path)
-        return os.path.relpath(path, REPO).replace(os.sep, "/")
 
     def close(self):
         shutil.rmtree(self.root, ignore_errors=True)
@@ -387,16 +404,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._new_job(body)
         if path == "/api/split":
             return self._split(body)
-        m = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/install", path)
-        if m:
-            job = self.app.jobs.get(m.group(1))
-            if not job or job.state != "done":
-                return self._error(404, "Chưa có model để đưa vào game.")
-            try:
-                species = json.loads(body or b"{}").get("species", "")
-                return self._json({"path": self.app.install(job, species), "species": species})
-            except (ValueError, AttributeError):
-                return self._error(400, "Không có loài thú này trong game.")
+        if path == "/api/sprite":
+            return self._sprite(body)
         return self._error(404, "Không có trang này.")
 
     def _new_job(self, body):
@@ -435,6 +444,23 @@ class Handler(BaseHTTPRequestHandler):
         try:
             return self._json(self.app.split(image, how))
         except Exception as e:  # unreadable image, nothing found, a layout that does not fit: told on the page
+            return self._error(400, str(e) or type(e).__name__)
+
+    def _sprite(self, body):
+        try:
+            fields = parse_form(self.headers.get("Content-Type", ""), body)
+        except ValueError:
+            return self._error(400, "Yêu cầu không hợp lệ.")
+        image = fields.get("image")
+        if not image or not image[1]:
+            return self._error(400, "Chưa có ảnh.")
+        how = sheet_options(fields.get("options", (None, b"{}"))[1].decode("utf-8", "replace"))
+        species = fields.get("species", (None, b""))[1].decode("utf-8", "replace").strip() or None
+        if species and species not in {s["id"] for s in self.app.species}:
+            return self._error(400, "Không có loài thú này trong game.")
+        try:
+            return self._json(self.app.sprite(image, how, species))
+        except Exception as e:  # unreadable image, nothing found: told on the page
             return self._error(400, str(e) or type(e).__name__)
 
     def _page(self):

@@ -1,6 +1,6 @@
 # photo3d: tạo model 3D từ ảnh chụp
 
-Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 45°** và ảnh **từ trên xuống** nếu có), công cụ dựng ra model 3D **có màu thật từ ảnh**, xuất `.glb` (dùng được trong game, Blender, web) hoặc `.obj`. Thêm `--rig` để model **có xương và 4 động tác của thú trong game** (đứng, đi, tấn công, bị đánh). Chạy trên máy thường, không cần GPU, mỗi model từ vài giây (ảnh nhỏ) đến khoảng 20 giây (ảnh điện thoại lớn). Muốn **hình dạng chi tiết hơn** thì dùng chế độ AI (mục 5): Hunyuan3D-2mv chạy trên máy có GPU NVIDIA, hoặc hình 3D làm bằng bất kỳ công cụ AI nào. Chỉ có **một ảnh** cũng được (mục 6): một ảnh ghép nhiều góc của vật, hoặc một ảnh duy nhất để AI đoán các mặt còn lại.
+Chụp một vật từ **trước, phải, sau, trái** (thêm 4 ảnh **chéo 45°** và ảnh **từ trên xuống** nếu có), công cụ dựng ra model 3D **có màu thật từ ảnh**, xuất `.glb` (dùng được trong Blender, web, game 3D) hoặc `.obj`. Thêm `--rig` để model **có xương và 4 động tác** (đứng, đi, tấn công, bị đánh). Game PetGame là 2D: muốn đưa thú vào game thì làm **hình 2D** từ ảnh (mục 4, `npm run sprite`). Chạy trên máy thường, không cần GPU, mỗi model từ vài giây (ảnh nhỏ) đến khoảng 20 giây (ảnh điện thoại lớn). Muốn **hình dạng chi tiết hơn** thì dùng chế độ AI (mục 5): Hunyuan3D-2mv chạy trên máy có GPU NVIDIA, hoặc hình 3D làm bằng bất kỳ công cụ AI nào. Chỉ có **một ảnh** cũng được (mục 6): một ảnh ghép nhiều góc của vật, hoặc một ảnh duy nhất để AI đoán các mặt còn lại.
 
 ```
 ảnh 4–9 phía ─► tách nền ─► căn chỉnh ─► hiệu chỉnh máy ảnh (chụp gần, chụp từ trên)
@@ -51,7 +51,7 @@ Trình duyệt tự mở http://localhost:8765. Trên trang:
 2. Chọn dùng để làm gì: **Thú trong game** (có xương, file nhẹ), **Đồ vật trong game** hoặc **Chất lượng cao**.
 3. Bấm **Dựng model 3D**: thanh tiến trình cho biết đang làm bước nào.
 4. Xoay model bằng chuột hoặc ngón tay. Bấm **Đứng, Đi, Tấn công, Bị đánh** để xem động tác, **Lưới** để xem khung tam giác.
-5. Bấm **Tải model (.glb)**, hoặc **Đưa vào game** để thay model của một loài thú (xem mục 4).
+5. Bấm **Tải model (.glb)**. Muốn đưa con thú vào game (game là 2D): dùng chế độ **Một ảnh** rồi **Đưa vào game** (xem mục 4).
 
 Bên dưới model có ảnh sau khi tách nền, để kiểm tra nền đã được bỏ sạch chưa, và các cảnh báo (ảnh đặt nhầm ô, vật chạm mép ảnh...).
 
@@ -108,24 +108,23 @@ Kết quả: `D:\anh\meo\model.glb` (đổi bằng `-o duong_dan.glb` hoặc `.o
 | `--grid 3x3` | số hàng × số cột của ảnh ghép khi không tự tìm ra các ô; `1x1` = một ảnh duy nhất (mục 6) |
 | `--view front_right` | phía mà một ảnh duy nhất chụp (mặc định `front`, mục 6) |
 
-## 4. Dùng model làm thú trong game
+## 4. Đưa con thú vào game (hình 2D)
+
+Game là **2D**: mỗi loài thú là một hàng hình nhìn từ trước, bên, sau. photo3d làm hàng hình đó thẳng từ ảnh, không cần dựng model 3D:
 
 ```powershell
-python -m photo3d D:\anh\meo --rig --faces 4000 --texture 512 --jpeg -o packages\client\public\assets\models\pal-leafkit.glb
+npm.cmd run sprite -- D:\anh\emberpup.png --pal emberpup
 ```
 
-- `--rig` tự tìm các phần của vật từ khối đã dựng:
-  - **4 chân** (thú): xương `leg_fl`, `leg_fr`, `leg_bl`, `leg_br`;
-  - **2 chân** (người, thú đứng thẳng): `leg_l`, `leg_r`, thêm `arm_l`, `arm_r` nếu tay giang ra hai bên;
-  - **không thấy chân** (bóng, cá, vật tròn): thân nhún nhảy khi đi;
-  - luôn có `body`, thêm `head` và `tail` nếu thấy.
-- Tên xương và tên animation giống hệt thú làm bằng Blender (`assets/blender/pals.py`). Vì vậy đặt tên file `pal-<id>.glb` là game dùng được ngay, không phải sửa code.
-- Model cao 1 đơn vị, cùng cỡ với thú trong game (0,7–1,1). Mặt trước của vật (ảnh `truoc`) quay về hướng thú nhìn.
-- Dung lượng: với `--faces 4000 --texture 512 --jpeg` mỗi file khoảng 0,3 MB (thú làm bằng Blender: 0,13–0,17 MB). Để mặc định (20000 tam giác, texture PNG lớn) thì 1,5–2,7 MB, quá nặng cho điện thoại.
-- Thêm `--symmetric` nếu con vật đối xứng trái/phải.
-- Trên trang web (mục 2): chọn **Thú trong game**, dựng xong chọn loài rồi bấm **Đưa vào game**. Trang ghi đè `pal-<id>.glb` của loài đó; lấy lại model cũ bằng `git checkout -- packages/client/public/assets/models/pal-<id>.glb`.
-- Xem thử: `npm run dev` rồi mở http://localhost:5173/model-viewer.html?only=leafkit (bấm `walk`, `attack`...).
-- Loài mới (không thay loài có sẵn) còn cần khai báo trong dữ liệu game (`packages/shared/src/data/`).
+- Ảnh vào: một ảnh ghép các góc (ví dụ ảnh AI vẽ 4 góc: trước, bên trái, sau, bên phải), một thư mục ảnh `truoc/phai/sau/trai`, hoặc một ảnh duy nhất (khi đó thú dùng một hình cho mọi hướng).
+- Công cụ tách nền, khử viền màu nền ở mép, đặt mọi góc cùng tỉ lệ, chân chạm đáy ô, rồi ghi `packages/client/public/assets/pals/<id>.png` và khai báo trong `index.json` cùng thư mục. Hai ảnh bên bị đổi chỗ (AI hay vẽ vậy) thì tự đổi lại.
+- Không có `--pal`: chỉ lưu `<tên ảnh>-sprite.png` để xem trước. `--sprite-height 256`: chiều cao mỗi ô.
+- Trên trang web (mục 2): chọn **Một ảnh**, thả ảnh vào, chọn loài ở mục **Hình 2D cho game** rồi bấm **Đưa vào game**. Trang cho xem trước hình đã tách.
+- Bỏ hình đó: xoá file PNG và dòng của loài trong `index.json` (game quay về hình vẽ sẵn).
+- Xem thử: `npm run dev` rồi mở http://localhost:5173/sprites.html, hoặc vào game.
+- Câu lệnh mẫu để AI vẽ ảnh 4 góc cho từng loài: `docs/art-style.md` và `docs/design/pals.md`.
+
+Model 3D (`.glb`) vẫn làm được như các mục khác, để dùng trong Blender, web hay game 3D khác. `--rig` gắn xương và 4 animation (`idle`, `walk`, `attack`, `hurt`): **4 chân** (`leg_fl`, `leg_fr`, `leg_bl`, `leg_br`), **2 chân** (`leg_l`, `leg_r`, thêm `arm_l`, `arm_r` nếu tay giang ra), **không chân** (thân nhún nhảy); luôn có `body`, thêm `head` và `tail` nếu thấy.
 
 ## 5. Chế độ AI: hình dạng chi tiết hơn
 

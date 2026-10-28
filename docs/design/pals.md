@@ -1,7 +1,7 @@
 # Danh sách thú (pal)
 
-Chỉ số nằm ở `packages/shared/src/data/pals.json`. File này lưu mô tả ngoại hình để art-pipeline dựng model.
-Model 3D hiện tại: dựng bằng Blender qua `assets/blender/pals.py` (`npm run models:build`) → `packages/client/public/assets/models/pal-<id>.glb` (xem ở http://localhost:5173/model-viewer.html).
+Chỉ số nằm ở `packages/shared/src/data/pals.json`. File này lưu mô tả ngoại hình: hình vẽ bằng code (`packages/client/src/game/art/pals.ts`) và ảnh AI vẽ đều theo nó.
+Hình trong game: ảnh PNG trong `packages/client/public/assets/pals/` nếu có (làm bằng `npm run sprite -- anh.png --pal <id>`), không thì hình vẽ bằng code. Xem tất cả ở http://localhost:5173/sprites.html khi chạy `npm run dev`.
 
 | id | Tên | Hệ | Mô tả ngoại hình |
 |---|---|---|---|
@@ -18,6 +18,26 @@ Model 3D hiện tại: dựng bằng Blender qua `assets/blender/pals.py` (`npm 
 | bogbloom | Bogbloom | grass | Ếch đầm lầy tròn màu ô liu, cổ đeo lá sen, đội bông súng hồng nhụy vàng. Sống ở đầm lầy, hiền |
 | coralcrab | Coralcrab | water | Cua hồng đỏ, vương miện san hô trên mai, hai càng lớn. Chỉ có trên đảo hoang, tự vệ, khó bắt |
 | frostfang | Frostfang | water | Sói tuyết trắng xanh, bờm lông trắng xù quanh cổ, ba tinh thể băng phát sáng dọc sống lưng, tai nhọn, hai răng nanh nhỏ, đuôi xù có mũi băng. Sống ở vùng tuyết, tự vệ, khó bắt |
+
+## Mô tả cho AI vẽ ảnh (tiếng Anh)
+
+Ghép vào câu lệnh mẫu trong `docs/art-style.md` (ảnh ghép 4 góc: trước, bên trái, sau, bên phải, nền xanh nhạt trơn):
+
+| id | Mô tả |
+|---|---|
+| leafkit | a small green kitten with a pale green belly, ears shaped like two veined leaves, a curly vine tail ending in a leaf |
+| emberpup | an orange-red puppy with floppy dark red ears, cream muzzle and chest, pink cheeks, a small flame tuft on its forehead, a two-layer glowing flame tail |
+| bubbloon | a round floating water-bubble creature with a light blue belly, a shine spot on its head, a curly water drop on top, two side fins and a little fish tail |
+| pebblet | a round boulder creature with short stubby arms and legs, lighter stone patches, bushy eyebrows, moss on top of its head with a tiny sprout, gentle eyes |
+| voltmouse | a yellow mouse with big round ears (pink inside), a white tuft of static fur on its head, two brown stripes on its back, a long thin tail ending in a glowing turquoise orb; no red cheeks, no lightning-bolt tail |
+| ripplefin | a chubby turquoise river fish with a white belly and light spots on its sides, a pointed dorsal fin, waddling on two fin feet, a fan tail |
+| mothlume | a fluffy pale purple moth with a white fur collar, wings with glowing yellow spots, antennae ending in small glowing beads |
+| boulderhorn | a grey stone rhino with a big white horn, a row of rock spikes on its back, patches of green moss, big heavy legs |
+| cactoad | a green desert toad with a cream belly and bulging eyes, a small cactus with a pink flower growing on its back |
+| scorchtail | a quick orange lizard on four legs with yellow flame spikes along its back and a burning tail tip |
+| bogbloom | a round olive-green swamp frog wearing a lily pad collar and a pink water lily with a yellow center on its head |
+| coralcrab | a pink-red crab with a crown of coral branches on its shell and two big claws |
+| frostfang | a white and pale blue wolf pup with a fluffy white mane, three glowing ice crystals along its spine, pointed ears, two small fangs, a fluffy tail with an icy tip |
 
 ## Tính khí
 

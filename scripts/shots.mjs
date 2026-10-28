@@ -1,5 +1,6 @@
 // Captures a fixed set of screenshots (every region, day and night, a pal
-// close-up, a phone screen) so visual changes can be compared before/after.
+// close-up, a phone screen) so visual changes can be compared before/after,
+// with how many sprites were drawn in each.
 // Usage: npm run shots -- --name before   → shots/before/*.png + report.json
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -32,14 +33,16 @@ for (let i = 0; i < 60; i++) {
 /** Waits until the camera has caught up with the (teleported) player and a few frames have been drawn. */
 async function settle(page) {
   await page.waitForTimeout(500);
-  const start = await page.evaluate(() => window.__petgame.game.renderer.info.render.frame);
+  await page.waitForFunction(() => window.__petgame?.game, null, { timeout: 120000 });
+  const start = await page.evaluate(() => window.__petgame.game.frames);
   await page.waitForFunction((start) => {
     const g = window.__petgame.game;
-    const me = g.players.get(g.room.sessionId);
+    const { me, server, camera } = g.debugInfo();
     if (!me) return false;
-    const close = g.cameraTarget.distanceTo(me.model.position) < 0.2 && Math.hypot(me.pos.x - me.server.x, me.pos.y - me.server.y) < 4;
+    // The camera looks a little above the player's feet.
+    const close = Math.hypot(camera.x - me.x, camera.y + 16 - me.y) < 3 && Math.hypot(me.x - server.x, me.y - server.y) < 4;
     // Software WebGL can be slow: insist on several fresh frames, not just time.
-    return close && g.renderer.info.render.frame - start > 6;
+    return close && g.frames - start > 6;
   }, start, { timeout: 120000, polling: 250 });
 }
 
@@ -69,12 +72,9 @@ try {
   await page.evaluate(() => window.__petgame.room.send("debug:gear"));
   const shoot = async (file) => {
     await page.screenshot({ path: join(out, `${file}.png`) });
-    const info = await page.evaluate(() => {
-      const r = window.__petgame.game.renderer.info.render;
-      return { calls: r.calls, triangles: r.triangles };
-    });
+    const info = await page.evaluate(() => ({ sprites: window.__petgame.game.debugInfo().objects }));
     report.push({ file, ...info });
-    console.log(file.padEnd(16), `${info.calls} calls`, `${Math.round(info.triangles / 1000)}k tris`);
+    console.log(file.padEnd(16), `${info.sprites} sprites`);
   };
   for (const [file, x, y, t] of SPOTS) {
     await page.evaluate(([x, y, t]) => {
@@ -105,15 +105,11 @@ try {
   await phone.click("#join-btn");
   await phone.waitForFunction(() => window.__petgame?.room?.state?.pals?.size > 0, null, { timeout: 120000 });
   await settle(phone);
-  // Phones use the "medium" quality: these numbers are the iPhone budget.
   const phoneShot = async (file) => {
     await phone.screenshot({ path: join(out, `${file}.png`) });
-    const info = await phone.evaluate(() => {
-      const r = window.__petgame.game.renderer.info.render;
-      return { calls: r.calls, triangles: r.triangles };
-    });
+    const info = await phone.evaluate(() => ({ sprites: window.__petgame.game.debugInfo().objects }));
     report.push({ file, ...info });
-    console.log(file.padEnd(16), `${info.calls} calls`, `${Math.round(info.triangles / 1000)}k tris`, "(phone, medium)");
+    console.log(file.padEnd(16), `${info.sprites} sprites`, "(phone)");
   };
   await phoneShot("phone");
   for (const [file, x, y] of [["phone-swamp", 1520, 2400], ["phone-lake", 3730, 2130]]) {

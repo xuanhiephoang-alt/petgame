@@ -1,7 +1,7 @@
 // photo3d web page: photo slots (or one image: a sheet of views or a single
 // photo), options, progress and the 3D preview. Talks to photo3d/web.py:
 // POST /api/split, POST /api/jobs, GET /api/jobs/<id>, the model and cut-out
-// files, POST /api/jobs/<id>/install.
+// files, POST /api/sprite (one image as a pal's 2D sprite in the game).
 
 // Slots laid out like a map seen from above: the object in the middle facing
 // up (its front at the top, its right side on the right).
@@ -293,6 +293,7 @@ async function refreshSplit() {
       $("oneBoxes").append(box);
     }
   }
+  $("spriteBox").hidden = !(info.species.length && !out.error);
   showAiChoice(); // and showSplit: a single photo is blown up when no AI is chosen
 }
 
@@ -595,8 +596,6 @@ function showResult(s) {
   const download = $("download");
   download.href = `/api/jobs/${s.id}/model.glb?download=1`;
   download.download = `${s.name}.glb`;
-  $("install").hidden = !(r.rig && info.species.length);
-  $("installNote").hidden = true;
 
   $("cutouts").replaceChildren(...s.cutouts.map((view) => {
     const figure = document.createElement("figure");
@@ -608,22 +607,42 @@ function showResult(s) {
   if (matchMedia("(max-width: 860px)").matches) $("viewer").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-async function install() {
+/** Makes the chosen image a pal's 2D sprite in the game (cut out, one cell per view). */
+async function makeSprite() {
+  if (!oneImage) return;
   const select = $("species");
   const name = select.selectedOptions[0]?.textContent;
-  const path = `packages/client/public/assets/models/pal-${select.value}.glb`;
-  if (!confirm(`Thay model của ${name} trong game bằng model này?\nLấy lại model cũ bằng: git checkout -- ${path}`)) return;
-  const res = await fetch(`/api/jobs/${job.id}/install`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ species: select.value }),
-  });
-  const out = await res.json().catch(() => ({ error: `Lỗi ${res.status}` }));
-  const note = $("installNote");
+  const path = `packages/client/public/assets/pals/${select.value}.png`;
+  if (!confirm(`Dùng ảnh này làm hình của ${name} trong game?\nMuốn bỏ: xoá ${path} và dòng "${select.value}" trong index.json cùng thư mục.`)) return;
+  const form = new FormData();
+  form.append("image", oneImage, oneImage.name);
+  form.append("options", JSON.stringify(sheetOptions()));
+  form.append("species", select.value);
+  const note = $("spriteNote");
   note.hidden = false;
-  note.textContent = res.ok
-    ? `Đã lưu vào ${out.path}. Chạy game (npm run dev) rồi mở http://localhost:5173/model-viewer.html?only=${out.species} để xem ${name} mới.`
-    : out.error;
+  note.classList.remove("bad");
+  note.textContent = "Đang tách hình...";
+  $("spriteBtn").disabled = true;
+  let out;
+  try {
+    const res = await fetch("/api/sprite", { method: "POST", body: form });
+    out = await res.json();
+  } catch {
+    out = { error: "Không gửi được ảnh: cửa sổ chạy photo3d còn mở không?" };
+  } finally {
+    $("spriteBtn").disabled = false;
+  }
+  note.classList.toggle("bad", Boolean(out.error));
+  if (out.error) {
+    note.textContent = errorText(out.error);
+    return;
+  }
+  $("spritePreview").src = out.preview;
+  $("spritePreview").hidden = false;
+  const views = out.views.map((v) => LABEL[v] ?? v).join(", ");
+  note.textContent = `Đã lưu ${out.path} (các phía: ${views})` +
+    (out.swapped ? "; hai ảnh bên bị ngược nên đã đổi lại" : "") +
+    `. Tải lại trang game để thấy ${name} mới.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -843,7 +862,7 @@ $("many").addEventListener("change", (e) => {
   assign([...e.target.files].filter(isImage));
   e.target.value = "";
 });
-$("installBtn").addEventListener("click", install);
+$("spriteBtn").addEventListener("click", makeSprite);
 document.addEventListener("dragover", (e) => {
   if (![...e.dataTransfer.types].includes("Files")) return;
   e.preventDefault();
@@ -890,7 +909,7 @@ $("aiMesh").addEventListener("change", (e) => e.target.files[0] && setAiMesh(e.t
 $("meshDrop").addEventListener("dragover", () => $("meshDrop").classList.add("over"));
 $("meshDrop").addEventListener("dragleave", () => $("meshDrop").classList.remove("over"));
 
-/** Species for "Đưa vào game", and whether Hunyuan3D runs here (checked by the server in the background). */
+/** Species for the 2D sprites, and whether Hunyuan3D runs here (checked by the server in the background). */
 async function loadInfo() {
   try {
     info = await (await fetch("/api/info")).json();

@@ -1,5 +1,6 @@
-// Runs a Blender build script in the background, wherever Blender is installed.
-// Usage: node scripts/blender.mjs assets/blender/pals.py [-- leafkit ...]
+// Runs a Blender script in the background, wherever Blender is installed
+// (photo3d uses it when no Python with numpy is found).
+// Usage: node scripts/blender.mjs tools/photo3d/blender_photo3d.py [-- args]
 // Looks for: $BLENDER, `blender` on PATH, the usual Windows/macOS install
 // folders, then a Python with the `bpy` module (pip install bpy).
 import { spawnSync } from "node:child_process";

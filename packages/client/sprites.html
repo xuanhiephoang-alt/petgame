@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PetGame: xem hình</title>
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #78b84a; font-family: system-ui, sans-serif; }
+      #bar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap; gap: 6px; z-index: 1; }
+      #bar button { font-size: 14px; padding: 7px 12px; border-radius: 8px; border: none; background: #fff; cursor: pointer; }
+      #bar button.active { background: #2e7d32; color: #fff; }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="bar"></div>
+    <script type="module" src="/src/gallery.ts"></script>
+  </body>
+</html>

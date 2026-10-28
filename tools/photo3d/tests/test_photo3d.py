@@ -423,15 +423,14 @@ def test_web_options_are_checked():
     assert options_from('{"ai": "C:/secret.obj"}')["ai"] is None  # a mesh comes as an upload, never as a path
 
 
-def test_web_page_builds_shows_and_installs_a_model(tmp_path):
+def test_web_page_builds_and_shows_a_model(tmp_path):
     from urllib.error import HTTPError
     from urllib.request import Request, urlopen
 
-    models = tmp_path / "models"
-    models.mkdir()
+    (tmp_path / "assets").mkdir()
     species = tmp_path / "pals.json"
     species.write_text(json.dumps([{"id": "leafkit", "name": "Leafkit"}, {"id": "../evil", "name": "x"}]))
-    app = App(root=str(tmp_path / "jobs"), models=str(models), species=str(species))
+    app = App(root=str(tmp_path / "jobs"), pals=str(tmp_path / "assets" / "pals"), species=str(species))
     server = start(app, port=0, host="127.0.0.1")
     base = f"http://127.0.0.1:{server.server_address[1]}"
 
@@ -463,12 +462,6 @@ def test_web_page_builds_shows_and_installs_a_model(tmp_path):
         assert glb.headers["Content-Disposition"] == 'attachment; filename="qua_bong.glb"'
         assert glb.read()[:4] == b"glTF"
         assert urlopen(f"{base}/api/jobs/{job}/cutout/front.png").read()[:8] == b"\x89PNG\r\n\x1a\n"
-
-        with pytest.raises(HTTPError) as err:  # only the game's own species ids
-            post(f"/api/jobs/{job}/install", json.dumps({"species": "../evil"}).encode(), "application/json")
-        assert err.value.code == 400
-        out = json.load(post(f"/api/jobs/{job}/install", json.dumps({"species": "leafkit"}).encode(), "application/json"))
-        assert out["species"] == "leafkit" and (models / "pal-leafkit.glb").read_bytes()[:4] == b"glTF"
     finally:
         server.shutdown()
         app.close()
@@ -725,7 +718,7 @@ def test_web_page_takes_the_shape_from_an_uploaded_ai_mesh(tmp_path):
     mesh = surface_nets(shape.field, shape.grid.origin, shape.grid.h)
     obj = "".join(f"v {x} {y} {z}\n" for x, y, z in random_pose(mesh.vertices, 2))
     obj += "".join(f"f {a + 1} {b + 1} {c + 1}\n" for a, b, c in mesh.faces)
-    app = App(root=str(tmp_path / "jobs"), models=None)
+    app = App(root=str(tmp_path / "jobs"), pals=None)
     server = start(app, port=0, host="127.0.0.1")
     base = f"http://127.0.0.1:{server.server_address[1]}"
     try:
@@ -918,7 +911,7 @@ def test_web_page_reads_one_image(tmp_path):
     from urllib.error import HTTPError
     from urllib.request import Request, urlopen
 
-    app = App(root=str(tmp_path / "jobs"), models=None)
+    app = App(root=str(tmp_path / "jobs"), pals=None)
     server = start(app, port=0, host="127.0.0.1")
     base = f"http://127.0.0.1:{server.server_address[1]}"
 
@@ -989,3 +982,80 @@ def test_loose_blobs_are_dropped():
     blob = (X - 0.42) ** 2 + (Y - 0.8) ** 2 + (Z + 0.4) ** 2 < 0.06 ** 2  # a phantom of the hull, apart from it
     mesh = extract(Shape(grid, (body | blob).astype(np.float32)), smooth=0)
     assert len(np.unique(components(mesh))) == 1 and mesh.vertices[:, 0].max() < 0.35
+
+
+# ---------------------------------------------------------------------------
+# 2D sprites for the game (sprite.py)
+# ---------------------------------------------------------------------------
+
+def head_side(cell):
+    """Which half of a sprite cell the animal's head (its highest point) is in: -1 left, 1 right."""
+    rows = np.flatnonzero(cell[..., 3].max(axis=1) > 128)
+    cols = np.flatnonzero(cell[rows[0], :, 3] > 128)
+    return 1 if cols.mean() > cell.shape[1] / 2 else -1
+
+
+def test_sprite_from_a_turnaround_drawn_the_other_way(tmp_path):
+    from photo3d.sprite import install, make_sprite
+
+    # Drawn going round the other way (front, left, back, right), as image AIs often do.
+    sheet = sheet_image(["front", "left", "back", "right"], 4)
+    rgba, views, report = make_sprite(sheet, height=96)
+    assert views == ["front", "right", "back", "left"] and report["swapped"]
+    h, w = rgba.shape[:2]
+    cells = [rgba[:, i * w // 4:(i + 1) * w // 4] for i in range(4)]
+    for cell in cells:
+        alpha = cell[..., 3]
+        rows = np.flatnonzero(alpha.max(axis=1) > 128)
+        assert rows[-1] >= h - 2 and h - rows[0] >= 90  # standing on the bottom, the tallest view fills it
+        assert alpha[0, 0] == 0 and alpha[0, -1] == 0  # the backdrop is gone
+        opaque = cell[alpha > 250][:, :3]
+        assert (opaque.min(axis=1) < 250).all()  # no white backdrop left on the animal
+    assert head_side(cells[1]) == 1 and head_side(cells[3]) == -1  # facing right, then left
+
+    pals = tmp_path / "pals"
+    path = install(rgba, views, "leafkit", str(pals))
+    install(rgba[:, : w // 4], ["front"], "emberpup", str(pals))
+    index = json.loads((pals / "index.json").read_text())
+    assert index == {"emberpup": {"file": "emberpup.png", "views": ["front"]},
+                     "leafkit": {"file": "leafkit.png", "views": ["front", "right", "back", "left"]}}
+    rgb, alpha, _ = load_image(path)
+    assert alpha is not None and rgb.shape[:2] == (h, w)
+
+
+def test_sprite_from_one_picture_and_from_the_web_page(tmp_path):
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    from photo3d.sprite import make_sprite
+
+    rgb, mask = spotted_front()
+    photo = np.where(mask[..., None] > 0.5, rgb, 1.0)
+    rgba, views, _ = make_sprite(photo, height=64)
+    assert views == ["front"] and rgba.shape[0] >= 64
+
+    (tmp_path / "assets").mkdir()
+    species = tmp_path / "pals.json"
+    species.write_text(json.dumps([{"id": "leafkit", "name": "Leafkit"}]))
+    app = App(root=str(tmp_path / "jobs"), pals=str(tmp_path / "assets" / "pals"), species=str(species))
+    server = start(app, port=0, host="127.0.0.1")
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def post(fields, files):
+        body, kind = multipart(fields, files)
+        return urlopen(Request(base + "/api/sprite", data=body, headers={"Content-Type": kind}))
+
+    sheet = png_bytes((sheet_image(["front", "right", "back", "left"], 4) * 255).astype(np.uint8))
+    try:
+        with pytest.raises(HTTPError) as err:  # only the game's own species
+            post({"options": "{}", "species": "../evil"}, {"image": ("s.png", sheet)})
+        assert err.value.code == 400
+        out = json.load(post({"options": "{}"}, {"image": ("s.png", sheet)}))  # a preview only
+        assert out["path"] is None and out["preview"].startswith("data:image/png;base64,")
+        assert not (tmp_path / "assets" / "pals").exists()
+        out = json.load(post({"options": "{}", "species": "leafkit"}, {"image": ("s.png", sheet)}))
+        assert out["views"] == ["front", "right", "back", "left"] and not out["swapped"]
+        assert (tmp_path / "assets" / "pals" / "leafkit.png").exists()
+    finally:
+        server.shutdown()
+        app.close()

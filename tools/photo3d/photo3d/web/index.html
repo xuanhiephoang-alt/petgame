@@ -63,6 +63,18 @@
               <option value="front_left">Trước-trái</option>
             </select></label>
         </div>
+        <div class="spritebox" id="spriteBox" hidden>
+          <h3>Hình 2D cho game</h3>
+          <p class="hint">Game là 2D: các góc trong ảnh thành hình con thú khi nó đi về các hướng (trước, sau, hai bên).
+            Không cần dựng model 3D.</p>
+          <div class="spriterow">
+            <label class="field">Làm hình cho loài
+              <select id="species"></select></label>
+            <button type="button" id="spriteBtn">Đưa vào game</button>
+          </div>
+          <img class="spritepreview" id="spritePreview" alt="Hình 2D đã tách nền" hidden>
+          <p class="note" id="spriteNote" role="status" hidden></p>
+        </div>
         <details class="tips">
           <summary>Cách xếp ảnh ghép nhiều góc</summary>
           <div class="layouts">
@@ -216,13 +228,7 @@
         <ul class="warnings" id="warnings"></ul>
         <div class="actions">
           <a class="button primary" id="download" href="#" download>Tải model (.glb)</a>
-          <div class="install" id="install" hidden>
-            <label class="field">Thay model của loài
-              <select id="species"></select></label>
-            <button type="button" id="installBtn">Đưa vào game</button>
-          </div>
         </div>
-        <p class="note" id="installNote" hidden></p>
         <h3>Ảnh sau khi tách nền</h3>
         <div class="cutouts" id="cutouts"></div>
         <details class="log"><summary>Nhật ký</summary><pre id="log"></pre></details>

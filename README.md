@@ -1,6 +1,6 @@
 # 🐾 PetGame
 
-Game 3D bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống, chơi trên **trình duyệt và điện thoại**, **tối đa 5 người** cùng một thế giới.
+Game 2D bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống (hình vẽ kiểu hoạt hình), chơi trên **trình duyệt và điện thoại**, **tối đa 5 người** cùng một thế giới.
 
 ## Có gì trong game
 
@@ -31,7 +31,13 @@ Mở http://localhost:5173, nhập tên, bấm **Vào chơi**. Gửi **link mờ
 Thú càng ít máu càng dễ bắt.
 
 ## Công nghệ
-TypeScript · Three.js (3D low-poly) · Colyseus 0.18 · Vite · Vitest · Playwright
+TypeScript · PixiJS 8 (2D, WebGL) · Colyseus 0.18 · Vite · Vitest · Playwright
+
+## Hình thú của riêng bạn
+
+Mỗi loài thú có hình vẽ sẵn bằng code. Muốn thay bằng ảnh do AI vẽ (một ảnh ghép 4 góc: trước, bên, sau, bên kia):
+`npm run sprite -- anh.png --pal emberpup`, hoặc dùng trang `npm run photo3d:web` (chế độ **Một ảnh** → **Đưa vào game**).
+Câu lệnh mẫu cho AI vẽ ảnh: [`docs/design/pals.md`](docs/design/pals.md). Xem mọi hình ở http://localhost:5173/sprites.html khi chạy `npm run dev`.
 
 ## Kiểm thử
 

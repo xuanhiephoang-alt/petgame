@@ -5,7 +5,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 ## Cấu trúc
 - `packages/shared`: TypeScript dùng chung: hằng số, schema đồng bộ Colyseus, message, logic thuần (di chuyển, bắt thú), dữ liệu JSON (`src/data/`)
 - `packages/server`: Colyseus 0.18, `GameRoom` có server quyết định mọi kết quả (authoritative)
-- `packages/client`: Three.js (3D, camera nhìn chéo từ trên xuống) + Vite; HUD và joystick là DOM overlay
+- `packages/client`: PixiJS 8 (2D, nhìn từ trên xuống, hình vẽ kiểu hoạt hình) + Vite; HUD và joystick là DOM overlay. Hình vẽ bằng code ở `src/game/art/`; hình thú có thể thay bằng ảnh PNG trong `public/assets/pals/`
 - `tests/e2e`: Playwright, nhiều người chơi
 - `.claude/agents`: 8 agent chuyên môn; mỗi agent chỉ sửa thư mục của mình (ghi trong file agent). `visual-director` giữ phong cách và chất lượng hình ảnh tổng thể
 
@@ -14,17 +14,16 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - `npm run dev`: chạy server (ws://localhost:2567) và client (http://localhost:5173)
 - `npm run typecheck`, `npm test` (Vitest), `npm run test:e2e` (Playwright, tự bật server)
 - `npm run build`: build client vào `packages/client/dist`
-- `npm run models:build`: dựng lại model GLB của thú bằng Blender từ `assets/blender/pals.py` (tự tìm Blender đã cài, hoặc Python có `bpy`); xem ở http://localhost:5173/model-viewer.html (`?only=leafkit,emberpup` để xem vài con)
+- `npm run sprite -- <ảnh> --pal <id>`: biến một ảnh thú (ảnh ghép 4 góc do AI vẽ, hoặc một ảnh) thành hình 2D của loài đó trong game: tách nền, xếp các góc, ghi `packages/client/public/assets/pals/<id>.png` và `index.json`. Xem mọi hình ở http://localhost:5173/sprites.html (`?show=nature` cho cây cối)
 - `npm run play`: build rồi chạy server phục vụ luôn game (một cổng), in địa chỉ LAN cho điện thoại; xem `docs/choi-tren-iphone.md`.
 - Deploy: một container (hoặc Render qua `render.yaml`; `Dockerfile`, `fly.toml`) chạy server và phục vụ luôn client đã build; xem `docs/deploy.md`.
-- `npm run shots -- --name <tên>`: chụp bộ ảnh chuẩn (mọi vùng, ngày/đêm, cận cảnh thú, điện thoại) vào `shots/<tên>/` kèm số draw call/tam giác, để so sánh đồ họa trước/sau
-- `npm run photo3d -- <thư mục ảnh>`: công cụ tạo model 3D từ 4 ảnh chụp (trước/phải/sau/trái, thêm ảnh chéo và ảnh trên nếu có; tự hiệu chỉnh ảnh điện thoại theo EXIF; hoặc `<một ảnh>`: ảnh ghép nhiều góc, hoặc một ảnh duy nhất; `--rig` thêm xương và animation như thú trong game; `--ai hunyuan` hoặc `--ai hinh.glb` lấy hình dạng chi tiết từ AI, cài AI một lần bằng `npm run photo3d:ai-setup`) trong `tools/photo3d` (Python + numpy, hoặc chạy bằng Python của Blender); test: `cd tools/photo3d && python -m pytest`; xem `tools/photo3d/README.md` và skill `.claude/skills/photo-to-3d`
-- `npm run photo3d:web`: trang web của photo3d (kéo thả ảnh, xem trước 3D có động tác, tải về, đưa vào game), mở được cả từ điện thoại cùng Wi-Fi
-- `npm run assets:kaykit`: nhập lại asset CC0 KayKit (cây cỏ, 5 nhân vật, animation) theo `assets/kaykit/manifest.ts`
+- `npm run shots -- --name <tên>`: chụp bộ ảnh chuẩn (mọi vùng, ngày/đêm, cận cảnh thú, điện thoại) vào `shots/<tên>/` kèm số sprite, để so sánh đồ họa trước/sau
+- `npm run photo3d -- <thư mục ảnh>`: công cụ tạo model 3D từ 4 ảnh chụp (trước/phải/sau/trái, thêm ảnh chéo và ảnh trên nếu có; tự hiệu chỉnh ảnh điện thoại theo EXIF; hoặc `<một ảnh>`: ảnh ghép nhiều góc, hoặc một ảnh duy nhất; `--rig` thêm xương và 4 animation; `--sprite` làm hình 2D thay cho model 3D (như `npm run sprite`); `--ai hunyuan` hoặc `--ai hinh.glb` lấy hình dạng chi tiết từ AI, cài AI một lần bằng `npm run photo3d:ai-setup`) trong `tools/photo3d` (Python + numpy, hoặc chạy bằng Python của Blender); test: `cd tools/photo3d && python -m pytest`; xem `tools/photo3d/README.md` và skill `.claude/skills/photo-to-3d`
+- `npm run photo3d:web`: trang web của photo3d (kéo thả ảnh, xem trước 3D có động tác, tải về; chế độ **Một ảnh** có nút **Đưa vào game** làm hình 2D cho một loài thú), mở được cả từ điện thoại cùng Wi-Fi. Game là 2D nên không dùng model 3D; photo3d vẫn giữ để làm model 3D cho việc khác
 
 ## Quy tắc chung
 - Client chỉ gửi ý định; server quyết định vị trí, sát thương, kết quả bắt thú.
-- Server mô phỏng mặt phẳng 2D theo pixel (x, y). Client vẽ 3D trên mặt XZ qua `toScene()` (`packages/client/src/game/coords.ts`, 32 px = 1 đơn vị).
+- Server mô phỏng mặt phẳng 2D theo pixel (x sang phải, y xuống dưới). Client vẽ thẳng bằng pixel đó (`packages/client/src/game/stage.ts`: camera chỉ dời và phóng to); vật đứng (cây, người, thú) xếp trước sau theo y của chân.
 - Logic dùng chung giữa client và server đặt trong `packages/shared` và phải có test.
 - Bố cục thế giới (cây, đá, bụi, cỏ, lửa trại) sinh từ seed trong `packages/shared/src/worldgen.ts`. Server lấy vật cản (`defaultWorld().grid`) để chặn người và thú; client vẽ đúng bố cục đó và dùng cùng grid khi dự đoán chuyển động. Không tự rải vật cản riêng ở client.
 - Schema dùng `schema()` + `t.*` (không decorator). Đổi schema là đổi giao thức, cần cập nhật client.
