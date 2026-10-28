@@ -59,7 +59,8 @@ def flat_cut(img, border=0.04):
     if found is None:
         return None
     alpha, backdrop = found
-    alpha = _solid_inside(_drop_ground_line(_keep_main(alpha)), img, backdrop)
+    alpha = _drop_ground_line(_drop_drawn_shadow(_keep_main(alpha), img, backdrop))
+    alpha = _solid_inside(alpha, img, backdrop)
     return _cover_edges(alpha, img, backdrop), backdrop
 
 
@@ -163,11 +164,13 @@ def _solid_inside(alpha, img, backdrop, ring=3, pinhole=0.015, edge=2.0):
         ys = slice(max(0, box[0].start - ring - 2), min(h, box[0].stop + ring + 2))
         xs = slice(max(0, box[1].start - ring - 2), min(w, box[1].stop + ring + 2))
         hole = labels[ys, xs] == i
-        if hole.sum() < smallest or (alpha[ys, xs][hole] < 0.05).mean() < 0.6:
+        clear = (alpha[ys, xs][hole] < 0.05).mean()
+        if hole.sum() < smallest or clear < 0.6:
             continue
         around = ndimage.binary_dilation(hole, iterations=ring) & ~hole
         dark = lum[ys, xs][around] < np.minimum(0.45, lum_back[ys, xs][around] - 0.25)
-        if dark.mean() >= 0.6:
+        # Ringed by the outline; less of it will do when all of it is backdrop (between strands of moss).
+        if dark.mean() >= (0.3 if clear >= 0.9 else 0.6):
             body[ys, xs][hole] = False  # a hole to see through
     return np.where(ndimage.distance_transform_edt(body) > edge, 1.0, alpha).astype(np.float32)
 
@@ -221,6 +224,22 @@ def _keep_main(alpha, keep=0.02, flat=0.15):
     near = ndimage.binary_dilation(np.isin(labels, drop), iterations=2)
     kept = (labels > 0) & ~np.isin(labels, drop)
     return np.where(near & ~kept, 0.0, alpha).astype(np.float32)
+
+
+def _drop_drawn_shadow(alpha, img, backdrop, band=0.15, spread=0.12):
+    """Image AIs often draw a soft shadow under what stands on the ground:
+    the backdrop's own color, evenly darker in every channel. Such pixels in
+    the bottom rows go (brown roots and grey stones are not evenly darker)."""
+    rows = np.flatnonzero((alpha > 0.5).any(axis=1))
+    if not len(rows):
+        return alpha
+    start = rows[-1] - int(band * (rows[-1] - rows[0]))
+    ratio = img[start:] / np.maximum(backdrop[start:] if np.ndim(backdrop) == 3 else backdrop, 0.05)
+    k = ratio.mean(axis=-1)
+    shadow = (ratio.max(axis=-1) - ratio.min(axis=-1) < spread) & (k > 0.6) & (k < 0.97)
+    out = alpha.copy()
+    out[start:][shadow] = 0.0
+    return out
 
 
 def _drop_ground_line(alpha, reach=6):

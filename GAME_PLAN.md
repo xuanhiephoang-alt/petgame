@@ -31,7 +31,7 @@ Palworld do hàng chục người làm trong nhiều năm. Để làm được t
 | Hosting | Client: Vercel/Netlify/Cloudflare Pages (miễn phí). Server: Fly.io / Railway / Colyseus Cloud (~5–20 USD/tháng) | Rẻ, đủ cho ít người chơi |
 | Test | Vitest (logic), Playwright (mở 5 tab trình duyệt giả lập 5 người) | Có sẵn Chromium trong môi trường |
 
-> **Đã chuyển sang 2D** (trước đây là 3D low-poly Three.js). Model 3D tự dựng (Blender, photo3d) không đủ đẹp, còn ảnh 2D do AI vẽ thì đẹp sẵn: mỗi loài thú và mỗi nhân vật người chơi là một ảnh ghép 4 góc (trước, bên, sau, bên kia) dùng thẳng làm sprite. Thế giới và cây cối vẽ bằng code theo cùng phong cách hoạt hình viền mảnh (cây cối, đá, đồ vật thay được bằng ảnh AI). Server không đổi gì: nó vẫn mô phỏng mặt phẳng 2D (x, y). Bản 3D vẫn còn trong lịch sử git.
+> **Đã chuyển sang 2D** (trước đây là 3D low-poly Three.js). Model 3D tự dựng (Blender, photo3d) không đủ đẹp, còn ảnh 2D do AI vẽ thì đẹp sẵn: mỗi loài thú và mỗi nhân vật người chơi là một ảnh ghép 4 góc (trước, bên, sau, bên kia) dùng thẳng làm sprite. Cây cối, đá và đồ vật cũng là ảnh AI; mặt đất, nước và hiệu ứng vẽ bằng code theo cùng phong cách hoạt hình viền mảnh. Server không đổi gì: nó vẫn mô phỏng mặt phẳng 2D (x, y). Bản 3D vẫn còn trong lịch sử git.
 
 ### Cấu trúc thư mục (monorepo)
 
@@ -115,7 +115,7 @@ Gợi ý: các repo Phaser + Colyseus ở trên gần với bản 2D nhất (net
 
 1. **Phong cách** chốt trong `docs/art-style.md`: hoạt hình 2D, viền mảnh màu đậm, tô 2 tông, mắt to, ánh sáng từ trên bên trái.
 2. **Thú và người chơi:** game-designer viết mô tả ngoại hình trong `docs/design/pals.md`; AI vẽ ảnh 4 góc theo câu lệnh mẫu rồi `npm run sprite -- anh.png --pal <id>` (người chơi: `--player <slot>`). Đã có ảnh AI cho cả 13 loài và 5 người chơi; hình vẽ bằng code (`art/pals.ts`, `art/player.ts`) là dự phòng.
-3. **Cây cối, đá, đồ vật:** AI vẽ nhiều vật trên một ảnh, `npm run sprite -- anh.png --objects <tên model,...> --sheet <tên>`; vật chưa có ảnh vẫn vẽ bằng code (`art/nature.ts`, `art/props.ts`).
+3. **Cây cối, đá, đồ vật:** AI vẽ nhiều vật trên một ảnh, `npm run sprite -- anh.png --objects <tên model,...> --sheet <tên>`. Đã có ảnh AI cho cây (mọi vùng), cọ, xương rồng, bụi, đá, rương, lửa trại, bè; vật chưa có ảnh vẫn vẽ bằng code (`art/nature.ts`, `art/props.ts`).
 4. **Kiểm tra:** `npm run dev`, mở http://localhost:5173/sprites.html (mọi hình), rồi vào game; `npm run shots` chụp đủ các vùng.
 5. UI vẽ trong **Figma** → Figma MCP → code HUD.
 
