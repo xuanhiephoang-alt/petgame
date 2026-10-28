@@ -10,9 +10,9 @@ import {
   type TerrainKind,
   type WorldLayout,
 } from "@petgame/shared";
-import { flowerDecals, grassDecals, pebbleDecals, propArt, type DecalKind } from "./art/nature.ts";
+import { decorArt, flowerDecals, grassDecals, pebbleDecals, propArt, type DecalKind } from "./art/nature.ts";
 import { rgb } from "./art/draw.ts";
-import { regionTint } from "./scenery.ts";
+import { regionDecor, regionTint } from "./scenery.ts";
 
 /** Ground color map texel size (world px): one terrain cell. */
 const CELL = 16;
@@ -41,7 +41,7 @@ const GROUND = {
   mudDark: C("#4f5d2f"),
   basalt: C("#5d5450"),
   basaltDark: C("#433c39"),
-  lava: C("#d8582a"),
+  lava: C("#8f3a22"),
   islandGrass: C("#86c752"),
   seaBed: C("#3a8fae"),
 };
@@ -78,7 +78,8 @@ function groundColor(kind: TerrainKind, px: number, py: number, detail: number, 
     case "volcano": {
       lerp(GROUND.basalt, GROUND.basaltDark, smoothstep(0.35, 0.7, detail), out);
       const crack = 1 - Math.abs(fbm(x * 0.08 + 300, z * 0.08 + 300) - 0.5) * 2;
-      return mixInto(out, GROUND.lava, smoothstep(0.975, 0.995, crack) * 0.9);
+      // Scorched seams: the bright lava is in the pools and cracks drawn over the ground.
+      return mixInto(out, GROUND.lava, smoothstep(0.975, 0.995, crack) * 0.75);
     }
     case "island":
       return lerp(GROUND.islandGrass, GROUND.grassLight, detail * 0.6, out);
@@ -269,6 +270,13 @@ export class Ground {
       const list = pebbleDecals(kind);
       const art = list[Math.floor(rand() * list.length)];
       this.bucket(this.decals, x, y, { x, y, texture: art.texture, anchor: art.anchor, scale: 0.8 + rand() * 0.6, flip: rand() < 0.5 }, 8);
+    }
+    // Lava pools and cracks lying on the volcano's ground.
+    for (const d of regionDecor(layout)) {
+      const art = decorArt(d.model);
+      if (!art?.flat) continue;
+      const scale = d.scale * (art.fit ?? 1);
+      this.bucket(this.decals, d.x, d.y, { x: d.x, y: d.y, texture: art.texture, anchor: art.anchor, scale, flip: d.flip }, 40);
     }
   }
 

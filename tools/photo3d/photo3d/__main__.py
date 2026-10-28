@@ -111,6 +111,8 @@ def parse(argv):
                         "reading order with these comma-separated names (- skips one), into one atlas")
     p.add_argument("--sheet", metavar="NAME",
                    help="with --objects: put the atlas in the game as packages/client/public/assets/nature/NAME")
+    p.add_argument("--object-height", type=int, default=384,
+                   help="with --objects: the tallest pixel height of an object in the atlas (bigger for a big object)")
     p.add_argument("--json", action="store_true", help="print a JSON report")
     p.add_argument("--web", action="store_true", help="open the web page instead (drop photos, preview, download)")
     p.add_argument("--port", type=int, default=8765, help="port of the web page")
@@ -173,7 +175,7 @@ def make_sprite_file(args):
         rgb, alpha, _ = load_image(args.folder)
         names = [n.strip() for n in args.objects.split(",") if n.strip()]
         try:
-            rgba, frames, report = objects_from_sheet(rgb, alpha, names, cutout=args.cutout)
+            rgba, frames, report = objects_from_sheet(rgb, alpha, names, cutout=args.cutout, height=args.object_height)
         except ValueError as e:
             sys.exit(f"{args.folder}: {e}")
         if args.sheet:

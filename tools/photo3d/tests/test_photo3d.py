@@ -1126,3 +1126,7 @@ def test_objects_from_one_image_into_an_atlas(tmp_path):
     path = install_objects(rgba, frames, "nature", str(tmp_path / "nature"))
     index = json.loads((tmp_path / "nature" / "index.json").read_text())
     assert index["nature"]["file"] == os.path.basename(path) and index["nature"]["frames"]["Rock_1_E"] == [x, y, fw, fh]
+
+    _, frames, report = objects_from_sheet(img, names=["Camp"], height=1000)  # one name: the whole image is one object
+    x, y, fw, fh = frames["Camp"]
+    assert report["found"] == 1 and fw > 450 and fh > 140  # the tree, the rock and the chest together

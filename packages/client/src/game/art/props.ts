@@ -239,29 +239,31 @@ export function ballArt(great = false): Art {
 
 /** The volcano: a dark cone with lava runs and a glowing crater. */
 export function volcanoArt(radius: number): Art {
-  return once("volcano", () => {
-    const w = radius * 2.6, h = radius * 2.1;
-    return paint({ left: -w / 2 - 6, top: -h - 10, width: w + 12, height: h + 26 }, (c) => {
-      const cone = blob([[-w / 2, 8], [-w * 0.36, -h * 0.25], [-w * 0.2, -h * 0.82], [-w * 0.11, -h], [w * 0.11, -h], [w * 0.2, -h * 0.82], [w * 0.36, -h * 0.25], [w / 2, 8], [0, 14]], 0.35);
-      outlined(c, cone, "#5a4d47", "#211915", LINE * 1.4);
-      inside(c, cone, () => {
-        fill(c, poly([[w * 0.02, -h - 4], [w * 0.6, 20], [w * 0.05, 20]]), "#463b36");
-        fill(c, poly([[-w * 0.12, -h], [-w * 0.42, -h * 0.1], [-w * 0.3, -h * 0.05], [-w * 0.06, -h * 0.85]]), "#6d605a");
-        // Rock ledges.
-        for (let i = 0; i < 7; i++) {
-          const y = -h * (0.15 + i * 0.11), half = (w / 2) * (1 - (i * 0.11 + 0.15) * 0.75);
-          stroke(c, curve([[-half * 0.8, y + 3], [-half * 0.2, y], [half * 0.5, y + 2]]), "#3a302c", 1.2);
-        }
-        // Lava runs from the crater.
-        for (const [x, bend, len] of [[-w * 0.06, -12, 0.55], [w * 0.05, 10, 0.75], [w * 0.01, -4, 0.35]] as const) {
-          stroke(c, curve([[x, -h + 2], [x + bend * 0.5, -h * (1 - len * 0.5)], [x + bend, -h * (1 - len)]]), "#ff6a1a", 4);
-          stroke(c, curve([[x, -h + 2], [x + bend * 0.5, -h * (1 - len * 0.5)], [x + bend, -h * (1 - len)]]), "#ffc04a", 1.5);
-        }
-      });
-      const crater = ellipse(0, -h + 1, w * 0.12, 6);
-      outlined(c, crater, "#ff7a1a", "#3a1408", 1.4);
-      fill(c, ellipse(0, -h + 2, w * 0.08, 3.5), "#ffd36a");
+  return once("volcano", () => pictureArt("Volcano", { width: radius * 2.9 }, 0.93) ?? drawnVolcano(radius));
+}
+
+function drawnVolcano(radius: number): Art {
+  const w = radius * 2.6, h = radius * 2.1;
+  return paint({ left: -w / 2 - 6, top: -h - 10, width: w + 12, height: h + 26 }, (c) => {
+    const cone = blob([[-w / 2, 8], [-w * 0.36, -h * 0.25], [-w * 0.2, -h * 0.82], [-w * 0.11, -h], [w * 0.11, -h], [w * 0.2, -h * 0.82], [w * 0.36, -h * 0.25], [w / 2, 8], [0, 14]], 0.35);
+    outlined(c, cone, "#5a4d47", "#211915", LINE * 1.4);
+    inside(c, cone, () => {
+      fill(c, poly([[w * 0.02, -h - 4], [w * 0.6, 20], [w * 0.05, 20]]), "#463b36");
+      fill(c, poly([[-w * 0.12, -h], [-w * 0.42, -h * 0.1], [-w * 0.3, -h * 0.05], [-w * 0.06, -h * 0.85]]), "#6d605a");
+      // Rock ledges.
+      for (let i = 0; i < 7; i++) {
+        const y = -h * (0.15 + i * 0.11), half = (w / 2) * (1 - (i * 0.11 + 0.15) * 0.75);
+        stroke(c, curve([[-half * 0.8, y + 3], [-half * 0.2, y], [half * 0.5, y + 2]]), "#3a302c", 1.2);
+      }
+      // Lava runs from the crater.
+      for (const [x, bend, len] of [[-w * 0.06, -12, 0.55], [w * 0.05, 10, 0.75], [w * 0.01, -4, 0.35]] as const) {
+        stroke(c, curve([[x, -h + 2], [x + bend * 0.5, -h * (1 - len * 0.5)], [x + bend, -h * (1 - len)]]), "#ff6a1a", 4);
+        stroke(c, curve([[x, -h + 2], [x + bend * 0.5, -h * (1 - len * 0.5)], [x + bend, -h * (1 - len)]]), "#ffc04a", 1.5);
+      }
     });
+    const crater = ellipse(0, -h + 1, w * 0.12, 6);
+    outlined(c, crater, "#ff7a1a", "#3a1408", 1.4);
+    fill(c, ellipse(0, -h + 2, w * 0.08, 3.5), "#ffd36a");
   });
 }
 

@@ -35,7 +35,7 @@ TypeScript · PixiJS 8 (2D, WebGL) · Colyseus 0.18 · Vite · Vitest · Playwri
 
 ## Hình do AI vẽ
 
-Cả 13 loài thú, 5 nhân vật người chơi, cây cối, đá, bụi, rương, lửa trại và bè là ảnh do AI vẽ (hình vẽ bằng code là dự phòng). Muốn thay bằng ảnh của bạn (một ảnh ghép 4 góc: trước, bên, sau, bên kia):
+Cả 13 loài thú, 5 nhân vật người chơi, cây cối, đá, bụi, rương, lửa trại, bè và vùng núi lửa là ảnh do AI vẽ (hình vẽ bằng code là dự phòng). Muốn thay bằng ảnh của bạn (một ảnh ghép 4 góc: trước, bên, sau, bên kia):
 `npm run sprite -- anh.png --pal emberpup` (thú), `npm run sprite -- anh.png --player 0` (người chơi), hoặc dùng trang `npm run photo3d:web` (chế độ **Một ảnh** → **Đưa vào game**).
 Cây cối, đá, đồ vật: `npm run sprite -- anh.png --objects Tree_1_A,Tree_2_A,... --sheet trees`.
 Câu lệnh mẫu cho AI vẽ ảnh và cách chọn màu nền: [`docs/art-style.md`](docs/art-style.md), mô tả từng loài: [`docs/design/pals.md`](docs/design/pals.md). Xem mọi hình ở http://localhost:5173/sprites.html khi chạy `npm run dev`.

@@ -369,7 +369,8 @@ def objects_from_sheet(rgb, alpha=None, names=None, cutout="auto", height=384, w
         rgb, _ = erase_ground_line(rgb)
         found = _flat_alpha(rgb)
     if found is not None and ndimage is not None:
-        crops = _object_crops(rgb, *found)  # objects one by one: grids drawn by AIs overlap their rows
+        # Objects one by one (grids drawn by AIs overlap their rows); one name: the image is one object.
+        crops = _object_crops(rgb, *found, whole=len(names or []) == 1)
     else:
         _, cells, rgb, alpha = find_cells(rgb, alpha if found is None else found[0])
         crops = [crop_cell(cell, rgb, None if found is not None else alpha)[:2] for cell in cells]
@@ -419,13 +420,21 @@ def objects_from_sheet(rgb, alpha=None, names=None, cutout="auto", height=384, w
     return (np.clip(out, 0, 1) * 255).round().astype(np.uint8), frames, report
 
 
-def _object_crops(rgb, alpha, backdrop, join=0.01, keep=0.02, margin=0.12):
+def _object_crops(rgb, alpha, backdrop, join=0.01, keep=0.02, margin=0.12, whole=False):
     """The objects drawn on a flat backdrop, in reading order: [(crop, None)],
     each with a margin of backdrop around it and its neighbours painted
     out. Parts closer than `join` of the image's side are one object (a
-    leaf, a coconut); parts under `keep` of the biggest are specks."""
+    leaf, a coconut); parts under `keep` of the biggest are specks. whole:
+    everything drawn is one object (a volcano with rocks around its foot)."""
     m = alpha > 0.5
     h, w = m.shape
+    if whole:
+        box = _bbox(m)
+        if box is None:
+            return []
+        x0, y0, x1, y1 = box
+        pad = round(margin * max(x1 - x0, y1 - y0)) + 4
+        return [(rgb[max(0, y0 - pad):min(h, y1 + pad), max(0, x0 - pad):min(w, x1 + pad)].copy(), None)]
     labels, _ = ndimage.label(ndimage.binary_dilation(m, iterations=max(1, int(join * min(h, w)))))
     labels = np.where(m, labels, 0)
     sizes = np.bincount(labels.ravel())

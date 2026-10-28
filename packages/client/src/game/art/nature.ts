@@ -76,6 +76,33 @@ const REGION_TINT: Record<Tint, [number, number]> = {
   sand: [0xf2cf98, 0xe6dea2],
 };
 
+/** Decorations drawn only from pictures: their size in world px (flat ones lie on the ground). */
+const DECOR: Record<string, { height?: number; width?: number; flat?: boolean }> = {
+  LavaPool: { width: 50, flat: true },
+  LavaCrack: { width: 60, flat: true },
+  Vent: { height: 30 },
+  Obsidian: { height: 26 },
+  Stump: { height: 32 },
+  DeadShrub: { height: 28 },
+};
+
+/** A decoration's picture (pictures.ts) at its size, or undefined without one. */
+export function decorArt(model: string): (PropArt & { flat: boolean }) | undefined {
+  const pic = picture(model);
+  const size = DECOR[model];
+  if (!pic || !size) return undefined;
+  const fit = size.width ? size.width / pic.width : (size.height ?? pic.height) / pic.height;
+  const width = pic.width * fit;
+  return {
+    texture: pic.texture,
+    anchor: { x: 0.5, y: size.flat ? 0.5 : 1 },
+    fit,
+    flat: !!size.flat,
+    shadow: { rx: width * 0.42, ry: width * 0.16 },
+    sway: model === "DeadShrub" ? 0.02 : 0,
+  };
+}
+
 /** A model drawn from its picture: the region's own (Tree_4_A@frost) or the plain one, tinted. */
 function pictured(model: string, tint: Tint): PropArt | undefined {
   const own = tint ? picture(`${model}@${tint}`) : undefined;

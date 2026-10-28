@@ -115,7 +115,7 @@ Gợi ý: các repo Phaser + Colyseus ở trên gần với bản 2D nhất (net
 
 1. **Phong cách** chốt trong `docs/art-style.md`: hoạt hình 2D, viền mảnh màu đậm, tô 2 tông, mắt to, ánh sáng từ trên bên trái.
 2. **Thú và người chơi:** game-designer viết mô tả ngoại hình trong `docs/design/pals.md`; AI vẽ ảnh 4 góc theo câu lệnh mẫu rồi `npm run sprite -- anh.png --pal <id>` (người chơi: `--player <slot>`). Đã có ảnh AI cho cả 13 loài và 5 người chơi; hình vẽ bằng code (`art/pals.ts`, `art/player.ts`) là dự phòng.
-3. **Cây cối, đá, đồ vật:** AI vẽ nhiều vật trên một ảnh, `npm run sprite -- anh.png --objects <tên model,...> --sheet <tên>`. Đã có ảnh AI cho cây (mọi vùng), cọ, xương rồng, bụi, đá, rương, lửa trại, bè; vật chưa có ảnh vẫn vẽ bằng code (`art/nature.ts`, `art/props.ts`).
+3. **Cây cối, đá, đồ vật:** AI vẽ nhiều vật trên một ảnh, `npm run sprite -- anh.png --objects <tên model,...> --sheet <tên>`. Đã có ảnh AI cho cây (mọi vùng), cọ, xương rồng, bụi, đá, rương, lửa trại, bè, núi lửa và vật trang trí vùng núi lửa; vật chưa có ảnh vẫn vẽ bằng code (`art/nature.ts`, `art/props.ts`).
 4. **Kiểm tra:** `npm run dev`, mở http://localhost:5173/sprites.html (mọi hình), rồi vào game; `npm run shots` chụp đủ các vùng.
 5. UI vẽ trong **Figma** → Figma MCP → code HUD.
 

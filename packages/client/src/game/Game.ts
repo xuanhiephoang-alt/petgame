@@ -160,7 +160,7 @@ export class Game {
     this.ground = new Ground(this.stage.app.renderer, this.stage.ground, layout, res);
     this.water = new Water(layout);
     this.stage.water.addChild(this.water.mesh);
-    this.scenery = new Scenery(this.stage.objects, layout);
+    this.scenery = new Scenery(this.stage.objects, layout, this.glow);
     this.effects = new Effects(this.stage.marks, this.stage.air, this.glow);
     this.lighting = new Lighting(this.stage, this.glow);
     this.weather = new Weather(this.stage.weather, this.glow, this.glow, layout);

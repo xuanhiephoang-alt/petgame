@@ -121,7 +121,7 @@ npm.cmd run sprite -- D:\anh\emberpup.png --pal emberpup
 - Ảnh AI vẽ trên nền trơn: tách theo màu nền (giữ lỗ thủng thật giữa chân, trong đuôi cuộn; lấp chỗ trên mình thú chỉ tình cờ trùng màu nền), xoá đường kẻ mặt đất và bóng dưới chân, mép mượt không còn viền màu nền.
 - Hai góc nghiêng bị đổi chỗ thì đổi lại; AI vẽ hai góc nghiêng cùng quay một phía thì lật một góc (nhận hướng theo mắt, màu và hình dáng); một góc nghiêng thẳng, một góc chéo 3/4 thì bỏ góc chéo (game lật góc kia). Có phần thòng xuống dưới chân (đuôi nhìn từ sau) thì vẫn đặt chân đúng chỗ (`feet` trong `index.json`).
 - `--player 0` đến `4`: làm nhân vật người chơi của slot đó (`assets/players/player<slot>.webp`).
-- `--objects Tree_1_A,Rock_3_E+Rock_1_E,-,... --sheet trees`: một ảnh vẽ nhiều vật (cây, đá, bụi, rương...), cắt từng vật theo thứ tự đọc thành một tấm ảnh gộp `assets/nature/trees.webp` (tên và cách đặt tên: `docs/art-style.md`).
+- `--objects Tree_1_A,Rock_3_E+Rock_1_E,-,... --sheet trees`: một ảnh vẽ nhiều vật (cây, đá, bụi, rương...), cắt từng vật theo thứ tự đọc thành một tấm ảnh gộp `assets/nature/trees.webp` (tên và cách đặt tên: `docs/art-style.md`). Chỉ một tên thì cả ảnh là một vật (núi lửa có đá quanh chân); `--object-height 720` cho vật lớn nét hơn (mặc định 384 px). Bóng mờ AI vẽ dưới chân vật được xoá.
 - Không có `--pal`/`--player`/`--sheet`: chỉ lưu `<tên ảnh>-sprite.png` (hoặc `-objects.png`) để xem trước. `--sprite-height 256`: chiều cao mỗi ô.
 - Trên trang web (mục 2): chọn **Một ảnh**, thả ảnh vào, chọn loài ở mục **Hình 2D cho game** rồi bấm **Đưa vào game**. Trang cho xem trước hình đã tách.
 - Bỏ hình đó: xoá file ảnh và dòng của loài trong `index.json` (game quay về hình vẽ sẵn).
