@@ -30,28 +30,132 @@
     "id": "warm_coat",
     "name": "Áo ấm",
     "icon": "🧥",
-    "description": "Không bị rét ở núi tuyết và đêm sa mạc",
+    "description": "Mặc vào thì không bị rét ở núi tuyết và đêm sa mạc",
     "cost": {
       "wood": 4,
       "berries": 8
     },
     "output": {
-      "item": "coat",
-      "amount": 1
+      "wear": "coat"
     }
   },
   {
     "id": "straw_hat",
     "name": "Nón lá",
     "icon": "👒",
-    "description": "Không bị say nắng ở sa mạc và núi lửa",
+    "description": "Đội vào thì không bị say nắng ở sa mạc và núi lửa",
     "cost": {
       "wood": 6,
       "berries": 3
     },
     "output": {
-      "item": "hat",
-      "amount": 1
+      "wear": "nonla"
+    }
+  },
+  {
+    "id": "club",
+    "name": "Gậy gỗ",
+    "icon": "🏏",
+    "description": "Vũ khí: đánh 13 (tay không 10)",
+    "cost": {
+      "wood": 4
+    },
+    "output": {
+      "wear": "club"
+    }
+  },
+  {
+    "id": "sword",
+    "name": "Kiếm gỗ",
+    "icon": "🗡️",
+    "description": "Vũ khí: đánh 16, chém nhanh",
+    "cost": {
+      "wood": 8,
+      "stone": 2
+    },
+    "output": {
+      "wear": "sword"
+    }
+  },
+  {
+    "id": "slingshot",
+    "name": "Ná cao su",
+    "icon": "🎯",
+    "description": "Vũ khí: bắn sỏi xa, đánh 9",
+    "cost": {
+      "wood": 6,
+      "berries": 4
+    },
+    "output": {
+      "wear": "slingshot"
+    }
+  },
+  {
+    "id": "spear",
+    "name": "Giáo",
+    "icon": "🔱",
+    "description": "Vũ khí: đánh 15, đâm xa",
+    "cost": {
+      "wood": 10,
+      "stone": 4
+    },
+    "output": {
+      "wear": "spear"
+    }
+  },
+  {
+    "id": "axe",
+    "name": "Rìu đá",
+    "icon": "🪓",
+    "description": "Vũ khí: đánh 22 nhưng chậm",
+    "cost": {
+      "wood": 6,
+      "stone": 8
+    },
+    "output": {
+      "wear": "axe"
+    }
+  },
+  {
+    "id": "bow",
+    "name": "Cung gỗ",
+    "icon": "🏹",
+    "description": "Vũ khí: bắn tên rất xa, đánh 13",
+    "cost": {
+      "wood": 14,
+      "stone": 4
+    },
+    "camp": 2,
+    "output": {
+      "wear": "bow"
+    }
+  },
+  {
+    "id": "leather_armor",
+    "name": "Giáp da",
+    "icon": "🦺",
+    "description": "Mặc vào bị thú cắn bớt 20%",
+    "cost": {
+      "wood": 8,
+      "berries": 12
+    },
+    "camp": 2,
+    "output": {
+      "wear": "leather"
+    }
+  },
+  {
+    "id": "helmet",
+    "name": "Mũ sắt",
+    "icon": "⛑️",
+    "description": "Đội vào bị thú cắn bớt 10%",
+    "cost": {
+      "stone": 12,
+      "wood": 2
+    },
+    "camp": 2,
+    "output": {
+      "wear": "helmet"
     }
   },
   {

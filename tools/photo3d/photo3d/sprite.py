@@ -27,8 +27,6 @@ except Exception:  # pragma: no cover
 SPRITE_VIEWS = ("front", "right", "back", "left")
 #: The game's folder of pal sprites.
 PALS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "packages", "client", "public", "assets", "pals"))
-#: The game's folder of player explorers (player<slot>, slots 0 to 4).
-PLAYERS = os.path.join(os.path.dirname(PALS), "players")
 #: The game's folder of trees, bushes, rocks and props drawn from images.
 NATURE = os.path.join(os.path.dirname(PALS), "nature")
 

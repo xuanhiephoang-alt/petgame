@@ -1,0 +1,28 @@
+[
+  { "id": "explorer", "slot": "outfit", "name": "Áo thám hiểm", "icon": "🎒", "description": "Áo sơ mi xanh, túi đeo chéo", "from": "starter" },
+  { "id": "hoodie", "slot": "outfit", "name": "Áo hoodie", "icon": "👕", "description": "Áo nỉ cam có mũ, quần jean", "from": "starter" },
+  { "id": "overalls", "slot": "outfit", "name": "Yếm bò", "icon": "👖", "description": "Yếm jean và ủng vàng của nhà nông", "from": "starter" },
+  { "id": "coat", "slot": "outfit", "name": "Áo ấm", "icon": "🧥", "description": "Không bị rét ở núi tuyết và đêm sa mạc", "from": "craft", "protects": "cold" },
+  { "id": "leather", "slot": "outfit", "name": "Giáp da", "icon": "🦺", "description": "Bị thú cắn bớt 20% sát thương", "from": "craft", "defense": 0.2 },
+  { "id": "aodai", "slot": "outfit", "name": "Áo dài", "icon": "👘", "description": "Áo dài lụa hồng", "from": "chest" },
+  { "id": "robe", "art": "wizard", "slot": "outfit", "name": "Áo choàng phù thủy", "icon": "🔮", "description": "Áo choàng xanh rắc sao vàng", "from": "chest" },
+  { "id": "knight", "slot": "outfit", "name": "Giáp hiệp sĩ", "icon": "🛡️", "description": "Bị thú cắn bớt 35% sát thương", "from": "boss", "defense": 0.35 },
+
+  { "id": "cap", "slot": "hat", "name": "Mũ lưỡi trai", "icon": "🧢", "description": "Mũ xanh đi chơi", "from": "starter" },
+  { "id": "nonla", "slot": "hat", "name": "Nón lá", "icon": "👒", "description": "Không bị say nắng ở sa mạc và núi lửa", "from": "craft", "protects": "heat" },
+  { "id": "beanie", "slot": "hat", "name": "Mũ len", "icon": "🧶", "description": "Ấm đầu, không bị rét", "from": "chest", "protects": "cold" },
+  { "id": "safari", "slot": "hat", "name": "Mũ thám hiểm", "icon": "🤠", "description": "Che nắng, không bị say nắng", "from": "chest", "protects": "heat" },
+  { "id": "wizardhat", "art": "wizard", "slot": "hat", "name": "Mũ phù thủy", "icon": "🎩", "description": "Mũ nhọn rắc sao vàng", "from": "chest" },
+  { "id": "helmet", "slot": "hat", "name": "Mũ sắt", "icon": "⛑️", "description": "Bị thú cắn bớt 10% sát thương", "from": "craft", "defense": 0.1 },
+  { "id": "flowers", "slot": "hat", "name": "Vòng hoa", "icon": "🌸", "description": "Vòng hoa đào cài tóc", "from": "chest" },
+  { "id": "crown", "slot": "hat", "name": "Vương miện", "icon": "👑", "description": "Dành cho người hạ được trùm", "from": "boss" },
+
+  { "id": "club", "slot": "weapon", "name": "Gậy gỗ", "icon": "🏏", "description": "Vũ khí đầu tiên, dễ làm", "from": "craft", "weapon": { "damage": 13, "range": 52, "cooldownMs": 420 } },
+  { "id": "sword", "slot": "weapon", "name": "Kiếm gỗ", "icon": "🗡️", "description": "Chém nhanh và mạnh", "from": "craft", "weapon": { "damage": 16, "range": 56, "cooldownMs": 420 } },
+  { "id": "axe", "slot": "weapon", "name": "Rìu đá", "icon": "🪓", "description": "Đánh rất mạnh nhưng chậm", "from": "craft", "weapon": { "damage": 22, "range": 52, "cooldownMs": 600 } },
+  { "id": "spear", "slot": "weapon", "name": "Giáo", "icon": "🔱", "description": "Đâm xa hơn các vũ khí khác", "from": "craft", "weapon": { "damage": 15, "range": 76, "cooldownMs": 480 } },
+  { "id": "slingshot", "slot": "weapon", "name": "Ná cao su", "icon": "🎯", "description": "Bắn sỏi từ xa", "from": "craft", "weapon": { "damage": 9, "range": 150, "cooldownMs": 520, "ranged": true } },
+  { "id": "bow", "slot": "weapon", "name": "Cung gỗ", "icon": "🏹", "description": "Bắn tên thật xa", "from": "craft", "weapon": { "damage": 13, "range": 190, "cooldownMs": 650, "ranged": true } },
+  { "id": "staff", "slot": "weapon", "name": "Gậy phép", "icon": "🪄", "description": "Bắn tia phép xanh", "from": "chest", "weapon": { "damage": 18, "range": 170, "cooldownMs": 650, "ranged": true } },
+  { "id": "hammer", "slot": "weapon", "name": "Búa sắt", "icon": "🔨", "description": "Nặng nhất, mạnh nhất. Phần thưởng hạ trùm", "from": "boss", "weapon": { "damage": 26, "range": 54, "cooldownMs": 700 } }
+]

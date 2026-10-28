@@ -31,7 +31,7 @@ Palworld do hàng chục người làm trong nhiều năm. Để làm được t
 | Hosting | Client: Vercel/Netlify/Cloudflare Pages (miễn phí). Server: Fly.io / Railway / Colyseus Cloud (~5–20 USD/tháng) | Rẻ, đủ cho ít người chơi |
 | Test | Vitest (logic), Playwright (mở 5 tab trình duyệt giả lập 5 người) | Có sẵn Chromium trong môi trường |
 
-> **Đã chuyển sang 2D** (trước đây là 3D low-poly Three.js). Model 3D tự dựng (Blender, photo3d) không đủ đẹp, còn ảnh 2D do AI vẽ thì đẹp sẵn: mỗi loài thú và mỗi nhân vật người chơi là một ảnh ghép 4 góc (trước, bên, sau, bên kia) dùng thẳng làm sprite. Cây cối, đá và đồ vật cũng là ảnh AI; mặt đất, nước và hiệu ứng vẽ bằng code theo cùng phong cách hoạt hình viền mảnh. Server không đổi gì: nó vẫn mô phỏng mặt phẳng 2D (x, y). Bản 3D vẫn còn trong lịch sử git.
+> **Đã chuyển sang 2D** (trước đây là 3D low-poly Three.js). Model 3D tự dựng (Blender, photo3d) không đủ đẹp, còn ảnh 2D do AI vẽ thì đẹp sẵn: mỗi loài thú là một ảnh ghép 4 góc (trước, bên, sau, bên kia) dùng thẳng làm sprite; người chơi là búp bê giấy ghép từ ảnh AI (đầu và kiểu tóc, quần áo, mũ, vũ khí), tự chọn ngoại hình ở sảnh và thay đồ trong **Tủ đồ**. Cây cối, đá và đồ vật cũng là ảnh AI; mặt đất, nước và hiệu ứng vẽ bằng code theo cùng phong cách hoạt hình viền mảnh. Server không đổi gì: nó vẫn mô phỏng mặt phẳng 2D (x, y). Bản 3D vẫn còn trong lịch sử git.
 
 ### Cấu trúc thư mục (monorepo)
 
@@ -98,7 +98,7 @@ Gợi ý: các repo Phaser + Colyseus ở trên gần với bản 2D nhất (net
 | Công cụ | Dùng để | Giá |
 |---|---|---|
 | **AI vẽ ảnh** (Figma AI qua Figma MCP, hoặc ChatGPT, Gemini...) | Vẽ thú, người chơi, cây cối, đồ vật theo câu lệnh mẫu trong `docs/art-style.md`: một ảnh nhiều góc (hoặc nhiều vật) trên nền trơn | Tốn credit AI (Figma Starter còn giới hạn số lần gọi MCP) |
-| **`npm run sprite`** (photo3d) | Tách nền, cắt từng góc, xếp thành sprite cho game, tự sửa lỗi AI hay mắc; `--player`, `--objects` cho người chơi và cây cối, đồ vật | Có sẵn trong repo |
+| **`npm run sprite`** (photo3d) | Tách nền, cắt từng góc, xếp thành sprite cho game, tự sửa lỗi AI hay mắc; `--head`, `--outfit` cho kiểu tóc, quần áo người chơi; `--objects` cho cây cối, đồ vật, mũ, vũ khí | Có sẵn trong repo |
 | **Vẽ bằng code** (`packages/client/src/game/art/`) | Cây cối, đá, nước, trại, hiệu ứng và hình dự phòng cho mọi thứ, cùng một phong cách | Có sẵn trong repo |
 | **Figma** | Thiết kế UI: HUD, túi đồ, menu, icon | Miễn phí |
 
@@ -114,7 +114,7 @@ Gợi ý: các repo Phaser + Colyseus ở trên gần với bản 2D nhất (net
 ### Quy trình đồ họa
 
 1. **Phong cách** chốt trong `docs/art-style.md`: hoạt hình 2D, viền mảnh màu đậm, tô 2 tông, mắt to, ánh sáng từ trên bên trái.
-2. **Thú và người chơi:** game-designer viết mô tả ngoại hình trong `docs/design/pals.md`; AI vẽ ảnh 4 góc theo câu lệnh mẫu rồi `npm run sprite -- anh.png --pal <id>` (người chơi: `--player <slot>`). Đã có ảnh AI cho cả 13 loài và 5 người chơi; hình vẽ bằng code (`art/pals.ts`, `art/player.ts`) là dự phòng.
+2. **Thú và người chơi:** game-designer viết mô tả ngoại hình trong `docs/design/pals.md`; AI vẽ ảnh 4 góc theo câu lệnh mẫu rồi `npm run sprite -- anh.png --pal <id>`. Người chơi: ảnh 4 góc em bé tóc tím cho từng kiểu tóc (`--head <id>`) và từng bộ quần áo (`--outfit <id>`), mũ và vũ khí vẽ chung một ảnh (`--objects ... --to characters`). Đã có ảnh AI cho cả 13 loài, 8 kiểu tóc, 8 bộ quần áo, 8 mũ và 8 vũ khí; hình vẽ bằng code (`art/pals.ts`, `art/player.ts`) là dự phòng.
 3. **Cây cối, đá, đồ vật:** AI vẽ nhiều vật trên một ảnh, `npm run sprite -- anh.png --objects <tên model,...> --sheet <tên>`. Đã có ảnh AI cho cây (mọi vùng), cọ, xương rồng, bụi, đá (kiểu riêng từng vùng), rương, lửa trại, bè, núi lửa và vật trang trí của cả 6 vùng; vật chưa có ảnh vẫn vẽ bằng code (`art/nature.ts`, `art/props.ts`).
 4. **Kiểm tra:** `npm run dev`, mở http://localhost:5173/sprites.html (mọi hình), rồi vào game; `npm run shots` chụp đủ các vùng.
 5. UI vẽ trong **Figma** → Figma MCP → code HUD.
@@ -129,7 +129,7 @@ Gợi ý: các repo Phaser + Colyseus ở trên gần với bản 2D nhất (net
 - **Lưu game:** chủ phòng sở hữu thế giới; lưu định kỳ mỗi 30 giây và khi người chơi thoát.
 - **Âm thanh:** sfxr/jsfxr (hiệu ứng), nhạc CC0 hoặc nhạc tạo bằng AI có giấy phép thương mại.
 - **Chống gian lận:** client chỉ gửi "ý định" (bấm phím, ném bóng hướng X); mọi kết quả (bắt được hay không, sát thương) đều do server quyết định.
-- **Dữ liệu điều khiển game:** thú, vật phẩm, công thức đều nằm trong JSON nên cân bằng game không cần sửa code.
+- **Dữ liệu điều khiển game:** thú, vật phẩm, công thức, quần áo, mũ và vũ khí (`wearables.json`: chống rét/nắng, giáp, sát thương, tầm đánh) đều nằm trong JSON nên cân bằng game không cần sửa code.
 
 ---
 

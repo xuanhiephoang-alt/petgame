@@ -3,6 +3,7 @@
  * with the same definitions (and the client gets typed state callbacks).
  */
 import { schema, t, type SchemaType } from "@colyseus/schema";
+import type { HairStyle } from "./wardrobe.ts";
 
 /** A pal a player has captured (their party). */
 export const OwnedPal = schema(
@@ -39,9 +40,17 @@ export const Player = schema(
     greatBalls: t.number(),
     snacks: t.number(),
     /** Gear: 1 once crafted. */
-    coat: t.number(),
-    hat: t.number(),
     raft: t.number(),
+    /** Looks: hairstyle (HAIR_STYLES), hair color and skin tone (indexes, see wardrobe.ts). */
+    hair: t.string<HairStyle>(),
+    hairColor: t.number(),
+    skin: t.number(),
+    /** Worn: an outfit, a hat ("" none) and a weapon ("" bare hands), WEARABLES ids. */
+    outfit: t.string(),
+    hat: t.string(),
+    weapon: t.string(),
+    /** Ids of the clothes, hats and weapons the player owns. */
+    wardrobe: t.array("string"),
     /** Position in the quest chain (QUESTS index) and progress toward its goal. */
     questIndex: t.number(),
     questProgress: t.number(),

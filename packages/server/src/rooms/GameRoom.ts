@@ -1,6 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { Room, type Client } from "colyseus";
 import {
+  DEFAULT_LOOKS,
+  canWear,
+  chestWearChance,
+  defenseOf,
+  getWearable,
+  rollWearable,
+  sanitizeLook,
+  weaponStats,
+  WEARABLES,
+  type EquipMessage,
+  type SetLookMessage,
+  type WearSlot,
   CLIMATE_TICK_MS,
   FRUIT_REGROW_MS,
   Fruit,
@@ -51,9 +63,6 @@ import {
   type DamageMessage,
   type FaintedMessage,
   type PalSpecies,
-  ATTACK_COOLDOWN_MS,
-  ATTACK_DAMAGE,
-  ATTACK_RANGE,
   BASE_MIN_CAMPFIRE_DISTANCE,
   CRAFT_RANGE,
   GREAT_BALL_BONUS,
@@ -230,6 +239,10 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (typeof message?.recipeId === "string") this.craft(client, message.recipeId);
     });
     this.onMessage(ClientMessage.Eat, (client) => this.eat(client));
+    this.onMessage(ClientMessage.SetLook, (client, message: SetLookMessage) => this.setLook(client.sessionId, message));
+    this.onMessage(ClientMessage.Equip, (client, message: EquipMessage) => {
+      if (typeof message?.slot === "string" && typeof message.id === "string") this.equip(client, message.slot, message.id);
+    });
     this.onMessage(ClientMessage.Feed, (client, message: FeedMessage) => {
       if (typeof message?.palId === "string") this.feed(client, message.palId);
     });
@@ -262,7 +275,12 @@ export class GameRoom extends Room<{ state: GameState }> {
       });
       this.onMessage("debug:gear", (client) => {
         const player = this.state.players.get(client.sessionId);
-        if (player) for (const g of GEAR) player[g] = 1;
+        if (!player) return;
+        for (const g of GEAR) player[g] = 1;
+        for (const id of ["coat", "nonla"]) this.giveWearable(client.sessionId, id);
+      });
+      this.onMessage("debug:wardrobe", (client) => {
+        for (const w of WEARABLES) this.giveWearable(client.sessionId, w.id);
       });
       this.onMessage("debug:give", (client) => {
         const player = this.state.players.get(client.sessionId);
@@ -284,6 +302,15 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.x = WORLD_WIDTH / 2 + (index - 2) * 40;
     player.y = WORLD_HEIGHT / 2;
     player.color = this.pickColor();
+    const slot = Math.max(0, (PLAYER_COLORS as readonly number[]).indexOf(player.color));
+    const look = sanitizeLook(options?.look, profile.look ?? DEFAULT_LOOKS[slot]);
+    player.hair = look.hair;
+    player.hairColor = look.hairColor;
+    player.skin = look.skin;
+    for (const id of profile.wardrobe) player.wardrobe.push(id);
+    player.outfit = profile.worn.outfit;
+    player.hat = profile.worn.hat;
+    player.weapon = profile.worn.weapon;
     player.maxHp = PLAYER_MAX_HP;
     player.hp = PLAYER_MAX_HP;
     player.activePalId = "";
@@ -308,6 +335,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.controls.set(client.sessionId, {
       input: { x: 0, y: 0 }, lastAttackAt: 0, lastThrowAt: 0, aggroUntil: 0, token, saveScheduled: false,
     });
+    if (options?.look) this.scheduleSave(client.sessionId); // a look picked before joining
 
     // Bring back whoever was following or working last time.
     for (const saved of profile.pals) {
@@ -496,18 +524,19 @@ export class GameRoom extends Room<{ state: GameState }> {
     const control = this.controls.get(client.sessionId);
     if (!player || !control) return;
     const now = this.clock.currentTime;
-    if (now - control.lastAttackAt < ATTACK_COOLDOWN_MS) return;
+    const weapon = weaponStats(player.weapon);
+    if (now - control.lastAttackAt < weapon.cooldownMs) return;
     control.lastAttackAt = now;
 
-    const target = this.nearestPal(player, ATTACK_RANGE);
+    const target = this.nearestPal(player, weapon.range);
     if (!target) return this.harvest(client.sessionId);
     const [palId, pal] = target;
     control.targetPalId = palId;
     control.aggroUntil = now + COMPANION_AGGRO_MS;
     this.provoke(palId, { kind: "player", id: client.sessionId });
-    const hit: HitMessage = { playerId: client.sessionId, palId, damage: ATTACK_DAMAGE };
+    const hit: HitMessage = { playerId: client.sessionId, palId, damage: weapon.damage };
     this.broadcast(ServerMessage.Hit, hit);
-    this.hitWild(palId, pal, ATTACK_DAMAGE, client.sessionId);
+    this.hitWild(palId, pal, weapon.damage, client.sessionId);
   }
 
   private handleThrow(client: Client, palId: string, greatBall: boolean) {
@@ -641,18 +670,53 @@ export class GameRoom extends Room<{ state: GameState }> {
     const resources = { wood: player.wood, stone: player.stone, berries: player.berries };
     const nearBase = player.hasBase && distance(player, { x: player.baseX, y: player.baseY }) <= CRAFT_RANGE;
     const items = Object.fromEntries(ITEMS.map((item) => [item, player[item]]));
-    const blocker = craftBlocker(recipe, { resources, hasBase: player.hasBase, baseLevel: player.baseLevel, nearBase, items });
+    const wardrobe = [...player.wardrobe];
+    const blocker = craftBlocker(recipe, { resources, hasBase: player.hasBase, baseLevel: player.baseLevel, nearBase, items, wardrobe });
     if (blocker) return this.notify(client, blocker);
     for (const r of RESOURCES) player[r] -= recipe.cost[r] ?? 0;
     if ("baseLevel" in recipe.output) {
       player.baseLevel = recipe.output.baseLevel;
       this.notify(client, `Trại đã lên cấp ${player.baseLevel}! ${recipe.icon}`);
+    } else if ("wear" in recipe.output) {
+      // Put on right away: the player sees it, and the coat warms at once.
+      this.giveWearable(client.sessionId, recipe.output.wear, true);
+      this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`);
     } else {
       player[recipe.output.item] += recipe.output.amount;
       this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`);
     }
     this.questEvent(client.sessionId, "craft", 1, recipe.id);
     this.scheduleSave(client.sessionId);
+  }
+
+  /** Changes hairstyle, hair color or skin tone (free). */
+  private setLook(sessionId: string, message: SetLookMessage) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    const look = sanitizeLook(message, { hair: player.hair, hairColor: player.hairColor, skin: player.skin });
+    player.hair = look.hair;
+    player.hairColor = look.hairColor;
+    player.skin = look.skin;
+    this.scheduleSave(sessionId);
+  }
+
+  /** Puts on clothes, a hat or a weapon from the wardrobe ("" takes the hat or weapon off). */
+  private equip(client: Client, slot: WearSlot, id: string) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || !["outfit", "hat", "weapon"].includes(slot)) return;
+    if (!canWear([...player.wardrobe], slot, id)) return this.notify(client, "Bạn chưa có món này");
+    player[slot] = id;
+    this.scheduleSave(client.sessionId);
+  }
+
+  /** Adds clothes or a weapon to a player's wardrobe, and puts it on if asked. */
+  private giveWearable(sessionId: string, id: string, wear = false) {
+    const player = this.state.players.get(sessionId);
+    const item = getWearable(id);
+    if (!player || !item) return;
+    if (!player.wardrobe.includes(id)) player.wardrobe.push(id);
+    if (wear) player[item.slot] = id;
+    this.scheduleSave(sessionId);
   }
 
   private feed(client: Client, ownedId: string) {
@@ -775,11 +839,14 @@ export class GameRoom extends Room<{ state: GameState }> {
       player.stone += BOSS.reward.stone;
       player.berries += BOSS.reward.berries;
       player.greatBalls += BOSS.reward.greatBalls;
+      const prize = rollWearable(Math.random, "boss", [...player.wardrobe]);
+      if (prize) this.giveWearable(sid, prize);
       this.scheduleSave(sid);
       const client = this.clients.find((c) => c.sessionId === sid);
       if (client) {
         const r = BOSS.reward;
-        this.notify(client, `Hạ được trùm! 🏆 +🪵${r.wood} +🪨${r.stone} +🫐${r.berries} +🔵${r.greatBalls}`);
+        const won = prize ? ` +${getWearable(prize)!.icon} ${getWearable(prize)!.name}` : "";
+        this.notify(client, `Hạ được trùm! 🏆 +🪵${r.wood} +🪨${r.stone} +🫐${r.berries} +🔵${r.greatBalls}${won}`);
       }
       this.questEvent(sid, "boss");
     }
@@ -830,6 +897,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (target.kind === "player" && (this.shieldUntil.get(target.id) ?? 0) > now) {
       amount *= SKILL_NUMBERS.quakeDamageTaken;
     }
+    const wearer = target.kind === "player" ? this.state.players.get(target.id) : undefined;
+    if (wearer) amount *= 1 - defenseOf(wearer);
     if (target.kind === "companion" && attacker) {
       const companion = this.state.companions.get(target.id);
       if (companion) amount *= elementMultiplier(getSpecies(attacker.speciesId).element, getSpecies(companion.speciesId).element);
@@ -960,14 +1029,17 @@ export class GameRoom extends Room<{ state: GameState }> {
   private openChest(sessionId: string, chestId: string, chest: Chest) {
     const player = this.state.players.get(sessionId);
     if (!player || !this.state.chests.has(chestId)) return;
-    const loot = rollChestLoot(Math.random, dangerAt(chest.x, chest.y));
+    const danger = dangerAt(chest.x, chest.y);
+    const loot = rollChestLoot(Math.random, danger);
     applyReward(player, loot);
+    const wear = Math.random() < chestWearChance(danger) ? rollWearable(Math.random, "chest", [...player.wardrobe]) : undefined;
+    if (wear) this.giveWearable(sessionId, wear);
     this.state.chests.delete(chestId);
     this.clock.setTimeout(() => this.placeChest(chestId), CHEST_RESPAWN_MS);
-    const message: ChestOpenedMessage = { chestId, playerId: sessionId, loot: { ...loot } as Record<string, number> };
+    const message: ChestOpenedMessage = { chestId, playerId: sessionId, loot: { ...loot } as Record<string, number>, wear };
     this.broadcast(ServerMessage.ChestOpened, message);
     const client = this.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.notify(client, `Rương báu! ${rewardText(loot)}`);
+    if (client) this.notify(client, `Rương báu! ${rewardText({ ...loot, wear })}${wear ? " (mở 👕 Tủ đồ)" : ""}`);
     this.questEvent(sessionId, "chest");
     this.scheduleSave(sessionId);
   }
@@ -999,7 +1071,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     else if (quest.event === "work" && player.pals.some((p) => p.assignment === "work")) this.questEvent(sessionId, "work");
     else if (quest.event === "craft" && quest.subject) {
       const output = getRecipe(quest.subject)?.output;
-      if (output && "item" in output && GEAR.includes(output.item) && player[output.item] > 0) this.questEvent(sessionId, "craft", 1, quest.subject);
+      const owned = output && (("item" in output && GEAR.includes(output.item) && player[output.item] > 0) || ("wear" in output && player.wardrobe.includes(output.wear)));
+      if (owned) this.questEvent(sessionId, "craft", 1, quest.subject);
     } else if (quest.event === "palLevel") {
       const best = player.pals.reduce((m, p) => Math.max(m, p.level), 0);
       if (best > 0) this.questEvent(sessionId, "palLevel", best);
@@ -1054,8 +1127,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (hurt !== (this.hazardWarned.get(sessionId) ?? "")) {
         this.hazardWarned.set(sessionId, hurt);
         const client = this.clients.find((c) => c.sessionId === sessionId);
-        if (client && hurt === "cold") this.notify(client, `${REGION_INFO[biome].name}: lạnh quá! 🥶 Cần 🧥 Áo ấm hoặc thú hệ lửa đi theo`);
-        if (client && hurt === "heat") this.notify(client, `${REGION_INFO[biome].name}: nóng quá! 🥵 Cần 👒 Nón lá hoặc thú hệ nước đi theo`);
+        if (client && hurt === "cold") this.notify(client, `${REGION_INFO[biome].name}: lạnh quá! 🥶 Mặc 🧥 Áo ấm (👕 Tủ đồ) hoặc cho thú hệ lửa đi theo`);
+        if (client && hurt === "heat") this.notify(client, `${REGION_INFO[biome].name}: nóng quá! 🥵 Đội 👒 Nón lá (👕 Tủ đồ) hoặc cho thú hệ nước đi theo`);
       }
       if (!climate || !hurt) return;
       player.hp = Math.max(0, player.hp - climate.damage);
@@ -1157,6 +1230,9 @@ export class GameRoom extends Room<{ state: GameState }> {
       baseLevel: player.baseLevel || 1,
       resources: { wood: player.wood, stone: player.stone, berries: player.berries },
       items: Object.fromEntries(ITEMS.map((item) => [item, player[item]])) as Profile["items"],
+      look: { hair: player.hair, hairColor: player.hairColor, skin: player.skin },
+      wardrobe: [...player.wardrobe],
+      worn: { outfit: player.outfit, hat: player.hat, weapon: player.weapon },
       quest: { index: player.questIndex, progress: player.questProgress },
       savedAt: Date.now(),
     };

@@ -1,5 +1,5 @@
 import { Container, Graphics, Sprite, type Texture } from "pixi.js";
-import type { Vec2 } from "@petgame/shared";
+import { ATTACK_RANGE, type Vec2 } from "@petgame/shared";
 import { ballArt } from "./art/props.ts";
 
 interface Effect {
@@ -10,22 +10,31 @@ interface Effect {
   update(k: number): void;
 }
 
+/** How the shots of ranged weapons look: speed (px/s), arc height and trail. */
+const SHOTS: Record<string, { speed: number; arc: number; color: number; glow?: boolean }> = {
+  slingshot: { speed: 560, arc: 14, color: 0x9e9e9e },
+  bow: { speed: 760, arc: 10, color: 0x8d6e63 },
+  staff: { speed: 520, arc: 0, color: 0x64d8ff, glow: true },
+};
+
 /**
  * Short-lived effects that clean themselves up: rings on the ground, motes
- * and sparkles in the air, a thrown ball, lightning, a stone shield and the
- * swoosh of a punch. Positions are world pixels; the ground is y.
+ * and sparkles in the air, a thrown ball, a pebble, arrow or spark shot,
+ * lightning, a stone shield and the swoosh of a punch or swing. Positions
+ * are world pixels; the ground is y.
  */
 export class Effects {
   private active: Effect[] = [];
 
   constructor(private marks: Container, private air: Container, private dot: Texture) {}
 
-  /** The player's punch: a quick arc in front of them. */
-  slash(at: Vec2, facing: "front" | "back" | "left" | "right") {
+  /** The player's punch or swing: a quick arc in front of them, wider for weapons that reach farther. */
+  slash(at: Vec2, facing: "front" | "back" | "left" | "right", reach = ATTACK_RANGE) {
     const g = new Graphics();
     const dir = facing === "left" ? Math.PI : facing === "right" ? 0 : facing === "front" ? Math.PI / 2 : -Math.PI / 2;
-    g.arc(0, 0, 22, dir - 1.1, dir + 1.1).stroke({ color: 0xffffff, width: 4, alpha: 0.9, cap: "round" });
-    g.arc(0, 0, 17, dir - 0.8, dir + 0.8).stroke({ color: 0xfff3c4, width: 2, alpha: 0.7, cap: "round" });
+    const r = 22 * Math.min(1.6, reach / ATTACK_RANGE);
+    g.arc(0, 0, r, dir - 1.1, dir + 1.1).stroke({ color: 0xffffff, width: 4, alpha: 0.9, cap: "round" });
+    g.arc(0, 0, r - 5, dir - 0.8, dir + 0.8).stroke({ color: 0xfff3c4, width: 2, alpha: 0.7, cap: "round" });
     g.position.set(at.x, at.y - 18);
     g.scale.set(1, 0.75);
     this.add(this.air, g, 0.2, (k) => {
@@ -65,6 +74,65 @@ export class Effects {
       ball.rotation = k * 12;
       shadow.position.set(x, y);
       if (k >= 1) shadow.destroy();
+    });
+  }
+
+  /**
+   * A shot from a ranged weapon (WEARABLES id): a pebble from the slingshot,
+   * an arrow from the bow, a blue spark from the staff, flying from the
+   * hand to a point with a puff where it lands.
+   */
+  shot(from: Vec2, to: Vec2, weapon: string, targetHeight = 36) {
+    const kind = SHOTS[weapon] ?? SHOTS.slingshot;
+    const start = { x: from.x, y: from.y - 26 }, end = { x: to.x, y: to.y - targetHeight * 0.45 };
+    const dx = end.x - start.x, dy = end.y - start.y;
+    const duration = Math.max(0.12, Math.hypot(dx, dy) / kind.speed);
+    const node = new Container();
+    const trail = new Graphics();
+    node.addChild(trail);
+    let head: Container;
+    if (weapon === "bow") {
+      const arrow = new Graphics();
+      arrow.moveTo(-13, 0).lineTo(9, 0).stroke({ color: 0x6d4c41, width: 2, cap: "round" });
+      arrow.poly([13, 0, 7, -3.5, 7, 3.5]).fill(0xb0bec5);
+      arrow.poly([-13, 0, -17, -4, -10, 0, -17, 4]).fill(0xef5350);
+      head = arrow;
+    } else if (kind.glow) {
+      // A spark: a white core in a blue glow.
+      head = new Container();
+      for (const [size, tint] of [[26, kind.color], [9, 0xffffff]] as const) {
+        const s = new Sprite(this.dot);
+        s.anchor.set(0.5);
+        s.tint = tint;
+        s.width = s.height = size;
+        s.blendMode = "add";
+        head.addChild(s);
+      }
+    } else {
+      head = new Graphics().circle(0, 0, 3.4).fill(kind.color).stroke({ color: 0x4e4a46, width: 1.2 });
+    }
+    node.addChild(head);
+    const points: Vec2[] = [];
+    const at = (k: number) => ({ x: start.x + dx * k, y: start.y + dy * k - Math.sin(k * Math.PI) * kind.arc });
+    this.add(this.air, node, duration, (k) => {
+      const p = at(k);
+      head.position.set(p.x, p.y);
+      // Arrows point along their flight.
+      const ahead = at(Math.min(1, k + 0.02));
+      if (weapon === "bow") head.rotation = Math.atan2(ahead.y - p.y, ahead.x - p.x);
+      points.push(p);
+      if (points.length > 6) points.shift();
+      trail.clear();
+      if (points.length > 1) {
+        trail.moveTo(points[0].x, points[0].y);
+        for (const q of points.slice(1)) trail.lineTo(q.x, q.y);
+        trail.stroke({ color: kind.glow ? kind.color : 0xffffff, width: kind.glow ? 6 : 2, alpha: kind.glow ? 0.6 : 0.45, cap: "round" });
+      }
+      if (k >= 1) {
+        const hit = { x: end.x, y: end.y + 10 };
+        if (kind.glow) this.burst(hit, [0x64d8ff, 0xb3f0ff, 0xffffff], 14, 30);
+        else this.burst(hit, [0xd7ccc8, 0xbcaaa4], 6, 18);
+      }
     });
   }
 

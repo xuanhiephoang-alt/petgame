@@ -1098,6 +1098,69 @@ def test_sprite_cut_from_a_flat_drawn_backdrop():
     assert flat_cut(photo) is None  # a photo's busy border: the usual cut-out
 
 
+def _turnaround_kid(long_hair=False):
+    """A turnaround of a drawn kid: violet hair, peach skin, white shirt,
+    grey legs; front, left side, back and right side on a sage backdrop."""
+    from scipy import ndimage
+
+    h, w = 300, 800
+    yy, xx = np.mgrid[0:h, 0:w]
+    img = np.empty((h, w, 3), np.float32)
+    img[:] = (0.52, 0.62, 0.52)
+    skin, hair, shirt, legs = (0.99, 0.81, 0.71), (0.55, 0.42, 0.78), (0.97, 0.97, 0.97), (0.5, 0.5, 0.52)
+    for cx, view in ((100, "front"), (300, "left"), (500, "back"), (700, "right")):
+        head = (xx - cx) ** 2 + (yy - 100) ** 2 < 40 ** 2
+        face = head & (yy > (85 if view == "front" else 80)) if view != "back" else np.zeros_like(head)
+        if view == "right":
+            face &= xx > cx - 5
+        if view == "left":
+            face &= xx < cx + 5
+        neck = (abs(xx - cx) <= 10) & (yy >= 138) & (yy < 150)
+        body = (abs(xx - cx) <= 30) & (yy >= 150) & (yy < 215)
+        arms = (abs(abs(xx - cx) - 35) <= 5) & (yy >= 155) & (yy < 200)
+        leg = (abs(abs(xx - cx) - 12) <= 7) & (yy >= 215) & (yy < 272)
+        drawn = head | neck | body | arms | leg
+        hang = np.zeros_like(head)
+        if long_hair:
+            hang = (abs(abs(xx - cx) - 38) <= 7) & (yy >= 100) & (yy < 195) if view == "front" else \
+                (abs(xx - cx) <= 40) & (yy >= 120) & (yy < 195) if view == "back" else \
+                (abs(xx - (cx - 25 if view == "right" else cx + 25)) <= 10) & (yy >= 110) & (yy < 195)
+            drawn |= hang
+        img[drawn & ~ndimage.binary_erosion(drawn, iterations=2)] = (0.2, 0.15, 0.2)
+        inner = ndimage.binary_erosion(drawn, iterations=2)
+        for part, color in ((leg, legs), (body, shirt), (arms | neck, skin), (head, hair), (face, skin), (hang, hair)):
+            img[part & inner] = color
+    img[(yy >= 272) & (yy <= 274) & (xx > 40) & (xx < 760)] = (0.2, 0.2, 0.2)  # the ground line
+    return img
+
+
+def test_doll_parts_from_turnarounds(tmp_path):
+    from photo3d.doll import BODY_HEIGHT, doll_part, install_part
+
+    frames, keys, report = doll_part(_turnaround_kid(long_hair=True), "head")
+    assert set(frames) == {"front", "right", "back", "behind"}  # long hair hangs behind the front view
+    assert keys["hair"][2] > keys["hair"][1] and keys["skin"][0] > 240  # violet hair, peach skin
+    front = frames["front"]
+    hair, skin = front.mask[..., 1], front.mask[..., 0]
+    assert hair[8, front.rgba.shape[1] // 2] > 200 and skin[-20, front.rgba.shape[1] // 2] > 200
+    side = frames["right"]  # drawn looking right: the face is on the right of the head
+    ys, xs = np.nonzero(side.mask[..., 0] > 128)
+    assert xs.mean() > np.nonzero(side.rgba[..., 3] > 128)[1].mean()
+    assert abs(front.neck[1] - front.rgba.shape[0]) < 0.05 * BODY_HEIGHT  # the neck at the head's bottom
+
+    body, keys, _ = doll_part(_turnaround_kid(), "body")
+    assert set(body) == {"front", "right", "back"} and keys["hair"] is None
+    for f in body.values():
+        assert abs(f.rgba.shape[0] - BODY_HEIGHT) <= 4 and f.neck[1] == 0  # neck to feet, every view
+    assert len(body["front"].hands) == 2 and body["front"].hands[0][0] < body["front"].hands[1][0]
+
+    install_part(frames, keys, "head", "test", str(tmp_path))
+    index = json.loads((tmp_path / "index.json").read_text())
+    entry = index["heads"]["test"]
+    assert entry["file"] == "heads/test.webp" and set(entry["frames"]) == set(frames)
+    assert (tmp_path / "heads" / "test-mask.png").exists() and index["bodyHeight"] == BODY_HEIGHT
+
+
 def test_objects_from_one_image_into_an_atlas(tmp_path):
     from photo3d.sprite import install_objects, objects_from_sheet
 

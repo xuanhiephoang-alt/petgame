@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SqliteStore, emptyProfile, isValidToken, sanitizeProfile } from "./store.ts";
-import { WORLD_HEIGHT, WORLD_WIDTH } from "@petgame/shared";
+import { DEFAULT_WORN, STARTER_WARDROBE, WORLD_HEIGHT, WORLD_WIDTH } from "@petgame/shared";
 
 describe("profile store", () => {
   it("saves and loads a profile", () => {
@@ -9,6 +9,9 @@ describe("profile store", () => {
     profile.pals.push({ id: "a1", speciesId: "leafkit", level: 3, xp: 10, assignment: "follow" });
     profile.base = { x: 300, y: 400 };
     profile.resources.wood = 7;
+    profile.look = { hair: "bun", hairColor: 2, skin: 3 };
+    profile.wardrobe.push("sword");
+    profile.worn = { outfit: "hoodie", hat: "cap", weapon: "sword" };
     store.save("token-1234567890ab", profile);
     expect(store.load("token-1234567890ab")).toEqual(profile);
     expect(store.load("missing-token-000000")).toBeUndefined();
@@ -47,11 +50,32 @@ describe("profile store", () => {
     expect(p.base).toEqual({ x: WORLD_WIDTH, y: WORLD_HEIGHT / 2 });
     expect(p.quest).toEqual({ index: 0, progress: 0 });
     expect(p.resources).toEqual({ wood: 3, stone: 0, berries: 0 });
-    expect(p.items).toEqual({ greatBalls: 0, snacks: 0, coat: 0, hat: 0, raft: 0 });
+    expect(p.items).toEqual({ greatBalls: 0, snacks: 0, raft: 0 });
+    expect(p.look).toBeNull();
+    expect(p.wardrobe).toEqual(STARTER_WARDROBE);
+    expect(p.worn).toEqual(DEFAULT_WORN);
   });
 
   it("keeps at most one of each gear", () => {
-    const p = sanitizeProfile({ items: { raft: 7, coat: 1, greatBalls: 4 } })!;
-    expect(p.items).toEqual({ greatBalls: 4, snacks: 0, coat: 1, hat: 0, raft: 1 });
+    const p = sanitizeProfile({ items: { raft: 7, greatBalls: 4 } })!;
+    expect(p.items).toEqual({ greatBalls: 4, snacks: 0, raft: 1 });
+  });
+
+  it("keeps clothes and weapons owned, and wears only those", () => {
+    const p = sanitizeProfile({
+      wardrobe: ["sword", "sword", "laser", 7, "aodai"],
+      worn: { outfit: "aodai", hat: "crown", weapon: "sword" }, // no crown in the wardrobe
+      look: { hair: "curly", hairColor: 99, skin: 2 },
+    })!;
+    expect(p.wardrobe).toEqual([...STARTER_WARDROBE, "sword", "aodai"]);
+    expect(p.worn).toEqual({ outfit: "aodai", hat: "", weapon: "sword" });
+    expect(p.look).toEqual({ hair: "curly", hairColor: 0, skin: 2 });
+  });
+
+  it("moves the coat and hat crafted before the wardrobe into it", () => {
+    const p = sanitizeProfile({ items: { coat: 1, hat: 1, raft: 1 } })!;
+    expect(p.wardrobe).toContain("coat");
+    expect(p.wardrobe).toContain("nonla");
+    expect(p.items.raft).toBe(1);
   });
 });

@@ -29,6 +29,9 @@ import {
   type QuestDoneMessage,
   type HarvestedMessage,
   isSea,
+  DEFAULT_WORN,
+  STARTER_WARDROBE,
+  weaponStats,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
 import { SqliteStore } from "../persistence/store.ts";
@@ -348,7 +351,10 @@ describe("offline production", () => {
       base: { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 + 150 },
       baseLevel: 1,
       resources: { wood: 0, stone: 0, berries: 0 },
-      items: { greatBalls: 0, snacks: 0, coat: 0, hat: 0, raft: 0 },
+      items: { greatBalls: 0, snacks: 0, raft: 0 },
+      look: null,
+      wardrobe: [...STARTER_WARDROBE],
+      worn: { ...DEFAULT_WORN },
       quest: { index: 0, progress: 0 },
       savedAt: Date.now() - 60 * 60 * 1000, // one hour ago
     });
@@ -528,7 +534,7 @@ describe("boss", () => {
 
   it("spawns one boss by the volcano that cannot be captured", async () => {
     const { room, client, player } = await setup();
-    player.hat = 1; // the volcano is hot
+    player.hat = "nonla"; // the volcano is hot
     const [bossId, boss] = bossOf(room)!;
     expect(boss.maxHp).toBeGreaterThan(500);
     expect(boss.level).toBe(BOSS.level);
@@ -544,7 +550,7 @@ describe("boss", () => {
 
   it("stomps everyone nearby", async () => {
     const { room, client, player } = await setup();
-    player.hat = 1; // the volcano is hot
+    player.hat = "nonla"; // the volcano is hot
     const [, boss] = bossOf(room)!;
     player.x = boss.x - 50;
     player.y = boss.y;
@@ -554,7 +560,7 @@ describe("boss", () => {
 
   it("rewards everyone who helped when defeated", async () => {
     const { room, client, player } = await setup();
-    player.hat = 1; // the volcano is hot
+    player.hat = "nonla"; // the volcano is hot
     const [bossId, boss] = bossOf(room)!;
     player.x = boss.x - 50;
     player.y = boss.y;
@@ -665,7 +671,7 @@ describe("regions and climate", () => {
     expect(player.hp).toBeLessThan(PLAYER_MAX_HP);
     expect(notices.some((n) => n.includes("lạnh"))).toBe(true);
 
-    player.coat = 1;
+    player.outfit = "coat";
     player.hp = PLAYER_MAX_HP;
     await ticks(room, 50); // 2.5 s: more than one climate tick
     expect(player.hp).toBe(PLAYER_MAX_HP);
@@ -707,16 +713,99 @@ describe("regions and climate", () => {
     expect(distance(boss, home)).toBeLessThan(before);
   });
 
-  it("saves crafted gear", async () => {
+  it("saves the wardrobe, what is worn and the look", async () => {
     const db = new SqliteStore(":memory:");
     useStore(db);
     const token = "gear-token-0123456789ab";
     const { room, client, player } = await setup(token);
-    player.hat = 1;
-    player.wood = 1; // any saved change
-    (room as any).scheduleSave(client.sessionId);
+    player.wardrobe.push("sword");
+    client.send(ClientMessage.Equip, { slot: "weapon", id: "sword" });
+    client.send(ClientMessage.SetLook, { hair: "bun", skin: 4 });
+    await ticks(room, 3);
     await client.leave();
     await ticks(room, 1);
-    expect(db.load(token)!.items.hat).toBe(1);
+    const saved = db.load(token)!;
+    expect(saved.wardrobe).toContain("sword");
+    expect(saved.worn.weapon).toBe("sword");
+    expect(saved.look).toMatchObject({ hair: "bun", skin: 4 });
+  });
+});
+
+describe("looks, clothes and weapons", () => {
+  it("joins with the look picked before, or a slot's own", async () => {
+    const room = await colyseus.createRoom<GameRoom>(ROOM_NAME);
+    const a = await colyseus.connectTo(room, { name: "A", look: { hair: "twintails", hairColor: 5, skin: 2 } });
+    const b = await colyseus.connectTo(room, { name: "B", look: { hair: "mohawk", hairColor: 99 } });
+    await room.waitForNextTimestep();
+    expect(room.state.players.get(a.sessionId)).toMatchObject({ hair: "twintails", hairColor: 5, skin: 2 });
+    const other = room.state.players.get(b.sessionId)!;
+    expect(other.hair).not.toBe("mohawk"); // unknown: the slot's default
+    expect(other.hairColor).toBeLessThan(8);
+    expect([...other.wardrobe]).toEqual([...STARTER_WARDROBE]);
+    expect(other.outfit).toBe(DEFAULT_WORN.outfit);
+  });
+
+  it("changes the look and wears only what is owned", async () => {
+    const { room, client, player } = await setup();
+    const notices: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
+    client.send(ClientMessage.SetLook, { hair: "curly", hairColor: 3 });
+    client.send(ClientMessage.Equip, { slot: "weapon", id: "bow" }); // not owned
+    client.send(ClientMessage.Equip, { slot: "hat", id: "cap" });
+    client.send(ClientMessage.Equip, { slot: "outfit", id: "" }); // always dressed
+    await ticks(room, 3);
+    expect(player).toMatchObject({ hair: "curly", hairColor: 3, weapon: "", hat: "cap", outfit: "explorer" });
+    expect(notices.some((n) => n.includes("chưa có"))).toBe(true);
+    client.send(ClientMessage.Equip, { slot: "hat", id: "" });
+    await ticks(room, 2);
+    expect(player.hat).toBe("");
+  });
+
+  it("hits harder with a weapon, and from afar with a bow", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    player.wardrobe.push("sword", "bow");
+    player.weapon = "sword";
+    placeWild(room, "leafkit", player);
+    client.send(ClientMessage.Attack);
+    const hit: HitMessage = await client.waitForMessage(ServerMessage.Hit);
+    expect(hit.damage).toBe(weaponStats("sword").damage);
+
+    room.state.pals.clear();
+    player.weapon = "bow";
+    placeWild(room, "leafkit", player, 150); // far beyond a swing
+    await ticks(room, 15); // past the sword's cooldown
+    client.send(ClientMessage.Attack);
+    const shot: HitMessage = await client.waitForMessage(ServerMessage.Hit);
+    expect(shot.damage).toBe(weaponStats("bow").damage);
+  });
+
+  it("armor stops part of the damage", async () => {
+    const { room, client, player } = await setup();
+    (room as any).damage({ kind: "player", id: client.sessionId }, 20, "");
+    expect(player.hp).toBe(PLAYER_MAX_HP - 20);
+    player.hp = PLAYER_MAX_HP;
+    player.outfit = "knight";
+    (room as any).damage({ kind: "player", id: client.sessionId }, 20, "");
+    expect(player.hp).toBe(PLAYER_MAX_HP - 13); // 35% stopped
+  });
+
+  it("puts crafted clothes and weapons on right away", async () => {
+    const { room, client, player } = await setup();
+    player.x = WORLD_WIDTH / 2;
+    player.y = WORLD_HEIGHT / 2 + 150;
+    client.send(ClientMessage.PlaceBase);
+    await ticks(room, 3);
+    player.wood = 20;
+    player.berries = 20;
+    client.send(ClientMessage.Craft, { recipeId: "club" });
+    client.send(ClientMessage.Craft, { recipeId: "warm_coat" });
+    await ticks(room, 3);
+    expect([...player.wardrobe]).toEqual(expect.arrayContaining(["club", "coat"]));
+    expect(player.weapon).toBe("club");
+    expect(player.outfit).toBe("coat");
+    client.send(ClientMessage.Craft, { recipeId: "club" }); // only one of each
+    await ticks(room, 3);
+    expect(player.wardrobe.filter((id) => id === "club")).toHaveLength(1);
   });
 });

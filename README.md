@@ -5,7 +5,8 @@ Game 2D bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống (h�
 ## Có gì trong game
 
 - Lục địa 200×150 m giữa biển, chia 5 vùng khí hậu: 🌳 đồng cỏ ở giữa (cây, hồ, bụi quả), ❄️ núi tuyết phía bắc (lạnh), 🏜️ sa mạc phía nam (nóng), 🌧️ đầm lầy phía tây (mưa), 🌋 núi lửa phía đông (trùm **Vua Đá Boulderhorn**). Bốn góc biển có 🏝️ đảo hoang, phải đóng 🛶 bè mới ra được.
-- Thời tiết riêng từng vùng; vùng lạnh/nóng làm mất máu nếu thiếu 🧥 áo ấm / 👒 nón lá (hoặc thú hệ lửa / nước đi theo).
+- Thời tiết riêng từng vùng; vùng lạnh/nóng làm mất máu nếu không mặc 🧥 áo ấm (hay đội 🧶 mũ len) / đội 👒 nón lá (hay 🤠 mũ thám hiểm), hoặc có thú hệ lửa / nước đi theo.
+- Tự chọn ngoại hình ở sảnh (8 kiểu tóc, 8 màu tóc, 5 màu da) và thay đồ trong **👕 Tủ đồ** (phím T): 8 bộ quần áo, 8 mũ, 8 vũ khí (gậy, kiếm, rìu, giáo đánh gần; ná, cung, gậy phép bắn xa). Đồ có từ đầu, chế tạo ở trại, tìm trong rương hoặc hạ trùm mới có; giáp và mũ sắt giảm sát thương.
 - 13 loài thú theo vùng và giờ (ngày/đêm), càng xa càng mạnh; bắt, nuôi lên cấp, cho đi theo đánh cùng hoặc làm việc ở trại.
 - 40 rương báu, bụi quả mọng để hái, chuỗi 16 nhiệm vụ, chế tạo, nâng cấp trại, bản đồ thu nhỏ (phím N), lưu game tự động.
 
@@ -35,8 +36,8 @@ TypeScript · PixiJS 8 (2D, WebGL) · Colyseus 0.18 · Vite · Vitest · Playwri
 
 ## Hình do AI vẽ
 
-Cả 13 loài thú, 5 nhân vật người chơi, cây cối, đá, bụi, rương, lửa trại, bè, núi lửa và vật trang trí của cả 6 vùng (hoa, gốc cây, người tuyết, pha lê băng, cỏ lăn, lau sậy, nấm phát sáng, lá súng, vỏ sò...) là ảnh do AI vẽ (hình vẽ bằng code là dự phòng). Muốn thay bằng ảnh của bạn (một ảnh ghép 4 góc: trước, bên, sau, bên kia):
-`npm run sprite -- anh.png --pal emberpup` (thú), `npm run sprite -- anh.png --player 0` (người chơi), hoặc dùng trang `npm run photo3d:web` (chế độ **Một ảnh** → **Đưa vào game**).
+Cả 13 loài thú, người chơi (8 kiểu tóc, 8 bộ quần áo, 8 mũ, 8 vũ khí ghép tự do), cây cối, đá, bụi, rương, lửa trại, bè, núi lửa và vật trang trí của cả 6 vùng (hoa, gốc cây, người tuyết, pha lê băng, cỏ lăn, lau sậy, nấm phát sáng, lá súng, vỏ sò...) là ảnh do AI vẽ (hình vẽ bằng code là dự phòng). Muốn thay bằng ảnh của bạn (một ảnh ghép 4 góc: trước, bên, sau, bên kia):
+`npm run sprite -- anh.png --pal emberpup` (thú), `npm run sprite -- anh.png --head <kiểu tóc>` hoặc `--outfit <bộ đồ>` (người chơi, xem `docs/art-style.md`), hoặc dùng trang `npm run photo3d:web` (chế độ **Một ảnh** → **Đưa vào game**).
 Cây cối, đá, đồ vật: `npm run sprite -- anh.png --objects Tree_1_A,Tree_2_A,... --sheet trees`.
 Câu lệnh mẫu cho AI vẽ ảnh và cách chọn màu nền: [`docs/art-style.md`](docs/art-style.md), mô tả từng loài: [`docs/design/pals.md`](docs/design/pals.md). Xem mọi hình ở http://localhost:5173/sprites.html khi chạy `npm run dev`.
 

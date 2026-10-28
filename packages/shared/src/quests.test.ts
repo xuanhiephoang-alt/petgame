@@ -64,8 +64,8 @@ describe("treasure chests", () => {
   });
 
   it("adds rewards to a player-like counter", () => {
-    const target = { wood: 1, stone: 0, berries: 0, greatBalls: 0, snacks: 0, coat: 0, hat: 0, raft: 0 };
+    const target = { wood: 1, stone: 0, berries: 0, greatBalls: 0, snacks: 0, raft: 0 };
     applyReward(target, { wood: 2, greatBalls: 1 });
-    expect(target).toEqual({ wood: 3, stone: 0, berries: 0, greatBalls: 1, snacks: 0, coat: 0, hat: 0, raft: 0 });
+    expect(target).toEqual({ wood: 3, stone: 0, berries: 0, greatBalls: 1, snacks: 0, raft: 0 });
   });
 });

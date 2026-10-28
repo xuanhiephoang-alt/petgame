@@ -1,5 +1,6 @@
 import type { Element } from "./pals.ts";
 import type { Biome } from "./pals.ts";
+import { wornProtects, type Worn } from "./wardrobe.ts";
 
 /** Harsh climates hurt players every CLIMATE_TICK_MS unless they are protected. */
 export const CLIMATE_TICK_MS = 2000;
@@ -22,10 +23,11 @@ export function climateHazard(biome: Biome, night: boolean): { hazard: Hazard; d
 }
 
 /**
- * A coat (or a fire pal following you) keeps the cold away; a hat (or a water
- * pal) keeps you cool.
+ * Warm clothes worn (the coat, the beanie) or a fire pal following you keep
+ * the cold away; a sun hat worn (the nón lá, the safari hat) or a water pal
+ * keeps you cool.
  */
-export function protectedFrom(hazard: Hazard, gear: { coat: number; hat: number }, companion?: Element): boolean {
-  if (hazard === "cold") return gear.coat > 0 || companion === "fire";
-  return gear.hat > 0 || companion === "water";
+export function protectedFrom(hazard: Hazard, worn: Pick<Worn, "outfit" | "hat">, companion?: Element): boolean {
+  if (wornProtects(worn, hazard)) return true;
+  return hazard === "cold" ? companion === "fire" : companion === "water";
 }

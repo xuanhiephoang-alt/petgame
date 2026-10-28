@@ -102,9 +102,6 @@ def parse(argv):
     p.add_argument("--sprite", action="store_true",
                    help="make a 2D sprite sheet for the game from IMAGE (or the photos) instead of a 3D model")
     p.add_argument("--pal", metavar="ID", help="with --sprite: put it in the game as this pal species (e.g. emberpup)")
-    p.add_argument("--player", metavar="SLOT", type=int, choices=range(5),
-                   help="with --sprite: put it in the game as the explorer of player slot 0 to 4 (outfit colors: "
-                        "blue, orange, purple, green, red)")
     p.add_argument("--sprite-height", type=int, default=256, help="with --sprite: pixel height of the sprite cells")
     p.add_argument("--objects", metavar="NAMES",
                    help="with --sprite: IMAGE shows several objects (trees, rocks...): cut each out, naming them in "
@@ -113,6 +110,16 @@ def parse(argv):
                    help="with --objects: put the atlas in the game as packages/client/public/assets/nature/NAME")
     p.add_argument("--object-height", type=int, default=384,
                    help="with --objects: the tallest pixel height of an object in the atlas (bigger for a big object)")
+    p.add_argument("--to", choices=("nature", "characters"), default="nature",
+                   help="with --objects --sheet: the game folder of the atlas (characters: hats and weapons)")
+    p.add_argument("--head", metavar="ID",
+                   help="with --sprite: IMAGE is a turnaround of a kid with violet hair; put its head in the game as "
+                        "hairstyle ID (packages/client/public/assets/characters/heads)")
+    p.add_argument("--outfit", metavar="ID",
+                   help="with --sprite: IMAGE is a turnaround of a kid in an outfit; put the body in the game as "
+                        "outfit ID (assets/characters/bodies)")
+    p.add_argument("--side", choices=("auto", "right", "left"), default="auto",
+                   help="with --head or --outfit: the side view to keep (the game mirrors it)")
     p.add_argument("--json", action="store_true", help="print a JSON report")
     p.add_argument("--web", action="store_true", help="open the web page instead (drop photos, preview, download)")
     p.add_argument("--port", type=int, default=8765, help="port of the web page")
@@ -167,7 +174,24 @@ def main(argv=None):
 
 def make_sprite_file(args):
     """--sprite: one row of cut-out views for the game, saved or put in the game."""
-    from .sprite import PALS, PLAYERS, install, install_objects, make_sprite, objects_from_sheet, save_png, sprite_from_photos
+    from .sprite import PALS, install, install_objects, make_sprite, objects_from_sheet, save_png, sprite_from_photos
+
+    if args.head or args.outfit:
+        from .doll import doll_part, install_part
+
+        if not (args.folder and os.path.isfile(args.folder)):
+            sys.exit("--head and --outfit take one image")
+        rgb, _, _ = load_image(args.folder)
+        kind, part_id = ("head", args.head) if args.head else ("body", args.outfit)
+        try:
+            frames, keys, report = doll_part(rgb, kind, side=args.side)
+        except ValueError as e:
+            sys.exit(f"{args.folder}: {e}")
+        out = install_part(frames, keys, kind, part_id)
+        print(f"{kind} {part_id}: {', '.join(frames)} -> {out}")
+        if args.json:
+            print(json.dumps(report, indent=2))
+        return report
 
     if args.objects is not None:
         if not (args.folder and os.path.isfile(args.folder)):
@@ -179,7 +203,9 @@ def make_sprite_file(args):
         except ValueError as e:
             sys.exit(f"{args.folder}: {e}")
         if args.sheet:
-            out = install_objects(rgba, frames, args.sheet)
+            from .doll import CHARACTERS
+
+            out = install_objects(rgba, frames, args.sheet, CHARACTERS if args.to == "characters" else None)
         else:
             out = args.out or os.path.splitext(args.folder)[0] + "-objects.png"
             save_png(rgba, out)
@@ -216,8 +242,6 @@ def make_sprite_file(args):
         if species and args.pal not in species:
             sys.exit(f"no pal species {args.pal!r}; the game has: {', '.join(sorted(species))}")
         out = install(rgba, views, args.pal, PALS, report.get("feet"))
-    elif args.player is not None:
-        out = install(rgba, views, f"player{args.player}", PLAYERS, report.get("feet"))
     else:
         out = args.out or default_out
         save_png(rgba, out)

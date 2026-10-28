@@ -2,16 +2,14 @@ import recipeData from "./data/recipes.json" with { type: "json" };
 import { RESOURCES, workIntervalMs, workOutput, type Resource } from "./work.ts";
 import { getSpecies } from "./pals.ts";
 
-export const ITEMS = ["greatBalls", "snacks", "coat", "hat", "raft"] as const;
+export const ITEMS = ["greatBalls", "snacks", "raft"] as const;
 export type Item = (typeof ITEMS)[number];
-/** Gear is kept once and never used up (0 or 1). */
-export const GEAR: readonly Item[] = ["coat", "hat", "raft"];
+/** Gear is kept once and never used up (0 or 1). Clothes and weapons are in the wardrobe (wardrobe.ts). */
+export const GEAR: readonly Item[] = ["raft"];
 
 export const ITEM_INFO: Record<Item, { name: string; icon: string }> = {
   greatBalls: { name: "Bóng xịn", icon: "🔵" },
   snacks: { name: "Bánh quả mọng", icon: "🥧" },
-  coat: { name: "Áo ấm", icon: "🧥" },
-  hat: { name: "Nón lá", icon: "👒" },
   raft: { name: "Bè gỗ", icon: "🛶" },
 };
 
@@ -29,8 +27,10 @@ export interface Recipe {
   icon: string;
   description: string;
   cost: Partial<Record<Resource, number>>;
-  /** Either an item to add, or the camp level it upgrades to. */
-  output: { item: Item; amount: number } | { baseLevel: number };
+  /** Needs a camp of at least this level. */
+  camp?: number;
+  /** An item to add, the camp level it upgrades to, or clothes or a weapon for the wardrobe. */
+  output: { item: Item; amount: number } | { baseLevel: number } | { wear: string };
 }
 
 export const RECIPES: readonly Recipe[] = recipeData as Recipe[];
@@ -55,6 +55,7 @@ export function craftBlocker(
     baseLevel: number;
     nearBase: boolean;
     items?: Partial<Record<Item, number>>;
+    wardrobe?: readonly string[];
   },
 ): string | undefined {
   if (!state.hasBase) return "Cần dựng trại trước";
@@ -64,6 +65,8 @@ export function craftBlocker(
     if (state.baseLevel !== recipe.output.baseLevel - 1) return `Cần trại cấp ${recipe.output.baseLevel - 1}`;
   }
   if ("item" in recipe.output && GEAR.includes(recipe.output.item) && (state.items?.[recipe.output.item] ?? 0) > 0) return "Đã có rồi";
+  if ("wear" in recipe.output && state.wardrobe?.includes(recipe.output.wear)) return "Đã có rồi";
+  if (recipe.camp && state.baseLevel < recipe.camp) return `Cần trại cấp ${recipe.camp}`;
   if (!canAfford(state.resources, recipe.cost)) return "Chưa đủ nguyên liệu";
   return undefined;
 }

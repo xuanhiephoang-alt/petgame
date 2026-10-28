@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import {
+  DEFAULT_LOOKS,
+  DEFAULT_WORN,
   GEAR,
   ITEMS,
   MAX_BASE_LEVEL,
@@ -12,10 +14,17 @@ import {
   PAL_SPECIES,
   QUESTS,
   RESOURCES,
+  STARTER_WARDROBE,
+  WEARABLES,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  canWear,
+  sanitizeLook,
   type Item,
+  type Look,
   type Resource,
+  type WearSlot,
+  type Worn,
 } from "@petgame/shared";
 
 export interface SavedPal {
@@ -34,6 +43,12 @@ export interface Profile {
   baseLevel: number;
   resources: Record<Resource, number>;
   items: Record<Item, number>;
+  /** Hairstyle, hair color and skin tone; null until the player picks one (a slot's default then). */
+  look: Look | null;
+  /** Clothes, hats and weapons owned (the starter ones always). */
+  wardrobe: string[];
+  /** What the player has on. */
+  worn: Worn;
   /** Quest chain position (see shared quests.ts). */
   quest: { index: number; progress: number };
   /** When the profile was last saved (ms since epoch); drives offline production. */
@@ -58,7 +73,10 @@ export function emptyProfile(name: string): Profile {
     base: null,
     baseLevel: 1,
     resources: { wood: 0, stone: 0, berries: 0 },
-    items: { greatBalls: 0, snacks: 0, coat: 0, hat: 0, raft: 0 },
+    items: { greatBalls: 0, snacks: 0, raft: 0 },
+    look: null,
+    wardrobe: [...STARTER_WARDROBE],
+    worn: { ...DEFAULT_WORN },
     quest: { index: 0, progress: 0 },
     savedAt: 0,
   };
@@ -146,6 +164,16 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
   for (const key of RESOURCES) resources[key] = Math.floor(num(r.resources?.[key], 0, 1e9, 0));
   const items = {} as Record<Item, number>;
   for (const key of ITEMS) items[key] = Math.floor(num(r.items?.[key], 0, GEAR.includes(key) ? 1 : 1e6, 0));
+  // Clothes and weapons owned; the coat and hat crafted before there was a wardrobe come along.
+  const known = new Set(WEARABLES.map((w) => w.id));
+  const wardrobe = [...STARTER_WARDROBE];
+  const owned = [...(Array.isArray(r.wardrobe) ? r.wardrobe : []), ...(r.items?.coat >= 1 ? ["coat"] : []), ...(r.items?.hat >= 1 ? ["nonla"] : [])];
+  for (const id of owned) if (typeof id === "string" && known.has(id) && !wardrobe.includes(id)) wardrobe.push(id);
+  const worn = { ...DEFAULT_WORN };
+  for (const slot of ["outfit", "hat", "weapon"] as WearSlot[]) {
+    if (typeof r.worn?.[slot] === "string" && canWear(wardrobe, slot, r.worn[slot])) worn[slot] = r.worn[slot];
+  }
+  const look = r.look && typeof r.look === "object" ? sanitizeLook(r.look, DEFAULT_LOOKS[0]) : null;
   const name = typeof r.name === "string" ? r.name.slice(0, 16) : "";
   const baseLevel = Math.round(num(r.baseLevel, 1, MAX_BASE_LEVEL, 1));
   const savedAt = num(r.savedAt, 0, Date.now(), 0);
@@ -153,5 +181,5 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
     index: Math.round(num(r.quest?.index, 0, QUESTS.length, 0)),
     progress: Math.round(num(r.quest?.progress, 0, 1e6, 0)),
   };
-  return { name, pals, base, baseLevel, resources, items, quest, savedAt };
+  return { name, pals, base, baseLevel, resources, items, look, wardrobe, worn, quest, savedAt };
 }

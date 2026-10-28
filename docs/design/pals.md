@@ -55,8 +55,8 @@ Thế giới rộng 6400×4800 px (200×150 m): một lục địa giữa biển
 | Vùng | Hướng | Khí hậu | Thú đặc trưng |
 |---|---|---|---|
 | 🌳 Đồng cỏ | giữa | ôn hoà, có hồ và 30 bụi quả mọng (đánh để hái) | Leafkit, Emberpup, Voltmouse |
-| ❄️ Núi tuyết | bắc | lạnh: mất máu nếu thiếu 🧥 Áo ấm hoặc thú hệ lửa đi theo | Frostfang |
-| 🏜️ Sa mạc | nam | ngày nóng (cần 👒 Nón lá hoặc thú hệ nước), đêm lạnh; có ốc đảo | Cactoad, Scorchtail |
+| ❄️ Núi tuyết | bắc | lạnh: mất máu nếu không mặc 🧥 Áo ấm (hay đội 🧶 Mũ len) hoặc có thú hệ lửa đi theo | Frostfang |
+| 🏜️ Sa mạc | nam | ngày nóng (đội 👒 Nón lá, 🤠 Mũ thám hiểm hoặc có thú hệ nước), đêm lạnh; có ốc đảo | Cactoad, Scorchtail |
 | 🌧️ Đầm lầy | tây | ẩm, mưa, nhiều ao | Bogbloom, Ripplefin |
 | 🌋 Núi lửa | đông | nóng rực; trùm Vua Đá ở chân núi | Boulderhorn, Scorchtail |
 | 🏝️ Đảo hoang | 4 góc biển | cần 🛶 Bè gỗ để ra; nhiều rương, thú mạnh | Coralcrab |

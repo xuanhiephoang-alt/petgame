@@ -21,7 +21,11 @@ import {
   REGION_INFO,
   biomeAt,
   isSea,
-  PLAYER_COLORS,
+  DEFAULT_LOOKS,
+  DEFAULT_WORN,
+  STARTER_WARDROBE,
+  getWearable,
+  weaponStats,
   type HarvestedMessage,
   type ChestOpenedMessage,
   type QuestDoneMessage,
@@ -36,12 +40,15 @@ import {
   type ProducedMessage,
   type Resource,
   type Vec2,
+  type Look,
+  type Worn,
   defaultWorld,
 } from "@petgame/shared";
 import { inviteLink, type GameRoom } from "../net/connection.ts";
 import { Hud } from "../ui/hud.ts";
 import { PartyPanel } from "../ui/party.ts";
 import { CraftPanel } from "../ui/crafting.ts";
+import { WardrobePanel } from "../ui/wardrobe.ts";
 import { Sound } from "../ui/audio.ts";
 import { Joystick } from "../ui/joystick.ts";
 import { Keyboard } from "../ui/keyboard.ts";
@@ -61,9 +68,21 @@ import { campArt, chestArt, gemArt } from "./art/props.ts";
 
 export interface GameAssets {
   pals: Map<string, PalSprite>;
-  /** Explorers drawn from sheets, by player slot (the others are drawn in code). */
-  players: Map<number, PalSprite>;
 }
+
+/** What a synced player looks like and wears. */
+interface Dressed {
+  hair: string;
+  hairColor: number;
+  skin: number;
+  outfit: string;
+  hat: string;
+  weapon: string;
+}
+
+const lookOf = (p: Dressed): Look => ({ hair: p.hair as Look["hair"], hairColor: p.hairColor, skin: p.skin });
+const wornOf = (p: Dressed): Worn => ({ outfit: p.outfit, hat: p.hat, weapon: p.weapon });
+const dressKey = (p: Dressed) => `${p.hair},${p.hairColor},${p.skin},${p.outfit},${p.hat},${p.weapon}`;
 
 interface Named<A extends Actor> {
   actor: A;
@@ -115,6 +134,9 @@ export class Game {
   private companions = new Map<string, Named<PalActor>>();
   private party!: PartyPanel;
   private craft!: CraftPanel;
+  private wardrobe!: WardrobePanel;
+  /** When the local player last attacked (ms), to keep to the weapon's pace. */
+  private lastAttackAt = -Infinity;
   /** Whether the next throw should use a crafted great ball. */
   private useGreatBall = false;
   private minimap!: Minimap;
@@ -190,9 +212,13 @@ export class Game {
     this.quests = new QuestTracker(this.hud.left);
     this.minimap = new Minimap(this.hud.root);
     this.craft = new CraftPanel(this.hud.root, (recipeId) => this.room.send(ClientMessage.Craft, { recipeId }));
+    this.wardrobe = new WardrobePanel(this.hud.root, {
+      setLook: (look) => this.room.send(ClientMessage.SetLook, look),
+      equip: (slot, id) => this.room.send(ClientMessage.Equip, { slot, id }),
+    }, { look: DEFAULT_LOOKS[0], worn: DEFAULT_WORN, wardrobe: STARTER_WARDROBE });
     // Only one panel open at a time.
-    this.party.onOpen = () => this.craft.toggle(false);
-    this.craft.onOpen = () => this.party.toggle(false);
+    const panels = [this.party, this.craft, this.wardrobe];
+    for (const panel of panels) panel.onOpen = () => panels.forEach((other) => other !== panel && other.toggle(false));
     this.keyboard = new Keyboard({
       " ": () => this.attack(),
       e: () => this.throwBall(),
@@ -222,8 +248,8 @@ export class Game {
 
     $.onAdd("players", (player, sessionId) => {
       const isMe = sessionId === this.room.sessionId;
-      const slot = (PLAYER_COLORS as readonly number[]).indexOf(player.color);
-      const actor = new PlayerActor({ x: player.x, y: player.y }, player.color, this.shadowTexture, this.assets.players.get(slot));
+      const actor = new PlayerActor({ x: player.x, y: player.y }, player.color, this.shadowTexture, lookOf(player), wornOf(player));
+      let dressed = dressKey(player);
       this.addActor(actor);
       const { tag, label } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + 6);
       const hpFill = addHpBar(label);
@@ -232,10 +258,17 @@ export class Game {
         actor.server.x = player.x;
         actor.server.y = player.y;
         setHp(label, hpFill, player.hp, player.maxHp);
+        if (dressKey(player) !== dressed) {
+          dressed = dressKey(player);
+          actor.dress(lookOf(player), wornOf(player));
+          tag.lift = actor.height + 6;
+          if (isMe) remember(player);
+        }
         this.syncCamp(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
       });
       this.syncCamp(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
       if (isMe) {
+        remember(player);
         this.camera.x = player.x;
         this.camera.y = player.y;
         this.camera.ready = true;
@@ -346,6 +379,9 @@ export class Game {
       if (at) {
         this.effects.sparkle(at, 0xffc94a);
         this.effects.burst(at, [0xffd54f, 0xfff59d, 0x7cf3ff], 24, 60);
+        // Clothes or a weapon inside: its icon pops up over the chest.
+        const wear = msg.wear ? getWearable(msg.wear) : undefined;
+        if (wear) this.labels.float(at, 60, `${wear.icon} ${wear.name}`, "skill");
       }
       if (msg.playerId === this.room.sessionId) this.sound.play("chest");
     });
@@ -369,7 +405,13 @@ export class Game {
         if (companion && pal) companion.actor.faceToward(pal.actor.pos);
         companion?.actor.play("attack");
       } else if (msg.playerId !== this.room.sessionId) {
-        this.players.get(msg.playerId)?.actor.play("attack");
+        // Another explorer's swing or shot (the local one is shown on the key press).
+        const hitter = this.players.get(msg.playerId)?.actor;
+        if (hitter) {
+          if (pal) hitter.faceToward(pal.actor.pos);
+          hitter.play("attack");
+          if (pal && weaponStats(hitter.weapon).ranged) this.effects.shot(hitter.pos, pal.actor.pos, hitter.weapon, pal.actor.height);
+        }
       }
       if (!pal) return;
       pal.actor.play("hurt");
@@ -609,35 +651,53 @@ export class Game {
     return { x: Math.round(n.x * 10) / 10, y: Math.round(n.y * 10) / 10 };
   }
 
+  /** Swings or shoots the weapon held (or punches), at the weapon's pace; the server decides the hit. */
   private attack() {
-    this.room.send(ClientMessage.Attack);
     const me = this.me();
     if (!me) return;
+    const weapon = weaponStats(me.weapon);
+    const now = performance.now();
+    // A little early is fine: the server keeps the real pace.
+    if (now - this.lastAttackAt < weapon.cooldownMs - 60) return;
+    this.lastAttackAt = now;
+    this.room.send(ClientMessage.Attack);
+    const target = this.nearestPal(me.pos, weapon.range + (weapon.ranged ? 0 : 8), true);
+    if (target) me.faceToward(target[1].actor.pos);
     me.play("attack");
-    this.effects.slash(me.pos, me.facing);
+    if (!weapon.ranged) return this.effects.slash(me.pos, me.facing, weapon.range);
+    const ahead = { front: { x: 0, y: 1 }, back: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[me.facing];
+    const to = target?.[1].actor.pos ?? { x: me.pos.x + ahead.x * weapon.range * 0.6, y: me.pos.y + ahead.y * weapon.range * 0.6 };
+    this.effects.shot(me.pos, to, me.weapon, target?.[1].actor.height);
+  }
+
+  /** The closest wild pal within `range` (pixels) of a point; `toEdge` measures to the boss's side like hits do. */
+  private nearestPal(from: Vec2, range: number, toEdge = false): [string, PalEntity] | undefined {
+    let best: [string, PalEntity] | undefined;
+    let bestDist = range;
+    this.pals.forEach((pal, id) => {
+      const d = distance(from, pal.actor.pos) - (toEdge && id === this.bossId ? BOSS.radius : 0);
+      if (d <= bestDist) {
+        bestDist = d;
+        best = [id, pal];
+      }
+    });
+    return best;
   }
 
   private throwBall() {
     const me = this.me();
     if (!me) return;
-    let targetId: string | undefined;
-    let best = THROW_RANGE;
-    this.pals.forEach((pal, id) => {
-      const d = distance(me.pos, pal.actor.pos);
-      if (d <= best) {
-        best = d;
-        targetId = id;
-      }
-    });
-    if (!targetId) {
+    const target = this.nearestPal(me.pos, THROW_RANGE);
+    if (!target) {
       this.hud.showToast("Không có thú nào ở gần");
       return;
     }
+    const [targetId, pal] = target;
     const state = this.room.state.players.get(this.room.sessionId);
     const great = this.useGreatBall && (state?.greatBalls ?? 0) > 0;
     this.room.send(ClientMessage.Throw, { palId: targetId, ball: great ? "great" : "basic" });
     me.play("throw");
-    me.faceToward(this.pals.get(targetId)!.actor.pos);
+    me.faceToward(pal.actor.pos);
   }
 
   private updateHpBar(pal: PalEntity) {
@@ -649,10 +709,12 @@ export class Game {
   private updateHud() {
     const me = this.room.state.players?.get(this.room.sessionId);
     const resources = { wood: me?.wood ?? 0, stone: me?.stone ?? 0, berries: me?.berries ?? 0 };
-    const gear = me ? GEAR.filter((g) => me[g] > 0).map((g) => ITEM_INFO[g].icon).join(" ") : "";
+    const gear = me ? [...GEAR.filter((g) => me[g] > 0).map((g) => ITEM_INFO[g].icon), ...wornIcons(wornOf(me))].join(" ") : "";
     this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, resources, inviteLink(this.room.roomId), gear);
     if (me) this.hud.setHealth(me.hp, me.maxHp);
     if (me) {
+      const wardrobe = [...me.wardrobe];
+      this.wardrobe.update({ look: lookOf(me), worn: wornOf(me), wardrobe });
       const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment }));
       this.party.update(party, me.hasBase, me.snacks);
       if (me.greatBalls === 0) this.useGreatBall = false;
@@ -660,7 +722,7 @@ export class Game {
       const myPos = this.me()?.pos ?? me;
       const nearBase = me.hasBase && distance(myPos, { x: me.baseX, y: me.baseY }) <= CRAFT_RANGE;
       const items = Object.fromEntries(ITEMS.map((item) => [item, me[item] ?? 0]));
-      this.craft.update({ resources, hasBase: me.hasBase, baseLevel: me.baseLevel || 1, nearBase, items });
+      this.craft.update({ resources, hasBase: me.hasBase, baseLevel: me.baseLevel || 1, nearBase, items, wardrobe });
       this.updateRegion(myPos);
       this.quests.update(me.questIndex ?? 0, me.questProgress ?? 0);
       this.updateMinimap(me.hasBase ? { x: me.baseX, y: me.baseY } : undefined);
@@ -827,6 +889,24 @@ export class Game {
       objects: this.stage.objects.children.filter((c) => c.visible).length,
     };
   }
+}
+
+/** Keeps the local explorer's look and clothes for the lobby next time (it shows them and sends the look). */
+function remember(player: Dressed) {
+  try {
+    localStorage.setItem("petgame:look", JSON.stringify(lookOf(player)));
+    localStorage.setItem("petgame:worn", JSON.stringify(wornOf(player)));
+  } catch {
+    // No storage (private mode): the lobby starts from a random look.
+  }
+}
+
+/** Icons of what is worn that does something: warm or sun-proof clothes, armor, the weapon. */
+function wornIcons(worn: Worn): string[] {
+  return [worn.outfit, worn.hat, worn.weapon]
+    .map((id) => getWearable(id))
+    .filter((w) => w && (w.protects || w.defense || w.weapon))
+    .map((w) => w!.icon);
 }
 
 /** A small health bar under a label, hidden while at full health. */

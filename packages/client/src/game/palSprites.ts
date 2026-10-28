@@ -126,30 +126,6 @@ export async function loadPalSprites(): Promise<Map<string, PalSprite>> {
   return sprites;
 }
 
-/** Height of a player's explorer drawn from a sheet (world px, feet to hair). */
-export const PLAYER_HEIGHT = 54;
-
-/**
- * Explorers drawn from sheets, by player slot: assets/players/index.json
- * lists `player<slot>` entries like the pals' (`npm run sprite -- <image>
- * --player <slot>`). Slots without one are built from parts in code.
- */
-export async function loadPlayerSprites(): Promise<Map<number, PalSprite>> {
-  const sprites = new Map<number, PalSprite>();
-  await Promise.all(
-    Object.entries(await sheetIndex("players")).map(async ([key, entry]) => {
-      const slot = Number(key.replace(/^player/, ""));
-      if (!Number.isInteger(slot)) return;
-      try {
-        sprites.set(slot, await fromSheet("players", entry, entry.height ?? PLAYER_HEIGHT));
-      } catch (err) {
-        console.warn(`Player sheet ${key} not loaded, drawing it instead`, err);
-      }
-    }),
-  );
-  return sprites;
-}
-
 /** The sprite set for a species (drawn on the spot if missing). */
 export function spriteFor(sprites: Map<string, PalSprite>, speciesId: string): PalSprite {
   let sprite = sprites.get(speciesId);

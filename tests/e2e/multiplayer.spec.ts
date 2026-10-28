@@ -223,3 +223,69 @@ test("regions: the HUD names the region and gear shows in the status", async ({ 
   await expect(page.locator(".hud-region")).toContainText("Núi tuyết");
   await expect(page.locator(".hud-status")).toContainText("🛶");
 });
+
+test("explorer: a look picked in the lobby, clothes and weapons from the wardrobe", async ({ browser }) => {
+  test.slow();
+  const context = await browser.newContext();
+  contexts.push(context);
+  const page = await context.newPage();
+  await page.goto("/?quality=low");
+  // Pick a look before joining: the preview and the server both take it.
+  await page.locator('.style-btn[data-hair="bun"]').click();
+  await page.locator('.swatch[data-hair-color="6"]').click();
+  await page.locator('.swatch[data-skin="3"]').click();
+  await expect(page.locator(".lobby-look .doll-preview")).toBeVisible();
+  await page.fill("#name", "Stylist");
+  await page.click("#join-btn");
+  await waitForWorld(page);
+  const me = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const p = room.state.players.get(room.sessionId);
+    return { hair: p.hair, hairColor: p.hairColor, skin: p.skin, outfit: p.outfit, hat: p.hat, weapon: p.weapon, owned: p.wardrobe.length };
+  });
+  expect(await me()).toMatchObject({ hair: "bun", hairColor: 6, skin: 3, outfit: "explorer", hat: "", weapon: "" });
+
+  // Everything in the wardrobe (test-only hook): a dot says something new came in.
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  await page.evaluate(() => (window as any).__petgame.room.send("debug:wardrobe"));
+  await expect(page.locator(".wardrobe-btn")).toHaveClass(/fresh/);
+  await page.locator(".wardrobe-btn").click();
+  await expect(page.locator(".wardrobe-btn")).not.toHaveClass(/fresh/);
+
+  await page.locator('.wardrobe-tab[data-tab="weapon"]').click();
+  await page.locator('.wear-card[data-item="bow"]').getByRole("button", { name: "Cầm" }).click();
+  await expect.poll(async () => (await me()).weapon).toBe("bow");
+  await expect(page.locator('.wear-card[data-item="bow"]')).toHaveClass(/worn/);
+  await page.locator('.wardrobe-tab[data-tab="outfit"]').click();
+  await page.locator('.wear-card[data-item="knight"]').getByRole("button", { name: "Mặc" }).click();
+  await page.locator('.wardrobe-tab[data-tab="hat"]').click();
+  await page.locator('.wear-card[data-item="crown"]').getByRole("button", { name: "Đội" }).click();
+  await expect.poll(me).toMatchObject({ outfit: "knight", hat: "crown", weapon: "bow" });
+  // Worn things that do something show in the status: armor and the bow.
+  await expect(page.locator(".hud-status")).toContainText("🛡️");
+  await expect(page.locator(".hud-status")).toContainText("🏹");
+
+  await page.locator('.wardrobe-tab[data-tab="look"]').click();
+  await page.locator('.wardrobe-panel .style-btn[data-hair="curly"]').click();
+  await expect.poll(async () => (await me()).hair).toBe("curly");
+
+  // A shot at a pal: the server takes the bow's reach and damage.
+  const hit = await page.evaluate(async () => {
+    const { room } = (window as any).__petgame;
+    return await new Promise<number>((resolve) => {
+      room.onMessage("hit", (msg: { damage: number }) => resolve(msg.damage));
+      room.send("debug:spawnPal");
+      setTimeout(() => room.send("attack"), 600);
+    });
+  });
+  expect(hit).toBe(13);
+
+  // After a reload the lobby shows the same look and the clothes are kept.
+  await page.waitForTimeout(2500); // saves are batched every 2 s
+  await page.reload();
+  await expect(page.locator('.style-btn.active[data-hair="curly"]')).toBeVisible();
+  await page.fill("#name", "Stylist");
+  await page.click("#join-btn");
+  await waitForWorld(page);
+  await expect.poll(me).toMatchObject({ hair: "curly", outfit: "knight", hat: "crown", weapon: "bow", owned: 24 });
+});

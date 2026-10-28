@@ -9,6 +9,11 @@ export const FRUIT_REGROW_MS = 90 * 1000;
 /** Reach (pixels) for picking a fruit bush with the attack button. */
 export const HARVEST_RANGE = 52;
 
+/** How likely a chest also holds clothes or a weapon (remote chests more often). */
+export function chestWearChance(danger: number): number {
+  return 0.12 + 0.18 * danger;
+}
+
 /**
  * What a chest holds. Each call draws from `rand` (0..1): a pile of one or
  * two resources, sometimes a great ball or a snack. `danger` (0 near the

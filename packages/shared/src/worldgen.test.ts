@@ -113,12 +113,14 @@ describe("climate", () => {
     expect(climateHazard("meadow", false)).toBeUndefined();
   });
 
-  it("is kept away by gear or a pal of the right element", () => {
-    const none = { coat: 0, hat: 0 };
+  it("is kept away by warm or sun clothes worn, or a pal of the right element", () => {
+    const none = { outfit: "explorer", hat: "" };
     expect(protectedFrom("cold", none)).toBe(false);
-    expect(protectedFrom("cold", { coat: 1, hat: 0 })).toBe(true);
+    expect(protectedFrom("cold", { outfit: "coat", hat: "" })).toBe(true);
+    expect(protectedFrom("cold", { outfit: "explorer", hat: "beanie" })).toBe(true);
     expect(protectedFrom("cold", none, "fire")).toBe(true);
-    expect(protectedFrom("heat", { coat: 1, hat: 0 })).toBe(false);
+    expect(protectedFrom("heat", { outfit: "coat", hat: "" })).toBe(false);
+    expect(protectedFrom("heat", { outfit: "explorer", hat: "nonla" })).toBe(true);
     expect(protectedFrom("heat", none, "water")).toBe(true);
   });
 });

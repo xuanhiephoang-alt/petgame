@@ -7,6 +7,8 @@ export interface CraftState {
   nearBase: boolean;
   /** Owned items, so gear already crafted shows as owned. */
   items?: Partial<Record<Item, number>>;
+  /** Owned clothes and weapons, likewise. */
+  wardrobe?: readonly string[];
 }
 
 /**

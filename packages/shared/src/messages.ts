@@ -1,3 +1,5 @@
+import type { Look, WearSlot } from "./wardrobe.ts";
+
 /** Client -> server message types and payloads. */
 export const ClientMessage = {
   Input: "input",
@@ -15,7 +17,18 @@ export const ClientMessage = {
   Feed: "feed",
   /** Eat one berry to heal. */
   Eat: "eat",
+  /** Change hairstyle, hair color or skin tone (free, any time). */
+  SetLook: "setLook",
+  /** Put on clothes, a hat or a weapon from the wardrobe ("" takes the hat or weapon off). */
+  Equip: "equip",
 } as const;
+
+export type SetLookMessage = Partial<Look>;
+
+export interface EquipMessage {
+  slot: WearSlot;
+  id: string;
+}
 
 export interface InputMessage {
   /** Movement direction, each axis in -1..1. */
@@ -80,6 +93,8 @@ export interface ChestOpenedMessage {
   playerId: string;
   /** Reward (resource/item -> amount). */
   loot: Record<string, number>;
+  /** Clothes or a weapon found inside (WEARABLES id). */
+  wear?: string;
 }
 
 export interface HarvestedMessage {
@@ -172,4 +187,6 @@ export interface JoinOptions {
    * pals, base and resources under it so they come back next time.
    */
   token?: string;
+  /** The look picked before joining (hairstyle, hair color, skin tone). */
+  look?: Look;
 }
