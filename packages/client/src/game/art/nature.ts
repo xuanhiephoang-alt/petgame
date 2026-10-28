@@ -28,7 +28,7 @@ import { picture } from "./pictures.ts";
  * each name always looks the same, and regions repaint them (snow on pines,
  * sandstone in the desert, dark basalt by the volcano...).
  */
-export type Tint = "" | "frost" | "swamp" | "ash" | "sand";
+export type Tint = "" | "frost" | "swamp" | "ash" | "sand" | "beach";
 
 export interface PropArt {
   texture: Texture;
@@ -74,20 +74,76 @@ const REGION_TINT: Record<Tint, [number, number]> = {
   swamp: [0xbfc8a2, 0xc0ca8c],
   ash: [0x7d7773, 0x9c9a7e],
   sand: [0xf2cf98, 0xe6dea2],
+  beach: [0xffffff, 0xffffff],
 };
 
-/** Decorations drawn only from pictures: their size in world px (flat ones lie on the ground). */
-const DECOR: Record<string, { height?: number; width?: number; flat?: boolean }> = {
+interface DecorSize {
+  height?: number;
+  width?: number;
+  /** Lies flat on the ground (baked into it)... */
+  flat?: boolean;
+  /** ...or on a pond's water, as a sprite above it. */
+  water?: boolean;
+  /** How much its top sways in the wind. */
+  sway?: number;
+}
+
+/** Decorations drawn only from pictures: their size in world px. */
+const DECOR: Record<string, DecorSize> = {
+  // Meadow
+  Wildflowers: { height: 22, sway: 0.03 },
+  Bellflowers: { height: 24, sway: 0.035 },
+  Lavender: { height: 26, sway: 0.03 },
+  Sunflowers: { height: 44, sway: 0.02 },
+  Clover: { width: 36, flat: true },
+  Toadstools: { width: 34 },
+  TreeStump: { height: 26 },
+  HollowLog: { width: 52 },
+  Signpost: { height: 42 },
+  LilyPads: { width: 44, flat: true, water: true },
+  // Snow
+  SnowBush: { height: 24 },
+  SnowPile: { width: 36 },
+  SnowStones: { width: 38 },
+  Snowman: { height: 36 },
+  FrozenLog: { width: 52 },
+  FrozenPond: { width: 64, flat: true },
+  IceCrystal: { height: 30 },
+  // Desert
+  Tumbleweed: { height: 22, sway: 0.03 },
+  BarrelCactus: { height: 24 },
+  Skull: { width: 30 },
+  Slabs: { width: 36 },
+  DeadTree: { height: 58, sway: 0.01 },
+  ClayPot: { height: 22 },
+  // Swamp
+  Reeds: { height: 38, sway: 0.04 },
+  Ferns: { height: 24, sway: 0.03 },
+  Mushrooms: { height: 22 },
+  MossyLog: { width: 54 },
+  MossyRock: { height: 22 },
+  SwampStump: { height: 34 },
+  MudPuddle: { width: 56, flat: true },
+  // Island
+  Coconuts: { width: 26 },
+  Seashells: { width: 26, flat: true },
+  Pebbles: { width: 34, flat: true },
+  Driftwood: { width: 50 },
+  Sandcastle: { height: 30 },
+  // Volcano
   LavaPool: { width: 50, flat: true },
   LavaCrack: { width: 60, flat: true },
   Vent: { height: 30 },
   Obsidian: { height: 26 },
   Stump: { height: 32 },
-  DeadShrub: { height: 28 },
+  DeadShrub: { height: 28, sway: 0.02 },
 };
 
+/** Every decoration's name, for the gallery page. */
+export const DECOR_MODELS = Object.keys(DECOR);
+
 /** A decoration's picture (pictures.ts) at its size, or undefined without one. */
-export function decorArt(model: string): (PropArt & { flat: boolean }) | undefined {
+export function decorArt(model: string): (PropArt & { flat: boolean; water: boolean }) | undefined {
   const pic = picture(model);
   const size = DECOR[model];
   if (!pic || !size) return undefined;
@@ -98,8 +154,9 @@ export function decorArt(model: string): (PropArt & { flat: boolean }) | undefin
     anchor: { x: 0.5, y: size.flat ? 0.5 : 1 },
     fit,
     flat: !!size.flat,
+    water: !!size.water,
     shadow: { rx: width * 0.42, ry: width * 0.16 },
-    sway: model === "DeadShrub" ? 0.02 : 0,
+    sway: size.sway ?? 0,
   };
 }
 
@@ -150,12 +207,16 @@ function leaves(base: string, line?: string): Leaves {
   return { base, shade: tone(base, -0.24), light: tone(base, 0.2), line: line ?? ink(base) };
 }
 
+const GREEN = [leaves("#5fb246"), leaves("#4fa043"), leaves("#6dbb4a"), leaves("#58a83f")];
+
+/** Leaf colors per region look (islands are as green as the meadow). */
 const LEAF: Record<Tint, Leaves[]> = {
-  "": [leaves("#5fb246"), leaves("#4fa043"), leaves("#6dbb4a"), leaves("#58a83f")],
+  "": GREEN,
   frost: [leaves("#3f8a5a"), leaves("#367c55")],
   swamp: [leaves("#5f7f37"), leaves("#536f33"), leaves("#6b8a3c")],
   ash: [leaves("#5c6b3c")],
   sand: [leaves("#7aa847")],
+  beach: GREEN,
 };
 
 const BARK = { base: "#8c5c36", shade: "#6b4227", line: "#3f2616" };
@@ -356,7 +417,7 @@ function cactus(): PropArt {
 function bush(model: string, tint: Tint): PropArt {
   const rand = seeded(model + tint);
   const palette = LEAF[tint].length ? LEAF[tint] : LEAF[""];
-  const look = tint === "" ? leaves(["#5aac45", "#64b24a", "#4f9e40"][Math.floor(rand() * 3)]) : palette[Math.floor(rand() * palette.length)];
+  const look = tint === "" || tint === "beach" ? leaves(["#5aac45", "#64b24a", "#4f9e40"][Math.floor(rand() * 3)]) : palette[Math.floor(rand() * palette.length)];
   const R = model.startsWith("Bush_2") ? 13 : model.startsWith("Bush_4") ? 11 : 12;
   const parts = [
     { x: 0, y: -R * 1.05, r: R },
@@ -396,12 +457,15 @@ export function berriesArt(): { texture: Texture; anchor: { x: number; y: number
 // Rocks
 // ---------------------------------------------------------------------------
 
+const GREY = { base: "#9ea7ad", top: "#c3cbd0" };
+
 const STONE: Record<Tint, { base: string; top: string }> = {
-  "": { base: "#9ea7ad", top: "#c3cbd0" },
+  "": GREY,
   frost: { base: "#9aa6b4", top: "#f2f7fc" },
   swamp: { base: "#87907a", top: "#a6b08a" },
   ash: { base: "#56504d", top: "#77706b" },
   sand: { base: "#d4a46a", top: "#ecc994" },
+  beach: GREY,
 };
 
 function rock(model: string, tint: Tint): PropArt {

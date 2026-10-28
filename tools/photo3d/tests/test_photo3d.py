@@ -1130,3 +1130,14 @@ def test_objects_from_one_image_into_an_atlas(tmp_path):
     _, frames, report = objects_from_sheet(img, names=["Camp"], height=1000)  # one name: the whole image is one object
     x, y, fw, fh = frames["Camp"]
     assert report["found"] == 1 and fw > 450 and fh > 140  # the tree, the rock and the chest together
+
+    # A ring of toadstools drawn apart: more parts than names, the closest join up.
+    img[:] = (0.97, 0.85, 0.74)
+    for k in range(6):
+        a = k * np.pi / 3
+        img[np.hypot(xx - 120 - 60 * np.cos(a), yy - 150 - 40 * np.sin(a)) < 14] = (0.85, 0.2, 0.15)
+    img[np.hypot(xx - 480, yy - 150) < 50] = (0.55, 0.56, 0.6)
+    _, frames, report = objects_from_sheet(img, names=["Toadstools", "Rock_3_E"], height=1000)
+    assert report["found"] == 2 and "warning" not in report
+    assert frames["Toadstools"][2] > 140 and frames["Toadstools"][3] > 90  # the whole ring
+    assert objects_from_sheet(img, height=1000)[2]["found"] == 7  # without names: every part

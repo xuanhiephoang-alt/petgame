@@ -5,7 +5,7 @@
 import { Application, Container, Sprite, Text } from "pixi.js";
 import { PAL_SPECIES, PLAYER_COLORS } from "@petgame/shared";
 import { setArtScale } from "./game/art/draw.ts";
-import { propArt, type Tint } from "./game/art/nature.ts";
+import { DECOR_MODELS, decorArt, propArt, type PropArt, type Tint } from "./game/art/nature.ts";
 import { loadPalSprites, loadPlayerSprites, type PalSprite } from "./game/palSprites.ts";
 import { loadPictures } from "./game/art/pictures.ts";
 
@@ -42,19 +42,24 @@ function caption(text: string, x: number, y: number) {
 
 if (show === "nature") {
   await loadPictures();
-  const rows: [string, Tint][][] = [
+  const rows: ([string, Tint] | string)[][] = [
     ["Tree_1_A", "Tree_1_B", "Tree_2_A", "Tree_2_C", "Tree_3_A", "Tree_7_A"].map((m) => [m, ""] as [string, Tint]),
     ["Tree_1_A", "Tree_2_C", "Tree_3_A", "Tree_7_A"].map((m) => [m, "swamp"] as [string, Tint]),
     [["Tree_4_A", ""], ["Tree_4_B", ""], ["Tree_5_A", ""], ["Tree_6_A", ""], ["Tree_4_A", "frost"], ["Tree_5_A", "frost"], ["Tree_6_A", "frost"], ["Palm", ""], ["Cactus", "sand"]],
-    [["Bush_1_A", ""], ["Bush_1_C", ""], ["Bush_2_A", ""], ["Bush_2_C", ""], ["Bush_4_A", ""], ["Bush_2_A", "swamp"], ["Bush_1_A", "frost"]],
-    ["", "frost", "swamp", "ash", "sand"].flatMap((t) => [["Rock_1_A", t], ["Rock_1_E", t], ["Rock_3_E", t]] as [string, Tint][]),
+    [["Bush_1_A", ""], ["Bush_1_C", ""], ["Bush_2_A", ""], ["Bush_2_C", ""], ["Bush_4_A", ""], ["Bush_2_A", "swamp"], ["Bush_4_A", "swamp"], ["Bush_1_A", "beach"], ["Bush_1_C", "beach"]],
+    ["", "frost", "swamp"].flatMap((t) => [["Rock_1_A", t], ["Rock_1_E", t], ["Rock_3_E", t]] as [string, Tint][]),
+    ["ash", "sand", "beach"].flatMap((t) => [["Rock_1_A", t], ["Rock_1_E", t], ["Rock_3_E", t]] as [string, Tint][]),
+    // Decorations, ten to a row.
+    ...Array.from({ length: Math.ceil(DECOR_MODELS.length / 10) }, (_, i) => DECOR_MODELS.slice(i * 10, i * 10 + 10)),
   ];
   let y = 150;
   for (const row of rows) {
     let x = 50;
     let tallest = 0;
-    for (const [model, tint] of row) {
-      const art = propArt(model, tint);
+    for (const item of row) {
+      const [model, tint]: [string, Tint] = typeof item === "string" ? [item, ""] : item;
+      const art: PropArt | undefined = typeof item === "string" ? decorArt(model) : propArt(model, tint);
+      if (!art) continue;
       const s = new Sprite(art.texture);
       s.anchor.set(art.anchor.x, art.anchor.y);
       s.scale.set(art.fit ?? 1);

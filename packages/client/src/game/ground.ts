@@ -271,10 +271,10 @@ export class Ground {
       const art = list[Math.floor(rand() * list.length)];
       this.bucket(this.decals, x, y, { x, y, texture: art.texture, anchor: art.anchor, scale: 0.8 + rand() * 0.6, flip: rand() < 0.5 }, 8);
     }
-    // Lava pools and cracks lying on the volcano's ground.
+    // Decorations lying flat on the ground: clover, puddles, frozen ponds, shells, pebbles, lava.
     for (const d of regionDecor(layout)) {
       const art = decorArt(d.model);
-      if (!art?.flat) continue;
+      if (!art?.flat || art.water) continue;
       const scale = d.scale * (art.fit ?? 1);
       this.bucket(this.decals, d.x, d.y, { x: d.x, y: d.y, texture: art.texture, anchor: art.anchor, scale, flip: d.flip }, 40);
     }

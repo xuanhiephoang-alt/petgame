@@ -370,7 +370,7 @@ def objects_from_sheet(rgb, alpha=None, names=None, cutout="auto", height=384, w
         found = _flat_alpha(rgb)
     if found is not None and ndimage is not None:
         # Objects one by one (grids drawn by AIs overlap their rows); one name: the image is one object.
-        crops = _object_crops(rgb, *found, whole=len(names or []) == 1)
+        crops = _object_crops(rgb, *found, whole=len(names or []) == 1, count=len(names or []) or None)
     else:
         _, cells, rgb, alpha = find_cells(rgb, alpha if found is None else found[0])
         crops = [crop_cell(cell, rgb, None if found is not None else alpha)[:2] for cell in cells]
@@ -420,12 +420,14 @@ def objects_from_sheet(rgb, alpha=None, names=None, cutout="auto", height=384, w
     return (np.clip(out, 0, 1) * 255).round().astype(np.uint8), frames, report
 
 
-def _object_crops(rgb, alpha, backdrop, join=0.01, keep=0.02, margin=0.12, whole=False):
+def _object_crops(rgb, alpha, backdrop, join=0.01, keep=0.02, margin=0.12, whole=False, count=None):
     """The objects drawn on a flat backdrop, in reading order: [(crop, None)],
     each with a margin of backdrop around it and its neighbours painted
     out. Parts closer than `join` of the image's side are one object (a
     leaf, a coconut); parts under `keep` of the biggest are specks. whole:
-    everything drawn is one object (a volcano with rocks around its foot)."""
+    everything drawn is one object (a volcano with rocks around its foot).
+    count: how many objects there are; while there are more parts, the two
+    lying closest together are one object (a ring of toadstools)."""
     m = alpha > 0.5
     h, w = m.shape
     if whole:
@@ -445,8 +447,9 @@ def _object_crops(rgb, alpha, backdrop, join=0.01, keep=0.02, margin=0.12, whole
     for i, box in enumerate(ndimage.find_objects(labels), 1):
         if box is None or sizes[i] < keep * sizes.max():
             continue
-        ys, xs = box
-        items.append({"label": i, "box": box, "cy": (ys.start + ys.stop) / 2, "cx": (xs.start + xs.stop) / 2})
+        items.append(_part([i], [box]))
+    if count and len(items) > count:
+        items = _join_nearest(items, labels, count)
     # Rows: an object whose middle is level with a row's first (tallest) one joins it.
     rows = []
     for item in sorted(items, key=lambda t: t["cy"]):
@@ -463,11 +466,37 @@ def _object_crops(rgb, alpha, backdrop, join=0.01, keep=0.02, margin=0.12, whole
             y0, y1 = max(0, ys.start - pad), min(h, ys.stop + pad)
             x0, x1 = max(0, xs.start - pad), min(w, xs.stop + pad)
             crop = rgb[y0:y1, x0:x1].copy()
-            others = (labels[y0:y1, x0:x1] != item["label"]) & (alpha[y0:y1, x0:x1] > 0.05)
-            others = ndimage.binary_dilation(others, iterations=2) & (labels[y0:y1, x0:x1] != item["label"])
+            mine = np.isin(labels[y0:y1, x0:x1], item["labels"])
+            others = ~mine & (alpha[y0:y1, x0:x1] > 0.05)
+            others = ndimage.binary_dilation(others, iterations=2) & ~mine
             crop[others] = backdrop[y0:y1, x0:x1][others]
             crops.append((crop, None))
     return crops
+
+
+def _part(labels, boxes):
+    """One object of _object_crops: its labels and the box around them all."""
+    ys = slice(min(b[0].start for b in boxes), max(b[0].stop for b in boxes))
+    xs = slice(min(b[1].start for b in boxes), max(b[1].stop for b in boxes))
+    return {"labels": labels, "box": (ys, xs), "cy": (ys.start + ys.stop) / 2, "cx": (xs.start + xs.stop) / 2}
+
+
+def _join_nearest(items, labels, count):
+    """Joins the two parts with the smallest gap between their pixels, again
+    and again, until `count` are left."""
+    masks = [np.isin(labels, item["labels"]) for item in items]
+    n = len(items)
+    gap = np.full((n, n), np.inf)
+    for i in range(n):
+        far = ndimage.distance_transform_edt(~masks[i])
+        for j in range(i + 1, n):
+            gap[i, j] = gap[j, i] = far[masks[j]].min()
+    groups = [[i] for i in range(n)]
+    while len(groups) > count:
+        a, b = min(((a, b) for a in range(len(groups)) for b in range(a + 1, len(groups))),
+                   key=lambda ab: gap[np.ix_(groups[ab[0]], groups[ab[1]])].min())
+        groups[a] += groups.pop(b)
+    return [_part([label for i in g for label in items[i]["labels"]], [items[i]["box"] for i in g]) for g in groups]
 
 
 def install_objects(rgba, frames, sheet, folder=None):
