@@ -1,5 +1,6 @@
 import type { Texture } from "pixi.js";
 import { LINE, blob, circle, curve, ellipse, fill, ink, inside, outlined, paint, poly, rect, stroke, tone, type Ctx } from "./draw.ts";
+import { picture } from "./pictures.ts";
 
 /**
  * Built things and set pieces: treasure chest, campfire, camps (three
@@ -9,6 +10,16 @@ import { LINE, blob, circle, curve, ellipse, fill, ink, inside, outlined, paint,
 export interface Art {
   texture: Texture;
   anchor: { x: number; y: number };
+  /** Sprite scale that gives the drawn size (pictures; drawings are made to size). */
+  scale?: number;
+}
+
+/** A prop's picture (pictures.ts) at a size in world px, when there is one. */
+function pictureArt(name: string, size: { width?: number; height?: number }, anchorY = 1): Art | undefined {
+  const pic = picture(name);
+  if (!pic) return undefined;
+  const scale = size.width ? size.width / pic.width : (size.height ?? pic.height) / pic.height;
+  return { texture: pic.texture, anchor: { x: 0.5, y: anchorY }, scale };
 }
 
 const memo = new Map<string, Art>();
@@ -27,7 +38,7 @@ const GOLD = "#f6c343";
 
 /** A wooden chest with gold bands. */
 export function chestArt(): Art {
-  return once("chest", () =>
+  return once("chest", () => pictureArt("Chest", { height: 25 }) ??
     paint({ left: -16, top: -26, width: 32, height: 30 }, (c) => {
       const box = rect(-13, -15, 26, 15, 2);
       const lid = blob([[-13.5, -14], [-12, -22], [-5, -25.5], [5, -25.5], [12, -22], [13.5, -14]], 0.6);
@@ -65,7 +76,7 @@ export function gemArt(): Art {
 
 /** Stone ring, crossed logs and two benches; the flames are separate (animated). */
 export function campfireArt(): Art {
-  return once("campfire", () =>
+  return once("campfire", () => pictureArt("Campfire", { width: 56 }, 0.8) ??
     paint({ left: -62, top: -26, width: 124, height: 46 }, (c) => {
       // Benches facing the fire.
       for (const side of [-1, 1]) {
@@ -197,7 +208,7 @@ function lantern(c: Ctx, x: number, y: number) {
 
 /** Logs lashed together, seen from above-front. */
 export function raftArt(): Art {
-  return once("raft", () =>
+  return once("raft", () => pictureArt("Raft", { width: 54 }, 0.62) ??
     paint({ left: -26, top: -14, width: 52, height: 28 }, (c) => {
       for (let i = 0; i < 5; i++) {
         const y = -10 + i * 4.6;

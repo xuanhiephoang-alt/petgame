@@ -242,7 +242,7 @@ class App:
         out = {"preview": "data:image/png;base64," + base64.b64encode(png(rgba)).decode("ascii"), "views": views,
                "swapped": bool(report.get("swapped")), "species": species or None, "path": None}
         if species:
-            saved = install(rgba, views, species, self.pals)
+            saved = install(rgba, views, species, self.pals, report.get("feet"))
             out["path"] = os.path.relpath(saved, REPO).replace(os.sep, "/")
         return out
 

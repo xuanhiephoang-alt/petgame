@@ -1,12 +1,13 @@
 /**
  * Dev page (http://localhost:5173/sprites.html): every piece of game art on
- * one screen, to check the drawings. `?show=pals|nature|props`, `?scale=3`.
+ * one screen, to check the drawings. `?show=pals|players|nature`, `?scale=3`.
  */
 import { Application, Container, Sprite, Text } from "pixi.js";
-import { PAL_SPECIES } from "@petgame/shared";
+import { PAL_SPECIES, PLAYER_COLORS } from "@petgame/shared";
 import { setArtScale } from "./game/art/draw.ts";
 import { propArt, type Tint } from "./game/art/nature.ts";
-import { loadPalSprites } from "./game/palSprites.ts";
+import { loadPalSprites, loadPlayerSprites, type PalSprite } from "./game/palSprites.ts";
+import { loadPictures } from "./game/art/pictures.ts";
 
 const params = new URLSearchParams(location.search);
 const zoom = Number(params.get("scale") ?? 2);
@@ -18,7 +19,7 @@ await app.init({ background: "#78b84a", resizeTo: window, antialias: true, resol
 document.body.append(app.canvas);
 
 const bar = document.getElementById("bar")!;
-for (const [key, label] of [["pals", "Thú"], ["nature", "Cây cối"]]) {
+for (const [key, label] of [["pals", "Thú"], ["players", "Người chơi"], ["nature", "Cây cối"]]) {
   const button = document.createElement("button");
   button.textContent = label;
   button.classList.toggle("active", key === show);
@@ -40,6 +41,7 @@ function caption(text: string, x: number, y: number) {
 }
 
 if (show === "nature") {
+  await loadPictures();
   const rows: [string, Tint][][] = [
     ["Tree_1_A", "Tree_1_B", "Tree_2_A", "Tree_2_C", "Tree_3_A", "Tree_7_A"].map((m) => [m, ""] as [string, Tint]),
     ["Tree_1_A", "Tree_2_C", "Tree_3_A", "Tree_7_A"].map((m) => [m, "swamp"] as [string, Tint]),
@@ -55,28 +57,44 @@ if (show === "nature") {
       const art = propArt(model, tint);
       const s = new Sprite(art.texture);
       s.anchor.set(art.anchor.x, art.anchor.y);
-      s.position.set(x + art.texture.width * art.anchor.x, y);
+      s.scale.set(art.fit ?? 1);
+      if (art.tint !== undefined) s.tint = art.tint;
+      s.position.set(x + s.width * art.anchor.x, y);
       world.addChild(s);
       caption(`${model}${tint ? " " + tint : ""}`, x, y + 4);
-      x += art.texture.width + 12;
-      tallest = Math.max(tallest, art.texture.height);
+      x += s.width + 12;
+      tallest = Math.max(tallest, s.height);
     }
     y += Math.max(70, tallest * 0.75) + 30;
   }
+} else if (show === "players") {
+  // Each slot's explorer from its sheet (slots without one are built from parts in the game).
+  const sheets = await loadPlayerSprites();
+  PLAYER_COLORS.forEach((_, slot) => {
+    const y0 = 110 + slot * 80;
+    const sheet = sheets.get(slot);
+    if (sheet) showFacings(sheet, 40, y0);
+    caption(`Người chơi ${slot + 1}${sheet ? "" : ": chưa có ảnh, vẽ bằng code"}`, 40, y0 + 4);
+  });
 } else {
   const sprites = await loadPalSprites();
   const perRow = 3;
   PAL_SPECIES.forEach((species, i) => {
     const sprite = sprites.get(species.id)!;
     const x0 = 30 + (i % perRow) * 230, y0 = 90 + Math.floor(i / perRow) * 95;
-    (["front", "right", "back", "left"] as const).forEach((facing, k) => {
-      const s = new Sprite(sprite.textures[facing]);
-      s.anchor.set(sprite.anchor.x, sprite.anchor.y);
-      s.scale.set(facing === "left" && sprite.mirrorLeft ? -sprite.fit : sprite.fit, sprite.fit);
-      s.position.set(x0 + 25 + k * 52, y0);
-      world.addChild(s);
-    });
+    showFacings(sprite, x0, y0);
     caption(`${species.name} (${species.id})`, x0, y0 + 4);
+  });
+}
+
+/** The four facings of a sprite set in a row, feet on y0. */
+function showFacings(sprite: PalSprite, x0: number, y0: number) {
+  (["front", "right", "back", "left"] as const).forEach((facing, k) => {
+    const s = new Sprite(sprite.textures[facing]);
+    s.anchor.set(sprite.anchor.x, sprite.anchor.y);
+    s.scale.set(facing === "left" && sprite.mirrorLeft ? -sprite.fit : sprite.fit, sprite.fit);
+    s.position.set(x0 + 25 + k * 52, y0);
+    world.addChild(s);
   });
 }
 (window as any).__gallery = { ready: true };

@@ -1014,11 +1014,14 @@ def test_sprite_from_a_turnaround_drawn_the_other_way(tmp_path):
     assert head_side(cells[1]) == 1 and head_side(cells[3]) == -1  # facing right, then left
 
     pals = tmp_path / "pals"
+    (pals / "leafkit.png").parent.mkdir()
+    (pals / "leafkit.png").write_bytes(b"an older sheet")
     path = install(rgba, views, "leafkit", str(pals))
     install(rgba[:, : w // 4], ["front"], "emberpup", str(pals))
     index = json.loads((pals / "index.json").read_text())
-    assert index == {"emberpup": {"file": "emberpup.png", "views": ["front"]},
-                     "leafkit": {"file": "leafkit.png", "views": ["front", "right", "back", "left"]}}
+    assert index == {"emberpup": {"file": "emberpup.webp", "views": ["front"]},
+                     "leafkit": {"file": "leafkit.webp", "views": ["front", "right", "back", "left"]}}
+    assert sorted(os.listdir(pals)) == ["emberpup.webp", "index.json", "leafkit.webp"]
     rgb, alpha, _ = load_image(path)
     assert alpha is not None and rgb.shape[:2] == (h, w)
 
@@ -1055,7 +1058,71 @@ def test_sprite_from_one_picture_and_from_the_web_page(tmp_path):
         assert not (tmp_path / "assets" / "pals").exists()
         out = json.load(post({"options": "{}", "species": "leafkit"}, {"image": ("s.png", sheet)}))
         assert out["views"] == ["front", "right", "back", "left"] and not out["swapped"]
-        assert (tmp_path / "assets" / "pals" / "leafkit.png").exists()
+        assert (tmp_path / "assets" / "pals" / "leafkit.webp").exists()
     finally:
         server.shutdown()
         app.close()
+
+
+def test_sprite_cut_from_a_flat_drawn_backdrop():
+    from photo3d.sprite import flat_cut, make_sprite
+
+    h, w = 160, 200
+    yy, xx = np.mgrid[0:h, 0:w]
+    img = np.empty((h, w, 3), np.float32)
+    img[:] = (0.74, 0.81, 0.88)
+    img += (0.03 * xx / w)[..., None]  # image AIs paint the backdrop with a slight gradient
+    body = ((xx - 110) / 40) ** 2 + ((yy - 85) / 35) ** 2 < 1
+    ring = (xx - 50) ** 2 + (yy - 85) ** 2
+    tail = (ring < 22 ** 2) & (ring > 14 ** 2)  # a curled tail: the backdrop shows inside it
+    legs = (yy >= 100) & (yy <= 141) & (((xx >= 90) & (xx <= 100)) | ((xx >= 120) & (xx <= 130)))
+    from scipy import ndimage
+
+    animal = body | legs | tail
+    img[animal] = (0.35, 0.62, 0.3)
+    img[animal & ~ndimage.binary_erosion(animal, iterations=2)] = (0.12, 0.28, 0.12)  # the outline
+    img[78:90, 104:116] = img[5, 104]  # a pale patch on the animal, as light as the backdrop
+    img[(yy >= 141) & (yy <= 143) & (xx >= 40) & (xx <= 180)] = (0.2, 0.25, 0.2)  # a drawn ground line
+    img[18:21, 178:181] = (0.2, 0.25, 0.2)  # a speck
+
+    alpha, backdrop = flat_cut(img)
+    assert alpha[85, 110] == 1 and alpha[100, 50] == 1  # the body, its pale patch, and the tail
+    assert alpha[85, 50] == 0  # inside the curled tail stays open: the outline rings it
+    assert alpha[120, 110] == 0  # so does the gap between the legs
+    assert alpha[142, 60] == 0 and alpha[142, 170] == 0 and alpha[142, 95] == 1  # the line goes, the feet stay
+    assert alpha[19, 179] == 0 and np.abs(backdrop[5, 5] - img[5, 5]).max() < 0.01
+
+    rgba, views, report = make_sprite(img, single="front", height=64)
+    assert views == ["front"] and report["views"]["front"]["cutout"] == "flat"
+    photo = np.random.default_rng(1).uniform(0.2, 0.8, (h, w, 3)).astype(np.float32)
+    assert flat_cut(photo) is None  # a photo's busy border: the usual cut-out
+
+
+def test_objects_from_one_image_into_an_atlas(tmp_path):
+    from photo3d.sprite import install_objects, objects_from_sheet
+
+    h, w = 300, 640
+    yy, xx = np.mgrid[0:h, 0:w]
+    img = np.empty((h, w, 3), np.float32)
+    img[:] = (0.97, 0.85, 0.74)  # a flat drawn backdrop
+    tree = (((xx - 100) / 45) ** 2 + ((yy - 110) / 60) ** 2 < 1) | ((abs(xx - 100) < 8) & (yy >= 150) & (yy < 260))
+    rock = ((xx - 320) / 50) ** 2 + ((yy - 260) / 30) ** 2 < 1
+    rock &= yy < 260  # flat at the bottom
+    chest = (abs(xx - 520) < 40) & (yy >= 200) & (yy < 260)
+    for part, color in ((tree, (0.3, 0.6, 0.25)), (rock, (0.55, 0.56, 0.6)), (chest, (0.6, 0.4, 0.2))):
+        img[part] = color
+    img[(yy >= 260) & (yy < 264) & (xx > 30) & (xx < 610)] = (0.4, 0.35, 0.3)  # a ground line under all
+
+    rgba, frames, report = objects_from_sheet(img, names=["Tree_1_A", "Rock_3_E+Rock_1_E", "-"], height=100)
+    assert report["found"] == 3 and set(frames) == {"Tree_1_A", "Rock_3_E", "Rock_1_E"}
+    assert frames["Rock_3_E"] == frames["Rock_1_E"]
+    x, y, fw, fh = frames["Tree_1_A"]
+    assert fh == 100 and 30 < fw < 50  # shrunk to 100 px tall, keeping its shape
+    tree_px = rgba[y:y + fh, x:x + fw]
+    bottom = tree_px[-1, :, 3] > 128
+    assert bottom.any() and bottom.sum() < 0.4 * fw  # the trunk stands on the bottom edge; no line beside it
+    x, y, fw, fh = frames["Rock_3_E"]
+    assert fh < 40 and fw > 2.5 * fh  # a low rock, not the ground line around it
+    path = install_objects(rgba, frames, "nature", str(tmp_path / "nature"))
+    index = json.loads((tmp_path / "nature" / "index.json").read_text())
+    assert index["nature"]["file"] == os.path.basename(path) and index["nature"]["frames"]["Rock_1_E"] == [x, y, fw, fh]

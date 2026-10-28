@@ -1,7 +1,7 @@
 # Danh sách thú (pal)
 
 Chỉ số nằm ở `packages/shared/src/data/pals.json`. File này lưu mô tả ngoại hình: hình vẽ bằng code (`packages/client/src/game/art/pals.ts`) và ảnh AI vẽ đều theo nó.
-Hình trong game: ảnh PNG trong `packages/client/public/assets/pals/` nếu có (làm bằng `npm run sprite -- anh.png --pal <id>`), không thì hình vẽ bằng code. Xem tất cả ở http://localhost:5173/sprites.html khi chạy `npm run dev`.
+Hình trong game: ảnh trong `packages/client/public/assets/pals/` nếu có (cả 13 loài đã có ảnh AI vẽ; làm bằng `npm run sprite -- anh.png --pal <id>`), không thì hình vẽ bằng code. Xem tất cả ở http://localhost:5173/sprites.html khi chạy `npm run dev`.
 
 | id | Tên | Hệ | Mô tả ngoại hình |
 |---|---|---|---|
@@ -14,7 +14,7 @@ Hình trong game: ảnh PNG trong `packages/client/public/assets/pals/` nếu c�
 | mothlume | Mothlume | electric | Bướm đêm lông xù màu tím nhạt, cổ lông trắng, cánh có đốm phát sáng, râu kết thúc bằng hạt sáng. Chỉ xuất hiện ban đêm, hiền lành, hiếm |
 | boulderhorn | Boulderhorn | earth | Tê giác đá xám, sừng trắng lớn, hàng gai đá trên lưng, rêu xanh, chân to nặng. Sống ở núi đá, hung dữ: chủ động tấn công người lại gần |
 | cactoad | Cactoad | grass | Cóc sa mạc xanh lá, bụng kem, lưng mọc một cây xương rồng nhỏ có hoa hồng, mắt lồi. Sống ở sa mạc, tự vệ |
-| scorchtail | Scorchtail | fire | Thằn lằn cam nhanh nhẹn, gai lửa vàng dọc lưng, chóp đuôi cháy sáng. Sa mạc và núi lửa, hung dữ |
+| scorchtail | Scorchtail | fire | Kỳ nhông đỏ cam bò bốn chân sát đất, hàng gai lửa vàng từ đầu xuống lưng, sọc đỏ sẫm hai bên, đuôi dài lấm tấm đốm than hồng. Sa mạc và núi lửa, hung dữ |
 | bogbloom | Bogbloom | grass | Ếch đầm lầy tròn màu ô liu, cổ đeo lá sen, đội bông súng hồng nhụy vàng. Sống ở đầm lầy, hiền |
 | coralcrab | Coralcrab | water | Cua hồng đỏ, vương miện san hô trên mai, hai càng lớn. Chỉ có trên đảo hoang, tự vệ, khó bắt |
 | frostfang | Frostfang | water | Sói tuyết trắng xanh, bờm lông trắng xù quanh cổ, ba tinh thể băng phát sáng dọc sống lưng, tai nhọn, hai răng nanh nhỏ, đuôi xù có mũi băng. Sống ở vùng tuyết, tự vệ, khó bắt |
@@ -34,7 +34,7 @@ Ghép vào câu lệnh mẫu trong `docs/art-style.md` (ảnh ghép 4 góc: trư
 | mothlume | a fluffy pale purple moth with a white fur collar, wings with glowing yellow spots, antennae ending in small glowing beads |
 | boulderhorn | a grey stone rhino with a big white horn, a row of rock spikes on its back, patches of green moss, big heavy legs |
 | cactoad | a green desert toad with a cream belly and bulging eyes, a small cactus with a pink flower growing on its back |
-| scorchtail | a quick orange lizard on four legs with yellow flame spikes along its back and a burning tail tip |
+| scorchtail | a red-orange salamander that walks low on all four legs like a gecko, a frill of small yellow flame-shaped spikes from its head down its back, dark red stripes on its sides, a long curving tail dotted with glowing ember spots, round golden eyes, a pale yellow belly |
 | bogbloom | a round olive-green swamp frog wearing a lily pad collar and a pink water lily with a yellow center on its head |
 | coralcrab | a pink-red crab with a crown of coral branches on its shell and two big claws |
 | frostfang | a white and pale blue wolf pup with a fluffy white mane, three glowing ice crystals along its spine, pointed ears, two small fangs, a fluffy tail with an icy tip |

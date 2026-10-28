@@ -102,7 +102,15 @@ def parse(argv):
     p.add_argument("--sprite", action="store_true",
                    help="make a 2D sprite sheet for the game from IMAGE (or the photos) instead of a 3D model")
     p.add_argument("--pal", metavar="ID", help="with --sprite: put it in the game as this pal species (e.g. emberpup)")
+    p.add_argument("--player", metavar="SLOT", type=int, choices=range(5),
+                   help="with --sprite: put it in the game as the explorer of player slot 0 to 4 (outfit colors: "
+                        "blue, orange, purple, green, red)")
     p.add_argument("--sprite-height", type=int, default=256, help="with --sprite: pixel height of the sprite cells")
+    p.add_argument("--objects", metavar="NAMES",
+                   help="with --sprite: IMAGE shows several objects (trees, rocks...): cut each out, naming them in "
+                        "reading order with these comma-separated names (- skips one), into one atlas")
+    p.add_argument("--sheet", metavar="NAME",
+                   help="with --objects: put the atlas in the game as packages/client/public/assets/nature/NAME")
     p.add_argument("--json", action="store_true", help="print a JSON report")
     p.add_argument("--web", action="store_true", help="open the web page instead (drop photos, preview, download)")
     p.add_argument("--port", type=int, default=8765, help="port of the web page")
@@ -157,7 +165,28 @@ def main(argv=None):
 
 def make_sprite_file(args):
     """--sprite: one row of cut-out views for the game, saved or put in the game."""
-    from .sprite import PALS, install, make_sprite, save_png, sprite_from_photos
+    from .sprite import PALS, PLAYERS, install, install_objects, make_sprite, objects_from_sheet, save_png, sprite_from_photos
+
+    if args.objects is not None:
+        if not (args.folder and os.path.isfile(args.folder)):
+            sys.exit("--objects takes one image")
+        rgb, alpha, _ = load_image(args.folder)
+        names = [n.strip() for n in args.objects.split(",") if n.strip()]
+        try:
+            rgba, frames, report = objects_from_sheet(rgb, alpha, names, cutout=args.cutout)
+        except ValueError as e:
+            sys.exit(f"{args.folder}: {e}")
+        if args.sheet:
+            out = install_objects(rgba, frames, args.sheet)
+        else:
+            out = args.out or os.path.splitext(args.folder)[0] + "-objects.png"
+            save_png(rgba, out)
+        if report.get("warning"):
+            print(f"warning: {report['warning']}")
+        print(f"objects: {', '.join(frames)} -> {out}")
+        if args.json:
+            print(json.dumps({**report, "frames": frames}, indent=2))
+        return report
 
     if args.folder and os.path.isfile(args.folder):
         rgb, alpha, _ = load_image(args.folder)
@@ -184,11 +213,17 @@ def make_sprite_file(args):
         species = {s["id"] for s in json.load(open(SPECIES_FILE, encoding="utf-8"))} if os.path.exists(SPECIES_FILE) else set()
         if species and args.pal not in species:
             sys.exit(f"no pal species {args.pal!r}; the game has: {', '.join(sorted(species))}")
-        out = install(rgba, views, args.pal, PALS)
+        out = install(rgba, views, args.pal, PALS, report.get("feet"))
+    elif args.player is not None:
+        out = install(rgba, views, f"player{args.player}", PLAYERS, report.get("feet"))
     else:
         out = args.out or default_out
         save_png(rgba, out)
     swapped = " (the side views looked swapped: put back)" if report.get("swapped") else ""
+    if report.get("mirrored"):
+        swapped = f" (both side views faced the same way: the {report['mirrored']} one mirrored)"
+    if report.get("dropped"):
+        swapped += f" (the {report['dropped']} view was three-quarter: left out, the game mirrors the other side)"
     print(f"sprite: {', '.join(views)}{swapped} -> {out}")
     if args.json:
         print(json.dumps(report, indent=2))

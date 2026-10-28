@@ -19,11 +19,13 @@ import {
   union,
   type Ctx,
 } from "./draw.ts";
+import { picture } from "./pictures.ts";
 
 /**
- * Cartoon trees, palms, cacti, bushes, rocks and ground decals, drawn from
- * code. Model names come from the shared world layout (worldgen.ts); each
- * name always draws the same way, and regions repaint them (snow on pines,
+ * Cartoon trees, palms, cacti, bushes, rocks and ground decals: pictures
+ * (AI-drawn, see pictures.ts) where there are some, drawn from code for
+ * the rest. Model names come from the shared world layout (worldgen.ts);
+ * each name always looks the same, and regions repaint them (snow on pines,
  * sandstone in the desert, dark basalt by the volcano...).
  */
 export type Tint = "" | "frost" | "swamp" | "ash" | "sand";
@@ -37,6 +39,10 @@ export interface PropArt {
   shadow: { rx: number; ry: number };
   /** How much the top sways in the wind (0 for rocks). */
   sway: number;
+  /** Sprite scale that gives the drawn size (pictures; drawings are made to size). */
+  fit?: number;
+  /** Multiply tint: a region's look of a plain picture. */
+  tint?: number;
 }
 
 const cache = new Map<string, PropArt>();
@@ -46,10 +52,50 @@ export function propArt(model: string, tint: Tint): PropArt {
   const key = `${model}|${tint}`;
   let art = cache.get(key);
   if (!art) {
-    art = drawProp(model, tint);
+    art = pictured(model, tint) ?? drawProp(model, tint);
     cache.set(key, art);
   }
   return art;
+}
+
+/** How tall each model stands when drawn from a picture (world px), as tall as its drawing. */
+const HEIGHT: Record<string, number> = {
+  Tree_1_A: 112, Tree_1_B: 108, Tree_2_A: 128, Tree_2_C: 124, Tree_3_A: 116, Tree_7_A: 120,
+  Tree_4_A: 102, Tree_4_B: 118, Tree_5_A: 122, Tree_6_A: 96,
+  Palm: 132, Cactus: 58,
+  Bush_1_A: 30, Bush_1_C: 32, Bush_2_A: 34, Bush_2_C: 32, Bush_4_A: 26,
+  Rock_1_A: 17, Rock_1_E: 30, Rock_2_A: 11, Rock_3_A: 25, Rock_3_E: 32, Rock_5_A: 9,
+};
+
+/** A region's look of a plain picture, as a multiply tint: rocks and plants. */
+const REGION_TINT: Record<Tint, [number, number]> = {
+  "": [0xffffff, 0xffffff],
+  frost: [0xdde8f2, 0xc6d9e2],
+  swamp: [0xbfc8a2, 0xc0ca8c],
+  ash: [0x7d7773, 0x9c9a7e],
+  sand: [0xf2cf98, 0xe6dea2],
+};
+
+/** A model drawn from its picture: the region's own (Tree_4_A@frost) or the plain one, tinted. */
+function pictured(model: string, tint: Tint): PropArt | undefined {
+  const own = tint ? picture(`${model}@${tint}`) : undefined;
+  const pic = own ?? picture(model);
+  if (!pic) return undefined;
+  const height = HEIGHT[model] ?? 40;
+  const fit = height / pic.height;
+  const width = pic.width * fit;
+  const rock = model.startsWith("Rock");
+  const tree = model.startsWith("Tree") || model === "Palm";
+  const recolor = !own && tint && model !== "Palm" && model !== "Cactus";
+  return {
+    texture: pic.texture,
+    anchor: { x: 0.5, y: 1 },
+    fit,
+    tint: recolor ? REGION_TINT[tint][rock ? 0 : 1] : undefined,
+    canopy: tree ? { top: height, bottom: height * 0.35, halfWidth: width / 2 } : undefined,
+    shadow: { rx: width * 0.42, ry: Math.min(width * 0.42, height) * 0.42 },
+    sway: rock || model === "Cactus" ? 0 : model.startsWith("Bush") ? 0.03 : model === "Palm" ? 0.02 : 0.012,
+  };
 }
 
 function drawProp(model: string, tint: Tint): PropArt {

@@ -38,7 +38,9 @@ export class Scenery {
       const sprite = new Sprite(art.texture);
       sprite.anchor.set(art.anchor.x, art.anchor.y);
       // Mirror half of them for variety (the yaw is random).
-      sprite.scale.set(prop.yaw > Math.PI ? -prop.scale : prop.scale, prop.scale);
+      const size = prop.scale * (art.fit ?? 1);
+      sprite.scale.set(prop.yaw > Math.PI ? -size : size, size);
+      if (art.tint !== undefined) sprite.tint = art.tint;
       sprite.position.set(prop.x, prop.y);
       sprite.zIndex = prop.y;
       sprite.visible = false;
@@ -62,6 +64,7 @@ export class Scenery {
     const camp = campfireArt();
     const fire = new Sprite(camp.texture);
     fire.anchor.set(camp.anchor.x, camp.anchor.y);
+    fire.scale.set(camp.scale ?? 1);
     fire.position.set(layout.campfire.x, layout.campfire.y);
     fire.zIndex = layout.campfire.y - 1;
     objects.addChild(fire);

@@ -1,11 +1,120 @@
 {
-  "emberpup": {
-    "file": "emberpup.png",
+  "bogbloom": {
+    "file": "bogbloom.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ],
+    "feet": 0.9888
+  },
+  "boulderhorn": {
+    "file": "boulderhorn.webp",
     "views": [
       "front",
       "right",
       "back",
       "left"
     ]
+  },
+  "bubbloon": {
+    "file": "bubbloon.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "cactoad": {
+    "file": "cactoad.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "coralcrab": {
+    "file": "coralcrab.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "emberpup": {
+    "file": "emberpup.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "frostfang": {
+    "file": "frostfang.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "leafkit": {
+    "file": "leafkit.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "mothlume": {
+    "file": "mothlume.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "pebblet": {
+    "file": "pebblet.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "ripplefin": {
+    "file": "ripplefin.webp",
+    "views": [
+      "front",
+      "back",
+      "left"
+    ]
+  },
+  "scorchtail": {
+    "file": "scorchtail.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "voltmouse": {
+    "file": "voltmouse.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ],
+    "feet": 0.7976
   }
 }

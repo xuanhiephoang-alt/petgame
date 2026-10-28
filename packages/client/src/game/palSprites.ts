@@ -20,16 +20,19 @@ export interface PalSprite {
 }
 
 /**
- * public/assets/pals/index.json lists species drawn from PNG files instead
- * of code: `{ "<species id>": { "file": "<id>.png", "views": ["front", "left", "back", "right"] } }`.
+ * public/assets/pals/index.json lists species drawn from image files instead
+ * of code: `{ "<species id>": { "file": "<id>.webp", "views": ["front", "left", "back", "right"] } }`.
  * The PNG is one row of equal cells, one per listed view, each with the pal
- * standing on the cell's bottom edge (`npm run sprite` makes them).
+ * standing on the cell's bottom edge, or on the row `feet` (0 top, 1 bottom)
+ * when a part hangs below the feet in some view (`npm run sprite` makes them).
  */
 interface SheetEntry {
   file: string;
   views: string[];
   /** Height in world pixels; defaults to the species size. */
   height?: number;
+  /** Row of the feet in the cells, from 0 (top) to 1 (bottom, the default). */
+  feet?: number;
 }
 
 /** On-screen height of a species (world px). */
@@ -61,8 +64,13 @@ function drawn(speciesId: string): PalSprite {
   };
 }
 
-async function fromSheet(speciesId: string, entry: SheetEntry): Promise<PalSprite> {
-  const base: Texture = await Assets.load(`${import.meta.env.BASE_URL}assets/pals/${entry.file}`);
+/** A sheet in public/assets/<folder>/ as a sprite set `height` world px tall. */
+async function fromSheet(folder: string, entry: SheetEntry, height: number): Promise<PalSprite> {
+  // Mipmaps: the 256 px cells are drawn at a fraction of that size.
+  const base: Texture = await Assets.load({
+    src: `${import.meta.env.BASE_URL}assets/${folder}/${entry.file}`,
+    data: { autoGenerateMipmaps: true },
+  });
   const n = entry.views.length;
   const cw = base.width / n, ch = base.height;
   const cells = new Map<string, Texture>();
@@ -73,41 +81,70 @@ async function fromSheet(speciesId: string, entry: SheetEntry): Promise<PalSprit
   const right = cells.get("right") ?? cells.get("left") ?? front;
   const left = cells.get("left") ?? right;
   const back = cells.get("back") ?? front;
-  const height = entry.height ?? palHeight(speciesId) * 1.05;
+  const feet = entry.feet ?? 1;
   return {
     textures: { front, back, right, left },
     mirrorLeft: !cells.has("left") || !cells.has("right"),
-    anchor: { x: 0.5, y: 1 },
+    anchor: { x: 0.5, y: feet },
     height,
-    fit: height / ch,
+    fit: height / (ch * feet),
   };
 }
 
-/**
- * Sprites for every species: the PNG sheets listed in assets/pals/index.json,
- * and drawings from code for the rest (or when a sheet fails to load).
- */
-export async function loadPalSprites(): Promise<Map<string, PalSprite>> {
-  let sheets: Record<string, SheetEntry> = {};
+/** The sheets listed in public/assets/<folder>/index.json (none if it is missing). */
+async function sheetIndex(folder: string): Promise<Record<string, SheetEntry>> {
   try {
-    const res = await fetch(`${import.meta.env.BASE_URL}assets/pals/index.json`);
-    if (res.ok) sheets = await res.json();
+    const res = await fetch(`${import.meta.env.BASE_URL}assets/${folder}/index.json`);
+    if (res.ok) return await res.json();
   } catch {
     // No sheets: everything is drawn.
   }
+  return {};
+}
+
+/**
+ * Sprites for every species: the sheets listed in assets/pals/index.json,
+ * and drawings from code for the rest (or when a sheet fails to load).
+ */
+export async function loadPalSprites(): Promise<Map<string, PalSprite>> {
+  const sheets = await sheetIndex("pals");
   const sprites = new Map<string, PalSprite>();
   await Promise.all(
     PAL_SPECIES.map(async (species) => {
       const entry = sheets[species.id];
       if (entry) {
         try {
-          sprites.set(species.id, await fromSheet(species.id, entry));
+          sprites.set(species.id, await fromSheet("pals", entry, entry.height ?? palHeight(species.id) * 1.05));
           return;
         } catch (err) {
           console.warn(`Pal sheet for ${species.id} not loaded, drawing it instead`, err);
         }
       }
       sprites.set(species.id, drawn(species.id));
+    }),
+  );
+  return sprites;
+}
+
+/** Height of a player's explorer drawn from a sheet (world px, feet to hair). */
+export const PLAYER_HEIGHT = 54;
+
+/**
+ * Explorers drawn from sheets, by player slot: assets/players/index.json
+ * lists `player<slot>` entries like the pals' (`npm run sprite -- <image>
+ * --player <slot>`). Slots without one are built from parts in code.
+ */
+export async function loadPlayerSprites(): Promise<Map<number, PalSprite>> {
+  const sprites = new Map<number, PalSprite>();
+  await Promise.all(
+    Object.entries(await sheetIndex("players")).map(async ([key, entry]) => {
+      const slot = Number(key.replace(/^player/, ""));
+      if (!Number.isInteger(slot)) return;
+      try {
+        sprites.set(slot, await fromSheet("players", entry, entry.height ?? PLAYER_HEIGHT));
+      } catch (err) {
+        console.warn(`Player sheet ${key} not loaded, drawing it instead`, err);
+      }
     }),
   );
   return sprites;

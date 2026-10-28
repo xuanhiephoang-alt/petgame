@@ -612,7 +612,7 @@ async function makeSprite() {
   if (!oneImage) return;
   const select = $("species");
   const name = select.selectedOptions[0]?.textContent;
-  const path = `packages/client/public/assets/pals/${select.value}.png`;
+  const path = `packages/client/public/assets/pals/${select.value}.webp`;
   if (!confirm(`Dùng ảnh này làm hình của ${name} trong game?\nMuốn bỏ: xoá ${path} và dòng "${select.value}" trong index.json cùng thư mục.`)) return;
   const form = new FormData();
   form.append("image", oneImage, oneImage.name);

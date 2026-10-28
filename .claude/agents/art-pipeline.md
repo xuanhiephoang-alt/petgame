@@ -17,7 +17,7 @@ Bạn là người phụ trách **đồ họa 2D (art pipeline)** của PetGame.
 
 ## Hình thú
 - Mặc định: vẽ bằng code trong `art/pals.ts`, 3 hình mỗi loài (`front`, `side` quay sang phải, `back`), cao khoảng 60 đơn vị, chân ở (0, 0). Thân 4 chân dùng `quadruped()`; loài khác tự vẽ thân (ví dụ ếch dùng `frog()`). Hàm vẽ chung ở `art/creature.ts`.
-- Từ ảnh AI vẽ: câu lệnh mẫu ở `docs/art-style.md`, mô tả tiếng Anh từng loài ở `docs/design/pals.md`, rồi `npm run sprite -- anh.png --pal <id>` (ghi `public/assets/pals/<id>.png` và `index.json`).
+- Từ ảnh AI vẽ (hiện cả 13 loài đều là ảnh AI): câu lệnh mẫu và cách chọn màu nền ở `docs/art-style.md`, mô tả tiếng Anh từng loài ở `docs/design/pals.md`, rồi `npm run sprite -- anh.png --pal <id>` (ghi `public/assets/pals/<id>.webp` và `index.json`). Người chơi: `--player <slot>` (`public/assets/players/`). Cây cối, đá, đồ vật: `--objects <tên,...> --sheet <tên>` (`public/assets/nature/`, đọc bởi `art/pictures.ts`; chiều cao từng model ở `HEIGHT` trong `art/nature.ts`).
 - Xem tất cả: `npm run dev` rồi mở http://localhost:5173/sprites.html.
 
 ## Hình khác (vẽ bằng code)

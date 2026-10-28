@@ -5,7 +5,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 ## Cấu trúc
 - `packages/shared`: TypeScript dùng chung: hằng số, schema đồng bộ Colyseus, message, logic thuần (di chuyển, bắt thú), dữ liệu JSON (`src/data/`)
 - `packages/server`: Colyseus 0.18, `GameRoom` có server quyết định mọi kết quả (authoritative)
-- `packages/client`: PixiJS 8 (2D, nhìn từ trên xuống, hình vẽ kiểu hoạt hình) + Vite; HUD và joystick là DOM overlay. Hình vẽ bằng code ở `src/game/art/`; hình thú có thể thay bằng ảnh PNG trong `public/assets/pals/`
+- `packages/client`: PixiJS 8 (2D, nhìn từ trên xuống, hình vẽ kiểu hoạt hình) + Vite; HUD và joystick là DOM overlay. Hình vẽ bằng code ở `src/game/art/`; thú, người chơi, cây cối và đồ vật có thể thay bằng ảnh AI vẽ trong `public/assets/` (`pals/`, `players/`, `nature/`)
 - `tests/e2e`: Playwright, nhiều người chơi
 - `.claude/agents`: 8 agent chuyên môn; mỗi agent chỉ sửa thư mục của mình (ghi trong file agent). `visual-director` giữ phong cách và chất lượng hình ảnh tổng thể
 
@@ -14,7 +14,7 @@ Game top-down kiểu Palworld (bắt thú, chiến đấu, xây căn cứ) cho w
 - `npm run dev`: chạy server (ws://localhost:2567) và client (http://localhost:5173)
 - `npm run typecheck`, `npm test` (Vitest), `npm run test:e2e` (Playwright, tự bật server)
 - `npm run build`: build client vào `packages/client/dist`
-- `npm run sprite -- <ảnh> --pal <id>`: biến một ảnh thú (ảnh ghép 4 góc do AI vẽ, hoặc một ảnh) thành hình 2D của loài đó trong game: tách nền, xếp các góc, ghi `packages/client/public/assets/pals/<id>.png` và `index.json`. Xem mọi hình ở http://localhost:5173/sprites.html (`?show=nature` cho cây cối)
+- `npm run sprite -- <ảnh> --pal <id>`: biến một ảnh thú (ảnh ghép 4 góc do AI vẽ, hoặc một ảnh) thành hình 2D của loài đó trong game: tách nền, xếp các góc, tự sửa lỗi AI hay mắc (góc nghiêng đổi chỗ hoặc cùng quay một phía, đường kẻ mặt đất), ghi `packages/client/public/assets/pals/<id>.webp` và `index.json`. `--player <0-4>`: nhân vật người chơi của slot đó (`assets/players/`). `--objects <tên,tên,...> --sheet <tên>`: ảnh vẽ nhiều cây cối, đá, đồ vật thành một tấm ảnh gộp (`assets/nature/`; tên là model của `worldgen.ts`, xem `docs/art-style.md`). Xem mọi hình ở http://localhost:5173/sprites.html (`?show=players`, `?show=nature`)
 - `npm run play`: build rồi chạy server phục vụ luôn game (một cổng), in địa chỉ LAN cho điện thoại; xem `docs/choi-tren-iphone.md`.
 - Deploy: một container (hoặc Render qua `render.yaml`; `Dockerfile`, `fly.toml`) chạy server và phục vụ luôn client đã build; xem `docs/deploy.md`.
 - `npm run shots -- --name <tên>`: chụp bộ ảnh chuẩn (mọi vùng, ngày/đêm, cận cảnh thú, điện thoại) vào `shots/<tên>/` kèm số sprite, để so sánh đồ họa trước/sau

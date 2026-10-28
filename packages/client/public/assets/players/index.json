@@ -1,0 +1,47 @@
+{
+  "player0": {
+    "file": "player0.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "player1": {
+    "file": "player1.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "player2": {
+    "file": "player2.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "player3": {
+    "file": "player3.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  },
+  "player4": {
+    "file": "player4.webp",
+    "views": [
+      "front",
+      "right",
+      "back",
+      "left"
+    ]
+  }
+}

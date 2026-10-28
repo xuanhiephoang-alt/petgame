@@ -74,8 +74,8 @@ def find_cells(rgb, alpha=None, grid=None):
             if alpha is not None:
                 alpha = np.where(lines, 0.0, alpha).astype(alpha.dtype)
         mask = (alpha > 0.5) if alpha is not None else key_out(rgb) > 0.5
-        col_bands = _bands(mask.sum(axis=0) >= 2, w)
-        row_bands = _bands(mask.sum(axis=1) >= 2, h)
+        col_bands = _bands(mask.sum(axis=0) >= 2, w, _reach(mask))
+        row_bands = _bands(mask.sum(axis=1) >= 2, h, _reach(mask.T))
         if not row_bands or not col_bands:
             raise ValueError("no object found in the image")
         rows, cols = len(row_bands), len(col_bands)
@@ -163,13 +163,24 @@ def _runs(flags):
     return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
 
 
-def _bands(occupied, n):
+def _reach(mask):
+    """How far the objects span each column of a mask (rows for its transpose)."""
+    n = mask.shape[0]
+    return np.where(mask.any(axis=0), n - np.argmax(mask[::-1], axis=0) - np.argmax(mask, axis=0), 0)
+
+
+def _bands(occupied, n, reach=None):
     """Bands of objects along one side of the sheet: runs of occupied pixel
     columns (or rows), joined across gaps under 2 % of the side, keeping
-    those at least 30 % as long as the longest (shorter ones are captions)."""
+    those at least 30 % as long as the longest (shorter ones are captions).
+    reach: how far the objects span each column; two runs both spanning at
+    least half the most are two views standing close, not joined."""
     runs = []
+    tall = 0.5 * reach.max() if reach is not None and reach.max() > 0 else np.inf
     for start, stop in _runs(occupied):
-        if runs and start - runs[-1][1] < 0.02 * n:
+        apart = reach is not None and min(reach[runs[-1][0]:runs[-1][1]].max() if runs else 0,
+                                          reach[start:stop].max()) >= tall
+        if runs and start - runs[-1][1] < 0.02 * n and not apart:
             runs[-1] = (runs[-1][0], stop)
         else:
             runs.append((start, stop))
@@ -184,6 +195,27 @@ def _edge(bands, i, end, n):
     if end == 0:
         return 0 if i == 0 else (bands[i - 1][1] + bands[i][0]) // 2
     return n if i == len(bands) - 1 else (bands[i][1] + bands[i + 1][0]) // 2
+
+
+def crop_cell(cell, rgb, alpha=None):
+    """One object of find_cells cut from the sheet with a margin of its
+    cell's background (for the cut-out), stray bits (captions) painted over
+    with that background: (rgb, alpha or None, [x0, y0, x1, y1] on the sheet)."""
+    cx0, cy0, cx1, cy1 = cell["cell"]
+    x0, y0, x1, y1 = cell["box"]
+    pad = round(0.12 * max(x1 - x0, y1 - y0)) + 4
+    x0, y0, x1, y1 = max(cx0, x0 - pad), max(cy0, y0 - pad), min(cx1, x1 + pad), min(cy1, y1 + pad)
+    crop_rgb = rgb[y0:y1, x0:x1].copy()
+    crop_alpha = None if alpha is None else alpha[y0:y1, x0:x1].copy()
+    window = (slice(y0 - cy0, y1 - cy0), slice(x0 - cx0, x1 - cx0))
+    fg, obj = cell["fg"][window], cell["obj"][window]
+    stray = fg & ~obj
+    if stray.any():
+        if crop_alpha is not None:
+            crop_alpha[stray] = 0.0
+        if (~fg).any():
+            crop_rgb[stray] = np.median(crop_rgb[~fg], axis=0)
+    return crop_rgb, crop_alpha, [int(x0), int(y0), int(x1), int(y1)]
 
 
 def split_sheet(rgb, alpha=None, layout="auto", grid=None, single=None):
@@ -215,20 +247,7 @@ def split_sheet(rgb, alpha=None, layout="auto", grid=None, single=None):
                              "2 to 5, 8 or 9 (give the grid, like 3x3, if the views were not found right)")
     photos, boxes = {}, {}
     for name, cell in zip(names, cells):
-        cx0, cy0, cx1, cy1 = cell["cell"]
-        x0, y0, x1, y1 = cell["box"]
-        pad = round(0.12 * max(x1 - x0, y1 - y0)) + 4  # background around it, for the cut-out
-        x0, y0, x1, y1 = max(cx0, x0 - pad), max(cy0, y0 - pad), min(cx1, x1 + pad), min(cy1, y1 + pad)
-        crop_rgb = rgb[y0:y1, x0:x1].copy()
-        crop_alpha = None if alpha is None else alpha[y0:y1, x0:x1].copy()
-        window = (slice(y0 - cy0, y1 - cy0), slice(x0 - cx0, x1 - cx0))
-        fg, obj = cell["fg"][window], cell["obj"][window]
-        stray = fg & ~obj
-        if stray.any():
-            if crop_alpha is not None:
-                crop_alpha[stray] = 0.0
-            if (~fg).any():
-                crop_rgb[stray] = np.median(crop_rgb[~fg], axis=0)
+        crop_rgb, crop_alpha, (x0, y0, x1, y1) = crop_cell(cell, rgb, alpha)
         if layout == "map" and name == "top":
             crop_rgb = crop_rgb[::-1, ::-1]
             crop_alpha = None if crop_alpha is None else crop_alpha[::-1, ::-1]

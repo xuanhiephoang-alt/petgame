@@ -117,10 +117,14 @@ npm.cmd run sprite -- D:\anh\emberpup.png --pal emberpup
 ```
 
 - Ảnh vào: một ảnh ghép các góc (ví dụ ảnh AI vẽ 4 góc: trước, bên trái, sau, bên phải), một thư mục ảnh `truoc/phai/sau/trai`, hoặc một ảnh duy nhất (khi đó thú dùng một hình cho mọi hướng).
-- Công cụ tách nền, khử viền màu nền ở mép, đặt mọi góc cùng tỉ lệ, chân chạm đáy ô, rồi ghi `packages/client/public/assets/pals/<id>.png` và khai báo trong `index.json` cùng thư mục. Hai ảnh bên bị đổi chỗ (AI hay vẽ vậy) thì tự đổi lại.
-- Không có `--pal`: chỉ lưu `<tên ảnh>-sprite.png` để xem trước. `--sprite-height 256`: chiều cao mỗi ô.
+- Công cụ tách nền, khử viền màu nền ở mép, đặt mọi góc cùng tỉ lệ, chân chạm đáy ô, rồi ghi `packages/client/public/assets/pals/<id>.webp` và khai báo trong `index.json` cùng thư mục.
+- Ảnh AI vẽ trên nền trơn: tách theo màu nền (giữ lỗ thủng thật giữa chân, trong đuôi cuộn; lấp chỗ trên mình thú chỉ tình cờ trùng màu nền), xoá đường kẻ mặt đất và bóng dưới chân, mép mượt không còn viền màu nền.
+- Hai góc nghiêng bị đổi chỗ thì đổi lại; AI vẽ hai góc nghiêng cùng quay một phía thì lật một góc (nhận hướng theo mắt, màu và hình dáng); một góc nghiêng thẳng, một góc chéo 3/4 thì bỏ góc chéo (game lật góc kia). Có phần thòng xuống dưới chân (đuôi nhìn từ sau) thì vẫn đặt chân đúng chỗ (`feet` trong `index.json`).
+- `--player 0` đến `4`: làm nhân vật người chơi của slot đó (`assets/players/player<slot>.webp`).
+- `--objects Tree_1_A,Rock_3_E+Rock_1_E,-,... --sheet trees`: một ảnh vẽ nhiều vật (cây, đá, bụi, rương...), cắt từng vật theo thứ tự đọc thành một tấm ảnh gộp `assets/nature/trees.webp` (tên và cách đặt tên: `docs/art-style.md`).
+- Không có `--pal`/`--player`/`--sheet`: chỉ lưu `<tên ảnh>-sprite.png` (hoặc `-objects.png`) để xem trước. `--sprite-height 256`: chiều cao mỗi ô.
 - Trên trang web (mục 2): chọn **Một ảnh**, thả ảnh vào, chọn loài ở mục **Hình 2D cho game** rồi bấm **Đưa vào game**. Trang cho xem trước hình đã tách.
-- Bỏ hình đó: xoá file PNG và dòng của loài trong `index.json` (game quay về hình vẽ sẵn).
+- Bỏ hình đó: xoá file ảnh và dòng của loài trong `index.json` (game quay về hình vẽ sẵn).
 - Xem thử: `npm run dev` rồi mở http://localhost:5173/sprites.html, hoặc vào game.
 - Câu lệnh mẫu để AI vẽ ảnh 4 góc cho từng loài: `docs/art-style.md` và `docs/design/pals.md`.
 

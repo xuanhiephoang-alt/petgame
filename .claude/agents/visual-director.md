@@ -33,7 +33,7 @@ Bảng tiêu chí tự chấm (mỗi mục 1–5, ghi vào báo cáo trước/sa
 
 ## Công cụ có sẵn trong repo
 - PixiJS 8: `Graphics`, `Sprite`, `Mesh` + `Shader` (GLSL ES 3.0: `in`/`out`, `out vec4 finalColor`), `RenderTexture`, blend `add`/`multiply`/`screen`.
-- `npm run sprite -- anh.png --pal <id>`: ảnh AI vẽ thành hình thú trong game.
+- `npm run sprite -- anh.png --pal <id>` (thú), `--player <slot>` (người chơi), `--objects <tên,...> --sheet <tên>` (cây cối, đá, đồ vật): ảnh AI vẽ thành hình trong game (`docs/art-style.md`).
 - `npm run shots`: build client, bật server thử nghiệm, chụp bộ ảnh chuẩn (mỗi vùng ngày/đêm, cận cảnh thú, màn hình điện thoại) vào `shots/<tên>/`, in số sprite. Dùng `npm run shots -- --name before` và `--name after` để so sánh.
 - http://localhost:5173/sprites.html: xem mọi hình thú và cây cối.
 - Đọc ảnh PNG bằng công cụ Read để tự xem kết quả.

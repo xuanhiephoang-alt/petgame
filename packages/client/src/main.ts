@@ -1,7 +1,8 @@
 import { Game, type GameAssets } from "./game/Game.ts";
 import { Stage } from "./game/stage.ts";
 import { setArtScale } from "./game/art/draw.ts";
-import { loadPalSprites } from "./game/palSprites.ts";
+import { loadPalSprites, loadPlayerSprites } from "./game/palSprites.ts";
+import { loadPictures } from "./game/art/pictures.ts";
 import { connect, type GameRoom } from "./net/connection.ts";
 
 const lobby = document.getElementById("lobby")!;
@@ -18,8 +19,10 @@ setArtScale(Stage.zoomFor(window.innerWidth, window.innerHeight) * resolution);
 
 const savedName = safeStorage(() => localStorage.getItem("petgame:name"));
 if (savedName) nameInput.value = savedName;
-// Load and draw the pals while the player types their name.
-const assets: Promise<GameAssets> = loadPalSprites().then((pals) => ({ pals }));
+// Load and draw the pals, explorers and pictures while the player types their name.
+const assets: Promise<GameAssets> = Promise.all([loadPalSprites(), loadPlayerSprites(), loadPictures()]).then(
+  ([pals, players]) => ({ pals, players }),
+);
 
 if (new URLSearchParams(location.search).has("room")) roomHint.textContent = "Bạn được mời vào thế giới của bạn bè";
 

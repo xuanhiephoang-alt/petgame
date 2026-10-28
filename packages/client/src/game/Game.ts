@@ -21,6 +21,7 @@ import {
   REGION_INFO,
   biomeAt,
   isSea,
+  PLAYER_COLORS,
   type HarvestedMessage,
   type ChestOpenedMessage,
   type QuestDoneMessage,
@@ -60,6 +61,8 @@ import { campArt, chestArt, gemArt } from "./art/props.ts";
 
 export interface GameAssets {
   pals: Map<string, PalSprite>;
+  /** Explorers drawn from sheets, by player slot (the others are drawn in code). */
+  players: Map<number, PalSprite>;
 }
 
 interface Named<A extends Actor> {
@@ -219,7 +222,8 @@ export class Game {
 
     $.onAdd("players", (player, sessionId) => {
       const isMe = sessionId === this.room.sessionId;
-      const actor = new PlayerActor({ x: player.x, y: player.y }, player.color, this.shadowTexture);
+      const slot = (PLAYER_COLORS as readonly number[]).indexOf(player.color);
+      const actor = new PlayerActor({ x: player.x, y: player.y }, player.color, this.shadowTexture, this.assets.players.get(slot));
       this.addActor(actor);
       const { tag, label } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + 6);
       const hpFill = addHpBar(label);
@@ -308,7 +312,8 @@ export class Game {
       body.anchor.set(art.anchor.x, art.anchor.y);
       body.position.set(chest.x, chest.y);
       body.zIndex = chest.y;
-      if ((chest.x * 13 + chest.y * 7) % 2 > 1) body.scale.x = -1;
+      body.scale.set(art.scale ?? 1);
+      if ((chest.x * 13 + chest.y * 7) % 2 > 1) body.scale.x *= -1;
       const gemArtwork = gemArt();
       const gem = new Sprite(gemArtwork.texture);
       gem.anchor.set(gemArtwork.anchor.x, gemArtwork.anchor.y);

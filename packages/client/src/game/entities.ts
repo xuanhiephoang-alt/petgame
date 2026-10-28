@@ -211,28 +211,38 @@ const ORDER: Record<PlayerView, (keyof PlayerArt)[]> = {
 };
 
 /**
- * A player's explorer, built from parts that swing when walking, punch,
- * throw and flinch. Facing left is the side view mirrored.
+ * A player's explorer: one picture per facing from a sheet (AI-drawn) that
+ * waddles, lunges and flinches like the pals, or, without a sheet, built
+ * from parts that swing when walking, punch, throw and flinch. Facing left
+ * is the side view mirrored.
  */
 export class PlayerActor extends Actor {
   private body = new Container();
   private parts = new Map<keyof PlayerArt, Sprite>();
   private view: PlayerView | undefined;
+  private picture?: Sprite;
   private raft: Sprite;
   atSea = false;
 
-  constructor(at: Vec2, private color: number, shadowTexture: Texture) {
+  constructor(at: Vec2, private color: number, shadowTexture: Texture, private sheet?: PalSprite) {
     super(at, shadowTexture, 26);
     const raft = raftArt();
     this.raft = new Sprite(raft.texture);
     this.raft.anchor.set(raft.anchor.x, raft.anchor.y);
+    this.raft.scale.set(raft.scale ?? 1);
     this.raft.visible = false;
     this.root.addChild(this.raft, this.body);
-    this.setView("front");
+    if (sheet) {
+      this.picture = new Sprite(sheet.textures.front);
+      this.picture.anchor.set(sheet.anchor.x, sheet.anchor.y);
+      this.body.addChild(this.picture);
+    } else {
+      this.setView("front");
+    }
   }
 
   get height() {
-    return 50;
+    return this.sheet?.height ?? 50;
   }
 
   private setView(view: PlayerView) {
@@ -254,6 +264,64 @@ export class PlayerActor extends Actor {
   }
 
   protected pose(dt: number, moving: boolean) {
+    if (this.picture && this.sheet) this.posePicture(dt, moving, this.picture, this.sheet);
+    else this.poseParts(dt, moving);
+
+    // On a raft at sea: bob on the waves.
+    this.raft.visible = this.atSea;
+    const wave = this.atSea ? Math.sin(this.time * 2.1) * 1.2 : 0;
+    this.body.y = this.atSea ? -3 + wave : 0;
+    this.raft.y = wave * 0.5;
+    this.ground.visible = !this.atSea;
+  }
+
+  /** One picture per facing: a waddle and bob to walk, a lunge to punch, a wind-up to throw. */
+  private posePicture(dt: number, moving: boolean, picture: Sprite, sheet: PalSprite) {
+    picture.texture = sheet.textures[this.facing];
+    const dir = this.facing === "left" ? -1 : this.facing === "right" ? 1 : 0;
+    let x = 0, y = 0, rot = 0, sx = 1, sy = 1;
+    if (moving) {
+      this.walk += dt * (7 + this.speed * 0.035);
+      const lift = Math.abs(Math.cos(this.walk));
+      const land = 1 - lift;
+      y = -lift * 2.4;
+      rot = Math.sin(this.walk) * (dir ? 0.045 : 0.06);
+      sy = 1 - land * land * 0.04;
+      sx = 1 + land * land * 0.03;
+    } else {
+      const breath = Math.sin(this.time * 2.2);
+      sy = 1 + breath * 0.015;
+      sx = 1 - breath * 0.008;
+    }
+    if (this.action) {
+      const a = this.action.t;
+      const pulse = Math.sin(Math.PI * Math.min(1, a));
+      if (this.action.name === "attack") {
+        x += dir * pulse * 6;
+        y += this.facing === "front" ? pulse * 3 : this.facing === "back" ? -pulse * 3 : -pulse * 1.5;
+        rot += dir * pulse * 0.16;
+        sx *= 1 + pulse * 0.06;
+        sy *= 1 - pulse * 0.05;
+      } else if (this.action.name === "throw") {
+        // Lean back to wind up, then forward to fling.
+        const swing = a < 0.4 ? -a / 0.4 : -1 + ((a - 0.4) / 0.6) * 2;
+        rot += (dir || 1) * swing * (dir ? 0.14 : 0.05);
+        y -= pulse * 2;
+        sy *= 1 + pulse * 0.05;
+      } else if (this.action.name === "hurt") {
+        x += Math.sin(a * 40) * 2.5 * (1 - a);
+        sy *= 1 - pulse * 0.08;
+        sx *= 1 + pulse * 0.05;
+      }
+    }
+    const flip = this.facing === "left" && sheet.mirrorLeft ? -1 : 1;
+    picture.scale.set(flip * sheet.fit * sx, sheet.fit * sy);
+    picture.position.set(x, y);
+    picture.rotation = rot;
+    picture.tint = this.flash > 0 ? tintMix(this.flashColor, this.flash * 0.7) : 0xffffff;
+  }
+
+  private poseParts(dt: number, moving: boolean) {
     const view: PlayerView = this.facing === "front" ? "front" : this.facing === "back" ? "back" : "side";
     this.setView(view);
     const art = playerArt(this.color, view);
@@ -318,13 +386,6 @@ export class PlayerActor extends Actor {
       place("armFar", -s * 9.6, bob, -s * (0.12 - armFar));
     }
     this.body.rotation = lean * (this.facing === "left" ? -1 : 1);
-
-    // On a raft at sea: bob on the waves.
-    this.raft.visible = this.atSea;
-    const wave = this.atSea ? Math.sin(t * 2.1) * 1.2 : 0;
-    this.body.y = this.atSea ? -3 + wave : 0;
-    this.raft.y = wave * 0.5;
-    this.ground.visible = !this.atSea;
 
     const tint = this.flash > 0 ? tintMix(this.flashColor, this.flash * 0.7) : 0xffffff;
     for (const sprite of this.parts.values()) sprite.tint = tint;
