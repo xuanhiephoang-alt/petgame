@@ -47,6 +47,17 @@ sát thương = làm tròn(power × (1 + 0,12 × (cấp − 1))) × khắc hệ 
 
 Thú đi theo người chơi: chiêu luôn trúng mục tiêu dù nó chạy đi đâu (bám theo). Thú hoang: chiêu rơi đúng chỗ mục tiêu (người chơi hoặc thú đi theo) đứng lúc nó bắt đầu gồng, và mặt đất hiện **vùng đỏ** đúng bằng vùng trúng: chạy ra khỏi vùng hoặc lướt né (Shift / nút 💨) để tránh. Thú bị choáng, bị ném vào bóng hoặc bị hạ khi đang gồng thì mất chiêu đó; chiêu đã bay đi thì vẫn bay tiếp.
 
+## Ra lệnh cho thú
+
+Thanh chiêu ở dưới màn hình (điện thoại: 3 nút tròn trên nút **Bắt**, xoay ngang thì bên trái nút **Đánh**) hiện 3 chiêu của thú đang đi theo: icon, sát thương ở cấp hiện tại, chiêu chưa học có 🔒 và cấp học. Bấm phím **1, 2, 3** hoặc chạm nút để bảo thú dùng chiêu đó (`ClientMessage.PalSkill`):
+
+- Chiêu đánh nhắm vào thú bạn đang đánh, không có thì thú hoang gần bạn nhất trong `SKILL_ORDER_RANGE` (260 px; không có thì báo "Không có thú hoang nào ở gần để đánh"). Thú chạy tới cho đủ tầm rồi tung chiêu, bỏ lệnh sau `SKILL_ORDER_MS` (4 giây) nếu không tới được.
+- Hồi máu và khiên đá tung ngay.
+- Chiêu chưa học hoặc chưa hồi xong thì không làm gì (nút rung lên). Nút vừa ra lệnh nhấp nháy viền vàng cho tới khi chiêu đi; trong lúc hồi chiêu, nút tối dần từ trên xuống và đếm ngược số giây.
+- Lệnh của người chơi không phải chờ khoảng nghỉ giữa các chiêu, chỉ chờ thú gồng xong chiêu trước và chiêu đó hồi xong.
+
+Nút **Tự động ✓ / Theo lệnh** (`ClientMessage.PalAuto`, lưu theo người chơi ở `Player.palAuto`): khi tắt, thú vẫn cắn thường nhưng chỉ dùng chiêu khi bạn bảo.
+
 ## Thú tự chọn chiêu
 
 - Hồi máu khi máu thấp (thú đi theo: khi chủ hoặc chính nó dưới 70%; thú hoang: khi nó dưới 50%), dựng khiên khi đang đánh nhau.

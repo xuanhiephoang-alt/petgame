@@ -79,9 +79,15 @@ import {
   WILD_SKILL_GAP_MS,
   getSkill,
   inSkillArea,
+  isSupport,
   knownSkills,
   skillPower,
+  skillReach,
   skillTravelMs,
+  SKILL_ORDER_MS,
+  SKILL_ORDER_RANGE,
+  type PalAutoMessage,
+  type PalSkillMessage,
   type HealedMessage,
   type SkillCastMessage,
   type SkillDef,
@@ -193,6 +199,8 @@ interface PlayerControl {
   dashLeftMs: number;
   nextDashAt: number;
   invulnerableUntil: number;
+  /** A skill its owner ordered the following pal to use, until it can (or gives up at `until`). */
+  skillOrder?: { companionId: string; skill: string; until: number };
 }
 
 /** Server-only per-companion timers. */
@@ -314,6 +322,15 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage(ClientMessage.Attack, (client) => this.handleAttack(client));
     this.onMessage(ClientMessage.Dash, (client, message: DashMessage) => {
       if (typeof message === "object" && message !== null) this.dash(client.sessionId, { x: Number(message.x), y: Number(message.y) });
+    });
+    this.onMessage(ClientMessage.PalSkill, (client, message: PalSkillMessage) => {
+      if (typeof message?.skill === "string") this.orderSkill(client, message.skill);
+    });
+    this.onMessage(ClientMessage.PalAuto, (client, message: PalAutoMessage) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player || typeof message?.on !== "boolean") return;
+      player.palAuto = message.on;
+      this.scheduleSave(client.sessionId);
     });
     this.onMessage(ClientMessage.Throw, (client, message: ThrowMessage) => {
       if (typeof message?.palId === "string") this.handleThrow(client, message.palId, message.ball === "great");
@@ -440,6 +457,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     for (const item of ITEMS) player[item] = profile.items[item];
     player.questIndex = profile.quest.index;
     player.questProgress = profile.quest.progress;
+    player.palAuto = profile.palAuto;
     for (const saved of profile.pals) {
       const owned = new OwnedPal();
       owned.id = saved.id;
@@ -640,9 +658,12 @@ export class GameRoom extends Room<{ state: GameState }> {
       companion.x = step.pos.x;
       companion.y = step.pos.y;
 
-      // Skills: a heal when its owner or itself is hurt (even out of a fight), a shield in a fight, else the strongest that reaches.
+      // Its owner's order first (keys 1-3).
+      if (control.skillOrder && this.obey(id, companion, owned, owner, control, now)) return;
+      // Then skills of its own choosing, if its owner lets it: a heal when its owner or itself is hurt
+      // (even out of a fight), a shield in a fight, else the strongest that reaches.
       const species = getSpecies(companion.speciesId);
-      const skill = (this.skillGapUntil.get(`c:${id}`) ?? 0) <= now ? chooseSkill({
+      const skill = owner.palAuto && (this.skillGapUntil.get(`c:${id}`) ?? 0) <= now ? chooseSkill({
         known: knownSkills(species, owned.level),
         ready: (s) => (this.skillReady.get(`c:${id}`)?.get(s.id) ?? 0) <= now,
         targetDistance: target ? distance(companion, target) - (target.boss ? BOSS.radius : 0) : undefined,
@@ -1121,6 +1142,69 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (landing.length === 0) return;
     this.casts = this.casts.filter((c) => !landing.includes(c));
     for (const cast of landing) this.land(cast);
+  }
+
+  /** Its owner tells the following pal to use one of its skills (keys 1-3); it does as soon as it can (obey). */
+  private orderSkill(client: Client, skillId: string) {
+    const player = this.state.players.get(client.sessionId);
+    const control = this.controls.get(client.sessionId);
+    const companionId = player?.activePalId ?? "";
+    const companion = this.state.companions.get(companionId);
+    const owned = player?.pals.find((p) => p.id === companionId);
+    if (!player || !control || !companion || companion.mode !== "follow" || !owned) return;
+    const skill = knownSkills(getSpecies(owned.speciesId), owned.level).find((s) => s.id === skillId);
+    if (!skill) return;
+    // Still recharging: the skill bar shows it, nothing to do.
+    if ((this.skillReady.get(`c:${companionId}`)?.get(skill.id) ?? 0) > this.clock.currentTime) return;
+    control.skillOrder = { companionId, skill: skill.id, until: this.clock.currentTime + SKILL_ORDER_MS };
+  }
+
+  /**
+   * Carries out its owner's order: a heal or a shield at once; an attack on the
+   * pal its owner fights, or else the nearest one around its owner, as soon as
+   * it reaches (it runs up meanwhile). True when the skill starts.
+   */
+  private obey(id: string, companion: Companion, owned: OwnedPal, owner: Player, control: PlayerControl, now: number): boolean {
+    const order = control.skillOrder!;
+    if (order.companionId !== id || order.until <= now) {
+      control.skillOrder = undefined;
+      return false;
+    }
+    const skill = getSkill(order.skill);
+    if (isSupport(skill)) {
+      control.skillOrder = undefined;
+      this.startCast("companion", id, companion, owned.level, skill, undefined, companion.ownerId);
+      return true;
+    }
+    let targetId = control.aggroUntil > now ? control.targetPalId : undefined;
+    let target = targetId ? this.state.pals.get(targetId) : undefined;
+    if (!target || target.dizzy || this.inBall.has(targetId!)) {
+      let best = SKILL_ORDER_RANGE;
+      targetId = target = undefined;
+      this.state.pals.forEach((pal, palId) => {
+        if (pal.dizzy || this.inBall.has(palId)) return;
+        const d = distance(owner, pal) - (pal.boss ? BOSS.radius : 0);
+        if (d <= best) {
+          best = d;
+          targetId = palId;
+          target = pal;
+        }
+      });
+      if (!target || !targetId) {
+        control.skillOrder = undefined;
+        const client = this.clients.find((c) => c.sessionId === companion.ownerId);
+        if (client) this.notify(client, "Không có thú hoang nào ở gần để đánh");
+        return false;
+      }
+      // It becomes the fight: the pal runs at it (and joins in after the skill).
+      control.targetPalId = targetId;
+      control.aggroUntil = now + COMPANION_AGGRO_MS;
+    }
+    const pal: WildPal = target;
+    if (distance(companion, pal) - (pal.boss ? BOSS.radius : 0) > skillReach(skill)) return false;
+    control.skillOrder = undefined;
+    this.startCast("companion", id, companion, owned.level, skill, { kind: "pal", id: targetId!, pos: pal }, companion.ownerId);
+    return true;
   }
 
   /** A charging caster rushes up to `dash` pixels toward where it aims (or its target). */
@@ -1752,6 +1836,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       wardrobe: [...player.wardrobe],
       worn: { outfit: player.outfit, hat: player.hat, weapon: player.weapon },
       quest: { index: player.questIndex, progress: player.questProgress },
+      palAuto: player.palAuto,
       savedAt: Date.now(),
     };
     try {

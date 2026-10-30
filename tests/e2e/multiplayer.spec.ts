@@ -377,13 +377,27 @@ test("skills: pals cast their skills in a fight and the party panel lists them",
   await expect(chips.nth(2)).toContainText("Lv 15");
   await page.keyboard.press("Escape");
 
-  // Pick a fight with a sturdy Emberpup: the companion's bubbles hit it, numbers in the water color.
+  // The skill bar shows the same three; switch the pal to "only when ordered".
+  const bar = page.locator(".skill-bar .skill-btn");
+  await expect(bar).toHaveCount(3);
+  await expect(bar.nth(2)).toHaveClass(/locked/);
+  await page.locator(".skill-auto").click();
+  const auto = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return room.state.players.get(room.sessionId).palAuto as boolean;
+  });
+  await expect.poll(auto).toBe(false);
+  await expect(page.locator(".skill-auto")).toHaveText("Theo lệnh");
+
+  // A sturdy Emberpup nearby: key 1 orders Bong bóng at it, numbers in the water color, and the button recharges.
   await page.evaluate(() => (window as any).__petgame.room.send("debug:spawnPal", { species: "emberpup", full: true }));
   await page.waitForTimeout(600);
-  await page.keyboard.press(" ");
   const seen = () => page.evaluate(() => (window as any).__skills as { casts: string[]; labels: string[] });
-  await expect.poll(async () => (await seen()).casts, { timeout: 30_000 }).toContain("companion:bubble");
-  await expect.poll(async () => (await seen()).labels.some((l) => l.includes("hit skill water")), { timeout: 30_000 }).toBe(true);
+  expect((await seen()).casts.filter((c) => c.startsWith("companion:"))).toHaveLength(0); // nothing on its own
+  await page.keyboard.press("1");
+  await expect.poll(async () => (await seen()).casts, { timeout: 15_000 }).toContain("companion:bubble");
+  await expect.poll(async () => (await seen()).labels.some((l) => l.includes("hit skill water")), { timeout: 15_000 }).toBe(true);
+  await expect(bar.nth(0).locator(".secs")).not.toHaveText("");
 
   // Send the companion home and go meet an aggressive Scorchtail alone: it breathes fire at us,
   // the skill's name in red over its head (its fan of fire shows on the ground).

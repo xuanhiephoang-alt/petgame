@@ -38,6 +38,7 @@ import {
   weaponStats,
   getSkill,
   isSupport,
+  learnset,
   newSkillAt,
   ELEMENT_COLOR,
   type HarvestedMessage,
@@ -65,7 +66,8 @@ import {
 } from "@petgame/shared";
 import { inviteLink, type GameRoom } from "../net/connection.ts";
 import { Hud } from "../ui/hud.ts";
-import { PartyPanel } from "../ui/party.ts";
+import { PartyPanel, skillValue } from "../ui/party.ts";
+import { SkillBar } from "../ui/skillbar.ts";
 import { CraftPanel } from "../ui/crafting.ts";
 import { WardrobePanel } from "../ui/wardrobe.ts";
 import { Sound } from "../ui/audio.ts";
@@ -157,6 +159,9 @@ export class Game {
   private pals = new Map<string, PalEntity>();
   private companions = new Map<string, Named<PalActor>>();
   private party!: PartyPanel;
+  private skillBar!: SkillBar;
+  /** The pal whose skills the bar shows ("" none). */
+  private skillBarPal = "";
   private craft!: CraftPanel;
   private wardrobe!: WardrobePanel;
   /** When the local player last attacked (ms), to keep to the weapon's pace. */
@@ -254,6 +259,11 @@ export class Game {
       rest: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "" }),
       feed: (palId) => this.room.send(ClientMessage.Feed, { palId }),
     }, (speciesId) => palPortrait(spriteFor(this.assets.pals, speciesId)));
+    this.skillBar = new SkillBar(this.hud.root, isTouch, {
+      use: (skill) => this.room.send(ClientMessage.PalSkill, { skill }),
+      setAuto: (on) => this.room.send(ClientMessage.PalAuto, { on }),
+      hint: (text) => this.hud.showToast(text),
+    });
     this.quests = new QuestTracker(this.hud.left);
     this.minimap = new Minimap(this.hud.root);
     this.craft = new CraftPanel(this.hud.root, (recipeId) => this.room.send(ClientMessage.Craft, { recipeId }));
@@ -273,6 +283,10 @@ export class Game {
       h: () => this.room.send(ClientMessage.Eat),
       m: () => this.hud.setMuted(this.sound.toggleMute()),
       n: () => this.minimap.toggle(),
+      // Order the following pal's skills.
+      "1": () => this.skillBar.press(0),
+      "2": () => this.skillBar.press(1),
+      "3": () => this.skillBar.press(2),
     });
 
     this.stage.app.renderer.on("resize", () => this.stage.resize());
@@ -869,6 +883,7 @@ export class Game {
       camp.flag.scale.x = 1 + Math.sin(t * 4.3 + camp.at.y) * 0.06;
     });
     this.effects.update(dt);
+    this.skillBar.tick(now);
     this.weather.update(t, dt, { x: this.camera.x, y: this.camera.y }, day);
     this.lighting.update(dayTime, this.lights(t));
     const phase = phaseAt(dayTime);
@@ -1019,6 +1034,24 @@ export class Game {
     me.faceToward(pal.actor.pos);
   }
 
+  /** The skill bar shows the following pal's three skills (hidden when none follows). */
+  private updateSkillBar(activePalId: string, auto: boolean) {
+    const companion = activePalId ? this.room.state.companions.get(activePalId) : undefined;
+    const owned = this.room.state.players.get(this.room.sessionId)?.pals.find((p) => p.id === activePalId);
+    const following = companion?.mode === "follow" && owned ? activePalId : "";
+    // Another pal (or the same one called back): the server starts its recharges afresh.
+    if (following !== this.skillBarPal) this.skillBar.reset();
+    this.skillBarPal = following;
+    if (!following || !owned) return this.skillBar.update(undefined, auto);
+    const slots = learnset(getSpecies(owned.speciesId)).map(({ skill, level }) => ({
+      skill,
+      level,
+      known: owned.level >= level,
+      value: skillValue(skill, owned.level),
+    }));
+    this.skillBar.update(slots, auto);
+  }
+
   private updateHpBar(pal: PalEntity) {
     const ratio = pal.maxHp > 0 ? pal.hp / pal.maxHp : 1;
     pal.hpFill.style.width = `${Math.round(ratio * 100)}%`;
@@ -1036,6 +1069,7 @@ export class Game {
       this.wardrobe.update({ look: lookOf(me), worn: wornOf(me), wardrobe });
       const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment }));
       this.party.update(party, me.hasBase, me.snacks);
+      this.updateSkillBar(me.activePalId, me.palAuto);
       if (me.greatBalls === 0) this.useGreatBall = false;
       this.hud.setBall(this.useGreatBall, me.greatBalls);
       const myPos = this.me()?.pos ?? me;
@@ -1088,6 +1122,7 @@ export class Game {
   private castSkill(msg: SkillCastMessage) {
     const skill = getSkill(msg.skill);
     const wild = msg.caster === "wild";
+    if (!wild && msg.casterId === this.skillBarPal) this.skillBar.started(skill.id, skill.cooldownMs);
     const casterOf = () => (wild ? this.pals.get(msg.casterId) ?? this.leaving.get(msg.casterId)?.entity : this.companions.get(msg.casterId));
     const caster = casterOf();
     if (!caster || !this.nearMe(caster.actor.pos, 900)) return;

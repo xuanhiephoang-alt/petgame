@@ -32,8 +32,9 @@ Mở http://localhost:5173, nhập tên, bấm **Vào chơi**. Gửi **link mờ
 | Đánh thú; đứng cạnh cây, đá thì chặt gỗ, đập đá | Space | Nút **Đánh** |
 | Lướt né (nhanh, không bị cắn trong lúc lướt) | Shift | Nút **💨** |
 | Ném bóng bắt thú gần nhất | E | Nút **Bắt** |
+| Bảo thú đi theo dùng chiêu 1, 2, 3 (nó chạy tới thú bạn đang đánh) | 1 / 2 / 3 | 3 nút tròn trên nút **Bắt** |
 
-Thú càng ít máu càng dễ bắt. Còn 1 máu thì thú **choáng** 💫 vài giây: ném bóng lúc này dễ bắt hơn, đánh thêm một đòn thì hạ gục nó và nhặt đồ rơi ra. Thú gồng người (đỏ lên) trước khi cắn: lùi lại hoặc lướt để né. Thú hoang gồng chiêu (sáng màu hệ, tên chiêu hiện trên đầu) thì mặt đất hiện vùng đỏ đúng chỗ chiêu sẽ trúng: chạy ra khỏi vùng hoặc lướt qua. Trùm giậm chân sau khi hiện vòng đỏ trên đất: chạy ra khỏi vòng. Thú đi theo bạn tự tung chiêu vào thú bạn đang đánh, hồi máu hoặc dựng khiên khi bạn yếu.
+Thú càng ít máu càng dễ bắt. Còn 1 máu thì thú **choáng** 💫 vài giây: ném bóng lúc này dễ bắt hơn, đánh thêm một đòn thì hạ gục nó và nhặt đồ rơi ra. Thú gồng người (đỏ lên) trước khi cắn: lùi lại hoặc lướt để né. Thú hoang gồng chiêu (sáng màu hệ, tên chiêu hiện trên đầu) thì mặt đất hiện vùng đỏ đúng chỗ chiêu sẽ trúng: chạy ra khỏi vùng hoặc lướt qua. Trùm giậm chân sau khi hiện vòng đỏ trên đất: chạy ra khỏi vòng. Thú đi theo bạn tự tung chiêu vào thú bạn đang đánh, hồi máu hoặc dựng khiên khi bạn yếu; thanh chiêu ở dưới màn hình cho bạn tự ra lệnh (phím 1-3), đếm giây hồi chiêu, và nút **Tự động / Theo lệnh** để thú chỉ dùng chiêu khi bạn bảo.
 
 ## Công nghệ
 TypeScript · PixiJS 8 (2D, WebGL) · Colyseus 0.18 · Vite · Vitest · Playwright

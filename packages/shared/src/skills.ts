@@ -77,6 +77,14 @@ export const WILD_SKILL_GAP_MS = 2500;
 export const WILD_COOLDOWN_FACTOR = 1.3;
 /** A shielded owner (or wild caster) takes this share of the damage. */
 export const SHIELD_DAMAGE_TAKEN = 0.5;
+/**
+ * A player can order their following pal to use a skill (keys 1-3): it goes
+ * for the pal its owner fights, or the nearest one within SKILL_ORDER_RANGE
+ * of its owner, runs up until the skill reaches, and gives up after
+ * SKILL_ORDER_MS. Heals and shields go off at once.
+ */
+export const SKILL_ORDER_MS = 4000;
+export const SKILL_ORDER_RANGE = 260;
 
 /** Damage (or healing) of a skill used by a pal of this level. */
 export function skillPower(skill: SkillDef, level: number): number {

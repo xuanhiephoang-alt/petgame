@@ -24,7 +24,20 @@ export const ClientMessage = {
   Equip: "equip",
   /** Dash (dodge) this way. */
   Dash: "dash",
+  /** Order the following pal to use one of its skills (keys 1-3). */
+  PalSkill: "palSkill",
+  /** Let the following pal use its skills on its own, or only when ordered. */
+  PalAuto: "palAuto",
 } as const;
+
+export interface PalSkillMessage {
+  /** SKILL_DEFS id, one the following pal knows. */
+  skill: string;
+}
+
+export interface PalAutoMessage {
+  on: boolean;
+}
 
 export interface DashMessage {
   /** Direction, each axis in -1..1 (normalized by the server). */

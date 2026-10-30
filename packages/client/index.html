@@ -195,6 +195,40 @@
       .btn-dash { width: 60px; height: 60px; font-size: 24px; right: max(32px, calc(env(safe-area-inset-right) + 32px)); bottom: 22px; background: rgba(144,202,249,0.65); }
       .btn-dash.cooling { animation: recharge var(--cooldown, 900ms) linear; }
       @keyframes recharge { from { opacity: 0.35; filter: grayscale(1); } to { opacity: 1; filter: none; } }
+      /* The following pal's skills (keys 1-3, or a tap): a dark sweep and a countdown while one recharges. */
+      .skill-bar { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+        display: flex; align-items: flex-end; gap: 8px; pointer-events: none; }
+      .skill-bar[hidden], .skill-btn[hidden] { display: none; }
+      .skill-btn { position: relative; width: 62px; height: 62px; padding: 0; border-radius: 14px; overflow: hidden; pointer-events: auto;
+        border: 3px solid rgba(255,255,255,0.7); background: rgba(24,30,24,0.72); color: #fff; cursor: pointer; touch-action: none;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+      .skill-btn .icon { font-size: 26px; line-height: 1; }
+      .skill-btn .value { font-size: 11px; font-weight: 700; margin-top: 2px; text-shadow: 0 1px 2px #000; }
+      .skill-btn .key { position: absolute; top: 2px; left: 6px; font-size: 11px; font-weight: 700; opacity: 0.85; }
+      .skill-btn .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0,0,0,0.62); pointer-events: none; }
+      .skill-btn .secs { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+        font-size: 20px; font-weight: 800; text-shadow: 0 1px 3px #000; }
+      .skill-btn.fire { border-color: #ff8a50; }
+      .skill-btn.water { border-color: #4fc3f7; }
+      .skill-btn.grass { border-color: #9ccc65; }
+      .skill-btn.earth { border-color: #bcaaa4; }
+      .skill-btn.electric { border-color: #ffee58; }
+      .skill-btn.locked { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.65); background: rgba(24,30,24,0.5); }
+      .skill-btn.locked .icon { font-size: 18px; }
+      .skill-btn.ordered { animation: skill-ordered 0.45s ease-in-out infinite alternate; }
+      .skill-btn.nope { animation: skill-nope 0.3s; }
+      @keyframes skill-ordered { from { box-shadow: 0 0 0 0 rgba(255,236,64,0.95); } to { box-shadow: 0 0 0 7px rgba(255,236,64,0); } }
+      @keyframes skill-nope { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+      .skill-auto { pointer-events: auto; border: none; border-radius: 12px; padding: 6px 10px; font-size: 12px; font-weight: 700; white-space: nowrap;
+        background: rgba(110,110,110,0.88); color: #fff; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3); touch-action: none; }
+      .skill-auto.on { background: rgba(67,160,71,0.92); }
+      /* Phones: round buttons above the attack and catch buttons, the switch over them. */
+      .skill-bar.touch { left: auto; transform: none; right: max(16px, calc(env(safe-area-inset-right) + 16px)); bottom: 184px;
+        width: 180px; flex-wrap: wrap-reverse; justify-content: flex-end; gap: 6px; }
+      .skill-bar.touch .skill-btn { width: 54px; height: 54px; border-radius: 50%; }
+      .skill-bar.touch .skill-btn .key { display: none; }
+      .skill-bar.touch .skill-btn .icon { font-size: 22px; }
+      .skill-bar.touch .skill-btn .value { font-size: 10px; }
       #lobby {
         position: fixed; inset: 0; display: flex; overflow-y: auto; touch-action: pan-y;
         font-family: system-ui, sans-serif; color: #fff; background: #1b2a1b;
@@ -235,6 +269,9 @@
       }
       /* Short screens (phones held sideways). */
       @media (max-height: 520px) and (min-width: 601px) {
+        /* The skills left of the attack button, in the right half (the joystick has the left). */
+        .skill-bar.touch { right: max(196px, calc(env(safe-area-inset-right) + 196px)); bottom: 18px; width: auto; flex-wrap: nowrap; align-items: center; }
+        .skill-bar.touch .skill-auto { order: -1; }
         /* The minimap and the panels beside the buttons, clear of the touch buttons below. */
         .minimap { width: 112px; top: max(12px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + 140px); }
         .party-panel { top: max(8px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + 130px); max-height: calc(100% - 16px); }

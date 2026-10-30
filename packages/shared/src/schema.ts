@@ -54,6 +54,8 @@ export const Player = schema(
     /** Position in the quest chain (QUESTS index) and progress toward its goal. */
     questIndex: t.number(),
     questProgress: t.number(),
+    /** Whether the following pal uses its skills on its own (else only when ordered, keys 1-3). */
+    palAuto: t.boolean(),
   },
   "Player",
 );

@@ -120,7 +120,7 @@ export class Hud {
   setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string, gear = "") {
     const help = this.isTouch
       ? "Kéo bên trái để đi • Đánh • Bắt • 💨 Lướt né"
-      : "WASD/↑↓←→ đi • Space đánh (cả chặt cây, đập đá) • Shift lướt né • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • T tủ đồ • N bản đồ • M âm thanh";
+      : "WASD/↑↓←→ đi • Space đánh (cả chặt cây, đập đá) • Shift lướt né • 1-3 thú dùng chiêu • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • T tủ đồ • N bản đồ • M âm thanh";
     const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ") + (gear ? ` &nbsp; ${gear}` : "");
     // Phones get a compact panel: counts plus an invite button.
     const html = this.isTouch

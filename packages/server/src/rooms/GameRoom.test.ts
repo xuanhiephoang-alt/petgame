@@ -371,6 +371,7 @@ describe("offline production", () => {
       wardrobe: [...STARTER_WARDROBE],
       worn: { ...DEFAULT_WORN },
       quest: { index: 0, progress: 0 },
+      palAuto: true,
       savedAt: Date.now() - 60 * 60 * 1000, // one hour ago
     });
     const { client, player } = await setup(token);
@@ -653,6 +654,89 @@ describe("elements and skills", () => {
     expect((room as any).casts).toHaveLength(0);
     expect(damage.filter((d) => d.skill === "ember")).toHaveLength(0);
     expect(player.hp).toBe(PLAYER_MAX_HP);
+  });
+});
+
+describe("ordering skills (keys 1-3)", () => {
+  it("runs up to the nearest wild pal and uses the skill it was told to", async () => {
+    const { room, client, player } = await setup();
+    const { companion } = await giveCompanion(room, client, player, "emberpup", 7);
+    player.palAuto = false; // only what it is told
+    room.state.pals.clear();
+    const target = placeWild(room, "leafkit", player, 200);
+    room.state.pals.get(target)!.maxHp = room.state.pals.get(target)!.hp = 999;
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    await ticks(room, 1);
+    const before = distance(companion, room.state.pals.get(target)!);
+    expect(before).toBeGreaterThan(getSkill("fire_breath").range!); // out of reach: it has to run up
+    client.send(ClientMessage.PalSkill, { skill: "fire_breath" });
+    for (let i = 0; i < 80 && casts.length === 0; i++) await ticks(room, 1);
+    expect(casts.map((c) => [c.caster, c.skill, c.targetId])).toEqual([["companion", "fire_breath", target]]);
+    expect(distance(companion, room.state.pals.get(target)!)).toBeLessThanOrEqual(getSkill("fire_breath").range! + 1);
+  });
+
+  it("with auto off it uses no skill of its own; an order still works", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "emberpup", 1);
+    client.send(ClientMessage.PalAuto, { on: false });
+    room.state.pals.clear();
+    const target = placeWild(room, "leafkit", player, 100);
+    room.state.pals.get(target)!.maxHp = room.state.pals.get(target)!.hp = 999;
+    (room as any).controls.get(client.sessionId).targetPalId = target;
+    (room as any).controls.get(client.sessionId).aggroUntil = Infinity;
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    await ticks(room, 60);
+    expect(player.palAuto).toBe(false);
+    expect(casts).toHaveLength(0);
+    client.send(ClientMessage.PalSkill, { skill: "ember" });
+    await ticks(room, 3);
+    expect(casts.map((c) => c.skill)).toEqual(["ember"]);
+  });
+
+  it("ignores skills it has not learned or that are still recharging", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 1);
+    player.palAuto = false;
+    room.state.pals.clear();
+    placeWild(room, "leafkit", player, 60);
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    client.send(ClientMessage.PalSkill, { skill: "fire_breath" }); // learned at level 7
+    client.send(ClientMessage.PalSkill, { skill: "meteor" }); // another species' skill
+    await ticks(room, 10);
+    expect(casts).toHaveLength(0);
+    (room as any).skillReady.set(`c:${owned.id}`, new Map([["ember", room.clock.currentTime + 5000]]));
+    client.send(ClientMessage.PalSkill, { skill: "ember" });
+    await ticks(room, 10);
+    expect(casts).toHaveLength(0);
+  });
+
+  it("heals at once when told, and says so when there is nothing to fight", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "bubbloon", 7);
+    player.palAuto = false;
+    room.state.pals.clear();
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+    client.send(ClientMessage.PalSkill, { skill: "bubble" });
+    await ticks(room, 3);
+    expect(casts).toHaveLength(0);
+    expect(notices.map((n) => n.text)).toContain("Không có thú hoang nào ở gần để đánh");
+    client.send(ClientMessage.PalSkill, { skill: "healing_rain" });
+    await ticks(room, 2);
+    expect(casts.map((c) => c.skill)).toEqual(["healing_rain"]);
+  });
+
+  it("remembers whether the pal may use its skills on its own", async () => {
+    const token = "auto-token-0123456789";
+    const first = await setup(token);
+    expect(first.player.palAuto).toBe(true);
+    first.client.send(ClientMessage.PalAuto, { on: false });
+    await ticks(first.room, 2);
+    expect(first.player.palAuto).toBe(false);
+    await first.client.leave();
+    await colyseus.cleanup();
+    const second = await setup(token);
+    expect(second.player.palAuto).toBe(false);
   });
 });
 

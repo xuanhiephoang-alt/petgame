@@ -36,7 +36,7 @@ export interface PartyActions {
 }
 
 /** What a skill does at a pal's level: damage, healing or a shield's time. */
-function skillValue(skill: SkillDef, level: number): string {
+export function skillValue(skill: SkillDef, level: number): string {
   if (skill.shape === "shield") return `${Math.round((skill.shieldMs ?? 0) / 1000)}s`;
   if (skill.shape === "heal") return `+${skillPower(skill, level)}`;
   return `⚔${skillPower(skill, level)}`;

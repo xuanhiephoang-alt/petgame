@@ -51,6 +51,8 @@ export interface Profile {
   worn: Worn;
   /** Quest chain position (see shared quests.ts). */
   quest: { index: number; progress: number };
+  /** Whether the following pal uses its skills on its own (else only when ordered). */
+  palAuto: boolean;
   /** When the profile was last saved (ms since epoch); drives offline production. */
   savedAt: number;
 }
@@ -78,6 +80,7 @@ export function emptyProfile(name: string): Profile {
     wardrobe: [...STARTER_WARDROBE],
     worn: { ...DEFAULT_WORN },
     quest: { index: 0, progress: 0 },
+    palAuto: true,
     savedAt: 0,
   };
 }
@@ -181,5 +184,6 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
     index: Math.round(num(r.quest?.index, 0, QUESTS.length, 0)),
     progress: Math.round(num(r.quest?.progress, 0, 1e6, 0)),
   };
-  return { name, pals, base, baseLevel, resources, items, look, wardrobe, worn, quest, savedAt };
+  const palAuto = r.palAuto !== false;
+  return { name, pals, base, baseLevel, resources, items, look, wardrobe, worn, quest, palAuto, savedAt };
 }
