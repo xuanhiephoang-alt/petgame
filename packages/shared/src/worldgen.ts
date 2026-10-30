@@ -64,6 +64,12 @@ const TREES: Record<string, number> = {
   Palm: 0.25, Cactus: 0.3,
 };
 const ROCKS: Record<string, number> = { Rock_1_A: 0.26, Rock_1_E: 0.45, Rock_2_A: 0, Rock_3_A: 0.4, Rock_3_E: 0.5, Rock_5_A: 0 };
+/** How much of a tree trunk or rock blocks the way (pixels); 0 for what you walk through. */
+export function propRadius(p: Pick<Prop, "kind" | "model" | "scale">): number {
+  const base = p.kind === "tree" ? TREES[p.model] : p.kind === "rock" ? ROCKS[p.model] : 0;
+  return base > 0 ? base * p.scale * U : 0;
+}
+
 /** Pal spawns count as "lake" this close (pixels) to meadow water. */
 export const SHORE_WIDTH = 3 * U;
 
@@ -301,8 +307,8 @@ export function generateWorld(seed = WORLD_SEED): WorldLayout {
 
   const colliders: Circle[] = [{ x: campfire.x, y: campfire.y, r: CAMPFIRE_RADIUS }, volcano, ...lake];
   for (const p of props) {
-    const base = p.kind === "tree" ? TREES[p.model] : p.kind === "rock" ? ROCKS[p.model] : 0;
-    if (base > 0) colliders.push({ x: p.x, y: p.y, r: base * p.scale * U });
+    const r = propRadius(p);
+    if (r > 0) colliders.push({ x: p.x, y: p.y, r });
   }
 
   // Treasure chests on open ground: some in every region, most on the islands.

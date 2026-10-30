@@ -1,4 +1,5 @@
 import type { Look, WearSlot } from "./wardrobe.ts";
+import type { Resource } from "./work.ts";
 
 /** Client -> server message types and payloads. */
 export const ClientMessage = {
@@ -21,7 +22,15 @@ export const ClientMessage = {
   SetLook: "setLook",
   /** Put on clothes, a hat or a weapon from the wardrobe ("" takes the hat or weapon off). */
   Equip: "equip",
+  /** Dash (dodge) this way. */
+  Dash: "dash",
 } as const;
+
+export interface DashMessage {
+  /** Direction, each axis in -1..1 (normalized by the server). */
+  x: number;
+  y: number;
+}
 
 export type SetLookMessage = Partial<Look>;
 
@@ -86,7 +95,46 @@ export const ServerMessage = {
   QuestDone: "questDone",
   /** A player picked berries from a fruit bush. */
   Harvested: "harvested",
+  /** A player chopped a tree or mined a rock. */
+  Gathered: "gathered",
+  /** A wild pal finished its wind-up and bit (or missed). */
+  Lunge: "lunge",
+  /** A player knocked out a dizzy wild pal. */
+  Defeated: "defeated",
+  /** A player dashed. */
+  Dashed: "dashed",
 } as const;
+
+export interface GatheredMessage {
+  playerId: string;
+  /** The tree or rock (its layout prop index, see gathering.ts). */
+  node: number;
+  resource: Resource;
+  amount: number;
+  /** Used up: it stands bare until it grows back. */
+  depleted: boolean;
+}
+
+export interface LungeMessage {
+  palId: string;
+  targetType: "player" | "companion";
+  targetId: string;
+  /** The target stepped out of reach or dashed through it. */
+  dodged: boolean;
+}
+
+export interface DefeatedMessage {
+  palId: string;
+  playerId: string;
+  /** What it left behind (resource or item -> amount). */
+  loot: Record<string, number>;
+}
+
+export interface DashedMessage {
+  playerId: string;
+  x: number;
+  y: number;
+}
 
 export interface ChestOpenedMessage {
   chestId: string;
@@ -135,6 +183,8 @@ export interface DamageMessage {
   amount: number;
   /** Set when cold or heat did the damage. */
   cause?: "cold" | "heat";
+  /** How far (pixels) the hit pushed the target away from its attacker. */
+  push?: number;
 }
 
 export interface FaintedMessage {
@@ -167,6 +217,8 @@ export interface CaptureResultMessage {
   speciesId: string;
   success: boolean;
   chance: number;
+  /** How many times the ball wobbles before it clicks shut or the pal breaks out (captureShakes). */
+  shakes: number;
 }
 
 export interface HitMessage {
@@ -178,6 +230,8 @@ export interface HitMessage {
   companionId?: string;
   /** Element matchup of a companion hit. */
   effect?: "super" | "weak" | "normal";
+  /** A player's critical hit. */
+  crit?: boolean;
 }
 
 export interface JoinOptions {

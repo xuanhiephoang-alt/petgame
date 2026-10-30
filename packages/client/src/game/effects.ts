@@ -1,5 +1,5 @@
-import { Container, Graphics, Sprite, type Texture } from "pixi.js";
-import { ATTACK_RANGE, type Vec2 } from "@petgame/shared";
+import { Container, Graphics, Sprite, Text, type Texture } from "pixi.js";
+import { ATTACK_RANGE, BALL_DROP_MS, BALL_SHAKE_MS, type Vec2 } from "@petgame/shared";
 import { ballArt } from "./art/props.ts";
 
 interface Effect {
@@ -133,6 +133,187 @@ export class Effects {
         if (kind.glow) this.burst(hit, [0x64d8ff, 0xb3f0ff, 0xffffff], 14, 30);
         else this.burst(hit, [0xd7ccc8, 0xbcaaa4], 6, 18);
       }
+    });
+  }
+
+  /** Bits flying off a tree (leaves and wood chips, leaves drifting down from the canopy) or a rock (stone chips). */
+  chips(at: Vec2, kind: "tree" | "rock", height = 90) {
+    if (kind === "tree") {
+      this.burst(at, [0x8d6e63, 0xa1887f, 0xd7ccc8], 7, 26);
+      this.leaves({ x: at.x, y: at.y - height * 0.6 }, 9);
+    } else {
+      this.burst({ x: at.x, y: at.y - 8 }, [0x9e9e9e, 0xbdbdbd, 0x757575], 12, 34);
+      this.ring(at, 0xd7ccc8, 26, 0.3, 2);
+    }
+  }
+
+  /** Leaves drifting down and swaying from a point in the air. */
+  leaves(at: Vec2, count = 8) {
+    const node = new Container();
+    node.position.set(at.x, at.y);
+    const colors = [0x66bb6a, 0x43a047, 0x9ccc65, 0xc0ca33];
+    const leaves = Array.from({ length: count }, (_, i) => {
+      const g = new Graphics().ellipse(0, 0, 3.2, 1.6).fill(colors[i % colors.length]);
+      node.addChild(g);
+      return { g, x: (Math.random() - 0.5) * 50, fall: 30 + Math.random() * 40, phase: Math.random() * 6, spin: (Math.random() - 0.5) * 8 };
+    });
+    this.add(this.air, node, 1.1, (k) => {
+      for (const l of leaves) {
+        l.g.position.set(l.x + Math.sin(k * 7 + l.phase) * 8, k * l.fall);
+        l.g.rotation = l.phase + k * l.spin;
+        l.g.alpha = 1 - k * k;
+      }
+    });
+  }
+
+  /** Little puffs of dust at the feet (a step, a dash, a landing). */
+  dust(at: Vec2, size = 1, dir?: Vec2) {
+    const node = new Container();
+    node.position.set(at.x, at.y - 2);
+    const puffs = Array.from({ length: 3 }, (_, i) => {
+      const s = new Sprite(this.dot);
+      s.anchor.set(0.5);
+      s.tint = 0xcdb894;
+      node.addChild(s);
+      const a = Math.PI + (i - 1) * 0.9;
+      const back = dir ? { x: -dir.x, y: -dir.y } : { x: Math.cos(a), y: Math.sin(a) * 0.4 };
+      return { s, vx: back.x * 14 + (i - 1) * 6, vy: back.y * 6 - 3 };
+    });
+    this.add(this.marks, node, 0.45, (k) => {
+      for (const p of puffs) {
+        p.s.position.set(p.vx * k, p.vy * k);
+        p.s.width = p.s.height = (6 + k * 8) * size;
+        p.s.alpha = 0.4 * (1 - k);
+      }
+    });
+  }
+
+  /** A quick white star where a blow lands (bigger for a critical hit). */
+  impact(at: Vec2, big = false) {
+    const g = new Graphics();
+    const r = big ? 15 : 10;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + (i % 2) * 0.2;
+      const len = i % 2 ? r * 0.55 : r;
+      g.moveTo(Math.cos(a) * 3, Math.sin(a) * 3).lineTo(Math.cos(a) * len, Math.sin(a) * len);
+    }
+    g.stroke({ color: big ? 0xffe066 : 0xffffff, width: big ? 3 : 2, cap: "round" });
+    g.position.set(at.x, at.y);
+    g.blendMode = "add";
+    this.add(this.air, g, 0.18, (k) => {
+      g.scale.set(0.6 + k * 0.8);
+      g.alpha = 1 - k;
+    });
+  }
+
+  /**
+   * Resources popping out of something and flying into a player's pockets:
+   * each icon hops up, then homes in on `to` (read every frame, the player
+   * moves) and shrinks away.
+   */
+  lootFly(from: Vec2, to: () => Vec2 | undefined, icons: string[]) {
+    icons.slice(0, 8).forEach((icon, i) => {
+      const text = new Text({ text: icon, style: { fontSize: 16 }, resolution: 3 });
+      text.anchor.set(0.5);
+      const node = new Container();
+      node.addChild(text);
+      const spread = (i - (icons.length - 1) / 2) * 12 + (Math.random() - 0.5) * 6;
+      const start = { x: from.x, y: from.y - 18 };
+      const delay = i * 0.05;
+      this.add(this.air, node, 0.8 + delay, (k) => {
+        const t = Math.max(0, (k * (0.8 + delay) - delay) / 0.8);
+        const target = to() ?? from;
+        if (t < 0.45) {
+          // Hop out.
+          const u = t / 0.45;
+          node.position.set(start.x + spread * u, start.y - Math.sin(u * Math.PI) * 26);
+          text.scale.set(0.6 + u * 0.4);
+        } else {
+          // Home in.
+          const u = (t - 0.45) / 0.55;
+          const e = u * u;
+          const hop = { x: start.x + spread, y: start.y };
+          node.position.set(hop.x + (target.x - hop.x) * e, hop.y + (target.y - 30 - hop.y) * e);
+          text.scale.set(1 - e * 0.6);
+        }
+        node.alpha = t < 0.95 ? 1 : (1 - t) * 20;
+      });
+    });
+  }
+
+  /** A red danger ring that fills in until the boss's stomp lands (a ring on the ground, its radius in px). */
+  warning(at: () => Vec2 | undefined, radius: number, durationSec: number) {
+    const g = new Graphics();
+    this.add(this.marks, g, durationSec, (k) => {
+      const p = at();
+      if (!p) return;
+      g.position.set(p.x, p.y);
+      const pulse = 0.6 + Math.sin(k * 30) * 0.15;
+      g.clear()
+        .ellipse(0, 0, radius, radius * 0.42).fill({ color: 0xff3d00, alpha: 0.12 + k * 0.12 }).stroke({ color: 0xff1744, width: 3, alpha: pulse })
+        .ellipse(0, 0, radius * k, radius * k * 0.42).fill({ color: 0xff3d00, alpha: 0.18 });
+    });
+  }
+
+  /** Fades a node out where it stands, then removes it (a dash's afterimage). */
+  fadeOut(node: Container, layer: Container, durationSec: number, from = 0.6) {
+    this.add(layer, node, durationSec, (k) => {
+      node.alpha = from * (1 - k);
+    });
+  }
+
+  /**
+   * A thrown ball after it hits: it drops to the ground, wobbles `shakes`
+   * times, then clicks shut with stars (`success`) or bursts open. Calls
+   * `reveal` at that moment.
+   */
+  captureBall(at: Vec2, great: boolean, shakes: number, success: boolean, reveal: () => void, onShake?: () => void) {
+    const art = ballArt(great);
+    const ball = new Sprite(art.texture);
+    ball.anchor.set(0.5, 0.85);
+    const node = new Container();
+    node.addChild(ball);
+    node.position.set(at.x, at.y);
+    const drop = BALL_DROP_MS / 1000, shake = BALL_SHAKE_MS / 1000;
+    const total = drop + shakes * shake + 0.25;
+    let shaken = 0;
+    let revealed = false;
+    this.add(this.air, node, total, (k) => {
+      const t = k * total;
+      if (t < drop) {
+        // Falls from where it hit, with a little bounce.
+        const u = t / drop;
+        ball.position.set(0, -30 * (1 - u) * (1 - u) - Math.abs(Math.sin(u * Math.PI * 2)) * 6 * (1 - u));
+        ball.rotation = 0;
+        return;
+      }
+      ball.position.set(0, 0);
+      const w = (t - drop) / shake;
+      if (w < shakes) {
+        const n = Math.floor(w);
+        if (n >= shaken) {
+          shaken = n + 1;
+          onShake?.();
+        }
+        const f = w - n;
+        // A wobble, then a still moment before the next.
+        ball.rotation = f < 0.6 ? Math.sin((f / 0.6) * Math.PI * 2) * 0.45 : 0;
+        return;
+      }
+      if (!revealed) {
+        revealed = true;
+        ball.rotation = 0;
+        reveal();
+        if (success) {
+          this.sparkle(at, 0xffe066);
+          this.ring(at, 0xfff59d, 34, 0.4);
+        } else {
+          this.poof(at);
+          this.burst(at, [0xffffff, 0xfff3c4], 10, 30);
+        }
+      }
+      // Clicked shut: blinks away; burst open: gone at once.
+      ball.visible = success && Math.floor(t * 20) % 2 === 0;
     });
   }
 

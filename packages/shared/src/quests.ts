@@ -17,8 +17,8 @@ export interface Quest {
 
 /** The guided quest chain for new players, in order. */
 export const QUESTS: readonly Quest[] = [
-  { id: "first_catch", title: "Bắt con thú đầu tiên", hint: "Đánh cho thú yếu rồi ném bóng", event: "catch", goal: 1, reward: { berries: 5 } },
-  { id: "camp", title: "Dựng trại", hint: "Bấm 🏕️ ở chỗ trống", event: "camp", goal: 1, reward: { wood: 6, stone: 4 } },
+  { id: "first_catch", title: "Bắt con thú đầu tiên", hint: "Đánh đến khi thú choáng 💫 rồi ném bóng", event: "catch", goal: 1, reward: { berries: 5 } },
+  { id: "camp", title: "Dựng trại", hint: "Bấm 🏕️ ở chỗ trống (chặt cây, đập đá lấy gỗ, đá)", event: "camp", goal: 1, reward: { wood: 6, stone: 4 } },
   { id: "work", title: "Giao việc cho thú", hint: "Mở 🐾, chọn thú, bấm Làm việc", event: "work", goal: 1, reward: { snacks: 1 } },
   { id: "harvest", title: "Hái 3 bụi quả", hint: "Bụi quả đỏ ở đồng cỏ, đứng gần rồi bấm Đánh", event: "harvest", goal: 3, reward: { wood: 5 } },
   { id: "great_ball", title: "Chế tạo Bóng xịn", hint: "Đứng ở trại, mở 🔨", event: "craft", subject: "great_ball", goal: 1, reward: { stone: 6 } },

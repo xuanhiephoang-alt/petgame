@@ -15,6 +15,8 @@ export interface WeaponStats {
   /** Reach of a swing, or how far a shot flies (pixels). */
   range: number;
   cooldownMs: number;
+  /** How far a hit pushes the pal back (pixels). */
+  knockback: number;
   /** Shoots (a pebble, an arrow, a spark) instead of swinging. */
   ranged?: boolean;
 }
@@ -62,7 +64,7 @@ export function canWear(wardrobe: readonly string[], slot: WearSlot, id: string)
 }
 
 /** Bare hands: the plain attack. */
-export const FISTS: WeaponStats = { damage: ATTACK_DAMAGE, range: ATTACK_RANGE, cooldownMs: ATTACK_COOLDOWN_MS };
+export const FISTS: WeaponStats = { damage: ATTACK_DAMAGE, range: ATTACK_RANGE, cooldownMs: ATTACK_COOLDOWN_MS, knockback: 10 };
 
 /** The stats of a held weapon (bare hands for "" or an unknown id). */
 export function weaponStats(id: string): WeaponStats {

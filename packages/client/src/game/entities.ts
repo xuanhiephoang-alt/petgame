@@ -5,7 +5,9 @@ import { DOLL_SCALE, dollLayers, hasDollArt, layerTexture, type DollLayer, type 
 import { playerArt, type PartArt, type PlayerArt, type PlayerView } from "./art/player.ts";
 import { crownArt, raftArt } from "./art/props.ts";
 
-export type Action = "attack" | "hurt" | "throw";
+export type Action = "attack" | "hurt" | "throw" | "dash" | "ko" | "vanish" | "pop";
+
+const DURATION: Record<Action, number> = { attack: 0.32, throw: 0.42, hurt: 0.34, dash: 0.24, ko: 0.6, vanish: 0.22, pop: 0.32 };
 
 /** Displayed speed (world px/s) above which an actor walks. */
 const WALK_THRESHOLD = 8;
@@ -32,6 +34,10 @@ export abstract class Actor {
   protected action?: { name: Action; t: number; duration: number };
   protected flash = 0;
   protected flashColor = 0xff5a4a;
+  /** Hit-stop: the pose holds still this long (seconds). */
+  protected frozen = 0;
+  /** Half walk cycles taken, to tell when a foot lands (dust). */
+  private stepsTaken = 0;
 
   constructor(at: Vec2, shadowTexture: Texture, protected shadowWidth: number) {
     this.pos = { x: at.x, y: at.y };
@@ -67,9 +73,21 @@ export abstract class Actor {
   }
 
   play(name: Action) {
-    const duration = name === "attack" ? 0.32 : name === "throw" ? 0.42 : 0.34;
-    this.action = { name, t: 0, duration };
+    this.action = { name, t: 0, duration: DURATION[name] };
     if (name === "hurt") this.hit();
+  }
+
+  /** Holds the pose for a moment (the weight of a blow). */
+  freeze(seconds: number) {
+    this.frozen = Math.max(this.frozen, seconds);
+  }
+
+  /** True once per foot landing while walking (for dust puffs). */
+  takeStep(): boolean {
+    const n = Math.floor(this.walk / Math.PI);
+    if (n === this.stepsTaken) return false;
+    this.stepsTaken = n;
+    return this.speed > WALK_THRESHOLD;
   }
 
   /** A quick tint flash (red when hurt). */
@@ -79,6 +97,10 @@ export abstract class Actor {
   }
 
   update(dt: number) {
+    if (this.frozen > 0) {
+      this.frozen -= dt;
+      return;
+    }
     this.time += dt;
     if (this.action) {
       this.action.t += dt / this.action.duration;
@@ -116,6 +138,11 @@ export class PalActor extends Actor {
   private body: Sprite;
   private flies: boolean;
   private crown?: Sprite;
+  /** Crouching to bite or (the boss) rearing up to stomp, since `windupAt` (seconds of its clock). */
+  private windup: "" | "bite" | "stomp" = "";
+  private windupAt = 0;
+  /** Stars circling over the head while dizzy. */
+  private stars?: Container;
 
   constructor(at: Vec2, private sprite: PalSprite, speciesId: string, shadowTexture: Texture, private scale = 1) {
     super(at, shadowTexture, sprite.height * 0.62 * scale);
@@ -146,6 +173,28 @@ export class PalActor extends Actor {
     return this.sprite.height * this.scale + (this.flies ? 10 : 0);
   }
 
+  /** Starts or ends a wind-up (synced from the server). */
+  setWindup(kind: "" | "bite" | "stomp") {
+    if (kind === this.windup) return;
+    this.windup = kind;
+    this.windupAt = this.time;
+  }
+
+  /** Reeling at 1 HP: stars spin over its head. */
+  setDizzy(dizzy: boolean) {
+    if (!dizzy) {
+      this.stars?.destroy({ children: true });
+      this.stars = undefined;
+      return;
+    }
+    if (this.stars) return;
+    this.stars = new Container();
+    for (let i = 0; i < 3; i++) {
+      const star = new Graphics().star(0, 0, 5, 4.2, 1.9).fill(0xffe066).stroke({ color: 0xb8860b, width: 1 });
+      this.stars.addChild(star);
+    }
+    this.root.addChild(this.stars);
+  }
   private setScale(sx = 1, sy = 1) {
     const flip = this.facing === "left" && this.sprite.mirrorLeft ? -1 : 1;
     const fit = this.sprite.fit;
@@ -156,7 +205,19 @@ export class PalActor extends Actor {
     this.body.texture = this.sprite.textures[this.facing];
     let sx = 1, sy = 1, x = 0, y = 0, rot = 0;
     const t = this.time;
-    if (this.flies) {
+    const dir = this.facing === "left" ? -1 : this.facing === "right" ? 1 : 0;
+    if (this.stars) {
+      // Dizzy: sways on the spot under circling stars.
+      rot = Math.sin(t * 3.2) * 0.12;
+      x = Math.sin(t * 3.2) * 2;
+      const top = -this.sprite.height * this.scale * 0.92;
+      this.stars.children.forEach((star, i) => {
+        const a = t * 4 + (i / 3) * Math.PI * 2;
+        star.position.set(Math.cos(a) * 13 * this.scale, top + Math.sin(a) * 4);
+        star.rotation = t * 3 + i;
+        star.alpha = Math.sin(a) > -0.3 ? 1 : 0.55;
+      });
+    } else if (this.flies) {
       y = -10 - Math.sin(t * 2.6) * 3;
       rot = moving ? (this.facing === "left" ? -0.08 : this.facing === "right" ? 0.08 : 0) : Math.sin(t * 1.3) * 0.03;
       sy = 1 + Math.sin(t * 5.2) * 0.02;
@@ -173,11 +234,31 @@ export class PalActor extends Actor {
       sy = 1 + breath * 0.025;
       sx = 1 - breath * 0.012;
     }
+    let tint = this.flash > 0 ? tintMix(this.flashColor, this.flash * 0.75) : 0xffffff;
+    if (this.windup && !this.action) {
+      const w = this.time - this.windupAt;
+      const shake = Math.sin(w * 70) * (1 + w * 3);
+      if (this.windup === "bite") {
+        // Crouches back, trembling, glowing red.
+        const k = Math.min(1, w / 0.2);
+        sy *= 1 - 0.14 * k;
+        sx *= 1 + 0.1 * k;
+        x += -dir * 4 * k + shake * 0.8;
+        y += this.facing === "front" ? -3 * k : this.facing === "back" ? 3 * k : 0;
+      } else {
+        // The boss rears up, taller and taller.
+        const k = Math.min(1, w / 0.8);
+        sy *= 1 + 0.16 * k;
+        sx *= 1 - 0.06 * k;
+        y -= 10 * k;
+        x += shake * 1.5;
+      }
+      tint = tintMix(0xff6e6e, 0.35 + 0.25 * Math.sin(w * 18));
+    }
     if (this.action) {
       const a = this.action.t;
       const pulse = Math.sin(Math.PI * Math.min(1, a));
       if (this.action.name === "attack") {
-        const dir = this.facing === "left" ? -1 : this.facing === "right" ? 1 : 0;
         x += dir * pulse * 9;
         y += this.facing === "front" ? pulse * 5 : this.facing === "back" ? -pulse * 5 : -pulse * 3;
         sx *= 1 + pulse * 0.12;
@@ -186,12 +267,30 @@ export class PalActor extends Actor {
         x += Math.sin(a * 40) * 3 * (1 - a);
         sy *= 1 - pulse * 0.12;
         sx *= 1 + pulse * 0.08;
+      } else if (this.action.name === "ko") {
+        // Knocked out: spins up, flops over and fades.
+        rot = (dir || 1) * Math.min(1, a * 1.4) * Math.PI * 0.5;
+        y -= Math.sin(Math.min(1, a * 1.6) * Math.PI) * 16;
+        this.root.alpha = a < 0.6 ? 1 : 1 - (a - 0.6) / 0.4;
+      } else if (this.action.name === "vanish") {
+        // Pulled into the ball: shrinks to a point of light.
+        sx *= 1 - a;
+        sy *= 1 - a;
+        y -= a * 10;
+        tint = tintMix(0xfff3c4, 0.8);
+      } else if (this.action.name === "pop") {
+        // Breaks out of the ball.
+        const g = 0.3 + 0.7 * Math.min(1, a * 1.4);
+        sx *= g * (1 + pulse * 0.12);
+        sy *= g * (1 - pulse * 0.06);
+        y -= pulse * 12;
       }
     }
+    if (this.action?.name === "vanish" && this.action.t > 0.95) this.root.visible = false;
     this.setScale(sx, sy);
     this.body.position.set(x, y);
     this.body.rotation = rot;
-    this.body.tint = this.flash > 0 ? tintMix(this.flashColor, this.flash * 0.75) : 0xffffff;
+    this.body.tint = tint;
     // The shadow shrinks as the pal rises.
     const shadow = this.ground.children[0];
     const lift = Math.min(1, -y / 30);
@@ -321,6 +420,15 @@ export class PlayerActor extends Actor {
     if (this.action) {
       const a = this.action.t;
       const pulse = Math.sin(Math.PI * Math.min(1, a));
+      if (this.action.name === "dash") {
+        // Throws itself forward: stretched along the dash, leaning into it.
+        rot += (dir || 0) * pulse * 0.32;
+        sx *= dir ? 1 + pulse * 0.16 : 1 - pulse * 0.08;
+        sy *= dir ? 1 - pulse * 0.1 : 1 + pulse * 0.1;
+        y -= pulse * 3;
+        nod += pulse * 3;
+        swing -= pulse * 0.5;
+      }
       if (this.action.name === "attack") {
         x += dir * pulse * (ranged ? -2 : 6);
         y += this.facing === "front" ? pulse * 3 : this.facing === "back" ? -pulse * 3 : -pulse * 1.5;
@@ -366,6 +474,27 @@ export class PlayerActor extends Actor {
       sprite.scale.set(layer.flipX ? -layer.scale : layer.scale, layer.scale);
       sprite.tint = tint;
     }
+  }
+
+  /** A see-through copy of the explorer as it stands now (a dash leaves a trail of them). */
+  ghost(): Container | undefined {
+    if (!this.root.parent) return undefined;
+    const copy = new Container();
+    copy.position.set(this.root.x + this.body.x, this.root.y + this.body.y);
+    copy.scale.copyFrom(this.body.scale);
+    copy.rotation = this.body.rotation;
+    copy.zIndex = this.root.zIndex - 0.5;
+    for (const child of this.body.children) {
+      if (!(child instanceof Sprite) || !child.visible) continue;
+      const s = new Sprite(child.texture);
+      s.anchor.copyFrom(child.anchor);
+      s.position.copyFrom(child.position);
+      s.scale.copyFrom(child.scale);
+      s.rotation = child.rotation;
+      s.tint = 0xbfe6ff;
+      copy.addChild(s);
+    }
+    return copy;
   }
 
   private setView(view: PlayerView) {

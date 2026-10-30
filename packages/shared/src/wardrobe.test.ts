@@ -24,6 +24,7 @@ describe("wardrobe", () => {
       expect(["outfit", "hat", "weapon"]).toContain(w.slot);
       expect(!!w.weapon).toBe(w.slot === "weapon");
       if (w.weapon) expect(w.weapon.damage).toBeGreaterThan(0);
+      if (w.weapon) expect(w.weapon.knockback).toBeGreaterThan(0);
     }
   });
 

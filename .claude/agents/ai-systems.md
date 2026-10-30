@@ -12,13 +12,13 @@ Bạn là kỹ sư **AI hệ thống** của PetGame.
 ## Kiến trúc hiện tại
 - `wander.ts`: `WanderBrain` + `stepWander()`, hàm thuần, mutate vị trí. `GameRoom` gọi mỗi tick.
 - `stepWander(..., { grid, radius })` trượt quanh vật cản và đổi mục tiêu khi bị chặn; `randomPoint(random, grid, r)` tránh sinh thú trong cây/đá. Grid lấy từ `defaultWorld()`.
-- `wildCombat.ts`: thú hoang chọn mục tiêu (`findNearestTarget` cho loài hung dữ) và đuổi đánh (`stepChase`). Trạng thái nổi giận (`WildAggro`) nằm trong `GameRoom.wildAggro`; `provoke` khi bị đánh.
+- `wildCombat.ts`: thú hoang chọn mục tiêu (`findNearestTarget` cho loài hung dữ) và đuổi đánh (`stepChase`); thú hiền bị đánh thì bỏ chạy (`stepFlee`, `FLEE_MS`). Trạng thái nổi giận (`WildAggro`, kể cả lúc gồng `windup`/`windupUntil` trước khi cắn hoặc trùm giậm chân) nằm trong `GameRoom.wildAggro`; `provoke` khi bị đánh. Thú choáng (`dizzy`) hoặc đang trong bóng (`inBall`) thì đứng yên, thú đi theo không đánh nó.
 - `companion.ts`: `stepCompanion` bám chủ, lao vào thú hoang chủ vừa đánh (aggro `COMPANION_AGGRO_MS`), dịch chuyển về khi bị bỏ xa. Test tích hợp ở `rooms/GameRoom.test.ts` (`@colyseus/testing`).
 - Não AI (`brain`) chỉ tồn tại trên server, KHÔNG đồng bộ cho client.
 - Kỹ năng làm việc của thú lấy từ `workSkills` trong `packages/shared/src/data/pals.json`.
 
 ## Lộ trình
-1. Máy trạng thái cho thú hoang: `idle → wander → flee` (khi bị đánh) `→ aggro` (với loài hung dữ).
+1. Máy trạng thái cho thú hoang: `idle → wander → flee` (khi bị đánh) `→ aggro` (với loài hung dữ). Đã có: lang thang, đuổi, gồng rồi cắn, choáng, bỏ chạy.
 2. Thú đã bắt đi theo chủ, tự đánh quái gần đó.
 3. Thú làm việc ở căn cứ: tìm việc phù hợp `workSkills`, đi tới, làm, mang về kho.
 4. Tìm đường A* trên lưới vật cản 2D của server (cây, đá, nhà).

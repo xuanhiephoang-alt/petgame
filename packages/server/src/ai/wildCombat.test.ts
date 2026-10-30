@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WILD_ATTACK_RANGE } from "@petgame/shared";
-import { findNearestTarget, stepChase } from "./wildCombat.ts";
+import { findNearestTarget, stepChase, stepFlee } from "./wildCombat.ts";
 
 describe("wild combat", () => {
   const targets = [
@@ -19,5 +19,11 @@ describe("wild combat", () => {
     for (let i = 0; i < 40 && !inRange; i++) ({ pos, inRange } = stepChase(pos, { x: 300, y: 0 }, 150, 50, 14));
     expect(inRange).toBe(true);
     expect(300 - pos.x).toBeLessThanOrEqual(WILD_ATTACK_RANGE);
+  });
+
+  it("runs straight away when fleeing", () => {
+    const next = stepFlee({ x: 100, y: 100 }, { x: 60, y: 100 }, 200, 100, 10);
+    expect(next.x).toBeCloseTo(120);
+    expect(next.y).toBeCloseTo(100);
   });
 });

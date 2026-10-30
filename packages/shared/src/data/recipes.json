@@ -107,7 +107,7 @@
     "id": "axe",
     "name": "Rìu đá",
     "icon": "🪓",
-    "description": "Vũ khí: đánh 22 nhưng chậm",
+    "description": "Vũ khí: đánh 22 nhưng chậm; chặt gỗ gấp đôi",
     "cost": {
       "wood": 6,
       "stone": 8

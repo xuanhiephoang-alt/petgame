@@ -13,9 +13,12 @@ export const BOSS = {
   stompRadius: 3.2 * PIXELS_PER_UNIT,
   stompDamage: 18,
   stompCooldownMs: 6000,
+  /** It rears up this long before the stomp lands (ms): a red ring shows where; run out of it. */
+  stompWindupMs: 1000,
   /** Regular bite (instead of the level-scaled wild damage), and its pace. */
   biteDamage: 14,
   biteCooldownMs: 1800,
+  biteWindupMs: 600,
   /** Body radius for collisions and melee reach (pixels). */
   radius: 40,
   /** Respawns this long after being defeated. */

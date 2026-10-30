@@ -32,6 +32,18 @@ import {
   DEFAULT_WORN,
   STARTER_WARDROBE,
   weaponStats,
+  DASH_MS,
+  DASH_SPEED,
+  DIZZY_RECOVER,
+  CRIT_MULTIPLIER,
+  NODE_HITS,
+  PLAYER_RADIUS,
+  gatherNodes,
+  nodeId,
+  type CaptureResultMessage,
+  type DefeatedMessage,
+  type GatheredMessage,
+  type LungeMessage,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
 import { SqliteStore } from "../persistence/store.ts";
@@ -432,8 +444,9 @@ describe("combat", () => {
     const companion = room.state.companions.get(palId)!;
     companion.hp = 1;
     placeWild(room, "boulderhorn", companion, 25);
-    // Keep the player out of reach so the companion is the closest target.
-    player.x = companion.x - 200;
+    // The player stands just behind it: the companion stays put (close enough to its owner) and is the closest target.
+    player.x = companion.x - 50;
+    player.y = companion.y;
     await client.waitForMessage(ServerMessage.Fainted);
     expect(room.state.companions.has(palId)).toBe(false);
     expect(player.activePalId).toBe("");
@@ -562,6 +575,8 @@ describe("boss", () => {
     const { room, client, player } = await setup();
     player.hat = "nonla"; // the volcano is hot
     const [bossId, boss] = bossOf(room)!;
+    // Only the boss in reach (a wild pal wandering closer would take the hit).
+    for (const id of [...room.state.pals.keys()]) if (id !== bossId) room.state.pals.delete(id);
     player.x = boss.x - 50;
     player.y = boss.y;
     boss.hp = 5;
@@ -767,6 +782,7 @@ describe("looks, clothes and weapons", () => {
     player.wardrobe.push("sword", "bow");
     player.weapon = "sword";
     placeWild(room, "leafkit", player);
+    vi.spyOn(Math, "random").mockReturnValue(0.5); // no critical hits
     client.send(ClientMessage.Attack);
     const hit: HitMessage = await client.waitForMessage(ServerMessage.Hit);
     expect(hit.damage).toBe(weaponStats("sword").damage);
@@ -807,5 +823,227 @@ describe("looks, clothes and weapons", () => {
     client.send(ClientMessage.Craft, { recipeId: "club" }); // only one of each
     await ticks(room, 3);
     expect(player.wardrobe.filter((id) => id === "club")).toHaveLength(1);
+  });
+});
+
+describe("chopping, dodging, dizzy pals", () => {
+  /** A tree or rock in the open, away from fruit bushes, the player standing next to it. */
+  function besideNode(kind: "tree" | "rock") {
+    const { layout } = defaultWorld();
+    const node = gatherNodes(layout).find((n) =>
+      n.kind === kind && n.x > 600 && n.y > 600 && layout.fruits.every((f) => distance(f, n) > 160)
+      && !isSea(layout.terrain, n.x + n.radius + 20, n.y));
+    return { node: node!, spot: { x: node!.x + node!.radius + PLAYER_RADIUS + 3, y: node!.y } };
+  }
+
+  it("chops wood from a tree until it is used up", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const { spot } = besideNode("tree");
+    player.x = spot.x;
+    player.y = spot.y;
+    const gathered: GatheredMessage[] = [];
+    client.onMessage(ServerMessage.Gathered, (m: GatheredMessage) => gathered.push(m));
+    for (let i = 0; i < NODE_HITS.tree; i++) {
+      client.send(ClientMessage.Attack);
+      await ticks(room, 10); // past the punch's cooldown
+    }
+    expect(gathered).toHaveLength(NODE_HITS.tree);
+    const node = gathered[0].node;
+    expect(gathered.every((m) => m.node === node && m.resource === "wood" && m.amount === 1)).toBe(true);
+    expect(gathered.map((m) => m.depleted)).toEqual([...Array(NODE_HITS.tree - 1).fill(false), true]);
+    expect(player.wood).toBe(NODE_HITS.tree);
+    expect(room.state.felled.has(nodeId(node))).toBe(true);
+  });
+
+  it("breaks twice the stone with a hammer", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const { spot } = besideNode("rock");
+    player.x = spot.x;
+    player.y = spot.y;
+    player.wardrobe.push("hammer");
+    player.weapon = "hammer";
+    client.send(ClientMessage.Attack);
+    const msg: GatheredMessage = await client.waitForMessage(ServerMessage.Gathered);
+    expect(msg).toMatchObject({ resource: "stone", amount: 2 });
+    expect(player.stone).toBe(2);
+  });
+
+  it("dashes a fixed distance, then waits for the cooldown", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    player.x = WORLD_WIDTH / 2;
+    player.y = WORLD_HEIGHT / 2 + 150;
+    const startX = player.x;
+    client.send(ClientMessage.Dash, { x: 1, y: 0 });
+    await ticks(room, 8);
+    expect(player.x).toBeCloseTo(startX + (DASH_SPEED * DASH_MS) / 1000, 0);
+    const afterFirst = player.x;
+    client.send(ClientMessage.Dash, { x: -1, y: 0 });
+    await ticks(room, 4);
+    expect(player.x).toBe(afterFirst);
+  });
+
+  it("winds up before biting: stepping away dodges it", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "emberpup", player);
+    const pal = room.state.pals.get(id)!;
+    pal.maxHp = pal.hp = 500;
+    const damage: DamageMessage[] = [];
+    client.onMessage(ServerMessage.Damage, (m: DamageMessage) => damage.push(m));
+    client.send(ClientMessage.Attack);
+    for (let i = 0; i < 40 && pal.windup !== "bite"; i++) await ticks(room, 1);
+    expect(pal.windup).toBe("bite");
+    player.x -= 160;
+    const lunge: LungeMessage = await client.waitForMessage(ServerMessage.Lunge);
+    expect(lunge).toMatchObject({ palId: id, targetId: client.sessionId, dodged: true });
+    expect(damage).toHaveLength(0);
+    expect(player.hp).toBe(PLAYER_MAX_HP);
+  });
+
+  it("misses a dashing player, and bites push the others back", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "emberpup", player);
+    room.state.pals.get(id)!.maxHp = room.state.pals.get(id)!.hp = 500;
+    (room as any).controls.get(client.sessionId).invulnerableUntil = Infinity;
+    client.send(ClientMessage.Attack);
+    const dodged: LungeMessage = await client.waitForMessage(ServerMessage.Lunge);
+    expect(dodged.dodged).toBe(true);
+    expect(player.hp).toBe(PLAYER_MAX_HP);
+
+    (room as any).controls.get(client.sessionId).invulnerableUntil = 0;
+    const before = { x: player.x, y: player.y };
+    const bite: DamageMessage = await client.waitForMessage(ServerMessage.Damage, 4000);
+    expect(bite.push).toBeGreaterThan(0);
+    expect(distance(player, before)).toBeGreaterThan(5);
+  });
+
+  it("makes a pal dizzy at 1 HP; one more hit knocks it out for loot", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "pebblet", player);
+    const pal = room.state.pals.get(id)!;
+    pal.hp = 5;
+    client.send(ClientMessage.Attack);
+    await ticks(room, 2);
+    expect(pal.hp).toBe(1);
+    expect(pal.dizzy).toBe(true);
+    const where = { x: pal.x, y: pal.y };
+    await ticks(room, 10);
+    expect(pal).toMatchObject({ ...where, windup: "" }); // reeling, not fighting
+
+    const before = player.stone + player.wood + player.berries;
+    client.send(ClientMessage.Attack);
+    const ko: DefeatedMessage = await client.waitForMessage(ServerMessage.Defeated);
+    expect(ko).toMatchObject({ palId: id, playerId: client.sessionId });
+    expect(room.state.pals.has(id)).toBe(false);
+    expect(ko.loot.stone).toBeGreaterThan(0);
+    expect(player.stone + player.wood + player.berries).toBe(before + ko.loot.stone);
+  });
+
+  it("shakes off the daze with some health back; a dizzy pal is easier to catch", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "pebblet", player, 60);
+    const pal = room.state.pals.get(id)!;
+    pal.hp = 1;
+    vi.spyOn(Math, "random").mockReturnValue(0.999); // every catch fails
+    client.send(ClientMessage.Throw, { palId: id });
+    const calm: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult);
+    (room as any).daze(id, pal);
+    (room as any).inBall.delete(id);
+    await ticks(room, 20); // past the throw cooldown
+    client.send(ClientMessage.Throw, { palId: id });
+    const dizzy: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult);
+    vi.restoreAllMocks();
+    expect(dizzy.chance).toBeGreaterThan(calm.chance);
+    expect(dizzy.shakes).toBeGreaterThanOrEqual(1);
+
+    (room as any).inBall.delete(id);
+    (room as any).dizzyUntil.set(id, 0);
+    await ticks(room, 2);
+    expect(pal.dizzy).toBe(false);
+    expect(pal.hp).toBe(Math.round(pal.maxHp * DIZZY_RECOVER));
+  });
+
+  it("holds a pal in the ball while it wobbles, then lets it break out", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "emberpup", player, 40);
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult);
+    vi.restoreAllMocks();
+    expect(result).toMatchObject({ success: false, shakes: 1 });
+    const hits: HitMessage[] = [];
+    client.onMessage(ServerMessage.Hit, (m: HitMessage) => hits.push(m));
+    client.send(ClientMessage.Attack);
+    await ticks(room, 4);
+    expect(hits).toHaveLength(0); // cannot be hit inside the ball
+    await ticks(room, 30);
+    expect((room as any).inBall.has(id)).toBe(false);
+    expect(room.state.pals.get(id)!.angry).toBe(true); // out, and cross with the thrower
+  });
+
+  it("lands critical hits and knocks pals back", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "pebblet", player);
+    const pal = room.state.pals.get(id)!;
+    pal.maxHp = pal.hp = 500;
+    vi.spyOn(Math, "random").mockReturnValue(0); // a critical hit
+    const startX = pal.x;
+    (room as any).handleAttack(room.clients.find((c) => c.sessionId === client.sessionId));
+    vi.restoreAllMocks();
+    expect(pal.hp).toBe(500 - Math.round(weaponStats("").damage * CRIT_MULTIPLIER));
+    expect(pal.x).toBeCloseTo(startX + weaponStats("").knockback, 0);
+    const hit: HitMessage = await client.waitForMessage(ServerMessage.Hit);
+    expect(hit.crit).toBe(true);
+  });
+
+  it("passive pals run away when hit", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "leafkit", player);
+    client.send(ClientMessage.Attack);
+    await ticks(room, 20);
+    // From 30 px away it runs at chase speed (about 90 px/s) for FLEE_MS.
+    expect(distance(room.state.pals.get(id)!, player)).toBeGreaterThan(100);
+  });
+
+  it("companions leave a dizzy pal for their owner", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    room.state.pals.clear();
+    const id = placeWild(room, "pebblet", player);
+    room.state.pals.get(id)!.hp = 3;
+    client.send(ClientMessage.Attack);
+    await ticks(room, 2);
+    expect(room.state.pals.get(id)!.dizzy).toBe(true);
+    const companionHits: HitMessage[] = [];
+    client.onMessage(ServerMessage.Hit, (m: HitMessage) => m.companionId && companionHits.push(m));
+    await ticks(room, 30);
+    expect(companionHits).toHaveLength(0);
+    expect(room.state.pals.has(id)).toBe(true);
+  });
+
+  it("the boss rears up before it stomps, and a dashing player gets away", async () => {
+    const { room, client, player } = await setup();
+    player.hat = "nonla"; // the volcano is hot
+    const [, boss] = bossOf(room)!;
+    player.x = boss.x - 50;
+    player.y = boss.y;
+    (room as any).controls.get(client.sessionId).invulnerableUntil = Infinity;
+    let reared = false;
+    for (let i = 0; i < 160 && !reared; i++) {
+      await ticks(room, 1);
+      reared = boss.windup === "stomp";
+    }
+    expect(reared).toBe(true);
+    await client.waitForMessage(ServerMessage.BossStomp, 3000);
+    expect(player.hp).toBe(PLAYER_MAX_HP);
   });
 });

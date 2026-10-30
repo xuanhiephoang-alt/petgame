@@ -20,7 +20,7 @@ export class Hud {
   constructor(
     parent: HTMLElement,
     private isTouch: boolean,
-    actions: { attack: () => void; capture: () => void; placeBase: () => void; toggleBall: () => void; eat: () => void; toggleSound: () => boolean },
+    actions: { attack: () => void; dash: () => void; capture: () => void; placeBase: () => void; toggleBall: () => void; eat: () => void; toggleSound: () => boolean },
   ) {
     this.root = div("hud");
     this.status = div("hud-status");
@@ -68,7 +68,7 @@ export class Hud {
 
     if (isTouch) {
       this.root.append(this.joystickZone);
-      this.root.append(button("btn-attack", "Đánh", actions.attack), button("btn-capture", "Bắt", actions.capture));
+      this.root.append(button("btn-attack", "Đánh", actions.attack), button("btn-capture", "Bắt", actions.capture), button("btn-dash", "💨", actions.dash));
     }
     parent.append(this.root);
   }
@@ -119,8 +119,8 @@ export class Hud {
 
   setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string, gear = "") {
     const help = this.isTouch
-      ? "Kéo bên trái để đi • Đánh • Bắt"
-      : "WASD/↑↓←→ đi • Space đánh • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • T tủ đồ • N bản đồ • M âm thanh";
+      ? "Kéo bên trái để đi • Đánh • Bắt • 💨 Lướt né"
+      : "WASD/↑↓←→ đi • Space đánh (cả chặt cây, đập đá) • Shift lướt né • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • T tủ đồ • N bản đồ • M âm thanh";
     const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ") + (gear ? ` &nbsp; ${gear}` : "");
     // Phones get a compact panel: counts plus an invite button.
     const html = this.isTouch
@@ -133,11 +133,21 @@ export class Hud {
     this.status.innerHTML = html;
   }
 
-  showToast(text: string) {
+  showToast(text: string, ms = 2000) {
     this.toast.textContent = text;
     this.toast.classList.add("visible");
     clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toast.classList.remove("visible"), 2000);
+    this.toastTimer = window.setTimeout(() => this.toast.classList.remove("visible"), ms);
+  }
+
+  /** Dims a touch button while its action recharges (e.g. the dash). */
+  cooldown(action: "dash", ms: number) {
+    const button = this.root.querySelector<HTMLButtonElement>(`.btn-${action}`);
+    if (!button) return;
+    button.style.setProperty("--cooldown", `${ms}ms`);
+    button.classList.remove("cooling");
+    void button.offsetWidth; // restart the animation
+    button.classList.add("cooling");
   }
 }
 

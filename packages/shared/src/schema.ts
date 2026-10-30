@@ -69,6 +69,10 @@ export const WildPal = schema(
     level: t.number(),
     /** True while it is chasing someone (fighting back or hunting). */
     angry: t.boolean(),
+    /** About to strike: "bite" (crouching, WILD_WINDUP_MS) or "stomp" (the boss rearing up), "" otherwise. */
+    windup: t.string<"" | "bite" | "stomp">(),
+    /** Reeling at 1 HP (DIZZY_MS): easy to catch, one more hit knocks it out. */
+    dizzy: t.boolean(),
     /** The world boss: much bigger, cannot be captured, can be defeated. */
     boss: t.boolean(),
   },
@@ -120,6 +124,8 @@ export const GameState = schema(
     companions: t.map(Companion),
     chests: t.map(Chest),
     fruits: t.map(Fruit),
+    /** Trees chopped down and rocks broken (nodeId(index) of gathering.ts), until they grow back. */
+    felled: t.map("boolean"),
     /** Time of day in [0, 1): see daycycle.ts. */
     dayTime: t.number(),
   },

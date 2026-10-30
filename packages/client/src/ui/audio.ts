@@ -5,7 +5,8 @@
 
 export type SoundName =
   | "hit" | "hurt" | "throw" | "capture" | "escape" | "levelup"
-  | "skill" | "stomp" | "craft" | "produce" | "victory" | "faint" | "chest" | "quest";
+  | "skill" | "stomp" | "craft" | "produce" | "victory" | "faint" | "chest" | "quest"
+  | "chop" | "mine" | "dash" | "dodge" | "crit" | "ko" | "wobble" | "click";
 
 /** Major pentatonic (day) and minor pentatonic (night), as semitones from the root. */
 const DAY_SCALE = [0, 2, 4, 7, 9, 12, 14, 16];
@@ -82,6 +83,14 @@ export class Sound {
       case "chest": this.noise(t, 0.12, 2500, 0.3); [7, 12, 16, 19].forEach((n, i) => this.tone(t + 0.08 + i * 0.06, note(79 + n), undefined, 0.3, "sine", 0.25)); break;
       case "quest": [0, 7, 12, 7, 12, 16].forEach((n, i) => this.tone(t + i * 0.09, note(67 + n), undefined, 0.3, "triangle", 0.3)); break;
       case "faint": [12, 7, 3, 0].forEach((n, i) => this.tone(t + i * 0.15, note(60 + n), undefined, 0.3, "triangle", 0.3)); break;
+      case "chop": this.tone(t, 220, 110, 0.09, "square", 0.22); this.noise(t, 0.06, 900, 0.35); break;
+      case "mine": this.tone(t, 1400, 900, 0.07, "triangle", 0.25); this.noise(t, 0.05, 4000, 0.3); break;
+      case "dash": this.noise(t, 0.18, 1800, 0.3); this.tone(t, 300, 700, 0.12, "sine", 0.1); break;
+      case "dodge": this.tone(t, note(88), note(95), 0.1, "sine", 0.2); break;
+      case "crit": this.noise(t, 0.1, 2500, 0.55); this.tone(t, 260, 70, 0.16, "square", 0.3); break;
+      case "ko": [7, 3, -2].forEach((n, i) => this.tone(t + i * 0.08, note(64 + n), undefined, 0.12, "square", 0.15)); this.noise(t + 0.2, 0.2, 700, 0.3); break;
+      case "wobble": this.tone(t, 500, 380, 0.06, "triangle", 0.2); break;
+      case "click": this.tone(t, 1800, undefined, 0.04, "square", 0.2); this.tone(t + 0.05, 2400, undefined, 0.05, "square", 0.15); break;
     }
   }
 

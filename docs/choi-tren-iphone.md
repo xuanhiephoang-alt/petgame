@@ -65,5 +65,5 @@ Lưu ý gói **miễn phí** của Render:
 - **Thêm vào Màn hình chính** để chơi toàn màn hình như app: trong Safari bấm nút Chia sẻ → **Thêm vào MH chính**.
 - **Không nghe tiếng?** Gạt **nút im lặng** bên cạnh iPhone sang chế độ có tiếng (Safari tắt âm thanh web khi iPhone ở chế độ im lặng), rồi chạm vào màn hình game một lần.
 - **Giật lag?** Tắt **Chế độ nguồn điện thấp** (Low Power Mode). Chế độ này giới hạn game ở 30 khung hình/giây.
-- Điều khiển: kéo nửa trái màn hình để đi; nút **Đánh**, **Bắt**, **🫐 Ăn**, **🐾 Thú**, **🏕️ Đặt trại**, **🔨 Chế tạo**, **👕 Tủ đồ** (ngoại hình, quần áo, mũ, vũ khí) trên màn hình.
+- Điều khiển: kéo nửa trái màn hình để đi; nút **Đánh** (cả chặt cây, đập đá), **💨** (lướt né), **Bắt**, **🫐 Ăn**, **🐾 Thú**, **🏕️ Đặt trại**, **🔨 Chế tạo**, **👕 Tủ đồ** (ngoại hình, quần áo, mũ, vũ khí) trên màn hình.
 - Thú và tiến trình được lưu theo **trình duyệt trên máy đó**. Xóa dữ liệu Safari hoặc đổi máy là bắt đầu lại.

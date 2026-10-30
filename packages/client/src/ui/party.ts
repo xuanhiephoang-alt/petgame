@@ -87,7 +87,7 @@ export class PartyPanel {
     if (party.length === 0) {
       const empty = document.createElement("p");
       empty.className = "party-empty";
-      empty.textContent = "Chưa bắt được thú nào. Đánh cho thú yếu đi rồi ném bóng để bắt!";
+      empty.textContent = "Chưa bắt được thú nào. Đánh đến khi thú choáng 💫 rồi ném bóng để bắt!";
       this.list.append(empty);
       return;
     }

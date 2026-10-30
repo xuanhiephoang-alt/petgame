@@ -8,6 +8,8 @@ Game 2D bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống (h�
 - Thời tiết riêng từng vùng; vùng lạnh/nóng làm mất máu nếu không mặc 🧥 áo ấm (hay đội 🧶 mũ len) / đội 👒 nón lá (hay 🤠 mũ thám hiểm), hoặc có thú hệ lửa / nước đi theo.
 - Tự chọn ngoại hình ở sảnh (8 kiểu tóc, 8 màu tóc, 5 màu da) và thay đồ trong **👕 Tủ đồ** (phím T): 8 bộ quần áo, 8 mũ, 8 vũ khí (gậy, kiếm, rìu, giáo đánh gần; ná, cung, gậy phép bắn xa). Đồ có từ đầu, chế tạo ở trại, tìm trong rương hoặc hạ trùm mới có; giáp và mũ sắt giảm sát thương.
 - 13 loài thú theo vùng và giờ (ngày/đêm), càng xa càng mạnh; bắt, nuôi lên cấp, cho đi theo đánh cùng hoặc làm việc ở trại.
+- Chiến đấu: thú gồng người trước khi cắn (lùi hoặc lướt để né), đòn đánh văng thú, đòn chí mạng, thú choáng ở 1 máu (bắt dễ hơn hoặc hạ gục lấy đồ), thú hiền bị đánh thì bỏ chạy. Bắt thú có bóng lắc 1–3 lần trước khi biết kết quả.
+- Chặt cây lấy gỗ, đập đá lấy đá (rìu, búa được gấp đôi); cây thành gốc, đá thành đống vụn rồi mọc lại.
 - 40 rương báu, bụi quả mọng để hái, chuỗi 16 nhiệm vụ, chế tạo, nâng cấp trại, bản đồ thu nhỏ (phím N), lưu game tự động.
 
 ## Chơi trên iPhone / điện thoại
@@ -26,10 +28,11 @@ Mở http://localhost:5173, nhập tên, bấm **Vào chơi**. Gửi **link mờ
 | Điều khiển | Bàn phím | Điện thoại |
 |---|---|---|
 | Di chuyển | WASD / mũi tên | Kéo ở nửa trái màn hình |
-| Đánh (giảm máu thú) | Space | Nút **Đánh** |
+| Đánh thú; đứng cạnh cây, đá thì chặt gỗ, đập đá | Space | Nút **Đánh** |
+| Lướt né (nhanh, không bị cắn trong lúc lướt) | Shift | Nút **💨** |
 | Ném bóng bắt thú gần nhất | E | Nút **Bắt** |
 
-Thú càng ít máu càng dễ bắt.
+Thú càng ít máu càng dễ bắt. Còn 1 máu thì thú **choáng** 💫 vài giây: ném bóng lúc này dễ bắt hơn, đánh thêm một đòn thì hạ gục nó và nhặt đồ rơi ra. Thú gồng người (đỏ lên) trước khi cắn: lùi lại hoặc lướt để né. Trùm giậm chân sau khi hiện vòng đỏ trên đất: chạy ra khỏi vòng.
 
 ## Công nghệ
 TypeScript · PixiJS 8 (2D, WebGL) · Colyseus 0.18 · Vite · Vitest · Playwright

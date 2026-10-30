@@ -132,7 +132,15 @@ interface PropSprite {
   art: PropArt;
   /** Fade (0 solid .. 1 see-through) for canopies hiding the player. */
   fade: number;
+  /** Chopped down or broken: a stump or a little rubble until it grows back. */
+  felled: boolean;
+  /** Seconds left of a shake from a hit, and of growing back. */
+  shake: number;
+  grow: number;
 }
+
+/** What a chopped tree leaves in each region (a decoration picture). */
+const STUMPS: Partial<Record<TerrainKind, string>> = { swamp: "SwampStump", volcano: "Stump" };
 
 /**
  * Trees, bushes and rocks of the shared world layout as sprites sorted with
@@ -143,6 +151,9 @@ interface PropSprite {
  */
 export class Scenery {
   private props: PropSprite[] = [];
+  /** Props by their index in the layout (the server names trees and rocks by it). */
+  private byIndex = new Map<number, PropSprite>();
+  private terrain: WorldLayout["terrain"];
   private decor: { sprite: Sprite; at: Decor; sway: number }[] = [];
   private glows: Light[] = [];
   private seen: Light[] = [];
@@ -154,7 +165,8 @@ export class Scenery {
   private crater: Vec2;
 
   constructor(objects: Container, layout: WorldLayout, glow: Texture) {
-    for (const prop of layout.props) {
+    this.terrain = layout.terrain;
+    for (const [index, prop] of layout.props.entries()) {
       if (prop.model.startsWith("Grass")) continue; // baked into the ground
       const art = propArt(prop.model, regionTint(layout, prop));
       const sprite = new Sprite(art.texture);
@@ -167,7 +179,9 @@ export class Scenery {
       sprite.zIndex = prop.y;
       sprite.visible = false;
       objects.addChild(sprite);
-      this.props.push({ sprite, prop, art, fade: 0 });
+      const entry: PropSprite = { sprite, prop, art, fade: 0, felled: false, shake: 0, grow: 0 };
+      this.props.push(entry);
+      this.byIndex.set(index, entry);
       const lit = GLOW[`${prop.model}@${regionTint(layout, prop)}`];
       if (lit && art.tint === undefined) {
         this.glows.push({ x: prop.x, y: prop.y - 8 * prop.scale, radius: lit.radius * prop.scale, color: lit.color, strength: lit.strength });
@@ -245,6 +259,56 @@ export class Scenery {
     }
   }
 
+  /** The tree or rock with this layout index was hit: it shakes. */
+  hitProp(index: number) {
+    const p = this.byIndex.get(index);
+    if (p) p.shake = 0.35;
+  }
+
+  /** Where a tree or rock stands and how tall it is drawn (world px), for effects. */
+  propTop(index: number): { x: number; y: number; height: number } | undefined {
+    const p = this.byIndex.get(index);
+    return p && { x: p.prop.x, y: p.prop.y, height: p.sprite.height };
+  }
+
+  /** Chops a tree down to a stump or breaks a rock into rubble, or lets it grow back. */
+  setFelled(index: number, felled: boolean) {
+    const p = this.byIndex.get(index);
+    if (!p || p.felled === felled) return;
+    p.felled = felled;
+    const { sprite, prop, art } = p;
+    const flip = prop.yaw > Math.PI ? -1 : 1;
+    sprite.skew.x = 0;
+    if (!felled) {
+      sprite.texture = art.texture;
+      sprite.anchor.set(art.anchor.x, art.anchor.y);
+      const size = prop.scale * (art.fit ?? 1);
+      sprite.scale.set(flip * size, size);
+      sprite.tint = art.tint ?? 0xffffff;
+      p.grow = 0.45;
+      return;
+    }
+    if (prop.kind === "rock") {
+      // A low pile of the same stone.
+      const size = prop.scale * (art.fit ?? 1);
+      sprite.scale.set(flip * size * 0.62, size * 0.42);
+      sprite.tint = 0xb8b0a6;
+      return;
+    }
+    const region = terrainAt(this.terrain, prop.x, prop.y);
+    const stump = decorArt(STUMPS[region] ?? "TreeStump");
+    if (!stump) {
+      sprite.scale.set(flip * prop.scale * (art.fit ?? 1) * 0.35, prop.scale * (art.fit ?? 1) * 0.3);
+      return;
+    }
+    sprite.texture = stump.texture;
+    sprite.anchor.set(stump.anchor.x, stump.anchor.y);
+    const size = (stump.fit ?? 1) * Math.min(1.3, 0.8 + prop.scale * 0.3);
+    sprite.scale.set(flip * size, size);
+    sprite.tint = region === "snow" ? 0xe3eef7 : 0xffffff;
+    sprite.alpha = 1;
+  }
+
   /** Shows or hides the berries of fruit bush `index` ("fruit<index>" in the state). */
   setRipe(index: number, ripe: boolean) {
     const sprite = this.berries[index];
@@ -260,7 +324,7 @@ export class Scenery {
     ];
   }
 
-  update(view: Rectangle, timeSec: number, focus: Vec2 | undefined) {
+  update(view: Rectangle, timeSec: number, focus: Vec2 | undefined, dt = 0) {
     const x0 = view.x, x1 = view.x + view.width, y0 = view.y, y1 = view.y + view.height;
     for (const p of this.props) {
       const { prop, sprite, art } = p;
@@ -268,6 +332,24 @@ export class Scenery {
       const visible = prop.x > x0 - 80 && prop.x < x1 + 80 && prop.y > y0 - 20 && prop.y < y1 + 160;
       sprite.visible = visible;
       if (!visible) continue;
+      if (p.shake > 0 || p.grow > 0) {
+        p.shake = Math.max(0, p.shake - dt);
+        p.grow = Math.max(0, p.grow - dt);
+        const k = p.shake / 0.35;
+        // A hit tree whips back and forth, a rock jolts; one growing back swells up from small.
+        if (prop.kind === "tree" && !p.felled) sprite.skew.x = Math.sin(p.shake * 60) * 0.14 * k;
+        sprite.x = prop.x + (prop.kind === "rock" || p.felled ? Math.sin(p.shake * 90) * 2 * k : 0);
+        if (p.grow > 0) {
+          const g = 1 - p.grow / 0.45;
+          const size = prop.scale * (art.fit ?? 1) * (0.55 + 0.45 * (1 - (1 - g) * (1 - g)));
+          sprite.scale.set(Math.sign(sprite.scale.x) * size, size);
+        }
+        if (p.shake > 0) continue;
+      }
+      if (p.felled) {
+        sprite.alpha = 1;
+        continue;
+      }
       if (art.sway) sprite.skew.x = Math.sin(timeSec * 1.6 + prop.x * 0.013 + prop.y * 0.007) * art.sway;
       // Canopies between the camera and the player turn see-through.
       let want = 0;

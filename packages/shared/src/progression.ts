@@ -7,6 +7,8 @@ export const XP_PER_HIT = 4;
 export const XP_PER_CAPTURE = 25;
 /** XP a working pal earns per item it produces. */
 export const XP_PER_WORK = 2;
+/** XP the following companion earns when its owner knocks out a wild pal. */
+export const XP_PER_KNOCKOUT = 12;
 
 /** XP needed to go from `level` to `level + 1`. */
 export function xpToNext(level: number): number {

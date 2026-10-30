@@ -7,7 +7,17 @@ import {
   distance,
   getSpecies,
   normalizeInput,
-  stepPlayer,
+  stepWithDash,
+  knockback,
+  gatherNodes,
+  nearestNode,
+  nodeId,
+  captureRevealMs,
+  BALL_FLIGHT_MS,
+  DASH_COOLDOWN_MS,
+  DASH_MS,
+  HARVEST_RANGE,
+  PLAYER_RADIUS,
   RESOURCE_INFO,
   CRAFT_RANGE,
   DAY_LENGTH_MS,
@@ -15,6 +25,7 @@ import {
   phaseAt,
   BOSS,
   QUESTS,
+  rewardText,
   GEAR,
   ITEMS,
   ITEM_INFO,
@@ -27,6 +38,10 @@ import {
   getWearable,
   weaponStats,
   type HarvestedMessage,
+  type GatheredMessage,
+  type LungeMessage,
+  type DefeatedMessage,
+  type DashedMessage,
   type ChestOpenedMessage,
   type QuestDoneMessage,
   type BossDefeatedMessage,
@@ -94,6 +109,8 @@ interface PalEntity extends Named<PalActor> {
   hp: number;
   maxHp: number;
   hpFill: HTMLDivElement;
+  /** Inside a ball (being caught): hidden, label too. */
+  inBall?: boolean;
 }
 
 interface Camp {
@@ -137,6 +154,22 @@ export class Game {
   private wardrobe!: WardrobePanel;
   /** When the local player last attacked (ms), to keep to the weapon's pace. */
   private lastAttackAt = -Infinity;
+  /** The local player's dash (predicted like walking) and when the next one may start. */
+  private dashing = { dir: { x: 0, y: 0 }, leftMs: 0 };
+  private nextDashAt = 0;
+  /** Explorers leaving a trail of afterimages until then (ms), and when the last one was left. */
+  private trails = new Map<PlayerActor, { until: number; last: number }>();
+  /** Trees and rocks (to face the one being chopped). */
+  private nodes = gatherNodes(defaultWorld().layout);
+  /** Wild pals gone from the state but still on screen: caught (in a ball), knocked out (falling over), or fading. */
+  private leaving = new Map<string, { entity: PalEntity; since: number; fate?: "ko" | "caught" }>();
+  /** One-time tips already shown this session. */
+  private tips = new Set<string>();
+  /** How wild pals left the world, when the news came before the state did. */
+  private fates = new Map<string, "ko" | "caught">();
+  /** When the local player was last knocked back or dashed (ms): its position may run ahead of the server's for a moment. */
+  private knockedAt = -Infinity;
+  private defaultLayout = defaultWorld().layout;
   /** Whether the next throw should use a crafted great ball. */
   private useGreatBall = false;
   private minimap!: Minimap;
@@ -190,6 +223,7 @@ export class Game {
 
     this.hud = new Hud(container, isTouch, {
       attack: () => this.attack(),
+      dash: () => this.dash(),
       capture: () => this.throwBall(),
       placeBase: () => this.room.send(ClientMessage.PlaceBase),
       toggleBall: () => this.toggleBall(),
@@ -221,6 +255,7 @@ export class Game {
     for (const panel of panels) panel.onOpen = () => panels.forEach((other) => other !== panel && other.toggle(false));
     this.keyboard = new Keyboard({
       " ": () => this.attack(),
+      shift: () => this.dash(),
       e: () => this.throwBall(),
       b: () => this.room.send(ClientMessage.PlaceBase),
       r: () => this.toggleBall(),
@@ -299,6 +334,10 @@ export class Game {
       const entity: PalEntity = { actor, tag, label, hpFill, hp: pal.hp, maxHp: pal.maxHp };
       this.pals.set(id, entity);
       this.updateHpBar(entity);
+      let { angry, dizzy, windup } = pal;
+      actor.setWindup(windup);
+      actor.setDizzy(dizzy);
+      label.classList.toggle("dizzy", dizzy);
       $.onChange(pal, () => {
         actor.server.x = pal.x;
         actor.server.y = pal.y;
@@ -306,15 +345,50 @@ export class Game {
         entity.maxHp = pal.maxHp;
         this.updateHpBar(entity);
         label.classList.toggle("angry", pal.angry);
+        const near = this.nearMe(actor.pos, 520);
+        if (pal.windup !== windup) {
+          windup = pal.windup;
+          actor.setWindup(windup);
+          // Where the boss's stomp will land: get out of the ring.
+          if (windup === "stomp") this.effects.warning(() => this.pals.get(id)?.actor.pos, BOSS.stompRadius, BOSS.stompWindupMs / 1000);
+        }
+        if (pal.dizzy !== dizzy) {
+          dizzy = pal.dizzy;
+          actor.setDizzy(dizzy);
+          label.classList.toggle("dizzy", dizzy);
+          if (dizzy && near) {
+            this.labels.float(actor.pos, actor.height + 4, "💫 Choáng!", "dizzy");
+            if (this.nearMe(actor.pos, 260)) this.tip("dizzy", "💫 Thú đang choáng: ném bóng (E) để dễ bắt, hoặc đánh thêm để hạ gục lấy đồ");
+          }
+        }
+        if (pal.angry !== angry) {
+          angry = pal.angry;
+          // Noticed someone, or gave up the chase.
+          if (near && !dizzy) this.labels.float(actor.pos, actor.height + 2, angry ? "❗" : "❓", "emote");
+        }
       });
     });
 
     $.onRemove("pals", (_pal, id) => {
       if (id === this.bossId) this.bossId = undefined;
       const entity = this.pals.get(id);
-      if (entity) this.removeActor(entity);
       this.pals.delete(id);
+      // Kept on screen a moment: falling over, inside a ball, or fading away.
+      if (entity) this.leaving.set(id, { entity, since: performance.now(), fate: this.fates.get(id) });
+      this.fates.delete(id);
     });
+
+    // Chopped trees and broken rocks, until they grow back.
+    $.onAdd("felled", (_value, key) => {
+      const index = Number(key.slice(1));
+      this.scenery.setFelled(index, true);
+      const at = this.scenery.propTop(index);
+      if (at && this.frames > 10 && this.nearMe(at, 600)) {
+        if (this.defaultLayout.props[index]?.kind === "tree") this.effects.leaves({ x: at.x, y: at.y - 30 }, 14);
+        this.effects.poof(at);
+      }
+    });
+    $.onRemove("felled", (_value, key) => this.scenery.setFelled(Number(key.slice(1)), false));
 
     $.onAdd("companions", (companion, id) => {
       const species = getSpecies(companion.speciesId);
@@ -397,9 +471,15 @@ export class Game {
 
     this.room.onMessage(ServerMessage.Hit, (msg: HitMessage) => {
       const pal = this.pals.get(msg.palId);
-      if (pal && distance(pal.actor.pos, this.me()?.pos ?? pal.actor.pos) < 500) this.sound.play("hit");
-      if (pal && msg.effect === "super") this.labels.float(pal.actor.pos, pal.actor.height, "Hiệu quả! 💥", "super");
-      if (pal && msg.effect === "weak") this.labels.float(pal.actor.pos, pal.actor.height, "Kém hiệu quả", "weak");
+      const mine = msg.playerId === this.room.sessionId && !msg.companionId;
+      if (pal && this.nearMe(pal.actor.pos, 500)) this.sound.play(msg.crit ? "crit" : "hit");
+      if (pal) {
+        const lift = pal.actor.height;
+        this.effects.impact({ x: pal.actor.pos.x, y: pal.actor.pos.y - lift * 0.5 }, msg.crit);
+        this.labels.float(pal.actor.pos, lift - 6, msg.crit ? `💥${msg.damage}` : `${msg.damage}`, msg.crit ? "crit" : msg.companionId ? "hit small" : "hit");
+      }
+      if (pal && msg.effect === "super") this.labels.float(pal.actor.pos, pal.actor.height + 14, "Hiệu quả! 💥", "super");
+      if (pal && msg.effect === "weak") this.labels.float(pal.actor.pos, pal.actor.height + 14, "Kém hiệu quả", "weak");
       if (msg.companionId) {
         const companion = this.companions.get(msg.companionId);
         if (companion && pal) companion.actor.faceToward(pal.actor.pos);
@@ -415,31 +495,122 @@ export class Game {
       }
       if (!pal) return;
       pal.actor.play("hurt");
+      if (mine) {
+        // The weight of the blow: both hold still for a moment and the camera jolts.
+        const hold = msg.crit ? 0.11 : 0.06;
+        pal.actor.freeze(hold);
+        this.me()?.freeze(hold);
+        this.shake = Math.max(this.shake, msg.crit ? 5 : 2.2);
+      }
+      // A passive pal runs off in a fright.
+      const species = this.room.state.pals.get(msg.palId)?.speciesId;
+      if (species && getSpecies(species).temperament === "passive" && !this.room.state.pals.get(msg.palId)?.dizzy) {
+        this.labels.float(pal.actor.pos, pal.actor.height + 2, "💦", "emote");
+      }
+    });
+
+    this.room.onMessage(ServerMessage.Lunge, (msg: LungeMessage) => {
+      const attacker = this.pals.get(msg.palId);
+      const target = msg.targetType === "player" ? this.players.get(msg.targetId) : this.companions.get(msg.targetId);
+      if (attacker) {
+        if (target) attacker.actor.faceToward(target.actor.pos);
+        attacker.actor.play("attack");
+      }
+      if (!msg.dodged || !target) return;
+      this.labels.float(target.actor.pos, target.actor.height, "Né!", "dodge");
+      if (msg.targetId === this.room.sessionId) this.sound.play("dodge");
+    });
+
+    this.room.onMessage(ServerMessage.Defeated, (msg: DefeatedMessage) => {
+      const entity = this.pals.get(msg.palId) ?? this.leaving.get(msg.palId)?.entity;
+      this.setFate(msg.palId, "ko");
+      const player = this.players.get(msg.playerId);
+      if (entity) {
+        entity.actor.setDizzy(false);
+        entity.actor.setWindup("");
+        entity.actor.play("ko");
+        const at = { ...entity.actor.pos };
+        setTimeout(() => this.effects.poof(at), 450);
+      }
+      const from = entity?.actor.pos ?? player?.actor.pos;
+      if (from && player) {
+        const at = { ...from };
+        setTimeout(() => this.effects.lootFly(at, () => this.players.get(msg.playerId)?.actor.pos, lootIcons(msg.loot)), 300);
+        setTimeout(() => {
+          const p = this.players.get(msg.playerId);
+          if (p) this.labels.float(p.actor.pos, p.actor.height + 8, `+${rewardText(msg.loot)}`);
+        }, 900);
+      }
+      if (msg.playerId === this.room.sessionId) this.sound.play("ko");
+    });
+
+    this.room.onMessage(ServerMessage.Gathered, (msg: GatheredMessage) => {
+      const node = this.scenery.propTop(msg.node);
+      const player = this.players.get(msg.playerId);
+      if (!node) return;
+      const kind = msg.resource === "wood" ? "tree" : "rock";
+      this.scenery.hitProp(msg.node);
+      this.effects.chips(node, kind, node.height);
+      if (this.nearMe(node, 500)) this.sound.play(kind === "tree" ? "chop" : "mine");
+      if (!player) return;
+      player.actor.faceToward(node);
+      if (msg.playerId !== this.room.sessionId) player.actor.play("attack");
+      const icon = RESOURCE_INFO[msg.resource].icon;
+      this.effects.lootFly({ x: node.x, y: node.y - 6 }, () => this.players.get(msg.playerId)?.actor.pos, Array(msg.amount).fill(icon));
+      setTimeout(() => {
+        const p = this.players.get(msg.playerId);
+        if (p) this.labels.float(p.actor.pos, p.actor.height + 8, `+${msg.amount} ${icon}`);
+      }, 650);
+    });
+
+    this.room.onMessage(ServerMessage.Dashed, (msg: DashedMessage) => {
+      if (msg.playerId === this.room.sessionId) return; // already shown on the key press
+      const p = this.players.get(msg.playerId);
+      if (!p) return;
+      p.actor.face(msg.x, msg.y);
+      p.actor.play("dash");
+      this.effects.dust(p.actor.pos, 1.2, msg);
+      this.trails.set(p.actor, { until: performance.now() + DASH_MS + 60, last: 0 });
     });
 
     this.room.onMessage(ServerMessage.CaptureResult, (msg: CaptureResultMessage) => {
       const thrower = this.players.get(msg.playerId);
-      const pal = this.pals.get(msg.palId);
-      const great = msg.playerId === this.room.sessionId && this.useGreatBall;
-      if (thrower && pal) this.effects.throwBall(thrower.actor.pos, pal.actor.pos, great);
-      if (msg.playerId === this.room.sessionId) {
-        this.sound.play("throw");
-        setTimeout(() => this.sound.play(msg.success ? "capture" : "escape"), 320);
-      }
-      if (msg.success && pal) {
-        const at = { ...pal.actor.pos };
-        setTimeout(() => {
-          this.effects.poof(at);
-          this.effects.sparkle(at, parseInt(getSpecies(msg.speciesId).color.slice(1), 16));
-        }, 360);
-      }
-      if (msg.playerId !== this.room.sessionId) {
-        thrower?.actor.play("throw");
+      const entity = this.pals.get(msg.palId) ?? this.leaving.get(msg.palId)?.entity;
+      const mine = msg.playerId === this.room.sessionId;
+      const great = mine && this.useGreatBall;
+      const name = getSpecies(msg.speciesId).name;
+      const verdict = () => {
+        if (!mine) return;
+        this.sound.play(msg.success ? "capture" : "escape");
+        this.hud.showToast(msg.success ? `Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${Math.round(msg.chance * 100)}%)`);
+      };
+      if (msg.success) this.setFate(msg.palId, "caught");
+      if (mine) this.sound.play("throw");
+      else thrower?.actor.play("throw");
+      if (!thrower || !entity) {
+        setTimeout(verdict, captureRevealMs(msg.shakes));
         return;
       }
-      const name = getSpecies(msg.speciesId).name;
-      const pct = Math.round(msg.chance * 100);
-      this.hud.showToast(msg.success ? `Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${pct}%)`);
+      // The pal holds still in the ball on the server too, until the wobbling ends.
+      const at = { ...entity.actor.pos };
+      this.effects.throwBall(thrower.actor.pos, at, great);
+      setTimeout(() => {
+        entity.inBall = true;
+        entity.actor.play("vanish");
+        this.effects.ring(at, 0xffffff, 30, 0.25);
+        const color = parseInt(getSpecies(msg.speciesId).color.slice(1), 16);
+        this.effects.captureBall(at, great, msg.shakes, msg.success, () => {
+          if (msg.success) {
+            this.effects.sparkle(at, color);
+            if (this.nearMe(at, 500)) this.sound.play("click");
+          } else {
+            entity.inBall = false;
+            entity.actor.root.visible = true;
+            entity.actor.play("pop");
+          }
+          verdict();
+        }, () => this.nearMe(at, 500) && this.sound.play("wobble"));
+      }, BALL_FLIGHT_MS);
     });
 
     $.listen("dayTime", (value) => {
@@ -450,10 +621,7 @@ export class Game {
     this.room.onMessage(ServerMessage.Damage, (msg: DamageMessage) => {
       const target = msg.targetType === "player" ? this.players.get(msg.targetId) : this.companions.get(msg.targetId);
       const attacker = this.pals.get(msg.attackerId);
-      if (attacker) {
-        if (target) attacker.actor.faceToward(target.actor.pos);
-        attacker.actor.play("attack");
-      }
+      if (attacker && target) attacker.actor.faceToward(target.actor.pos);
       if (!target) return;
       if (msg.cause) {
         // Cold or heat: a quieter tick of damage.
@@ -464,6 +632,13 @@ export class Game {
       if (msg.targetType === "player" && msg.targetId === this.room.sessionId) {
         this.sound.play("hurt");
         this.shake = Math.max(this.shake, 4);
+        const me = this.me();
+        if (me && msg.push && attacker) {
+          const sailing = (this.room.state.players.get(this.room.sessionId)?.raft ?? 0) > 0;
+          const sea = sailing ? undefined : (at: Vec2) => isSea(this.terrain, at.x, at.y);
+          me.pos = knockback(me.pos, attacker.actor.pos, msg.push, PLAYER_RADIUS, this.obstacles, sea);
+          this.knockedAt = performance.now();
+        }
       }
       this.labels.float(target.actor.pos, target.actor.height, `-${msg.amount}`, "damage");
     });
@@ -548,10 +723,14 @@ export class Game {
     this.players.forEach(({ actor }, sessionId) => {
       const prev = { x: actor.pos.x, y: actor.pos.y };
       if (sessionId === this.room.sessionId) {
-        // Client-side prediction, gently corrected toward the server.
+        // Client-side prediction (dashes too), gently corrected toward the server.
         const raft = (this.room.state.players.get(sessionId)?.raft ?? 0) > 0;
-        const predicted = stepPlayer(actor.pos, input, delta, this.obstacles, { terrain: this.terrain, canSail: raft });
-        if (distance(predicted, actor.server) > SNAP_DISTANCE) actor.pos = { ...actor.server };
+        const step = stepWithDash(actor.pos, input, delta, this.dashing, this.obstacles, { terrain: this.terrain, canSail: raft });
+        this.dashing.leftMs = step.dashLeftMs;
+        const predicted = step.pos;
+        // Just after a dash or a push the server lags behind by up to a round trip: allow a wider gap.
+        const snap = now - this.knockedAt < 600 ? SNAP_DISTANCE * 2.5 : SNAP_DISTANCE;
+        if (distance(predicted, actor.server) > snap) actor.pos = { ...actor.server };
         else actor.pos = {
           x: predicted.x + (actor.server.x - predicted.x) * 0.05,
           y: predicted.y + (actor.server.y - predicted.y) * 0.05,
@@ -565,6 +744,14 @@ export class Game {
       actor.place(prev, dt);
       actor.atSea = isSea(this.terrain, actor.pos.x, actor.pos.y);
       actor.update(dt);
+      if (actor.takeStep() && !actor.atSea && this.nearMe(actor.pos, 700)) this.effects.dust(actor.pos, 0.7);
+    });
+    this.trails.forEach((trail, actor) => {
+      if (now > trail.until || !actor.root.parent) return void this.trails.delete(actor);
+      if (now - trail.last < 34) return;
+      trail.last = now;
+      const ghost = actor.ghost();
+      if (ghost) this.effects.fadeOut(ghost, this.stage.objects, 0.28);
     });
     const focus = this.me()?.pos;
 
@@ -575,11 +762,30 @@ export class Game {
       actor.pos.y += (actor.server.y - actor.pos.y) * lerp;
       // Far-away pals are hidden and not animated (the world is big).
       const near = !focus || distance(focus, actor.pos) < PAL_DRAW_DISTANCE;
-      actor.root.visible = actor.ground.visible = near;
-      pal.tag.visible = near;
+      actor.root.visible = near && !pal.inBall;
+      actor.ground.visible = near && !pal.inBall;
+      pal.tag.visible = near && !pal.inBall;
       if (!near) return;
       actor.place(prev, dt);
       actor.update(dt);
+      // The boss shakes the ground as it walks.
+      if (pal.actor === this.bossActor() && actor.takeStep() && focus) {
+        this.effects.dust(actor.pos, 2.2);
+        const d = distance(focus, actor.pos);
+        if (d < 420) this.shake = Math.max(this.shake, 2.5 * (1 - d / 420));
+      }
+    });
+    // Pals already gone from the state: falling over, in a ball, or fading out.
+    this.leaving.forEach((l, id) => {
+      const age = now - l.since;
+      l.entity.tag.visible = false;
+      if (l.entity.inBall) l.entity.actor.root.visible = false;
+      l.entity.actor.update(dt);
+      if (!l.fate) l.entity.actor.root.alpha = Math.max(0, 1 - age / 300);
+      if (age > (l.fate === "ko" ? 750 : l.fate === "caught" ? 1200 : 300)) {
+        this.removeActor(l.entity);
+        this.leaving.delete(id);
+      }
     });
 
     this.companions.forEach(({ actor }) => {
@@ -662,12 +868,74 @@ export class Game {
     this.lastAttackAt = now;
     this.room.send(ClientMessage.Attack);
     const target = this.nearestPal(me.pos, weapon.range + (weapon.ranged ? 0 : 8), true);
-    if (target) me.faceToward(target[1].actor.pos);
+    const spot = target?.[1].actor.pos ?? this.gatherSpot(me.pos);
+    if (spot) me.faceToward(spot);
     me.play("attack");
     if (!weapon.ranged) return this.effects.slash(me.pos, me.facing, weapon.range);
     const ahead = { front: { x: 0, y: 1 }, back: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[me.facing];
     const to = target?.[1].actor.pos ?? { x: me.pos.x + ahead.x * weapon.range * 0.6, y: me.pos.y + ahead.y * weapon.range * 0.6 };
     this.effects.shot(me.pos, to, me.weapon, target?.[1].actor.height);
+  }
+
+  /** Dashes along the stick or keys (or ahead when standing): a burst of speed that bites and stomps miss. */
+  private dash() {
+    const me = this.me();
+    const now = performance.now();
+    if (!me || now < this.nextDashAt) return;
+    const input = this.readInput();
+    const ahead = { front: { x: 0, y: 1 }, back: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[me.facing];
+    const dir = input.x !== 0 || input.y !== 0 ? input : ahead;
+    const len = Math.hypot(dir.x, dir.y);
+    const unit = { x: dir.x / len, y: dir.y / len };
+    this.nextDashAt = now + DASH_COOLDOWN_MS;
+    this.dashing = { dir: unit, leftMs: DASH_MS };
+    this.knockedAt = now;
+    this.room.send(ClientMessage.Dash, unit);
+    me.face(unit.x, unit.y);
+    me.play("dash");
+    this.effects.dust(me.pos, 1.4, unit);
+    this.trails.set(me, { until: now + DASH_MS + 60, last: 0 });
+    this.sound.play("dash");
+    this.hud.cooldown("dash", DASH_COOLDOWN_MS);
+  }
+
+  /** What an attack with no pal in reach works on: a ripe fruit bush, or the tree or rock closest at hand. */
+  private gatherSpot(at: Vec2): Vec2 | undefined {
+    let fruit: Vec2 | undefined;
+    this.room.state.fruits?.forEach((f) => {
+      if (!fruit && distance(at, f) <= HARVEST_RANGE) fruit = { x: f.x, y: f.y };
+    });
+    if (fruit) return fruit;
+    const felled = this.room.state.felled;
+    return nearestNode(this.nodes, at, (n) => !felled?.has(nodeId(n.index)));
+  }
+
+  /** Whether a point is within `range` pixels of the local player (sounds and effects far away are skipped). */
+  private nearMe(at: Vec2, range: number): boolean {
+    const me = this.me();
+    return !me || distance(me.pos, at) < range;
+  }
+
+  /** A tip shown once per session. */
+  private tip(key: string, text: string) {
+    if (this.tips.has(key)) return;
+    this.tips.add(key);
+    setTimeout(() => this.hud.showToast(text, 4500), 600);
+  }
+
+  /** How a wild pal left the world (it may still be in the state, or already leaving). */
+  private setFate(id: string, fate: "ko" | "caught") {
+    const leaving = this.leaving.get(id);
+    if (leaving) {
+      leaving.fate = fate;
+      leaving.entity.actor.root.alpha = 1;
+    } else {
+      this.fates.set(id, fate);
+    }
+  }
+
+  private bossActor(): PalActor | undefined {
+    return this.bossId ? this.pals.get(this.bossId)?.actor : undefined;
   }
 
   /** The closest wild pal within `range` (pixels) of a point; `toEdge` measures to the boss's side like hits do. */
@@ -889,6 +1157,16 @@ export class Game {
       objects: this.stage.objects.children.filter((c) => c.visible).length,
     };
   }
+}
+
+/** One icon per resource or item in a pile of loot (a few at most), for the flying-loot effect. */
+function lootIcons(loot: Record<string, number>): string[] {
+  const icons: string[] = [];
+  for (const [key, amount] of Object.entries(loot)) {
+    const icon = RESOURCE_INFO[key as Resource]?.icon ?? ITEM_INFO[key as keyof typeof ITEM_INFO]?.icon;
+    if (icon) for (let i = 0; i < Math.min(amount, 4); i++) icons.push(icon);
+  }
+  return icons;
 }
 
 /** Keeps the local explorer's look and clothes for the lobby next time (it shows them and sends the look). */

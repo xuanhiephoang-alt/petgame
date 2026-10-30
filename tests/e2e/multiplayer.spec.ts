@@ -289,3 +289,58 @@ test("explorer: a look picked in the lobby, clothes and weapons from the wardrob
   await waitForWorld(page);
   await expect.poll(me).toMatchObject({ hair: "curly", outfit: "knight", hat: "crown", weapon: "bow", owned: 24 });
 });
+
+test("gameplay: chop a tree, dash, and knock out a dizzy pal", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Lumberjack");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const me = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const p = room.state.players.get(room.sessionId);
+    return { x: p.x as number, y: p.y as number, wood: p.wood as number, stone: p.stone as number };
+  });
+
+  // Stand by the nearest tree and chop it with the attack key until it falls.
+  const tree = await page.evaluate(() => {
+    const { game, room } = (window as any).__petgame;
+    const p = room.state.players.get(room.sessionId);
+    const trees = game.nodes.filter((n: any) => n.kind === "tree");
+    trees.sort((a: any, b: any) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
+    const t = trees[0];
+    room.send("debug:teleport", { x: t.x + t.radius + 16, y: t.y });
+    return { index: t.index as number };
+  });
+  await page.waitForTimeout(800);
+  for (let i = 0; i < 8 && (await me()).wood < 3; i++) {
+    await page.keyboard.press(" ");
+    await page.waitForTimeout(500);
+  }
+  expect((await me()).wood).toBeGreaterThanOrEqual(3);
+  await expect.poll(() => page.evaluate((i) => (window as any).__petgame.room.state.felled.has(`n${i}`), tree.index)).toBe(true);
+
+  // Dash: Shift while walking covers far more ground than walking alone.
+  await page.evaluate(() => (window as any).__petgame.room.send("debug:teleport", { x: 3150, y: 2500 }));
+  await expect.poll(async () => Math.round((await me()).x)).toBe(3150);
+  await page.waitForTimeout(400);
+  const before = await me();
+  await page.keyboard.down("d");
+  await page.keyboard.press("Shift");
+  await page.waitForTimeout(250);
+  await page.keyboard.up("d");
+  await page.waitForTimeout(300);
+  expect((await me()).x - before.x).toBeGreaterThan(75);
+
+  // A weakened pal: one hit leaves it dizzy, the next knocks it out for loot.
+  await page.evaluate(() => (window as any).__petgame.room.send("debug:spawnPal", { species: "pebblet" }));
+  await page.waitForTimeout(800);
+  await page.keyboard.press(" ");
+  const dizzyPals = () => page.evaluate(() => [...(window as any).__petgame.room.state.pals.values()].filter((p: any) => p.dizzy).length);
+  await expect.poll(dizzyPals).toBe(1);
+  await expect(page.locator(".label.pal.dizzy")).toHaveCount(1);
+  const stone = (await me()).stone;
+  await page.waitForTimeout(500);
+  await page.keyboard.press(" ");
+  await expect.poll(dizzyPals).toBe(0);
+  await expect.poll(async () => (await me()).stone).toBeGreaterThan(stone);
+});

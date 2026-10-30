@@ -14,6 +14,9 @@ export interface WildAggro {
   target: Pick<CombatTarget, "kind" | "id">;
   until: number;
   lastAttackAt: number;
+  /** Winding up a bite or (the boss) a stomp that lands at this time. */
+  windupUntil?: number;
+  windup?: "bite" | "stomp";
 }
 
 /** Nearest target within `sight` pixels, for aggressive pals looking for a fight. */
@@ -42,4 +45,12 @@ export function stepChase(
 ): { pos: Vec2; inRange: boolean } {
   const next = stepToward(pos, target, range * 0.7, dtMs, radius, obstacles, speed);
   return { pos: next, inRange: distance(next, target) <= range };
+}
+
+/** Runs straight away from `from` (a passive pal that got hit), sliding around obstacles. */
+export function stepFlee(pos: Vec2, from: Vec2, speed: number, dtMs: number, radius: number, obstacles?: CollisionGrid): Vec2 {
+  const dx = pos.x - from.x, dy = pos.y - from.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const goal = { x: pos.x + (dx / d) * 200, y: pos.y + (dy / d) * 200 };
+  return stepToward(pos, goal, 0, dtMs, radius, obstacles, speed);
 }

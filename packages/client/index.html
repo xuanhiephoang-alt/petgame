@@ -30,6 +30,17 @@
       .float-text.weak { color: #cfd8dc; font-size: 13px; }
       .float-text.skill { color: #fff59d; font-size: 15px; }
       .float-text.heal { color: #69f0ae; }
+      /* Damage dealt to pals, critical hits, dodges and the pals' little reactions. */
+      .float-text.hit { color: #fff; font-size: 15px; -webkit-text-stroke: 0.5px #3a2a1a; }
+      .float-text.hit.small { font-size: 12px; opacity: 0.9; }
+      .float-text.crit { color: #ffd54f; font-size: 21px; -webkit-text-stroke: 0.6px #6d3b00; animation-duration: 0.9s; }
+      .float-text.dodge { color: #b3e5fc; font-size: 15px; font-style: italic; }
+      .float-text.emote { font-size: 20px; text-shadow: 0 1px 2px rgba(0,0,0,0.4); animation: emote-pop 0.9s ease-out forwards; }
+      .float-text.dizzy { color: #fff59d; font-size: 14px; }
+      @keyframes emote-pop { 0% { transform: translateY(6px) scale(0.3); opacity: 0; } 20% { transform: translateY(-4px) scale(1.2); opacity: 1; }
+        35% { transform: translateY(-2px) scale(1); } 80% { opacity: 1; } 100% { transform: translateY(-10px) scale(1); opacity: 0; } }
+      .label.pal.dizzy span { opacity: 1; color: #fff59d; }
+      .label.pal.dizzy span::before { content: "💫 "; }
       .label.pal.boss span { opacity: 1; font-size: 14px; background: rgba(183,28,28,0.75); }
       .sound-btn { border: none; background: rgba(255,255,255,0.2); border-radius: 8px; min-width: 34px; min-height: 30px; cursor: pointer; font-size: 15px; }
       .boss-bar { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
@@ -161,6 +172,9 @@
       .action-btn:active { filter: brightness(1.3); }
       .btn-attack { right: max(110px, calc(env(safe-area-inset-right) + 110px)); bottom: 28px; background: rgba(229,115,115,0.7); }
       .btn-capture { right: max(24px, calc(env(safe-area-inset-right) + 24px)); bottom: 96px; background: rgba(79,195,247,0.7); }
+      .btn-dash { width: 60px; height: 60px; font-size: 24px; right: max(32px, calc(env(safe-area-inset-right) + 32px)); bottom: 22px; background: rgba(144,202,249,0.65); }
+      .btn-dash.cooling { animation: recharge var(--cooldown, 900ms) linear; }
+      @keyframes recharge { from { opacity: 0.35; filter: grayscale(1); } to { opacity: 1; filter: none; } }
       #lobby {
         position: fixed; inset: 0; display: flex; overflow-y: auto; touch-action: pan-y;
         font-family: system-ui, sans-serif; color: #fff; background: #1b2a1b;
