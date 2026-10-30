@@ -21,3 +21,4 @@ export * from "./quests.ts";
 export * from "./climate.ts";
 export * from "./wardrobe.ts";
 export * from "./gathering.ts";
+export * from "./skills.ts";

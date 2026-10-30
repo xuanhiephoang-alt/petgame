@@ -1,4 +1,15 @@
-import { ELEMENT_INFO, RESOURCE_INFO, SKILLS, getSpecies, strongAgainst, workOutput, xpToNext, type Element } from "@petgame/shared";
+import {
+  ELEMENT_INFO,
+  RESOURCE_INFO,
+  getSpecies,
+  learnset,
+  skillPower,
+  strongAgainst,
+  workOutput,
+  xpToNext,
+  type Element,
+  type SkillDef,
+} from "@petgame/shared";
 
 const ELEMENTS: Record<Element, string> = {
   grass: "🌿 Cỏ",
@@ -22,6 +33,13 @@ export interface PartyActions {
   work(palId: string): void;
   rest(palId: string): void;
   feed(palId: string): void;
+}
+
+/** What a skill does at a pal's level: damage, healing or a shield's time. */
+function skillValue(skill: SkillDef, level: number): string {
+  if (skill.shape === "shield") return `${Math.round((skill.shieldMs ?? 0) / 1000)}s`;
+  if (skill.shape === "heal") return `+${skillPower(skill, level)}`;
+  return `⚔${skillPower(skill, level)}`;
 }
 
 /**
@@ -125,19 +143,25 @@ export class PartyPanel {
     name.textContent = `${species.name} · Lv ${entry.level}`;
     const detail = document.createElement("small");
     const status = entry.assignment === "follow" ? "Đang đi theo" : entry.assignment === "work" ? `Đang làm ${output.icon}` : `Làm ra ${output.icon}`;
-    detail.textContent = `${ELEMENTS[species.element]} · ${status}`;
+    const strong = ELEMENT_INFO[strongAgainst(species.element)];
+    detail.textContent = `${ELEMENTS[species.element]} (khắc ${strong.icon}) · ${status}`;
     const xp = document.createElement("div");
     xp.className = "party-xp";
     const fill = document.createElement("div");
     fill.style.width = `${Math.min(100, (entry.xp / xpToNext(entry.level)) * 100)}%`;
     xp.append(fill);
-    const skill = SKILLS[species.element];
-    const strong = ELEMENT_INFO[strongAgainst(species.element)];
-    const skillLine = document.createElement("small");
-    skillLine.className = "party-skill";
-    skillLine.textContent = `Chiêu: ${skill.icon} ${skill.name} · khắc ${strong.icon} ${strong.name}`;
-    skillLine.title = skill.description;
-    info.append(name, detail, skillLine, xp);
+    // Its three skills: what each does at its level now, or the level it learns it at.
+    const skills = document.createElement("div");
+    skills.className = "party-skills";
+    for (const { skill, level } of learnset(species)) {
+      const chip = document.createElement("span");
+      const known = entry.level >= level;
+      chip.className = `skill-chip ${skill.element}${known ? "" : " locked"}`;
+      chip.textContent = known ? `${skill.icon} ${skill.name} ${skillValue(skill, entry.level)}` : `🔒 ${skill.name} · Lv ${level}`;
+      chip.title = `${skill.name}: ${skill.description}${known ? "" : ` (học ở cấp ${level})`}`;
+      skills.append(chip);
+    }
+    info.append(name, detail, skills, xp);
 
     const buttons = document.createElement("div");
     buttons.className = "party-buttons";

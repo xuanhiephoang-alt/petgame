@@ -69,8 +69,8 @@ export const WildPal = schema(
     level: t.number(),
     /** True while it is chasing someone (fighting back or hunting). */
     angry: t.boolean(),
-    /** About to strike: "bite" (crouching, WILD_WINDUP_MS) or "stomp" (the boss rearing up), "" otherwise. */
-    windup: t.string<"" | "bite" | "stomp">(),
+    /** About to strike: "bite" (crouching, WILD_WINDUP_MS), "stomp" (the boss rearing up) or "skill" (casting one), "" otherwise. */
+    windup: t.string<"" | "bite" | "stomp" | "skill">(),
     /** Reeling at 1 HP (DIZZY_MS): easy to catch, one more hit knocks it out. */
     dizzy: t.boolean(),
     /** The world boss: much bigger, cannot be captured, can be defeated. */

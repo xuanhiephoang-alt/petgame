@@ -21,6 +21,9 @@ export const BOSS = {
   biteWindupMs: 600,
   /** Body radius for collisions and melee reach (pixels). */
   radius: 40,
+  /** Its skills (skills.json) instead of the species' own, used at this level (gentler than its real one). */
+  skills: ["horn_charge", "rock_spikes"],
+  skillLevel: 4,
   /** Respawns this long after being defeated. */
   respawnMs: 4 * 60 * 1000,
   /** Every player who helped gets this. */

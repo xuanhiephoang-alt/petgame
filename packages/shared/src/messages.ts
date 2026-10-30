@@ -83,8 +83,10 @@ export const ServerMessage = {
   Damage: "damage",
   /** A player or companion was knocked out. */
   Fainted: "fainted",
-  /** A companion used its element skill. */
-  Skill: "skill",
+  /** A pal (wild or companion) started a skill: it winds up, then the skill flies and lands. */
+  SkillCast: "skillCast",
+  /** A heal skill gave someone health back. */
+  Healed: "healed",
   /** The boss stomped the ground. */
   BossStomp: "bossStomp",
   /** The boss was defeated. */
@@ -121,6 +123,8 @@ export interface LungeMessage {
   targetId: string;
   /** The target stepped out of reach or dashed through it. */
   dodged: boolean;
+  /** A skill it dashed through (SKILL_DEFS id), not a bite. */
+  skill?: string;
 }
 
 export interface DefeatedMessage {
@@ -156,12 +160,30 @@ export interface QuestDoneMessage {
   questId: string;
 }
 
-export interface SkillMessage {
-  /** Companion (OwnedPal id) that used the skill. */
-  companionId: string;
+export interface SkillCastMessage {
+  /** Wild pal id, or companion (OwnedPal) id. */
+  casterId: string;
+  caster: "wild" | "companion";
+  /** SKILL_DEFS id. */
   skill: string;
-  /** Wild pal the skill was aimed at, if any. */
+  /** The caster's level (the skill's strength). */
+  level: number;
+  /** Where it is cast from and where it is aimed (pixels). */
+  from: { x: number; y: number };
+  at: { x: number; y: number };
+  /** Lands wherever its target is by then (companions' skills), not where it was aimed (wild pals' skills: step away to dodge). */
+  homing: boolean;
   targetId?: string;
+  targetType?: "pal" | "player" | "companion";
+  /** Wind-up, then the time until it lands (ms). */
+  castMs: number;
+  travelMs: number;
+}
+
+export interface HealedMessage {
+  targetType: "player" | "companion" | "pal";
+  targetId: string;
+  amount: number;
 }
 
 export interface BossStompMessage {
@@ -183,8 +205,11 @@ export interface DamageMessage {
   amount: number;
   /** Set when cold or heat did the damage. */
   cause?: "cold" | "heat";
-  /** How far (pixels) the hit pushed the target away from its attacker. */
+  /** How far (pixels) the hit pushed the target away from its attacker (or from `pushFrom`, where a skill landed). */
   push?: number;
+  pushFrom?: { x: number; y: number };
+  /** The skill that did it (SKILL_DEFS id), when not a bite. */
+  skill?: string;
 }
 
 export interface FaintedMessage {
@@ -232,6 +257,8 @@ export interface HitMessage {
   effect?: "super" | "weak" | "normal";
   /** A player's critical hit. */
   crit?: boolean;
+  /** A companion's skill (SKILL_DEFS id). */
+  skill?: string;
 }
 
 export interface JoinOptions {

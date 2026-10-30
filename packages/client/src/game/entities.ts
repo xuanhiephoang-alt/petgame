@@ -6,6 +6,8 @@ import { playerArt, type PartArt, type PlayerArt, type PlayerView } from "./art/
 import { crownArt, raftArt } from "./art/props.ts";
 
 export type Action = "attack" | "hurt" | "throw" | "dash" | "ko" | "vanish" | "pop";
+/** A pal holding still before it strikes: a bite, the boss's stomp, or a skill. */
+export type Windup = "" | "bite" | "stomp" | "skill";
 
 const DURATION: Record<Action, number> = { attack: 0.32, throw: 0.42, hurt: 0.34, dash: 0.24, ko: 0.6, vanish: 0.22, pop: 0.32 };
 
@@ -112,6 +114,11 @@ export abstract class Actor {
 
   protected abstract pose(dt: number, moving: boolean): void;
 
+  /** A see-through copy of the actor as it stands now (a dash or a charge leaves a trail of them). */
+  ghost(): Container | undefined {
+    return undefined;
+  }
+
   /** Height of the drawn actor above its feet (world px), for labels. */
   abstract get height(): number;
 
@@ -138,9 +145,11 @@ export class PalActor extends Actor {
   private body: Sprite;
   private flies: boolean;
   private crown?: Sprite;
-  /** Crouching to bite or (the boss) rearing up to stomp, since `windupAt` (seconds of its clock). */
-  private windup: "" | "bite" | "stomp" = "";
+  /** Crouching to bite, (the boss) rearing up to stomp, or gathering a skill, since `windupAt` (seconds of its clock). */
+  private windup: Windup = "";
   private windupAt = 0;
+  /** A skill's glow (its element's color). */
+  private windupColor = 0xfff59d;
   /** Stars circling over the head while dizzy. */
   private stars?: Container;
 
@@ -173,11 +182,28 @@ export class PalActor extends Actor {
     return this.sprite.height * this.scale + (this.flies ? 10 : 0);
   }
 
-  /** Starts or ends a wind-up (synced from the server). */
-  setWindup(kind: "" | "bite" | "stomp") {
+  get windingUp(): Windup {
+    return this.windup;
+  }
+
+  /** Starts or ends a wind-up (a bite or stomp synced from the server, a skill from its cast message). */
+  setWindup(kind: Windup, color = 0xfff59d) {
+    this.windupColor = color;
     if (kind === this.windup) return;
     this.windup = kind;
     this.windupAt = this.time;
+  }
+
+  ghost(): Container | undefined {
+    if (!this.root.parent) return undefined;
+    const copy = new Sprite(this.body.texture);
+    copy.anchor.copyFrom(this.body.anchor);
+    copy.position.set(this.root.x + this.body.x, this.root.y + this.body.y);
+    copy.scale.copyFrom(this.body.scale);
+    copy.rotation = this.body.rotation;
+    copy.zIndex = this.root.zIndex - 0.5;
+    copy.tint = 0xffe0b2;
+    return copy;
   }
 
   /** Reeling at 1 HP: stars spin over its head. */
@@ -245,6 +271,13 @@ export class PalActor extends Actor {
         sx *= 1 + 0.1 * k;
         x += -dir * 4 * k + shake * 0.8;
         y += this.facing === "front" ? -3 * k : this.facing === "back" ? 3 * k : 0;
+      } else if (this.windup === "skill") {
+        // Draws itself up, puffed with power, and pulses in its skill's color.
+        const k = Math.min(1, w / 0.25);
+        sy *= 1 + 0.09 * k + Math.sin(w * 22) * 0.025 * k;
+        sx *= 1 + 0.04 * k;
+        y -= 4 * k;
+        x += shake * 0.35;
       } else {
         // The boss rears up, taller and taller.
         const k = Math.min(1, w / 0.8);
@@ -253,7 +286,9 @@ export class PalActor extends Actor {
         y -= 10 * k;
         x += shake * 1.5;
       }
-      tint = tintMix(0xff6e6e, 0.35 + 0.25 * Math.sin(w * 18));
+      tint = this.windup === "skill"
+        ? tintMix(this.windupColor, 0.3 + 0.2 * Math.sin(w * 16))
+        : tintMix(0xff6e6e, 0.35 + 0.25 * Math.sin(w * 18));
     }
     if (this.action) {
       const a = this.action.t;

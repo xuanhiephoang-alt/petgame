@@ -36,33 +36,11 @@ export function strongAgainst(element: Element): Element {
   return CYCLE[(CYCLE.indexOf(element) + 1) % CYCLE.length];
 }
 
-export type SkillId = "flame" | "vines" | "quake" | "thunder" | "rain";
-
-export interface Skill {
-  id: SkillId;
-  name: string;
-  icon: string;
-  description: string;
-  cooldownMs: number;
-}
-
-/** One signature skill per element, used automatically by companions in a fight. */
-export const SKILLS: Record<Element, Skill> = {
-  fire: { id: "flame", name: "Phun lửa", icon: "🔥", description: "Gây sát thương gấp 2 lên mục tiêu và kẻ địch xung quanh", cooldownMs: 8000 },
-  grass: { id: "vines", name: "Dây leo trói", icon: "🌿", description: "Gây sát thương gấp 1,5 và trói chân mục tiêu 3 giây", cooldownMs: 9000 },
-  earth: { id: "quake", name: "Khiên đá", icon: "🛡️", description: "Chủ nhận ít hơn 50% sát thương trong 6 giây", cooldownMs: 12000 },
-  electric: { id: "thunder", name: "Sấm sét", icon: "⚡", description: "Một đòn sét gây sát thương gấp 3", cooldownMs: 9000 },
-  water: { id: "rain", name: "Mưa hồi máu", icon: "💧", description: "Hồi 25 máu cho chủ và chính nó", cooldownMs: 10000 },
+/** Element colors for effects and the cast glow (0xRRGGBB). */
+export const ELEMENT_COLOR: Record<Element, number> = {
+  grass: 0x66bb6a,
+  fire: 0xff7043,
+  water: 0x4fc3f7,
+  earth: 0xbcaaa4,
+  electric: 0xffee58,
 };
-
-/** Skill effect numbers, shared so tests and UI agree with the server. */
-export const SKILL_NUMBERS = {
-  flameMultiplier: 2,
-  flameRadius: 70,
-  vinesMultiplier: 1.5,
-  vinesRootMs: 3000,
-  quakeShieldMs: 6000,
-  quakeDamageTaken: 0.5,
-  thunderMultiplier: 3,
-  rainHeal: 25,
-} as const;

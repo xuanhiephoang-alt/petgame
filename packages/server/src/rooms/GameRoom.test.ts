@@ -21,7 +21,10 @@ import {
   BERRY_HEAL,
   WildPal,
   type DamageMessage,
-  type SkillMessage,
+  type SkillCastMessage,
+  type HealedMessage,
+  getSkill,
+  skillPower,
   BOSS,
   QUESTS,
   CHEST_COUNT,
@@ -494,13 +497,22 @@ describe("day and night", () => {
 });
 
 /** Gives the player a following companion of a given species (skips capturing). */
-async function giveCompanion(room: GameRoom, client: any, player: any, speciesId: string) {
+async function giveCompanion(room: GameRoom, client: any, player: any, speciesId: string, level = 1) {
   await capture(room, client, player);
   const owned = player.pals[0];
   owned.speciesId = speciesId;
+  owned.level = level;
   const companion = room.state.companions.get(owned.id)!;
   companion.speciesId = speciesId;
+  companion.level = level;
   return { owned, companion };
+}
+
+/** Collects messages of one type from now on. */
+function collect<T>(client: any, type: string): T[] {
+  const list: T[] = [];
+  client.onMessage(type, (m: T) => list.push(m));
+  return list;
 }
 
 describe("elements and skills", () => {
@@ -516,30 +528,131 @@ describe("elements and skills", () => {
     expect(hits.find((h) => h.companionId)?.effect).toBe("super");
   });
 
-  it("fire companions breathe fire that splashes nearby pals", async () => {
+  it("companions cast their first skill on the pal their owner fights, as strong as their level", async () => {
     const { room, client, player } = await setup();
-    await giveCompanion(room, client, player, "emberpup");
+    const { companion } = await giveCompanion(room, client, player, "emberpup", 1);
     room.state.pals.clear();
-    const a = placeWild(room, "leafkit", player, 30);
-    const b = placeWild(room, "leafkit", player, 55);
-    const skills: SkillMessage[] = [];
-    client.onMessage(ServerMessage.Skill, (m: SkillMessage) => skills.push(m));
-    client.send(ClientMessage.Attack);
-    for (let i = 0; i < 80 && skills.length === 0; i++) await room.waitForNextTimestep();
-    expect(skills[0]?.skill).toBe("flame");
-    const splashed = room.state.pals.get(b)!;
-    expect(splashed.hp).toBeLessThan(splashed.maxHp);
-    expect(room.state.pals.get(a)!.hp).toBeGreaterThanOrEqual(1);
+    const target = placeWild(room, "pebblet", player, 110); // out of reach of a bite, in reach of a fireball
+    room.state.pals.get(target)!.maxHp = room.state.pals.get(target)!.hp = 999;
+    (room as any).controls.get(client.sessionId).targetPalId = target;
+    (room as any).controls.get(client.sessionId).aggroUntil = Infinity;
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    const hits = collect<HitMessage>(client, ServerMessage.Hit);
+    for (let i = 0; i < 60 && !hits.some((h) => h.skill); i++) await ticks(room, 1);
+    expect(casts[0]).toMatchObject({ caster: "companion", casterId: player.activePalId, skill: "ember", homing: true, targetId: target });
+    expect(hits.find((h) => h.skill)).toMatchObject({ palId: target, skill: "ember", damage: skillPower(getSkill("ember"), 1) });
+    expect(companion.level).toBe(1);
   });
 
-  it("water companions heal a hurt owner", async () => {
+  it("knows more skills and hits harder at higher levels", async () => {
     const { room, client, player } = await setup();
-    await giveCompanion(room, client, player, "bubbloon");
+    await giveCompanion(room, client, player, "emberpup", 10);
+    room.state.pals.clear();
+    const target = placeWild(room, "pebblet", player, 60);
+    room.state.pals.get(target)!.maxHp = room.state.pals.get(target)!.hp = 999;
+    (room as any).controls.get(client.sessionId).targetPalId = target;
+    (room as any).controls.get(client.sessionId).aggroUntil = Infinity;
+    const hits = collect<HitMessage>(client, ServerMessage.Hit);
+    for (let i = 0; i < 80 && !hits.some((h) => h.skill === "fire_breath"); i++) await ticks(room, 1);
+    const breath = hits.find((h) => h.skill === "fire_breath")!;
+    expect(breath.damage).toBe(skillPower(getSkill("fire_breath"), 10));
+    expect(breath.damage).toBeGreaterThan(skillPower(getSkill("fire_breath"), 1));
+    expect(hits.some((h) => h.skill === "flame_ring")).toBe(false); // learned at level 15
+  });
+
+  it("water companions heal a hurt owner (once they learn it)", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "bubbloon", 7);
     room.state.pals.clear();
     player.hp = 40;
-    const skill: SkillMessage = await client.waitForMessage(ServerMessage.Skill);
-    expect(skill.skill).toBe("rain");
-    expect(player.hp).toBeGreaterThanOrEqual(40 + 25 - 1);
+    const healed: HealedMessage = await client.waitForMessage(ServerMessage.Healed, 4000);
+    expect(healed).toMatchObject({ targetType: "player", targetId: client.sessionId, amount: skillPower(getSkill("healing_rain"), 7) });
+    expect(player.hp).toBeGreaterThanOrEqual(40 + skillPower(getSkill("healing_rain"), 7) - 1);
+  });
+
+  it("a stone shield halves what the owner takes", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "pebblet", 7);
+    room.state.pals.clear();
+    const target = placeWild(room, "leafkit", player, 300);
+    (room as any).controls.get(client.sessionId).targetPalId = target;
+    (room as any).controls.get(client.sessionId).aggroUntil = Infinity;
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    for (let i = 0; i < 40 && !casts.some((c) => c.skill === "stone_shield"); i++) await ticks(room, 1);
+    const cast = casts.find((c) => c.skill === "stone_shield")!;
+    await ticks(room, Math.ceil((cast.castMs + cast.travelMs) / 50) + 2); // it goes up once it lands
+    (room as any).damage({ kind: "player", id: client.sessionId }, 20, "");
+    expect(player.hp).toBe(PLAYER_MAX_HP - 10);
+  });
+
+  it("vines hold a wild pal in place", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "leafkit", 7);
+    room.state.pals.clear();
+    const target = placeWild(room, "emberpup", player, 100);
+    const pal = room.state.pals.get(target)!;
+    pal.maxHp = pal.hp = 999;
+    (room as any).controls.get(client.sessionId).targetPalId = target;
+    (room as any).controls.get(client.sessionId).aggroUntil = Infinity;
+    const hits = collect<HitMessage>(client, ServerMessage.Hit);
+    for (let i = 0; i < 60 && !hits.some((h) => h.skill === "vine_bind"); i++) await ticks(room, 1);
+    expect(hits.some((h) => h.skill === "vine_bind")).toBe(true);
+    expect((room as any).rootedUntil.get(target)).toBeGreaterThan(room.clock.currentTime);
+  });
+
+  it("chain lightning jumps on to more pals, weaker each time", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "voltmouse", 15);
+    room.state.pals.clear();
+    const ids = [placeWild(room, "ripplefin", player, 120), placeWild(room, "ripplefin", player, 190), placeWild(room, "ripplefin", player, 260)];
+    for (const id of ids) room.state.pals.get(id)!.maxHp = room.state.pals.get(id)!.hp = 999;
+    (room as any).controls.get(client.sessionId).targetPalId = ids[0];
+    (room as any).controls.get(client.sessionId).aggroUntil = Infinity;
+    (room as any).skillReady.set(`c:${player.activePalId}`, new Map([["thunder", Infinity], ["spark", Infinity]]));
+    const hits = collect<HitMessage>(client, ServerMessage.Hit);
+    for (let i = 0; i < 60 && !hits.some((h) => h.skill === "chain_lightning"); i++) await ticks(room, 1);
+    await ticks(room, 2);
+    const chained = hits.filter((h) => h.skill === "chain_lightning");
+    expect(chained.map((h) => h.palId)).toEqual(ids);
+    expect(chained[1].damage).toBeLessThan(chained[0].damage);
+    expect(chained[2].damage).toBeLessThan(chained[1].damage);
+  });
+
+  it("wild pals cast too: their skill lands where the target stood, so stepping away dodges it", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "emberpup", player, 120);
+    const pal = room.state.pals.get(id)!;
+    pal.level = 8;
+    pal.maxHp = pal.hp = 999;
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    const damage = collect<DamageMessage>(client, ServerMessage.Damage);
+    for (let i = 0; i < 160 && casts.length === 0; i++) await ticks(room, 1);
+    const cast = casts[0];
+    expect(cast).toMatchObject({ caster: "wild", casterId: id, homing: false, targetId: client.sessionId });
+    expect(cast.at).toEqual({ x: player.x, y: player.y });
+    // Step well away from where it is aimed and from its fan of fire.
+    player.x -= 200;
+    await ticks(room, Math.ceil((cast.castMs + cast.travelMs) / 50) + 3);
+    expect(damage.filter((d) => d.skill === cast.skill)).toHaveLength(0);
+  });
+
+  it("a pal dazed while it winds up a skill never lets it go", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "emberpup", player, 60);
+    const pal = room.state.pals.get(id)!;
+    const target = { kind: "player", id: client.sessionId, pos: player };
+    (room as any).startCast("wild", id, pal, 5, getSkill("ember"), target);
+    expect(pal.windup).toBe("skill");
+    const damage = collect<DamageMessage>(client, ServerMessage.Damage);
+    (room as any).daze(id, pal);
+    await ticks(room, Math.ceil((getSkill("ember").castMs + 400) / 50) + 3);
+    expect(pal.windup).toBe("");
+    expect((room as any).casts).toHaveLength(0);
+    expect(damage.filter((d) => d.skill === "ember")).toHaveLength(0);
+    expect(player.hp).toBe(PLAYER_MAX_HP);
   });
 });
 
@@ -915,8 +1028,10 @@ describe("chopping, dodging, dizzy pals", () => {
     expect(player.hp).toBe(PLAYER_MAX_HP);
 
     (room as any).controls.get(client.sessionId).invulnerableUntil = 0;
+    (room as any).skillGapUntil.set(`w:${id}`, Infinity); // bites only
     const before = { x: player.x, y: player.y };
     const bite: DamageMessage = await client.waitForMessage(ServerMessage.Damage, 4000);
+    expect(bite.skill).toBeUndefined();
     expect(bite.push).toBeGreaterThan(0);
     expect(distance(player, before)).toBeGreaterThan(5);
   });

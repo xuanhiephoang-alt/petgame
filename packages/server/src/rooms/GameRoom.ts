@@ -71,13 +71,24 @@ import {
   type QuestDoneMessage,
   type QuestEvent,
   BOSS,
-  SKILLS,
-  SKILL_NUMBERS,
+  CHAIN_FALLOFF,
+  CHAIN_RANGE,
+  COMPANION_SKILL_GAP_MS,
+  SHIELD_DAMAGE_TAKEN,
+  WILD_COOLDOWN_FACTOR,
+  WILD_SKILL_GAP_MS,
+  getSkill,
+  inSkillArea,
+  knownSkills,
+  skillPower,
+  skillTravelMs,
+  type HealedMessage,
+  type SkillCastMessage,
+  type SkillDef,
   effectiveness,
   elementMultiplier,
   type BossDefeatedMessage,
   type BossStompMessage,
-  type SkillMessage,
   AGGRESSIVE_SIGHT,
   BERRY_HEAL,
   DAY_LENGTH_MS,
@@ -163,6 +174,7 @@ import {
 import { newBrain, randomPoint, stepWander, type WanderBrain } from "../ai/wander.ts";
 import { stepCompanion, stepToward } from "../ai/companion.ts";
 import { findNearestTarget, stepChase, stepFlee, type CombatTarget, type WildAggro } from "../ai/wildCombat.ts";
+import { chooseSkill } from "../ai/skillAi.ts";
 import { emptyProfile, isValidToken, openStore, type Profile, type ProfileStore } from "../persistence/store.ts";
 
 /** Server-only per-player data that is never synced. */
@@ -187,8 +199,29 @@ interface PlayerControl {
 interface CompanionTimers {
   lastAttackAt: number;
   lastWorkAt: number;
-  lastSkillAt: number;
 }
+
+/** A skill on its way: wound up (firesAt), then landing (landsAt). */
+interface Cast {
+  skill: SkillDef;
+  caster: "wild" | "companion";
+  /** Wild pal id or companion (OwnedPal) id. */
+  casterId: string;
+  /** A companion's owner (session id). */
+  ownerId?: string;
+  level: number;
+  from: Vec2;
+  aim: Vec2;
+  target?: { kind: "pal" | "player" | "companion"; id: string };
+  /** Companions' skills land on their target wherever it is by then. */
+  homing: boolean;
+  firesAt: number;
+  landsAt: number;
+  fired: boolean;
+}
+
+/** Skills that go off from their caster (and need it to still be there). */
+const FROM_CASTER = new Set(["nova", "cone", "wave", "melee", "beam", "heal", "shield"]);
 
 /** Bases need this much clear space around them (pixels). */
 const BASE_CLEARANCE = 28;
@@ -241,8 +274,16 @@ export class GameRoom extends Room<{ state: GameState }> {
   /** Trees and rocks to chop and mine, and hits taken by those partly used. */
   private nodes = gatherNodes(defaultWorld().layout);
   private nodeHits = new Map<number, number>();
-  /** Session id -> time until which an earth companion's shield halves damage. */
+  /** Session id -> time until which a companion's stone shield halves the damage they take. */
   private shieldUntil = new Map<string, number>();
+  /** Wild pal id -> time until which its own stone shield halves the damage it takes. */
+  private wildShieldUntil = new Map<string, number>();
+  /** Skills cast and not landed yet. */
+  private casts: Cast[] = [];
+  /** "w:<wild id>" / "c:<owned id>" -> when each of its skills is ready again, when it may use another one, and until when it stands casting. */
+  private skillReady = new Map<string, Map<string, number>>();
+  private skillGapUntil = new Map<string, number>();
+  private castingUntil = new Map<string, number>();
   /** Current boss (wild pal id) and who has hit it. */
   private bossId: string | undefined;
   /** Where the boss lives; it wanders back there when not fighting. */
@@ -344,6 +385,25 @@ export class GameRoom extends Room<{ state: GameState }> {
         const player = this.state.players.get(client.sessionId);
         if (!player) return;
         for (const r of RESOURCES) player[r] += 50;
+      });
+      // A pal of this species and level joins the party and follows (to try its skills).
+      this.onMessage("debug:givePal", (client, message?: { species?: string; level?: number }) => {
+        const player = this.state.players.get(client.sessionId);
+        if (!player || player.pals.length >= MAX_PARTY) return;
+        let species: PalSpecies;
+        try {
+          species = getSpecies(String(message?.species));
+        } catch {
+          return;
+        }
+        const owned = new OwnedPal();
+        owned.id = randomUUID();
+        owned.speciesId = species.id;
+        owned.level = Math.max(1, Math.min(50, Math.floor(Number(message?.level) || 1)));
+        owned.xp = 0;
+        owned.assignment = "";
+        player.pals.push(owned);
+        this.summon(client.sessionId, owned.id);
       });
     }
 
@@ -476,6 +536,14 @@ export class GameRoom extends Room<{ state: GameState }> {
           if (now >= aggro.windupUntil) this.strike(id, pal, aggro, target);
           return;
         }
+        // Casting a skill: stands still until it goes off. Now and then it starts one.
+        if ((this.castingUntil.get(`w:${id}`) ?? 0) > now) return;
+        const skill = this.wildSkill(id, pal, species, target, now);
+        if (skill) {
+          pal.angry = true;
+          this.startCast("wild", id, pal, pal.boss ? BOSS.skillLevel : pal.level, skill, target);
+          return;
+        }
         const reach = pal.boss ? BOSS.radius + 24 : undefined;
         const step = stepChase(pos, target.pos, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, radius, this.obstacles, reach);
         // Wild pals cannot swim: they stop at the shore.
@@ -509,6 +577,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
 
     this.tickCompanions(dtMs);
+    this.tickCasts();
     this.tickExploration();
     this.tickClimate(dtMs);
     this.tickRegen(dtMs, now);
@@ -561,6 +630,8 @@ export class GameRoom extends Room<{ state: GameState }> {
         return;
       }
 
+      // Casting: stands still until the skill goes off.
+      if ((this.castingUntil.get(`c:${id}`) ?? 0) > now) return;
       const targetId = control.aggroUntil > now ? control.targetPalId : undefined;
       // A dizzy pal is left for its owner to catch or knock out.
       const fighting = targetId ? this.state.pals.get(targetId) : undefined;
@@ -569,14 +640,20 @@ export class GameRoom extends Room<{ state: GameState }> {
       companion.x = step.pos.x;
       companion.y = step.pos.y;
 
-      // Water companions heal when someone is hurt, even outside a fight.
+      // Skills: a heal when its owner or itself is hurt (even out of a fight), a shield in a fight, else the strongest that reaches.
       const species = getSpecies(companion.speciesId);
-      if (species.element === "water" && now - timers.lastSkillAt >= SKILLS.water.cooldownMs
-        && (owner.hp < owner.maxHp * 0.7 || companion.hp < companion.maxHp * 0.7)) {
-        timers.lastSkillAt = now;
-        owner.hp = Math.min(owner.maxHp, owner.hp + SKILL_NUMBERS.rainHeal);
-        companion.hp = Math.min(companion.maxHp, companion.hp + SKILL_NUMBERS.rainHeal);
-        this.broadcastSkill(id, "rain");
+      const skill = (this.skillGapUntil.get(`c:${id}`) ?? 0) <= now ? chooseSkill({
+        known: knownSkills(species, owned.level),
+        ready: (s) => (this.skillReady.get(`c:${id}`)?.get(s.id) ?? 0) <= now,
+        targetDistance: target ? distance(companion, target) - (target.boss ? BOSS.radius : 0) : undefined,
+        hurt: Math.min(owner.hp / owner.maxHp, companion.hp / companion.maxHp),
+        healBelow: 0.7,
+        fighting: !!target,
+      }) : undefined;
+      if (skill) {
+        const aimAt = target && targetId ? { kind: "pal" as const, id: targetId, pos: target } : undefined;
+        this.startCast("companion", id, companion, owned.level, skill, aimAt, companion.ownerId);
+        return;
       }
 
       if (!target || !targetId || !step.inAttackRange) return;
@@ -584,13 +661,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       timers.lastAttackAt = now;
       const wildSpecies = getSpecies(target.speciesId);
       const multiplier = elementMultiplier(species.element, wildSpecies.element);
-      let damage = companionDamage(owned.level) * multiplier;
-      const skill = SKILLS[species.element];
-      if (skill.id !== "rain" && now - timers.lastSkillAt >= skill.cooldownMs) {
-        timers.lastSkillAt = now;
-        damage = this.useSkill(id, companion.ownerId, skill.id, targetId, target, damage, species.element);
-      }
-      damage = Math.round(damage);
+      const damage = Math.round(companionDamage(owned.level) * multiplier * this.wildArmor(targetId));
       this.provoke(targetId, { kind: "companion", id });
       const hit: HitMessage = {
         playerId: companion.ownerId, palId: targetId, damage, companionId: id, effect: effectiveness(multiplier),
@@ -625,7 +696,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     control.aggroUntil = now + COMPANION_AGGRO_MS;
     this.provoke(palId, { kind: "player", id: client.sessionId });
     const crit = Math.random() < CRIT_CHANCE;
-    const damage = Math.round(weapon.damage * (crit ? CRIT_MULTIPLIER : 1));
+    const damage = Math.max(1, Math.round(weapon.damage * (crit ? CRIT_MULTIPLIER : 1) * this.wildArmor(palId)));
     const hit: HitMessage = { playerId: client.sessionId, palId, damage, ...(crit ? { crit } : {}) };
     this.broadcast(ServerMessage.Hit, hit);
     this.hitWild(palId, pal, damage, client.sessionId, true);
@@ -677,6 +748,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       const reveal = now + captureRevealMs(shakes);
       this.inBall.set(palId, reveal);
       this.cancelWindup(palId, pal);
+      this.cancelCasts("wild", palId);
       if (pal.dizzy) this.dizzyUntil.set(palId, Math.max(this.dizzyUntil.get(palId) ?? 0, reveal + 1500));
       this.inBallThrower.set(palId, client.sessionId);
     }
@@ -889,6 +961,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   private daze(palId: string, pal: WildPal) {
     pal.dizzy = true;
     this.cancelWindup(palId, pal);
+    this.cancelCasts("wild", palId);
     this.fleeing.delete(palId);
     this.dizzyUntil.set(palId, this.clock.currentTime + DIZZY_MS);
   }
@@ -932,6 +1005,21 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.fleeing.delete(palId);
     this.inBall.delete(palId);
     this.inBallThrower.delete(palId);
+    this.wildShieldUntil.delete(palId);
+    this.cancelCasts("wild", palId);
+    this.forgetSkills(`w:${palId}`);
+  }
+
+  /** Drops the skills a caster is still winding up (it was dazed, caught or is gone); ones already let go fly on. */
+  private cancelCasts(caster: Cast["caster"], casterId: string) {
+    this.casts = this.casts.filter((c) => c.fired || c.caster !== caster || c.casterId !== casterId);
+    this.castingUntil.delete(`${caster === "wild" ? "w" : "c"}:${casterId}`);
+  }
+
+  private forgetSkills(key: string) {
+    this.skillReady.delete(key);
+    this.skillGapUntil.delete(key);
+    this.castingUntil.delete(key);
   }
 
   /** Knocks a wild pal back from `from` (not into the sea). */
@@ -971,41 +1059,213 @@ export class GameRoom extends Room<{ state: GameState }> {
     return target.kind === "player" && (this.controls.get(target.id)?.invulnerableUntil ?? 0) > this.clock.currentTime;
   }
 
-  /** Applies a companion's element skill; returns the damage of this hit. */
-  private useSkill(
-    companionId: string,
-    ownerId: string,
-    skill: (typeof SKILLS)[keyof typeof SKILLS]["id"],
-    targetId: string,
-    target: WildPal,
-    baseDamage: number,
-    element: PalSpecies["element"],
-  ): number {
-    let damage = baseDamage;
-    if (skill === "flame") {
-      damage *= SKILL_NUMBERS.flameMultiplier;
-      // Splash nearby wild pals too.
-      this.state.pals.forEach((other, otherId) => {
-        if (otherId === targetId || distance(other, target) > SKILL_NUMBERS.flameRadius) return;
-        const splash = Math.round(baseDamage * elementMultiplier(element, getSpecies(other.speciesId).element));
-        this.hitWild(otherId, other, splash, ownerId);
-        this.provoke(otherId, { kind: "companion", id: companionId });
-      });
-    } else if (skill === "vines") {
-      damage *= SKILL_NUMBERS.vinesMultiplier;
-      this.rootedUntil.set(targetId, this.clock.currentTime + SKILL_NUMBERS.vinesRootMs);
-    } else if (skill === "thunder") {
-      damage *= SKILL_NUMBERS.thunderMultiplier;
-    } else if (skill === "quake") {
-      this.shieldUntil.set(ownerId, this.clock.currentTime + SKILL_NUMBERS.quakeShieldMs);
+  // -------------------------------------------------------------------------
+  // Pal skills (skills.ts): cast, then landing
+  // -------------------------------------------------------------------------
+
+  /**
+   * Starts a skill: the caster winds up (standing still) for castMs, then
+   * it flies or grows and lands skillTravelMs later. Companions' skills land
+   * on their target wherever it goes; wild pals' land where their target
+   * stood when they began (step away or dash to dodge).
+   */
+  private startCast(
+    caster: "wild" | "companion",
+    casterId: string,
+    pos: Vec2,
+    level: number,
+    skill: SkillDef,
+    target?: { kind: "pal" | "player" | "companion"; id: string; pos: Vec2 },
+    ownerId?: string,
+  ) {
+    const now = this.clock.currentTime;
+    const key = `${caster === "wild" ? "w" : "c"}:${casterId}`;
+    const wild = caster === "wild";
+    let ready = this.skillReady.get(key);
+    if (!ready) this.skillReady.set(key, (ready = new Map()));
+    ready.set(skill.id, now + skill.cooldownMs * (wild ? WILD_COOLDOWN_FACTOR : 1));
+    this.skillGapUntil.set(key, now + skill.castMs + (wild ? WILD_SKILL_GAP_MS : COMPANION_SKILL_GAP_MS));
+    this.castingUntil.set(key, now + skill.castMs);
+    const from = { x: pos.x, y: pos.y };
+    const aim = target ? { x: target.pos.x, y: target.pos.y } : { ...from };
+    const travelMs = skillTravelMs(skill, distance(from, aim));
+    this.casts.push({
+      skill, caster, casterId, ownerId, level, from, aim, homing: !wild,
+      target: target && { kind: target.kind, id: target.id },
+      firesAt: now + skill.castMs, landsAt: now + skill.castMs + travelMs, fired: false,
+    });
+    if (wild) {
+      const pal = this.state.pals.get(casterId);
+      if (pal) pal.windup = "skill";
     }
-    this.broadcastSkill(companionId, skill, targetId);
-    return damage;
+    const message: SkillCastMessage = {
+      casterId, caster, skill: skill.id, level, from, at: aim, homing: !wild,
+      targetId: target?.id, targetType: target?.kind, castMs: skill.castMs, travelMs,
+    };
+    this.broadcast(ServerMessage.SkillCast, message);
   }
 
-  private broadcastSkill(companionId: string, skill: string, targetId?: string) {
-    const message: SkillMessage = { companionId, skill, targetId };
-    this.broadcast(ServerMessage.Skill, message);
+  /** Skills going off and landing. */
+  private tickCasts() {
+    if (this.casts.length === 0) return;
+    const now = this.clock.currentTime;
+    for (const cast of this.casts) {
+      if (cast.fired || now < cast.firesAt) continue;
+      cast.fired = true;
+      const pal = cast.caster === "wild" ? this.state.pals.get(cast.casterId) : undefined;
+      if (pal?.windup === "skill") pal.windup = "";
+      // A charge lunges at its target.
+      if (cast.skill.dash) this.lunge(cast);
+    }
+    const landing = this.casts.filter((c) => c.fired && now >= c.landsAt);
+    if (landing.length === 0) return;
+    this.casts = this.casts.filter((c) => !landing.includes(c));
+    for (const cast of landing) this.land(cast);
+  }
+
+  /** A charging caster rushes up to `dash` pixels toward where it aims (or its target). */
+  private lunge(cast: Cast) {
+    const caster = cast.caster === "wild" ? this.state.pals.get(cast.casterId) : this.state.companions.get(cast.casterId);
+    if (!caster) return;
+    const goal = (cast.homing && cast.target && this.castTargetPos(cast.target)) || cast.aim;
+    const d = distance(caster, goal);
+    const radius = cast.caster === "wild" && (caster as WildPal).boss ? BOSS.radius : getSpecies(caster.speciesId).size;
+    const step = Math.max(0, Math.min(cast.skill.dash ?? 0, d - radius - 10));
+    if (step <= 0) return;
+    const next = this.obstacles.resolve({ x: caster.x + ((goal.x - caster.x) / d) * step, y: caster.y + ((goal.y - caster.y) / d) * step }, radius);
+    if (isSea(this.terrain, next.x, next.y)) return;
+    caster.x = next.x;
+    caster.y = next.y;
+  }
+
+  private castTargetPos(target: NonNullable<Cast["target"]>): Vec2 | undefined {
+    if (target.kind === "pal") return this.state.pals.get(target.id);
+    return this.targetPos({ kind: target.kind, id: target.id });
+  }
+
+  /** A skill lands: heals, shields, or hurts everyone of the other side in its area. */
+  private land(cast: Cast) {
+    const { skill } = cast;
+    const now = this.clock.currentTime;
+    const caster = cast.caster === "wild" ? this.state.pals.get(cast.casterId) : this.state.companions.get(cast.casterId);
+    if (!caster && FROM_CASTER.has(skill.shape)) return;
+    if (skill.shape === "heal" || skill.shape === "shield") return this.support(cast);
+    const from = caster ? { x: caster.x, y: caster.y } : cast.from;
+    const aim = (cast.homing && cast.target && this.castTargetPos(cast.target)) || cast.aim;
+    const at = { x: aim.x, y: aim.y };
+    // Pushed away from the caster by what it swings or breathes, from the blast by what lands somewhere.
+    const pushFrom = FROM_CASTER.has(skill.shape) ? from : at;
+    const power = skillPower(skill, cast.level);
+
+    if (cast.caster === "companion") {
+      const owner = cast.ownerId ? this.state.players.get(cast.ownerId) : undefined;
+      const owned = owner?.pals.find((p) => p.id === cast.casterId);
+      const hit: string[] = [];
+      this.state.pals.forEach((pal, id) => {
+        if (pal.dizzy || this.inBall.has(id)) return;
+        if (inSkillArea(skill, from, at, pal, pal.boss ? BOSS.radius : getSpecies(pal.speciesId).size)) hit.push(id);
+      });
+      // A chain jumps on from the first one hit to the nearest others.
+      if (skill.chain && hit.length > 0) {
+        let last = this.state.pals.get(hit[0])!;
+        for (let i = 0; i < skill.chain; i++) {
+          let next: [string, WildPal] | undefined;
+          let best = CHAIN_RANGE;
+          this.state.pals.forEach((pal, id) => {
+            if (hit.includes(id) || pal.dizzy || this.inBall.has(id)) return;
+            const d = distance(pal, last);
+            if (d <= best) {
+              best = d;
+              next = [id, pal];
+            }
+          });
+          if (!next) break;
+          hit.push(next[0]);
+          last = next[1];
+        }
+      }
+      hit.forEach((id, i) => {
+        const pal = this.state.pals.get(id);
+        if (!pal) return;
+        const multiplier = elementMultiplier(skill.element, getSpecies(pal.speciesId).element);
+        const falloff = skill.chain && i > 0 ? Math.pow(CHAIN_FALLOFF, i) : 1;
+        const damage = Math.max(1, Math.round(power * multiplier * falloff * this.wildArmor(id)));
+        const message: HitMessage = {
+          playerId: cast.ownerId ?? "", palId: id, damage, companionId: cast.casterId, effect: effectiveness(multiplier), skill: skill.id,
+        };
+        this.broadcast(ServerMessage.Hit, message);
+        this.provoke(id, { kind: "companion", id: cast.casterId });
+        this.hitWild(id, pal, damage, cast.ownerId ?? "");
+        if (!this.state.pals.has(id) || pal.boss) return;
+        if (skill.root && !pal.dizzy) this.rootedUntil.set(id, Math.max(this.rootedUntil.get(id) ?? 0, now + skill.root));
+        if (skill.knockback && !pal.dizzy) this.push(pal, pushFrom, skill.knockback);
+      });
+      if (hit.length > 0 && owned && cast.ownerId) this.grantXp(cast.ownerId, owned, XP_PER_HIT);
+      return;
+    }
+
+    // A wild pal's skill: players and companions where it lands; a dashing player gets away.
+    const victims: CombatTarget[] = [];
+    this.state.players.forEach((p, sid) => {
+      if (inSkillArea(skill, from, at, p, PLAYER_RADIUS)) victims.push({ kind: "player", id: sid, pos: p });
+    });
+    this.state.companions.forEach((c, cid) => {
+      if (c.mode === "follow" && inSkillArea(skill, from, at, c, getSpecies(c.speciesId).size)) victims.push({ kind: "companion", id: cid, pos: c });
+    });
+    for (const v of victims) {
+      if (this.invulnerable(v)) {
+        const lunge: LungeMessage = { palId: cast.casterId, targetType: v.kind, targetId: v.id, dodged: true, skill: skill.id };
+        this.broadcast(ServerMessage.Lunge, lunge);
+        continue;
+      }
+      this.damage(v, power, cast.casterId, skill.knockback ?? 0, { skill: skill.id, pushFrom });
+    }
+  }
+
+  /** A heal (the companion and its owner, or a wild caster itself) or a stone shield. */
+  private support(cast: Cast) {
+    const { skill } = cast;
+    const now = this.clock.currentTime;
+    const amount = skillPower(skill, cast.level);
+    const heal = (targetType: HealedMessage["targetType"], targetId: string, entity: { hp: number; maxHp: number } | undefined) => {
+      if (!entity || entity.hp <= 0) return;
+      const healed = Math.min(entity.maxHp - entity.hp, amount);
+      if (healed <= 0) return;
+      entity.hp = Math.round((entity.hp + healed) * 10) / 10;
+      const message: HealedMessage = { targetType, targetId, amount: Math.round(healed) };
+      this.broadcast(ServerMessage.Healed, message);
+    };
+    if (cast.caster === "wild") {
+      const pal = this.state.pals.get(cast.casterId);
+      if (skill.shape === "heal") heal("pal", cast.casterId, pal);
+      else this.wildShieldUntil.set(cast.casterId, now + (skill.shieldMs ?? 0));
+      return;
+    }
+    if (skill.shape === "heal") {
+      heal("companion", cast.casterId, this.state.companions.get(cast.casterId));
+      if (cast.ownerId) heal("player", cast.ownerId, this.state.players.get(cast.ownerId));
+    } else if (cast.ownerId) {
+      this.shieldUntil.set(cast.ownerId, now + (skill.shieldMs ?? 0));
+    }
+  }
+
+  /** The skill a fighting wild pal starts now, if any (support first, then the strongest that reaches); none most ticks. */
+  private wildSkill(id: string, pal: WildPal, species: PalSpecies, target: CombatTarget, now: number): SkillDef | undefined {
+    if (Math.random() > 0.06 || (this.skillGapUntil.get(`w:${id}`) ?? 0) > now) return undefined;
+    const known = pal.boss ? BOSS.skills.map(getSkill) : knownSkills(species, pal.level);
+    return chooseSkill({
+      known,
+      ready: (s) => (this.skillReady.get(`w:${id}`)?.get(s.id) ?? 0) <= now,
+      targetDistance: distance(pal, target.pos) - (pal.boss ? BOSS.radius : 0),
+      hurt: pal.hp / pal.maxHp,
+      healBelow: 0.5,
+      fighting: true,
+    });
+  }
+
+  /** Share of damage a wild pal takes (a stone shield halves it). */
+  private wildArmor(palId: string): number {
+    return (this.wildShieldUntil.get(palId) ?? 0) > this.clock.currentTime ? SHIELD_DAMAGE_TAKEN : 1;
   }
 
   /** The boss slams the ground, hurting every player and companion nearby. */
@@ -1106,11 +1366,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     return target.kind === "player" ? this.state.players.get(target.id) : this.state.companions.get(target.id);
   }
 
-  private damage(target: CombatTarget, amount: number, attackerId: string, push = 0) {
+  private damage(target: CombatTarget, amount: number, attackerId: string, push = 0, opts: { skill?: string; pushFrom?: Vec2 } = {}) {
     const now = this.clock.currentTime;
     const attacker = this.state.pals.get(attackerId);
     if (target.kind === "player" && (this.shieldUntil.get(target.id) ?? 0) > now) {
-      amount *= SKILL_NUMBERS.quakeDamageTaken;
+      amount *= SHIELD_DAMAGE_TAKEN;
     }
     const wearer = target.kind === "player" ? this.state.players.get(target.id) : undefined;
     if (wearer) amount *= 1 - defenseOf(wearer);
@@ -1119,14 +1379,20 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (companion) amount *= elementMultiplier(getSpecies(attacker.speciesId).element, getSpecies(companion.speciesId).element);
     }
     amount = Math.max(1, Math.round(amount));
-    const message: DamageMessage = { targetType: target.kind, targetId: target.id, attackerId, amount, ...(push && attacker ? { push } : {}) };
+    // Pushed away from the attacker, or from where its skill landed.
+    const source = opts.pushFrom ?? (attacker ? { x: attacker.x, y: attacker.y } : undefined);
+    const message: DamageMessage = {
+      targetType: target.kind, targetId: target.id, attackerId, amount,
+      ...(push && source ? { push, ...(opts.pushFrom ? { pushFrom: opts.pushFrom } : {}) } : {}),
+      ...(opts.skill ? { skill: opts.skill } : {}),
+    };
     if (target.kind === "player") {
       const player = this.state.players.get(target.id);
       if (!player) return;
-      if (push && attacker) {
+      if (push && source) {
         // The client pushes its own explorer the same way (its prediction would fight a jump).
         const blocked = player.raft > 0 ? undefined : (at: Vec2) => isSea(this.terrain, at.x, at.y);
-        const next = knockback(player, attacker, push, PLAYER_RADIUS, this.obstacles, blocked);
+        const next = knockback(player, source, push, PLAYER_RADIUS, this.obstacles, blocked);
         player.x = next.x;
         player.y = next.y;
       }
@@ -1137,8 +1403,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     } else {
       const companion = this.state.companions.get(target.id);
       if (!companion) return;
-      if (push && attacker) {
-        const next = knockback(companion, attacker, push, getSpecies(companion.speciesId).size, this.obstacles, (at) => isSea(this.terrain, at.x, at.y));
+      if (push && source) {
+        const next = knockback(companion, source, push, getSpecies(companion.speciesId).size, this.obstacles, (at) => isSea(this.terrain, at.x, at.y));
         companion.x = next.x;
         companion.y = next.y;
       }
@@ -1426,6 +1692,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private despawnCompanion(id: string) {
     this.state.companions.delete(id);
     this.companionTimers.delete(id);
+    this.cancelCasts("companion", id);
+    this.forgetSkills(`c:${id}`);
     this.lastDamagedAt.delete(`c:${id}`);
     this.calmPalsTargeting("companion", id);
   }
@@ -1433,7 +1701,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   private timers(id: string): CompanionTimers {
     let t = this.companionTimers.get(id);
     if (!t) {
-      t = { lastAttackAt: 0, lastWorkAt: this.clock.currentTime, lastSkillAt: 0 };
+      t = { lastAttackAt: 0, lastWorkAt: this.clock.currentTime };
       this.companionTimers.set(id, t);
     }
     return t;

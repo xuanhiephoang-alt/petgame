@@ -5,8 +5,10 @@
 
 export type SoundName =
   | "hit" | "hurt" | "throw" | "capture" | "escape" | "levelup"
-  | "skill" | "stomp" | "craft" | "produce" | "victory" | "faint" | "chest" | "quest"
-  | "chop" | "mine" | "dash" | "dodge" | "crit" | "ko" | "wobble" | "click";
+  | "stomp" | "craft" | "produce" | "victory" | "faint" | "chest" | "quest"
+  | "chop" | "mine" | "dash" | "dodge" | "crit" | "ko" | "wobble" | "click"
+  // Pal skills: the wind-up, one per element as it lets go, healing and a stone shield.
+  | "charge" | "fire" | "water" | "grass" | "earth" | "electric" | "heal" | "shield";
 
 /** Major pentatonic (day) and minor pentatonic (night), as semitones from the root. */
 const DAY_SCALE = [0, 2, 4, 7, 9, 12, 14, 16];
@@ -75,7 +77,6 @@ export class Sound {
       case "capture": [0, 4, 7, 12].forEach((n, i) => this.tone(t + i * 0.09, note(72 + n), undefined, 0.2, "triangle", 0.35)); break;
       case "escape": this.tone(t, 500, 200, 0.25, "triangle", 0.3); break;
       case "levelup": [0, 4, 7, 11, 12].forEach((n, i) => this.tone(t + i * 0.07, note(76 + n), undefined, 0.25, "square", 0.18)); break;
-      case "skill": this.tone(t, 300, 1200, 0.25, "sawtooth", 0.15); this.noise(t, 0.2, 3000, 0.25); break;
       case "stomp": this.tone(t, 90, 35, 0.6, "sine", 0.9); this.noise(t, 0.4, 400, 0.6); break;
       case "craft": [0, 7].forEach((n, i) => this.tone(t + i * 0.08, note(67 + n), undefined, 0.15, "square", 0.2)); break;
       case "produce": this.tone(t, note(84), undefined, 0.08, "sine", 0.2); break;
@@ -91,6 +92,14 @@ export class Sound {
       case "ko": [7, 3, -2].forEach((n, i) => this.tone(t + i * 0.08, note(64 + n), undefined, 0.12, "square", 0.15)); this.noise(t + 0.2, 0.2, 700, 0.3); break;
       case "wobble": this.tone(t, 500, 380, 0.06, "triangle", 0.2); break;
       case "click": this.tone(t, 1800, undefined, 0.04, "square", 0.2); this.tone(t + 0.05, 2400, undefined, 0.05, "square", 0.15); break;
+      case "charge": this.tone(t, 220, 660, 0.4, "sine", 0.1, this.sfxBus, 0.15); break;
+      case "fire": this.noise(t, 0.4, 900, 0.5); this.tone(t, 150, 60, 0.35, "sawtooth", 0.12); break;
+      case "water": [0, 1, 2].forEach((i) => this.tone(t + i * 0.06, 420 + i * 160, 900 + i * 220, 0.09, "sine", 0.22)); this.noise(t, 0.25, 1400, 0.18); break;
+      case "grass": this.noise(t, 0.3, 5500, 0.22); this.tone(t, 520, 880, 0.18, "triangle", 0.12); break;
+      case "earth": this.tone(t, 110, 40, 0.4, "sine", 0.75); this.noise(t, 0.28, 450, 0.5); break;
+      case "electric": this.tone(t, 1300, 180, 0.14, "square", 0.14); this.tone(t + 0.05, 1700, 260, 0.14, "sawtooth", 0.1); this.noise(t, 0.16, 6500, 0.3); break;
+      case "heal": [0, 4, 7, 12].forEach((n, i) => this.tone(t + i * 0.06, note(79 + n), undefined, 0.35, "sine", 0.16)); break;
+      case "shield": this.tone(t, 320, 200, 0.14, "triangle", 0.3); this.noise(t, 0.1, 1100, 0.35); this.tone(t + 0.1, 640, undefined, 0.25, "sine", 0.14); break;
     }
   }
 

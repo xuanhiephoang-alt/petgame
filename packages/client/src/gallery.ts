@@ -1,17 +1,28 @@
 /**
  * Dev page (http://localhost:5173/sprites.html): every piece of game art on
- * one screen, to check the drawings. `?show=pals|players|nature`, `?scale=3`.
+ * one screen, to check the drawings. `?show=pals|players|nature|skills`,
+ * `?scale=3`; skills loop between two pals, `?skill=<id>` shows one up
+ * close, `&wild=1` as a wild pal casts it (with its danger zone).
  */
 import { Application, Container, Sprite, Text } from "pixi.js";
 import {
   DEFAULT_WORN,
+  ELEMENT_COLOR,
   HAIR_COLORS,
   HAIR_STYLES,
   HAIR_STYLE_NAMES,
   PAL_SPECIES,
+  SKILL_DEFS,
   SKIN_TONES,
   WEARABLES,
+  isSupport,
+  skillPower,
+  skillReach,
+  skillTravelMs,
+  type Element,
   type Look,
+  type SkillDef,
+  type Vec2,
   type Worn,
 } from "@petgame/shared";
 import { setArtScale } from "./game/art/draw.ts";
@@ -19,12 +30,14 @@ import { DECOR_MODELS, decorArt, propArt, type PropArt, type Tint } from "./game
 import { loadPalSprites, type Facing, type PalSprite } from "./game/palSprites.ts";
 import { loadPictures } from "./game/art/pictures.ts";
 import { loadDollArt } from "./game/art/doll.ts";
-import { PlayerActor } from "./game/entities.ts";
-import { shadowBlob } from "./game/ground.ts";
+import { PalActor, PlayerActor } from "./game/entities.ts";
+import { glowBlob, shadowBlob } from "./game/ground.ts";
+import { Effects } from "./game/effects.ts";
+import { chargeUp, danger, playSkill, skillPrelude } from "./game/skillfx.ts";
 
 const params = new URLSearchParams(location.search);
-const zoom = Number(params.get("scale") ?? 2);
 const show = params.get("show") ?? "pals";
+const zoom = Number(params.get("scale") ?? (show === "skills" ? (params.get("skill") ? 3 : 1) : 2));
 setArtScale(zoom * Math.min(2, devicePixelRatio));
 
 const app = new Application();
@@ -32,12 +45,14 @@ await app.init({ background: "#78b84a", resizeTo: window, antialias: true, resol
 document.body.append(app.canvas);
 
 const bar = document.getElementById("bar")!;
-for (const [key, label] of [["pals", "Thú"], ["players", "Người chơi"], ["nature", "Cây cối"]]) {
+for (const [key, label] of [["pals", "Thú"], ["players", "Người chơi"], ["nature", "Cây cối"], ["skills", "Chiêu thức"]]) {
   const button = document.createElement("button");
   button.textContent = label;
   button.classList.toggle("active", key === show);
   button.onclick = () => {
     params.set("show", key);
+    params.delete("skill");
+    params.delete("scale");
     location.search = params.toString();
   };
   bar.append(button);
@@ -85,6 +100,8 @@ if (show === "nature") {
     }
     y += Math.max(70, tallest * 0.75) + 30;
   }
+} else if (show === "skills") {
+  await showSkills();
 } else if (show === "players") {
   // Explorers are paper dolls of AI-drawn parts (assets/characters): every
   // hairstyle and outfit in the four facings, then the hats and the weapons.
@@ -140,4 +157,83 @@ function showFacings(sprite: PalSprite, x0: number, y0: number) {
     world.addChild(s);
   });
 }
+/**
+ * Every pal skill, cast over and over by a pal that learns it at a pal
+ * standing in reach (or, for heals and shields, at its side): one column
+ * per element.
+ */
+async function showSkills() {
+  const sprites = await loadPalSprites();
+  const shadow = shadowBlob();
+  const marks = new Container(), actors = new Container(), air = new Container();
+  actors.sortableChildren = true;
+  world.addChild(marks, actors, air);
+  const fx = new Effects(marks, air, glowBlob());
+  const pals: PalActor[] = [];
+  const only = params.get("skill");
+  const wild = params.get("wild") === "1";
+  const elements: Element[] = ["fire", "grass", "water", "earth", "electric"];
+  const list = only ? SKILL_DEFS.filter((s) => s.id === only) : SKILL_DEFS;
+  const placed = list.map((skill) => {
+    if (only) return { skill, x: 60, y: 230 };
+    const column = elements.indexOf(skill.element);
+    const row = SKILL_DEFS.filter((s) => s.element === skill.element).indexOf(skill);
+    return { skill, x: 20 + column * 250, y: 120 + row * 118 };
+  });
+  const pal = (speciesId: string, at: Vec2) => {
+    const actor = new PalActor(at, sprites.get(speciesId)!, speciesId, shadow);
+    actor.place(at, 0);
+    actors.addChild(actor.root);
+    marks.addChild(actor.ground);
+    pals.push(actor);
+    return actor;
+  };
+  placed.forEach(({ skill, x, y }, i) => {
+    const caster = PAL_SPECIES.find((sp) => sp.skills.includes(skill.id)) ?? PAL_SPECIES[0];
+    const gap = skill.shape === "melee" ? Math.min(skillReach(skill), 46) : skill.shape === "nova" ? (skill.radius ?? 60) * 0.7 : Math.min(skillReach(skill) * 0.85, 150);
+    const from = { x: x + 40, y };
+    const other = { x: from.x + (isSupport(skill) ? 40 : gap), y: y + (isSupport(skill) ? 6 : 0) };
+    const me = pal(caster.id, from);
+    const them = pal(isSupport(skill) ? caster.id : skill.element === "grass" ? "boulderhorn" : "pebblet", other);
+    them.faceToward(from);
+    caption(`${skill.icon} ${skill.name} · ${skill.shape} · ⚔ ${skillPower(skill, 1)} (Lv 1) → ${skillPower(skill, 15)} (Lv 15)`, x, y + 10);
+    caption(`${caster.name}: ${skill.description}`, x, y + 20);
+    loop(skill, me, them, i * 260);
+  });
+  function loop(skill: SkillDef, me: PalActor, them: PalActor, delay: number) {
+    const travelMs = skillTravelMs(skill, Math.hypot(them.pos.x - me.pos.x, them.pos.y - me.pos.y));
+    const color = ELEMENT_COLOR[skill.element];
+    const to = () => them.pos;
+    const cast = () => {
+      me.faceToward(them.pos);
+      me.setWindup("skill", color);
+      chargeUp(fx, () => me.pos, color, skill.castMs, me.height);
+      skillPrelude(fx, skill, to, skill.castMs);
+      if (wild && !isSupport(skill)) danger(fx, skill, me.pos, them.pos, (skill.castMs + travelMs) / 1000);
+      setTimeout(() => {
+        me.setWindup("");
+        me.play("attack");
+        playSkill({ fx, skill, from: { ...me.pos }, to, travelMs, casterHeight: me.height, allies: [() => me.pos, () => them.pos], shake: () => {} });
+        setTimeout(() => {
+          if (skill.shape === "shield") fx.shield(them.root, 1.5, them.height);
+          else if (!isSupport(skill)) them.play("hurt");
+          else them.hit(0x69f0ae);
+        }, travelMs);
+      }, skill.castMs);
+    };
+    setTimeout(() => {
+      cast();
+      setInterval(cast, Math.max(2600, skill.castMs + travelMs + 1800));
+    }, delay);
+  }
+  let last = performance.now();
+  app.ticker.add(() => {
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    fx.update(dt);
+    for (const actor of pals) actor.update(dt);
+  });
+}
+
 (window as any).__gallery = { ready: true };

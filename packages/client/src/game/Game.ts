@@ -36,6 +36,10 @@ import {
   STARTER_WARDROBE,
   getWearable,
   weaponStats,
+  getSkill,
+  isSupport,
+  newSkillAt,
+  ELEMENT_COLOR,
   type HarvestedMessage,
   type GatheredMessage,
   type LungeMessage,
@@ -46,7 +50,8 @@ import {
   type BossDefeatedMessage,
   type DamageMessage,
   type FaintedMessage,
-  type SkillMessage,
+  type SkillCastMessage,
+  type HealedMessage,
   type CaptureResultMessage,
   type HitMessage,
   type LevelUpMessage,
@@ -77,6 +82,7 @@ import { Lighting, type Light } from "./lighting.ts";
 import { Weather } from "./weather.ts";
 import { Labels, type Tag } from "./labels.ts";
 import { Actor, PalActor, PlayerActor } from "./entities.ts";
+import { chainBolt, chargeUp, danger, playSkill, skillPrelude } from "./skillfx.ts";
 import { palPortrait, spriteFor, type PalSprite } from "./palSprites.ts";
 import { campArt, chestArt, gemArt } from "./art/props.ts";
 
@@ -159,7 +165,9 @@ export class Game {
   private dashing = { dir: { x: 0, y: 0 }, leftMs: 0 };
   private nextDashAt = 0;
   /** Explorers leaving a trail of afterimages until then (ms), and when the last one was left. */
-  private trails = new Map<PlayerActor, { until: number; last: number }>();
+  private trails = new Map<Actor, { until: number; last: number }>();
+  /** The last pal each companion's chain lightning hit (and when), to draw the jump to the next. */
+  private chains = new Map<string, { at: Vec2; time: number }>();
   /** Trees and rocks (to face the one being chopped). */
   private nodes = gatherNodes(defaultWorld().layout);
   /** Wild pals gone from the state but still on screen: caught (in a ball), knocked out (falling over), or fading. */
@@ -351,7 +359,8 @@ export class Game {
         const near = this.nearMe(actor.pos, 520);
         if (pal.windup !== windup) {
           windup = pal.windup;
-          actor.setWindup(windup);
+          // A skill's wind-up shows from its cast message (in its element's color).
+          if (windup !== "skill") actor.setWindup(windup);
           // Where the boss's stomp will land: get out of the ring.
           if (windup === "stomp") this.effects.warning(() => this.pals.get(id)?.actor.pos, BOSS.stompRadius, BOSS.stompWindupMs / 1000);
         }
@@ -490,8 +499,13 @@ export class Game {
     this.room.onMessage(ServerMessage.Hit, (msg: HitMessage) => {
       const pal = this.pals.get(msg.palId);
       const mine = msg.playerId === this.room.sessionId && !msg.companionId;
+      const skill = msg.skill ? getSkill(msg.skill) : undefined;
       if (pal && this.nearMe(pal.actor.pos, 500)) this.sound.play(msg.crit ? "crit" : "hit");
-      if (pal) {
+      if (pal && skill) {
+        // A skill's own animation shows the blow; the number comes in its element's color.
+        this.labels.float(pal.actor.pos, pal.actor.height - 2, `${msg.damage}`, `hit skill ${skill.element}`);
+        if (skill.chain && msg.companionId) this.chainJump(msg.companionId, pal);
+      } else if (pal) {
         const lift = pal.actor.height;
         this.effects.impact({ x: pal.actor.pos.x, y: pal.actor.pos.y - lift * 0.5 }, msg.crit);
         this.labels.float(pal.actor.pos, lift - 6, msg.crit ? `💥${msg.damage}` : `${msg.damage}`, msg.crit ? "crit" : msg.companionId ? "hit small" : "hit");
@@ -499,7 +513,8 @@ export class Game {
       if (pal && msg.effect === "super") this.labels.float(pal.actor.pos, pal.actor.height + 14, "Hiệu quả! 💥", "super");
       if (pal && msg.effect === "weak") this.labels.float(pal.actor.pos, pal.actor.height + 14, "Kém hiệu quả", "weak");
       if (msg.companionId) {
-        const companion = this.companions.get(msg.companionId);
+        // (A skill's caster already struck when it let go.)
+        const companion = skill ? undefined : this.companions.get(msg.companionId);
         if (companion && pal) companion.actor.faceToward(pal.actor.pos);
         companion?.actor.play("attack");
       } else if (msg.playerId !== this.room.sessionId) {
@@ -530,7 +545,7 @@ export class Game {
     this.room.onMessage(ServerMessage.Lunge, (msg: LungeMessage) => {
       const attacker = this.pals.get(msg.palId);
       const target = msg.targetType === "player" ? this.players.get(msg.targetId) : this.companions.get(msg.targetId);
-      if (attacker) {
+      if (attacker && !msg.skill) {
         if (target) attacker.actor.faceToward(target.actor.pos);
         attacker.actor.play("attack");
       }
@@ -640,7 +655,7 @@ export class Game {
     this.room.onMessage(ServerMessage.Damage, (msg: DamageMessage) => {
       const target = msg.targetType === "player" ? this.players.get(msg.targetId) : this.companions.get(msg.targetId);
       const attacker = this.pals.get(msg.attackerId);
-      if (attacker && target) attacker.actor.faceToward(target.actor.pos);
+      if (attacker && target && !msg.skill) attacker.actor.faceToward(target.actor.pos);
       if (!target) return;
       if (msg.cause) {
         // Cold or heat: a quieter tick of damage.
@@ -652,14 +667,17 @@ export class Game {
         this.sound.play("hurt");
         this.shake = Math.max(this.shake, 4);
         const me = this.me();
-        if (me && msg.push && attacker) {
+        // Pushed away from the biter, or from where a skill landed.
+        const pushFrom = msg.pushFrom ?? attacker?.actor.pos;
+        if (me && msg.push && pushFrom) {
           const sailing = (this.room.state.players.get(this.room.sessionId)?.raft ?? 0) > 0;
           const sea = sailing ? undefined : (at: Vec2) => isSea(this.terrain, at.x, at.y);
-          me.pos = knockback(me.pos, attacker.actor.pos, msg.push, PLAYER_RADIUS, this.obstacles, sea);
+          me.pos = knockback(me.pos, pushFrom, msg.push, PLAYER_RADIUS, this.obstacles, sea);
           this.knockedAt = performance.now();
         }
       }
-      this.labels.float(target.actor.pos, target.actor.height, `-${msg.amount}`, "damage");
+      const skill = msg.skill ? getSkill(msg.skill) : undefined;
+      this.labels.float(target.actor.pos, target.actor.height, `-${msg.amount}`, skill ? `damage ${skill.element}` : "damage");
     });
 
     this.room.onMessage(ServerMessage.Fainted, (msg: FaintedMessage) => {
@@ -671,7 +689,15 @@ export class Game {
       if (msg.targetType === "player" && msg.targetId === this.room.sessionId) this.sound.play("faint");
     });
 
-    this.room.onMessage(ServerMessage.Skill, (msg: SkillMessage) => this.showSkill(msg));
+    this.room.onMessage(ServerMessage.SkillCast, (msg: SkillCastMessage) => this.castSkill(msg));
+
+    this.room.onMessage(ServerMessage.Healed, (msg: HealedMessage) => {
+      const target = msg.targetType === "player" ? this.players.get(msg.targetId) : msg.targetType === "companion" ? this.companions.get(msg.targetId) : this.pals.get(msg.targetId);
+      if (!target || !this.nearMe(target.actor.pos, 700)) return;
+      target.actor.hit(0x69f0ae);
+      this.labels.float(target.actor.pos, target.actor.height + 2, `+${msg.amount} ❤`, "heal");
+      if (msg.targetType === "player" && msg.targetId === this.room.sessionId) this.sound.play("heal");
+    });
 
     this.room.onMessage(ServerMessage.BossStomp, () => {
       const boss = this.bossId ? this.pals.get(this.bossId) : undefined;
@@ -705,8 +731,13 @@ export class Game {
       const companion = this.companions.get(msg.palId);
       if (companion) this.effects.sparkle(companion.actor.pos, 0xffd54f);
       if (msg.playerId === this.room.sessionId) {
-        this.hud.showToast(`${getSpecies(msg.speciesId).name} lên cấp ${msg.level}! ⭐`);
+        const species = getSpecies(msg.speciesId);
+        const learned = newSkillAt(species, msg.level);
+        this.hud.showToast(learned
+          ? `${species.name} lên cấp ${msg.level}! ⭐ Học được chiêu mới: ${learned.icon} ${learned.name}`
+          : `${species.name} lên cấp ${msg.level}! ⭐`, learned ? 3200 : undefined);
         this.sound.play("levelup");
+        if (learned && companion) setTimeout(() => this.labels.float(companion.actor.pos, companion.actor.height + 10, `${learned.icon} ${learned.name}!`, "skill"), 400);
       }
     });
 
@@ -1049,45 +1080,93 @@ export class Game {
     });
   }
 
-  /** Visuals for a companion's element skill. */
-  private showSkill(msg: SkillMessage) {
-    const companion = this.companions.get(msg.companionId);
-    if (!companion) return;
-    const target = msg.targetId ? this.pals.get(msg.targetId) : undefined;
-    const names: Record<string, string> = { flame: "🔥 Phun lửa", vines: "🌿 Dây leo", quake: "🛡️ Khiên đá", thunder: "⚡ Sấm sét", rain: "💧 Mưa hồi máu" };
-    this.labels.float(companion.actor.pos, companion.actor.height, names[msg.skill] ?? msg.skill, "skill");
-    companion.actor.play("attack");
-    const me = this.me();
-    if (me && distance(me.pos, companion.actor.pos) < 600) this.sound.play("skill");
-    const ownerId = this.room.state.companions.get(msg.companionId)?.ownerId;
-    const owner = ownerId ? this.players.get(ownerId)?.actor : undefined;
-    switch (msg.skill) {
-      case "flame":
-        if (target) {
-          this.effects.burst(target.actor.pos, [0xff6d00, 0xffab00, 0xff3d00], 26, 60);
-          this.effects.ring(target.actor.pos, 0xff7043, 70, 0.5);
-        }
-        break;
-      case "vines":
-        if (target) {
-          this.effects.ring(target.actor.pos, 0x43a047, 38, 3, 4);
-          this.effects.burst(target.actor.pos, [0x66bb6a, 0x2e7d32], 14, 34);
-        }
-        break;
-      case "thunder":
-        if (target) this.effects.bolt(target.actor.pos);
-        break;
-      case "quake":
-        if (owner) this.effects.shield(owner.root, 6);
-        break;
-      case "rain":
-        for (const e of [companion.actor, owner]) {
-          if (!e) continue;
-          this.effects.burst({ x: e.pos.x, y: e.pos.y - 60 }, [0x4fc3f7, 0x81d4fa], 16, -40);
-          this.labels.float(e.pos, e.height, "+25", "heal");
-        }
-        break;
-    }
+  /**
+   * A pal's skill: it winds up glowing in its element's color (what is about
+   * to hit shows on the ground if a wild pal cast it), then the skill's own
+   * animation plays out (skillfx.ts) until it lands with the server's hits.
+   */
+  private castSkill(msg: SkillCastMessage) {
+    const skill = getSkill(msg.skill);
+    const wild = msg.caster === "wild";
+    const casterOf = () => (wild ? this.pals.get(msg.casterId) ?? this.leaving.get(msg.casterId)?.entity : this.companions.get(msg.casterId));
+    const caster = casterOf();
+    if (!caster || !this.nearMe(caster.actor.pos, 900)) return;
+    const { actor } = caster;
+    const color = ELEMENT_COLOR[skill.element];
+    const height = actor.height;
+    const casterPos = () => casterOf()?.actor.pos;
+    // Still able to let it go: a wild pal dazed, caught or knocked out mid wind-up drops it (as on the server).
+    const able = () => (wild
+      ? !!this.room.state.pals.get(msg.casterId) && !this.room.state.pals.get(msg.casterId)!.dizzy && !this.pals.get(msg.casterId)?.inBall
+      : this.room.state.companions.has(msg.casterId));
+    const releaseAt = performance.now() + msg.castMs;
+    // Where it lands: where it was aimed, or (companions) wherever its target has gone by then.
+    let last = { ...msg.at };
+    const to = (): Vec2 => {
+      if (!msg.homing || !msg.targetId) return msg.at;
+      const id = msg.targetId;
+      const target = msg.targetType === "pal" ? this.pals.get(id) ?? this.leaving.get(id)?.entity : msg.targetType === "companion" ? this.companions.get(id) : this.players.get(id);
+      if (target) last = { ...target.actor.pos };
+      return last;
+    };
+    const ownerId = wild ? undefined : this.room.state.companions.get(msg.casterId)?.ownerId;
+    const owner = () => (ownerId ? this.players.get(ownerId)?.actor : undefined);
+    // Who a heal or shield helps: a wild pal itself; a companion and its owner (a shield only the owner).
+    const allies = wild ? [casterPos] : skill.shape === "shield" ? [() => owner()?.pos] : [casterPos, () => owner()?.pos];
+
+    actor.faceToward(msg.at);
+    actor.setWindup("skill", color);
+    chargeUp(this.effects, () => (able() ? casterPos() : undefined), color, msg.castMs, height);
+    skillPrelude(this.effects, skill, to, msg.castMs);
+    this.labels.float(actor.pos, height + 4, `${skill.icon} ${skill.name}`, wild ? "skill foe" : "skill");
+    if (this.nearMe(actor.pos, 600)) this.sound.play("charge");
+    if (wild && !isSupport(skill)) danger(this.effects, skill, msg.from, msg.at, (msg.castMs + msg.travelMs) / 1000, () => performance.now() >= releaseAt || able());
+
+    setTimeout(() => {
+      const entity = casterOf();
+      if (entity?.actor.windingUp === "skill") entity.actor.setWindup("");
+      if (!able()) return;
+      const from = entity ? { ...entity.actor.pos } : msg.from;
+      if (entity) {
+        entity.actor.faceToward(to());
+        entity.actor.play("attack");
+        // A charge leaves a trail of afterimages.
+        if (skill.dash) this.trails.set(entity.actor, { until: performance.now() + msg.travelMs + 120, last: 0 });
+      }
+      playSkill({
+        fx: this.effects,
+        skill,
+        from,
+        to,
+        travelMs: msg.travelMs,
+        casterHeight: height,
+        allies,
+        shake: (amount) => {
+          const me = this.me();
+          const d = me ? distance(me.pos, to()) : 0;
+          if (d < 500) this.shake = Math.max(this.shake, amount * (1 - d / 500));
+        },
+      });
+      if (this.nearMe(from, 600)) this.sound.play(skill.element);
+      // A stone shield goes up around its holder as it lands.
+      if (skill.shape === "shield") {
+        setTimeout(() => {
+          const holder = wild ? casterOf()?.actor : owner();
+          if (!holder) return;
+          this.effects.shield(holder.root, (skill.shieldMs ?? 0) / 1000, holder.height);
+          if (this.nearMe(holder.pos, 600)) this.sound.play("shield");
+        }, msg.travelMs);
+      }
+    }, msg.castMs);
+  }
+
+  /** Chain lightning: a bolt from the pal it hit last to this one (the hits of one cast come together). */
+  private chainJump(companionId: string, pal: PalEntity) {
+    const now = performance.now();
+    const at = { x: pal.actor.pos.x, y: pal.actor.pos.y - pal.actor.height * 0.5 };
+    const previous = this.chains.get(companionId);
+    if (previous && now - previous.time < 300) chainBolt(this.effects, previous.at, at);
+    this.chains.set(companionId, { at, time: now });
   }
 
   /** Shows the boss HP bar at the top while the boss is near. */

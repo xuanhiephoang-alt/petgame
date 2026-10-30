@@ -26,7 +26,8 @@ const SHOTS: Record<string, { speed: number; arc: number; color: number; glow?: 
 export class Effects {
   private active: Effect[] = [];
 
-  constructor(private marks: Container, private air: Container, private dot: Texture) {}
+  /** The ground layer (rings, marks), the air layer (everything flying) and a soft round dot texture. */
+  constructor(readonly marks: Container, readonly air: Container, readonly dot: Texture) {}
 
   /** The player's punch or swing: a quick arc in front of them, wider for weapons that reach farther. */
   slash(at: Vec2, facing: "front" | "back" | "left" | "right", reach = ATTACK_RANGE) {
@@ -241,7 +242,7 @@ export class Effects {
     });
   }
 
-  /** A red danger ring that fills in until the boss's stomp lands (a ring on the ground, its radius in px). */
+  /** A red danger circle that fills in until the boss's stomp lands (its true reach on the ground, radius in px). */
   warning(at: () => Vec2 | undefined, radius: number, durationSec: number) {
     const g = new Graphics();
     this.add(this.marks, g, durationSec, (k) => {
@@ -250,8 +251,8 @@ export class Effects {
       g.position.set(p.x, p.y);
       const pulse = 0.6 + Math.sin(k * 30) * 0.15;
       g.clear()
-        .ellipse(0, 0, radius, radius * 0.42).fill({ color: 0xff3d00, alpha: 0.12 + k * 0.12 }).stroke({ color: 0xff1744, width: 3, alpha: pulse })
-        .ellipse(0, 0, radius * k, radius * k * 0.42).fill({ color: 0xff3d00, alpha: 0.18 });
+        .circle(0, 0, radius).fill({ color: 0xff3d00, alpha: 0.1 + k * 0.12 }).stroke({ color: 0xff1744, width: 3, alpha: pulse })
+        .circle(0, 0, radius * k).fill({ color: 0xff3d00, alpha: 0.16 });
     });
   }
 
@@ -385,11 +386,12 @@ export class Effects {
     this.ring(at, 0xfff59d, 34, 0.3);
   }
 
-  /** A translucent stone-colored dome around an actor for a while. */
-  shield(root: Container, duration: number) {
+  /** A translucent stone-colored dome around an actor for a while (sized for one `height` px tall). */
+  shield(root: Container, duration: number, height = 44) {
     const g = new Graphics();
-    g.ellipse(0, -22, 30, 32).fill({ color: 0xd7ccc8, alpha: 0.22 }).stroke({ color: 0xbcaaa4, width: 2, alpha: 0.7 });
-    g.ellipse(-9, -38, 8, 5).fill({ color: 0xffffff, alpha: 0.35 });
+    const u = height / 44;
+    g.ellipse(0, -22 * u, 30 * u, 32 * u).fill({ color: 0xd7ccc8, alpha: 0.22 }).stroke({ color: 0xbcaaa4, width: 2, alpha: 0.7 });
+    g.ellipse(-9 * u, -38 * u, 8 * u, 5 * u).fill({ color: 0xffffff, alpha: 0.35 });
     root.addChild(g);
     this.add(root, g, duration, (k) => {
       g.alpha = 1 - k * k;
@@ -419,7 +421,11 @@ export class Effects {
   }
 
   update(dt: number) {
-    this.active = this.active.filter((e) => {
+    const running = this.active;
+    this.active = [];
+    const still = running.filter((e) => {
+      // Gone with what it was on (a shield on a pal that was knocked out).
+      if (e.node.destroyed) return false;
       e.elapsed += dt;
       const k = Math.min(e.elapsed / e.duration, 1);
       e.update(k);
@@ -427,9 +433,12 @@ export class Effects {
       e.node.destroy({ children: true });
       return false;
     });
+    // Effects started by these updates (a shot landing, a ball clicking shut) joined `active` meanwhile.
+    this.active = still.concat(this.active);
   }
 
-  private add(layer: Container, node: Container, duration: number, update: (k: number) => void) {
+  /** Runs `update(k)` every frame with k going 0..1 over `duration` seconds, then destroys `node` (added to `layer` if it has no parent). */
+  add(layer: Container, node: Container, duration: number, update: (k: number) => void) {
     if (!node.parent) layer.addChild(node);
     update(0);
     this.active.push({ node, elapsed: 0, duration, update });

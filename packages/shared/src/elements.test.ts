@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NOT_EFFECTIVE, SKILLS, SUPER_EFFECTIVE, effectiveness, elementMultiplier, strongAgainst } from "./elements.ts";
-import { PAL_SPECIES } from "./pals.ts";
+import { NOT_EFFECTIVE, SUPER_EFFECTIVE, effectiveness, elementMultiplier, strongAgainst } from "./elements.ts";
 
 describe("elements", () => {
   it("follows the cycle fire > grass > earth > electric > water > fire", () => {
@@ -21,7 +20,4 @@ describe("elements", () => {
     expect(strongAgainst("water")).toBe("fire");
   });
 
-  it("every species element has a skill", () => {
-    for (const s of PAL_SPECIES) expect(SKILLS[s.element]).toBeDefined();
-  });
 });

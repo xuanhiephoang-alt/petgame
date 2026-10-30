@@ -29,6 +29,8 @@ export interface PalSpecies {
   attack: number;
   /** Where and when this species appears in the wild. */
   spawn: { biomes: Biome[]; time: SpawnTime };
+  /** Its three skills (skills.json ids), learned at SKILL_LEVELS (skills.ts). */
+  skills: string[];
 }
 
 export const PAL_SPECIES: readonly PalSpecies[] = palData as PalSpecies[];

@@ -21,7 +21,12 @@
         "island"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "seed_shot",
+      "vine_bind",
+      "leaf_storm"
+    ]
   },
   {
     "id": "emberpup",
@@ -44,7 +49,12 @@
         "volcano"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "ember",
+      "fire_breath",
+      "flame_ring"
+    ]
   },
   {
     "id": "bubbloon",
@@ -68,7 +78,12 @@
         "swamp"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "bubble",
+      "healing_rain",
+      "tidal_wave"
+    ]
   },
   {
     "id": "pebblet",
@@ -93,7 +108,12 @@
         "desert"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "rock_throw",
+      "stone_shield",
+      "quake"
+    ]
   },
   {
     "id": "voltmouse",
@@ -117,7 +137,12 @@
         "island"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "spark",
+      "thunder",
+      "chain_lightning"
+    ]
   },
   {
     "id": "ripplefin",
@@ -141,7 +166,12 @@
         "island"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "water_jet",
+      "healing_rain",
+      "tidal_wave"
+    ]
   },
   {
     "id": "mothlume",
@@ -167,7 +197,12 @@
         "swamp"
       ],
       "time": "night"
-    }
+    },
+    "skills": [
+      "glow_dust",
+      "static_field",
+      "thunder"
+    ]
   },
   {
     "id": "boulderhorn",
@@ -189,7 +224,12 @@
         "volcano"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "horn_charge",
+      "quake",
+      "rock_spikes"
+    ]
   },
   {
     "id": "frostfang",
@@ -212,7 +252,12 @@
         "snow"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "ice_shard",
+      "frost_breath",
+      "blizzard"
+    ]
   },
   {
     "id": "cactoad",
@@ -235,7 +280,12 @@
         "desert"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "needle_spray",
+      "vine_bind",
+      "needle_cannon"
+    ]
   },
   {
     "id": "scorchtail",
@@ -259,7 +309,12 @@
         "volcano"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "fire_breath",
+      "lava_lash",
+      "meteor"
+    ]
   },
   {
     "id": "bogbloom",
@@ -282,7 +337,12 @@
         "swamp"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "vine_bind",
+      "pollen",
+      "bloom_burst"
+    ]
   },
   {
     "id": "coralcrab",
@@ -305,6 +365,11 @@
         "island"
       ],
       "time": "any"
-    }
+    },
+    "skills": [
+      "pincer",
+      "water_jet",
+      "tidal_wave"
+    ]
   }
 ]

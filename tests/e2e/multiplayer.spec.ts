@@ -344,3 +344,56 @@ test("gameplay: chop a tree, dash, and knock out a dizzy pal", async ({ browser 
   await expect.poll(dizzyPals).toBe(0);
   await expect.poll(async () => (await me()).stone).toBeGreaterThan(stone);
 });
+
+test("skills: pals cast their skills in a fight and the party panel lists them", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Trainer");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  // Record the casts the server announces and what shows up over the pals (skill names, numbers).
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__skills = { casts: [] as string[], labels: [] as string[] };
+    w.__petgame.room.onMessage("skillCast", (m: any) => w.__skills.casts.push(`${m.caster}:${m.skill}`));
+    new MutationObserver((records) => {
+      for (const r of records) {
+        r.addedNodes.forEach((n: any) => {
+          const label = n.classList?.contains("float-text") ? n : n.querySelector?.(".float-text");
+          if (label) w.__skills.labels.push(`${label.className}|${label.textContent}`);
+        });
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+
+  // A level 7 Bubbloon knows Bong bóng and Mưa hồi máu; Sóng thần comes at level 15.
+  await page.evaluate(() => (window as any).__petgame.room.send("debug:givePal", { species: "bubbloon", level: 7 }));
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(1);
+  await page.locator(".party-btn").click();
+  const chips = page.locator(".party-card.follow .skill-chip");
+  await expect(chips).toHaveCount(3);
+  await expect(chips.nth(0)).toContainText("Bong bóng");
+  await expect(chips.nth(1)).toContainText("Mưa hồi máu");
+  await expect(chips.nth(2)).toHaveClass(/locked/);
+  await expect(chips.nth(2)).toContainText("Lv 15");
+  await page.keyboard.press("Escape");
+
+  // Pick a fight with a sturdy Emberpup: the companion's bubbles hit it, numbers in the water color.
+  await page.evaluate(() => (window as any).__petgame.room.send("debug:spawnPal", { species: "emberpup", full: true }));
+  await page.waitForTimeout(600);
+  await page.keyboard.press(" ");
+  const seen = () => page.evaluate(() => (window as any).__skills as { casts: string[]; labels: string[] });
+  await expect.poll(async () => (await seen()).casts, { timeout: 30_000 }).toContain("companion:bubble");
+  await expect.poll(async () => (await seen()).labels.some((l) => l.includes("hit skill water")), { timeout: 30_000 }).toBe(true);
+
+  // Send the companion home and go meet an aggressive Scorchtail alone: it breathes fire at us,
+  // the skill's name in red over its head (its fan of fire shows on the ground).
+  await page.locator(".party-btn").click();
+  await page.locator(".party-card.follow .party-action.rest").click();
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(0);
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => (window as any).__petgame.room.send("debug:teleport", { x: 3150, y: 2500 }));
+  await page.waitForTimeout(800);
+  await page.evaluate(() => (window as any).__petgame.room.send("debug:spawnPal", { species: "scorchtail", full: true }));
+  await expect.poll(async () => (await seen()).casts, { timeout: 30_000 }).toContain("wild:fire_breath");
+  await expect.poll(async () => (await seen()).labels.some((l) => l.includes("skill foe") && l.includes("Phun lửa"))).toBe(true);
+});

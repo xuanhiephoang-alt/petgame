@@ -37,6 +37,19 @@
       .float-text.dodge { color: #b3e5fc; font-size: 15px; font-style: italic; }
       .float-text.emote { font-size: 20px; text-shadow: 0 1px 2px rgba(0,0,0,0.4); animation: emote-pop 0.9s ease-out forwards; }
       .float-text.dizzy { color: #fff59d; font-size: 14px; }
+      /* Pal skills: the name as it winds up (a wild pal's in red), what it does in its element's color. */
+      .float-text.skill.foe { color: #ff8a65; }
+      .float-text.hit.skill { font-size: 16px; }
+      .float-text.hit.fire { color: #ff8a50; }
+      .float-text.hit.water { color: #4fc3f7; }
+      .float-text.hit.grass { color: #9ccc65; }
+      .float-text.hit.earth { color: #d7ccc8; }
+      .float-text.hit.electric { color: #ffee58; }
+      .float-text.damage.fire { text-shadow: 0 0 6px #ff6d00, 0 1px 3px #000; }
+      .float-text.damage.water { text-shadow: 0 0 6px #0288d1, 0 1px 3px #000; }
+      .float-text.damage.grass { text-shadow: 0 0 6px #43a047, 0 1px 3px #000; }
+      .float-text.damage.earth { text-shadow: 0 0 6px #8d6e63, 0 1px 3px #000; }
+      .float-text.damage.electric { text-shadow: 0 0 6px #fdd835, 0 1px 3px #000; }
       @keyframes emote-pop { 0% { transform: translateY(6px) scale(0.3); opacity: 0; } 20% { transform: translateY(-4px) scale(1.2); opacity: 1; }
         35% { transform: translateY(-2px) scale(1); } 80% { opacity: 1; } 100% { transform: translateY(-10px) scale(1); opacity: 0; } }
       .label.pal.dizzy span { opacity: 1; color: #fff59d; }
@@ -48,7 +61,14 @@
       .boss-bar[hidden] { display: none; }
       .boss-hp { height: 12px; margin-top: 4px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px; overflow: hidden; }
       .boss-hp div { height: 100%; background: linear-gradient(90deg, #d50000, #ff6d00); transition: width 0.2s; }
-      .party-skill { color: #8d6e63 !important; }
+      .party-skills { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+      .skill-chip { font-size: 11px; line-height: 1.35; padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
+      .skill-chip.fire { background: #ffe0d6; color: #bf360c; }
+      .skill-chip.water { background: #d9f2fd; color: #01579b; }
+      .skill-chip.grass { background: #e3f4e1; color: #2e7d32; }
+      .skill-chip.earth { background: #efe7e4; color: #5d4037; }
+      .skill-chip.electric { background: #fff8c4; color: #7a5d00; }
+      .skill-chip.locked { background: #f0f0f0; color: #9e9e9e; font-weight: 500; }
       .hud { position: absolute; inset: 0; pointer-events: none; color: #fff; z-index: 2; }
       .hud-health {
         display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: rgba(0,0,0,0.45); padding: 5px 10px; border-radius: 10px;
