@@ -278,7 +278,7 @@ test("explorer: a look picked in the lobby, clothes and weapons from the wardrob
       setTimeout(() => room.send("attack"), 600);
     });
   });
-  expect(hit).toBe(13);
+  expect([13, Math.round(13 * 1.6)]).toContain(hit); // the bow's damage, or a critical hit
 
   // After a reload the lobby shows the same look and the clothes are kept.
   await page.waitForTimeout(2500); // saves are batched every 2 s

@@ -24,7 +24,6 @@ import {
   daylight,
   phaseAt,
   BOSS,
-  QUESTS,
   rewardText,
   GEAR,
   ITEMS,
@@ -123,6 +122,8 @@ interface Camp {
   at: Vec2;
 }
 
+/** A finished quest is celebrated this long (ms) after the news, once what finished it has played out. */
+const QUEST_DELAY_MS = 2100;
 /** Wild pals farther than this (pixels) from the player are not drawn or animated. */
 const PAL_DRAW_DISTANCE = 1000;
 /** Above this distance (pixels) the predicted local player snaps to the server. */
@@ -170,6 +171,8 @@ export class Game {
   /** When the local player was last knocked back or dashed (ms): its position may run ahead of the server's for a moment. */
   private knockedAt = -Infinity;
   private defaultLayout = defaultWorld().layout;
+  /** Pals just caught ("<owner>:<species>"): where the ball lies and when it clicks shut, so a new follower waits in it. */
+  private catches = new Map<string, { at: Vec2; revealAt: number }>();
   /** Whether the next throw should use a crafted great ball. */
   private useGreatBall = false;
   private minimap!: Minimap;
@@ -399,6 +402,20 @@ export class Game {
       const { tag, label, text } = this.nameTag(`Lv ${companion.level} ${species.name}`, "label companion", () => actor.pos, actor.height + 4);
       const hpFill = addHpBar(label);
       this.companions.set(id, { actor, tag, label });
+      // Just caught: it stays in the ball until it clicks shut, then hops out and runs to its owner.
+      const key = `${companion.ownerId}:${companion.speciesId}`;
+      const caught = this.catches.get(key);
+      this.catches.delete(key);
+      const wait = caught ? caught.revealAt - performance.now() : 0;
+      if (caught && wait > 0) {
+        actor.root.visible = actor.ground.visible = tag.visible = false;
+        setTimeout(() => {
+          if (!this.companions.has(id)) return;
+          actor.pos = { ...caught.at };
+          actor.root.visible = actor.ground.visible = tag.visible = true;
+          actor.play("pop");
+        }, wait + 150);
+      }
       $.onChange(companion, () => {
         actor.server.x = companion.x;
         actor.server.y = companion.y;
@@ -461,12 +478,13 @@ export class Game {
     });
 
     this.room.onMessage(ServerMessage.QuestDone, (msg: QuestDoneMessage) => {
-      const player = this.players.get(msg.playerId);
-      if (player) this.effects.ring(player.actor.pos, 0xffca28, 80, 0.8);
-      if (msg.playerId !== this.room.sessionId) return;
-      this.sound.play("quest");
-      const quest = QUESTS.find((q) => q.id === msg.questId);
-      if (quest) setTimeout(() => this.hud.showToast(`📜 Xong: ${quest.title}! Nhận thưởng`), 2100);
+      // A moment later, after what finished it has played out (a ball still wobbling, a chest's loot);
+      // the server's notice with the reward comes at the same time (see Notice).
+      setTimeout(() => {
+        const player = this.players.get(msg.playerId);
+        if (player) this.effects.ring(player.actor.pos, 0xffca28, 80, 0.8);
+        if (msg.playerId === this.room.sessionId) this.sound.play("quest");
+      }, QUEST_DELAY_MS);
     });
 
     this.room.onMessage(ServerMessage.Hit, (msg: HitMessage) => {
@@ -593,6 +611,7 @@ export class Game {
       }
       // The pal holds still in the ball on the server too, until the wobbling ends.
       const at = { ...entity.actor.pos };
+      if (msg.success) this.catches.set(`${msg.playerId}:${msg.speciesId}`, { at, revealAt: performance.now() + captureRevealMs(msg.shakes) });
       this.effects.throwBall(thrower.actor.pos, at, great);
       setTimeout(() => {
         entity.inBall = true;
@@ -677,6 +696,7 @@ export class Game {
     });
 
     this.room.onMessage(ServerMessage.Notice, (msg: NoticeMessage) => {
+      if (msg.text.startsWith("Xong nhiệm vụ")) return void setTimeout(() => this.hud.showToast(msg.text, 3000), QUEST_DELAY_MS);
       this.hud.showToast(msg.text);
       if (msg.text.startsWith("Đã làm") || msg.text.startsWith("Trại đã lên cấp")) this.sound.play("craft");
     });
