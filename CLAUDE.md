@@ -78,7 +78,7 @@ CI (`.github/workflows/ci.yml`) chạy: typecheck, test, build, pytest photo3d, 
 | `asset-manager` | sonnet | Hình ảnh và asset: sprite từ ảnh AI, hình vẽ bằng code, ảnh chụp kiểm tra. Thay coder ở bước 2 cho việc thuần hình ảnh | asset, `PROGRESS.md` |
 | `balance-analyst` | sonnet | Tính toán cân bằng chỉ số (TTK, kinh nghiệm, tỉ lệ bắt, kinh tế), đề xuất số cụ thể. Không sửa code | `BALANCE.md` |
 
-Agent chính (phiên Claude đang đọc file này) là **người điều phối**: chọn nhiệm vụ, gọi agent theo đúng thứ tự, đọc kết quả, commit, cập nhật `TASKS.md`. Agent chính không tự viết code sản phẩm; mọi thay đổi code đi qua coder (hoặc asset-manager).
+Agent chính (phiên Claude đang đọc file này) là **người điều phối**: chọn nhiệm vụ, gọi agent theo đúng thứ tự, đọc kết quả, commit và push, cập nhật `TASKS.md`. Agent chính không tự viết code sản phẩm; mọi thay đổi code đi qua coder (hoặc asset-manager).
 
 ## Quy trình bắt buộc cho mọi nhiệm vụ
 
@@ -89,9 +89,9 @@ Agent chính (phiên Claude đang đọc file này) là **người điều phố
 4. **reviewer** (chỉ khi tester PASS) ghi `REVIEW.md`, dòng đầu `PASS` hoặc `FAIL`.
 5. **Vòng sửa lỗi:** tester FAIL hoặc reviewer FAIL thì quay lại bước 2, đưa coder đúng báo cáo lỗi; rồi lại bước 3, 4. **Tối đa 3 vòng** (một vòng = coder → tester → reviewer). Hết 3 vòng vẫn lỗi: dừng nhiệm vụ đó theo mục dưới.
 6. **Hoàn tất** (tester PASS và `REVIEW.md` bắt đầu bằng `PASS`):
-   - `git add` đúng các file của nhiệm vụ (code, test, tài liệu, `PLAN.md`, `PROGRESS.md`, `REVIEW.md`, `TASKS.md`), rồi `git commit` với message mô tả (tiếng Anh, dòng đầu ≤ 72 ký tự, thân nói thay đổi gì và vì sao, kèm mã nhiệm vụ).
+   - `git add` đúng các file của nhiệm vụ (code, test, tài liệu, `PLAN.md`, `PROGRESS.md`, `REVIEW.md`, `TASKS.md`), rồi `git commit` với message mô tả (tiếng Anh, dòng đầu ≤ 72 ký tự, thân nói thay đổi gì và vì sao, kèm mã nhiệm vụ). Rồi push nếu nhánh hiện tại tên `claude/...` (xem "Git và an toàn").
    - Cập nhật `TASKS.md`: đánh dấu xong `[x]` kèm mã commit; thêm việc mới phát hiện (từ PLAN.md, REVIEW.md) vào đúng mức ưu tiên.
-   - Làm nhiệm vụ tiếp theo. Tiếp tục đến khi `TASKS.md` không còn việc nào làm được.
+   - Làm nhiệm vụ tiếp theo. Tiếp tục đến khi `TASKS.md` không còn việc nào làm được; khi đó commit (và push) nốt `TASKS.md`.
 
 Quyết định nhỏ (tên, bố cục, con số hợp lý, cách làm khi có nhiều cách tương đương) thì tự quyết, ghi lý do vào PLAN.md, không hỏi.
 
@@ -107,8 +107,9 @@ Khi đó: ghi vào `QUESTIONS.md` (ngày, mã nhiệm vụ, câu hỏi, bối c�
 ## Git và an toàn
 
 - Làm và commit trên nhánh hiện tại; mỗi nhiệm vụ một commit (hoặc vài commit nhỏ có nghĩa).
-- **Không** `git push`, **không** `git reset --hard`, **không** xoá thư mục, **không** `git clean` (đã chặn trong `.claude/settings.json`). Người dùng tự push.
-- `.claude/settings.json` cho phép sẵn các lệnh build, test, git add/commit và chặn lệnh nguy hiểm; agent không được sửa file này. Cần một lệnh chưa có trong danh sách cho phép: dùng lệnh tương đương đã được phép nếu có, không thì ghi vào `QUESTIONS.md`.
+- **Push:** chỉ agent chính, chỉ lên nhánh làm việc tên `claude/...`, đúng dạng `git push -u origin <nhánh>`, ngay sau mỗi commit (phiên cloud chạy trong container tạm: commit chưa push sẽ mất khi container bị thu hồi). **Không** force-push, **không** push lên `main`/`master` hay nhánh khác, **không** xoá nhánh trên remote. Nhánh hiện tại không phải `claude/...` (ví dụ chạy trên máy người dùng) thì không push, người dùng tự push.
+- **Không** `git reset --hard`, **không** xoá thư mục, **không** `git clean` (đã chặn trong `.claude/settings.json`).
+- `.claude/settings.json` cho phép sẵn các lệnh build, test, git add/commit, push lên nhánh `claude/...` và chặn lệnh nguy hiểm; agent không được sửa file này. Cần một lệnh chưa có trong danh sách cho phép: dùng lệnh tương đương đã được phép nếu có, không thì ghi vào `QUESTIONS.md`.
 - Không commit file sinh ra: `dist/`, `test-results/`, `shots/`, `packages/server/data/` (đã có trong `.gitignore`).
 - Không tắt, bỏ qua hay nới lỏng test để cho qua.
 
