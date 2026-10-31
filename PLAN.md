@@ -1,446 +1,196 @@
-# PLAN: T2 Thả bớt thú; túi đầy thì không ném bóng (không còn mất thú vừa bắt)
+# PLAN: T17 Hai unit test chập chờn (trùm về nhà, thú đêm) và một test cùng kiểu
 
 ## Mục tiêu
 
-- **Không còn mất thú.** Hiện túi đầy (30 con, `MAX_PARTY`) mà bắt thú thường vẫn "thành công": thú hoang bị xoá khỏi thế giới rồi chỉ hiện "Túi thú đã đầy" (`GameRoom.ts:808-835`), nên người chơi mất cả công đánh choáng lẫn con thú. Sau nhiệm vụ này, túi đầy thì không ném được bóng (cả thú thường lẫn thú đầu đàn). Thú hoang không bị động tới, bóng xịn không bị trừ, và người chơi được báo rõ cách khắc phục.
-- **Thả bớt được thú.** Bảng 🐾 Thú có chế độ "🕊️ Thả bớt" và hộp xác nhận, dùng được bằng cảm ứng lẫn bàn phím. Câu thông báo cũ "cho bớt thú đi" (`GameRoom.ts:786`) bảo người chơi làm một việc chưa làm được; nay câu mới chỉ đúng nút để bấm.
-- Khi túi đầy, nút 🐾 Thú hiện "(30/30)" trên nền vàng, để người chơi thả bớt trước khi đánh choáng con mới (choáng chỉ kéo dài 6 giây, `DIZZY_MS`).
+- `npm test` hỏng oan khoảng 11-12% số lần (đo ở T2): `walks the boss back home when it strays` hỏng khoảng 7,5%, `day and night > syncs the time of day and spawns night pals at night` khoảng 4-5,5%. Đội agent chấm PASS/FAIL bằng test, nên mỗi lần hỏng oan tốn một vòng sửa lỗi hoặc che mất lỗi thật.
+- Sau nhiệm vụ: các test này **tất định** (cùng code thì luôn cùng kết quả), **không nới lỏng**, và mỗi test **bắt được đúng lỗi nó nhắm tới** (đã thử bằng đột biến, xem từng mục).
+- Người chơi không thấy gì khác: chỉ sửa file test, không đổi hành vi game.
 
 ## Phạm vi
 
-Làm:
-1. Shared: `throwBlocker` và `PARTY_FULL_TEXT` trong `capture.ts` (+ test); `ClientMessage.Release` và `ReleaseMessage` trong `messages.ts`.
-2. Server: handler `release` có kiểm tra; `handleThrow` chặn ném khi túi đầy (trước khi tung xúc xắc hay trừ bóng xịn), bỏ nhánh "bắt được rồi mất"; `debug:givePal` báo cùng câu khi túi đầy.
-3. Client:
-   - `ui/party.ts`: tiêu đề có số thú, nút chế độ thả, nút "Thả" trên thẻ, hộp xác nhận, nút 🐾 báo đầy, chữ khi túi trống;
-   - `game/Game.ts`: gửi `release`; `throwBall` hỏi `throwBlocker` trước khi ném;
-   - CSS trong `index.html`.
-4. Test: unit (shared), tích hợp (`GameRoom.test.ts`), một test e2e mới.
-5. Tài liệu: `docs/architecture.md` (2 dòng). `docs/design/pals.md` đã được game-designer cập nhật (mục "Túi thú và thả thú"); coder không cần sửa.
+Làm (chỉ trong `packages/server/src/rooms/GameRoom.test.ts`):
+1. `regions and climate > walks the boss back home when it strays` (dòng 1004-1013).
+2. `day and night > syncs the time of day and spawns night pals at night` (dòng 490-508).
+3. `elements and skills > wild pals cast too: their skill lands where the target stood, so stepping away dodges it` (dòng 632-650). Cùng kiểu: đợi một lượt bốc 6% trong vòng lặp có giới hạn. Đo được 1/150 lần hỏng. Sửa luôn vì rẻ (2 dòng), và vì nếu để nguyên thì tiêu chí "20 lần `npm test` liền không hỏng" tự nó có khoảng 4-13% khả năng trượt.
 
 KHÔNG làm:
-- Không đổi `schema.ts`, `Profile`, `emptyProfile`, `sanitizeProfile`, `store.ts`. Không thêm `ServerMessage` mới (dùng `Notice`). Không đổi `MAX_PARTY`.
-- Không có phần thưởng khi thả, không rơi đồ, không biến thú được thả thành thú hoang, không có kho thú ở trại, không chọn nhiều con một lúc, không trao đổi thú.
-- Không thêm hiệu ứng, âm thanh khi thả.
-- Không sửa kích thước các nút có sẵn dưới 44 px (`.party-action` 36 px, `.party-close` cao 32 px...); đề xuất thành việc riêng ở cuối file. Chỉ các nút **mới** phải ≥ 44×44 px.
-- Không đổi cách focus khi mở bảng bằng phím Q. Không đổi vị trí hay độ dài toast (T6). Không gom chữ hiển thị (T12). Không thêm cờ đầu đàn (T8).
-- Không sửa `scripts/shots.mjs`, `playwright.config.ts`.
+- Không sửa code sản phẩm (`GameRoom.ts`, `ai/wander.ts`, `worldgen.ts`, `data/*.json`, hằng số). Không cần điểm tiêm: file test đã có lệ `vi.spyOn(Math, "random")` (helper `capture()`), còn test trùm không cần điều khiển ngẫu nhiên.
+- Không đổi ngưỡng hay thời gian chờ: 600 px, 40 tick, 160 tick, 30 tick và 10 tick giữ nguyên. Không retry (không `retry` của Vitest, không vòng chạy lại). Không tăng timeout, không đổi tên, không `skip`, không `vi.mock` module.
+- Không sửa test khác (đã rà, xem mục "Rà các test khác"). Không sửa cách trùm lang thang (ghi thành đề xuất T21 ở cuối).
 
 ## Thiết kế
 
-### Luật
+Không có chữ hiển thị hay thao tác mới (không áp dụng điện thoại, bàn phím). Các con số dưới đây đo trên bản sao tạm của HEAD `2d81602` trong scratchpad, ngoài repo.
 
-| Tình huống | Kết quả |
-|---|---|
-| Ném bóng khi `pals.length >= MAX_PARTY`, vào thú thường hoặc thú đầu đàn | Không ném. Client hiện toast `PARTY_FULL_TEXT` và không gửi tin `throw`. Nếu tin vẫn tới server (client sửa đổi, hoặc trạng thái client trễ), server từ chối với cùng câu: không gửi `CaptureResult`, không tung xúc xắc, không trừ bóng xịn, thú hoang không bị động tới (không vào bóng, không nổi giận). |
-| Ném bóng vào trùm | Như cũ: "Không thể bắt trùm! Hãy cùng nhau hạ nó". Câu này chuyển vào `throwBlocker`, nên client cũng báo ngay. |
-| Thả một con (đang nghỉ, đi theo, làm việc ở trại, kiệt sức, hoặc con cuối) | Được, sau khi xác nhận. Con đó rời túi và thế giới ngay, không hoàn lại gì. |
-| Thả con đang đi theo | Hết thú đi theo (`activePalId = ""`), thanh chiêu tự ẩn. Lần bắt tới, con mới tự đi theo như lần bắt đầu tiên (`GameRoom.ts:821-822`, giữ nguyên). |
-| Thả con đang làm việc | Rời trại; các con làm việc còn lại tự đi tới chỗ mới (`workSpotFor` theo thứ tự, giống khi bấm "Nghỉ"). |
-| Thả con cuối cùng | Được (người chơi mới cũng bắt đầu với 0 thú, không cơ chế nào cần ≥ 1 con). Hộp xác nhận có thêm dòng cảnh báo. |
+### 1. Trùm về nhà
 
-**Vì sao không hoàn lại gì.** Bóng thường không giới hạn. Bắt một Leafkit cấp 1 gần lửa trại mất khoảng 3,5 giây:
-- 40 máu, 4 đòn × 400 ms = 1,6 giây;
-- 96% bắt được khi choáng;
-- bóng lắc 1,9 giây.
+**Nguyên nhân (xác nhận bằng code và số đo):**
+- `spawnBoss` (`GameRoom.ts:1452-1473`): chỗ mặc định ở chân núi lửa luôn bị chặn với `BOSS.radius`, nên vòng `GameRoom.ts:1460-1463` luôn bốc một điểm ngẫu nhiên quanh núi lửa, và `bossHome` là điểm đó (`:1471`). Chạy lại đúng vòng này 200.000 lần: chỗ mặc định được dùng 0 lần. Điểm `x - 600` rơi vào vật cản ở 33,9% số lần (với bán kính 20 mà trùm dùng khi lang thang), rơi xuống biển 0%.
+- Test dịch trùm đi `boss.x -= 600` (test:1008). Ở tick đầu, dây xích (`GameRoom.ts:618`) đặt `brain.target = bossHome`. Sau đó `stepWander` (`:624`, `wander.ts:65-75`) gọi `grid.resolve`, hàm này đẩy thân trùm ra khỏi vật cản theo pháp tuyến (`collision.ts:53-71`). Hướng đẩy có thể là về phía tây, tức xa nhà hơn. Khi tiến được dưới 30% một bước, trùm đứng chờ 300-1000 ms (`wander.ts:71-75`). Trong 40 tick (2 giây, tối đa khoảng 90 px ở 45 px/s) có lúc trùm không bù lại được, ra lỗi `expected 610.28 to be less than 600`. Tester đo được 9/120 phòng hỏng (7,5%), cả 9 phòng đều có điểm dịch bị chặn.
+- **Phát hiện thêm: test cũ gần như không kiểm được dây xích.** Lúc sinh, não của trùm (`newBrain(pos)`, `GameRoom.ts:1997`, `wander.ts:27`) nhắm vào một điểm cách nhà tối đa ±150 px mỗi trục. Vì vậy dù bỏ hẳn dòng `:618`, trùm vẫn đi về phía nhà. Đo thử: bỏ `:618` thì test cũ vẫn qua 53/60 phòng.
 
-Tính bằng `captureChance`, `levelCatchRate`, `captureRevealMs`. Cộng thời gian đi lại thì khoảng 6 lần bắt mỗi phút. Thưởng 1 quả mọng mỗi lần thả đã ra khoảng 6 quả/phút, ngang hái vài bụi quả (2-4 quả mỗi bụi, mọc lại sau 90 giây). Vì vậy phần thưởng nào khi thả cũng thành vòng lặp bắt rồi thả.
+**Cách làm tất định (chỉ sửa test):**
+- Thêm helper `bossWalk()` trong `describe("regions and climate")`, cạnh `westShore()`. Helper tìm từ `defaultWorld()` (cố định theo `WORLD_SEED`) một đường thẳng trống gồm `home`, `stray` cách `home` 600 px, và `away` đi tiếp thêm 150 px cùng hướng.
+  - "Trống" nghĩa là: mọi điểm lấy mẫu cách nhau 8 px trên đoạn `home` → `away` đều không bị chặn với bán kính `BOSS.radius` (40) và không phải biển (`isSea`). Bán kính 40 gấp đôi bán kính 20 mà trùm dùng khi lang thang. Nếu sau này đổi sang 40 (xem T21), tuyến vẫn đúng.
+  - Thứ tự tìm cố định: các vòng tròn bán kính `volcano.r + ring * 32` với `ring` từ 3 đến 13 (cùng dải mà `spawnBoss` dùng), góc đặt nhà từ 0 đến 355 độ bước 5, hướng đi từ 0 đến 355 độ bước 5. Lấy kết quả đầu tiên tìm được. Không tìm được thì `throw new Error(...)` kèm lý do, không bao giờ trả về một tuyến xấu.
+  - Kết quả hiện tại: `home` khoảng (5059, 2436), `stray` khoảng (4805, 1892), `away` khoảng (4742, 1756) (ring 3, góc 10 độ, hướng 245 độ). Ở bước 5 độ có 154 cặp nhà/hướng hợp lệ, nên vẫn còn tuyến nếu thế giới thay đổi chút ít.
+  - Mọi tuyến hợp lệ đều cách chỗ người chơi xuất hiện (3120, 2400) ít nhất 503 px, xa hơn nhiều so với `AGGRESSIVE_SIGHT` 120, nên trùm không nhìn thấy người chơi. Không cần né hang thú đầu đàn: thú hoang không va chạm và không đánh nhau với nhau.
+- Thân test:
+  1. `setup()`, lấy trùm bằng `bossOf`.
+  2. Gán `(room as any).bossHome = { ...home }`. Test khác vẫn ghi đè trường riêng như vậy (`brains`, `controls`).
+  3. Đặt trùm ở `stray`.
+  4. Gán `brain.target = { ...away }`: để mặc nó, trùm sẽ đi xa thêm. Chính dòng này làm test bắt được lỗi mất dây xích.
+  5. `brain.idleMs = 0` (giữ như cũ).
+  6. `before = distance(boss, home)` (bằng 600).
+  7. Chờ 40 tick, rồi `expect(distance(boss, home)).toBeLessThan(before)` (giữ nguyên).
+- **Vì sao tất định:** đường trống nên mỗi tick `stepWander` tiến đúng một bước. Nó không vào nhánh bị chặn và không gọi `random`. Người chơi ở xa, và thú hoang không đẩy nhau. Đo được 0/120 phòng hỏng; sau 40 tick trùm cách nhà khoảng 508,7 px.
+- **Vẫn bắt được lỗi thật:** bỏ dòng `:618` (đột biến M-B1) thì hỏng 40/40 phòng, trùm cách nhà khoảng 690,5 px.
+- Phương án đã bỏ:
+  - (a) Giữ nhà ngẫu nhiên của phòng rồi tìm hướng trống: 86% số nhà không có đường thẳng 750 px trống ở cả 24 hướng (bán kính 40), nên không tất định.
+  - (b) Thay `obstacles` bằng lưới rỗng: làm thay đổi thế giới mà phòng mô phỏng.
+  - (c) Giả `Math.random` lúc tạo phòng: số lần gọi random trước khi thân test chạy phụ thuộc số tick đã qua, lại kéo theo cả 80 thú khác.
 
-**Kinh nghiệm khi bắt (lưu ý cho T4).** Thả bớt nghĩa là bắt thú không còn bị chặn ở 30 con, nên thú đi theo nhận `XP_PER_CAPTURE` (25) mỗi lần bắt mãi mãi. Không phải lỗ hổng: khoảng 25 XP mỗi 10 giây vẫn thấp hơn đánh liên tục (4 XP mỗi đòn của thú đi theo, khoảng 1 đòn/giây).
+### 2. Thú đêm
 
-### Luồng trên bảng 🐾 Thú
+**Nguyên nhân:**
+- Test ép gọi `spawnPal()` 30 lần (test:499) rồi đòi có ít nhất một Mothlume (test:501). `spawnPal` (`GameRoom.ts:1976-1999`) bốc chỗ ngẫu nhiên, rồi bốc loài bằng `pickSpecies(Math.random(), { biome, night: isNight(this.dayTime) })` (`:1982`). Mothlume (trọng số 2, loài đêm duy nhất) ra với xác suất 10,31% mỗi lần, nên 30 lần không ra con nào có xác suất 3,83%. Tester đo được 11/200 phòng hỏng (5,5%).
+- Thêm vài điểm yếu:
+  - Biến `night` (thú đêm tự sinh trong 30 tick, test:497) luôn rỗng, vì thú chỉ tự sinh mỗi `PAL_RESPAWN_MS` = 5000 ms, lâu hơn 1,5 giây chờ.
+  - Phép kiểm `state.dayTime > 0` (test:493) luôn đúng vì `onCreate` đã gán `DAY_START`. Phần "syncs the time of day" trong tên test chưa từng được kiểm thật.
+  - Phần bình minh (test:503-506) chỉ có ý nghĩa khi đã có Mothlume, tức khoảng 96% số lần.
 
-Bảng thường không đổi (các nút Đi theo / Làm việc / Cho về / Nghỉ / Cho ăn như cũ). Thêm:
+**Cách làm tất định:** giữ đường chọn loài thật (`spawnPal` gọi `pickSpecies` với cờ đêm của phòng), chỉ cố định chỗ sinh và lượt bốc.
+- Chỗ sinh: `defaultWorld().layout.regions.meadow` (giữa bản đồ, `biomeAt` trả `"meadow"`), truyền vào `spawnPal(at)` để không bốc chỗ ngẫu nhiên.
+- Lượt bốc: thêm helper `rollFor(speciesId, where)` trong `describe("day and night")`.
+  - Helper thử `roll = (k + 0.5) / 1000` với k từ 0 đến 999, giữ các roll mà `pickSpecies(roll, where)?.id === speciesId`, rồi trả về roll ở giữa danh sách. Không có roll nào thì `throw`.
+  - Với dữ liệu hiện tại, bể loài ban đêm ở meadow là leafkit 5, emberpup 4, bubbloon 4, pebblet 3, voltmouse 2, mothlume 2 (tổng 20). Helper trả roll 0,9505. Ban ngày cùng roll đó ra voltmouse, vì Mothlume không có trong bể ban ngày.
+- Bọc lời gọi `(room as any).spawnPal({ ...at })` trong `vi.spyOn(Math, "random").mockReturnValue(roll)` và trả lại ngay sau đó (`try/finally`, `vi.restoreAllMocks()`). Toàn bộ phải đồng bộ, không có `await` ở giữa. Mọi lần gọi random trong `spawnPal` (loài, cấp, não) nhận cùng một giá trị, nên kết quả không phụ thuộc thứ tự hay số lần gọi.
+- Trình tự (chi tiết ở bước 2 của kế hoạch):
+  1. Ban ngày: sinh với roll này thì không ra Mothlume.
+  2. Ban đêm (0,8), chờ 30 tick: `state.dayTime` khoảng 0,8.
+  3. Sinh với roll này: ra Mothlume.
+  4. Bình minh (0,999), chờ 10 tick: con đó bị xoá, và không còn Mothlume nào không giận.
+- **Vẫn bắt được lỗi thật:**
+  - M-N1 (`spawnPal` luôn truyền `night: false`): hỏng ở bước ban đêm.
+  - M-N2 (luôn truyền `night: true`): hỏng ở bước ban ngày.
+  - M-N3 (bỏ việc xoá thú đêm lúc bình minh): hỏng ở bước bình minh.
+  - M-N4 (bỏ việc đồng bộ `state.dayTime`): hỏng ở bước đồng bộ.
+  - Đo được: với code thật 0/120 phòng hỏng; mỗi đột biến hỏng 20/20, đúng ở bước của nó.
 
-1. **Tiêu đề** `Túi thú n/30` thay cho "Thú của bạn". Cạnh tiêu đề là nút chế độ `🕊️ Thả bớt`, rồi tới nút ✕. Nút chế độ ẩn khi túi trống.
-2. Bấm `🕊️ Thả bớt`:
-   - nút đổi thành `✓ Xong` (class `on`, `aria-pressed="true"`);
-   - đầu danh sách hiện gợi ý (đỏ) thay cho gợi ý đặt trại;
-   - mỗi thẻ giữ nguyên ảnh, tên, cấp, trạng thái, chiêu, thanh XP, nhưng cột nút chỉ còn một nút đỏ `Thả`.
-   
-   Bấm `✓ Xong` thì về bảng thường. **Đóng bảng (✕, Q, Escape, hay mở bảng khác) thì chế độ thả tự tắt**, nên lần mở sau luôn là bảng thường.
-3. Bấm `Thả` trên một thẻ thì mở **hộp xác nhận** giữa màn hình, kèm nền mờ che toàn màn hình. Nền mờ chặn chạm vào joystick và các nút phía sau; chạm vào nền mờ là huỷ.
-   - Trong hộp: ảnh thú (dùng lại `party-swatch`), tiêu đề, dòng chính, dòng trạng thái (nếu có), dòng cảnh báo con cuối (nếu có), hai nút `Giữ lại` (xám) và `Thả` (đỏ), theo thứ tự đó từ trái sang phải.
-   - Focus mặc định ở `Giữ lại`, nên Enter vô tình (hay giữ phím Enter) là huỷ.
-   - **Nút `Thả` trong hộp bị khoá (`disabled`) 500 ms đầu** (`CONFIRM_ARM_MS`). Nếu không, chạm đúp vào nút `Thả` trên thẻ có thể trúng luôn nút `Thả` trong hộp: trên điện thoại dọc, cột nút của thẻ (x khoảng 290-366) chồng lên nút phải của hộp (x khoảng 243-339). Chạm đúp thường dưới 300 ms.
-4. Bấm `Thả` trong hộp:
-   - hộp đóng ngay, client gửi `release`, focus về nút chế độ;
-   - server gỡ thú và gửi `Notice` "Đã thả Pebblet. Tạm biệt! 👋";
-   - thẻ biến mất khi patch tới; vẫn ở chế độ thả để thả tiếp.
-   
-   Thả hết thì bảng hiện chữ túi trống, chế độ thả tắt, nút chế độ ẩn.
-5. Hộp đang mở mà con thú đó không còn trong túi thì hộp tự đóng.
+### 3. Thú hoang tung chiêu (cùng kiểu, sửa luôn)
 
-**Bàn phím:**
-- Q mở bảng. Tab tới `🕊️ Thả bớt` rồi Enter. Tab tới `Thả` của một thẻ rồi Enter.
-- Trong hộp: focus ở `Giữ lại`; Tab và Shift+Tab đổi qua lại giữa hai nút (chỉ hai nút này, không thoát ra ngoài; nút `Thả` còn khoá thì focus đứng yên). Enter bấm nút đang focus.
-- **Escape khi hộp mở thì chỉ đóng hộp** (bảng vẫn mở); Escape lần nữa mới đóng bảng. Q khi hộp mở thì đóng cả bảng lẫn hộp.
-- Space là phím đánh của game: lớp `Keyboard` chặn Space trên nút (`keyboard.ts:9-11`). Đây là hành vi có sẵn, không đổi, nên không dùng Space để bấm nút trong bảng.
+- Test đợi tối đa 160 tick (test:642) cho một lần tung chiêu. `wildSkill` chỉ thử tung chiêu với xác suất 6% mỗi tick đang đánh (`GameRoom.ts:1420`), và không thử khi đang gồng cắn hay chờ hồi. Vì vậy có lúc cả 8 giây trôi qua mà không có chiêu nào. Đo được 1/150 phòng hỏng ("no cast").
+- Cách sửa:
+  - Thêm `vi.spyOn(Math, "random").mockReturnValue(0)` ngay trước vòng đợi, để mọi lượt bốc đều dưới ngưỡng (giống `capture()`).
+  - Thêm `vi.restoreAllMocks()` ngay sau vòng đợi, trước các `expect`.
+  - Emberpup cấp 8 đứng cách 120 px chỉ có ember (tầm 150) với tới, nên nó tung ember ngay ở tick đánh đầu tiên (đo được: chậm nhất 2 tick). Giữ nguyên giới hạn 160 tick và mọi `expect`.
+- **Vẫn bắt được lỗi thật:**
+  - M-W1 (chiêu của thú hoang đuổi theo mục tiêu: đổi `homing: !wild` thành `homing: true` ở `:1196` và `:1205`): hỏng 10/10.
+  - M-W2 (`wildSkill` luôn trả `undefined`): hỏng 5/5.
+  - Với code thật: 0/120.
 
-### Chữ hiển thị (tiếng Việt)
+### Rà các test khác trong `GameRoom.test.ts`
 
-| Chỗ | Chữ |
-|---|---|
-| Nút HUD, dưới 30 con | `🐾 Thú (n)` (như cũ) |
-| Nút HUD, đủ 30 con | `🐾 Thú (30/30)` + class `full` (nền vàng) |
-| Tiêu đề bảng | `Túi thú n/30` |
-| Nút chế độ, tắt / bật | `🕊️ Thả bớt` / `✓ Xong`; `title`: "Chọn thú để thả về thiên nhiên" |
-| Gợi ý khi bật chế độ | `Chọn thú muốn thả. Thú được thả sẽ về với thiên nhiên và không quay lại.` |
-| Nút trên thẻ | `Thả`; `aria-label`: `Thả Pebblet · Lv 2` |
-| Hộp: tiêu đề | `Thả Pebblet · Lv 2?` |
-| Hộp: dòng chính | `Nó sẽ về với thiên nhiên, không quay lại và không để lại gì.` |
-| Hộp: trạng thái (ẩn khi đang nghỉ) | đi theo: `Đang đi theo bạn.`; làm việc: `Đang làm việc ở trại.` |
-| Hộp: con cuối (đỏ, đậm) | `Đây là con thú cuối cùng của bạn.` |
-| Hộp: hai nút | `Giữ lại` / `Thả` |
-| Notice của server khi thả | `Đã thả Pebblet. Tạm biệt! 👋` |
-| Túi đầy (`PARTY_FULL_TEXT`, client và server) | `Túi thú đầy (30/30): mở 🐾 Thú và bấm 🕊️ Thả bớt` |
-| Trùm (giữ nguyên chữ cũ) | `Không thể bắt trùm! Hãy cùng nhau hạ nó` |
-| Túi trống (thay câu "Chưa bắt được thú nào..." vì sai sau khi thả hết) | `Túi đang trống. Đánh đến khi thú choáng 💫 rồi ném bóng để bắt!` |
-
-Số 30 trong các câu lấy từ `MAX_PARTY`, không viết cứng.
-
-### Bố cục và kích thước chạm
-
-- Nút mới đều ≥ 44×44 px ở 390×844, 844×390 và 1280×720: nút chế độ, nút `Thả` trên thẻ, hai nút trong hộp.
-- Tiêu đề rút thành `Túi thú n/30` (khoảng 120 px) để vừa một hàng với nút chế độ (khoảng 100 px) và ✕ (44 px) trong 300 px của bảng trên điện thoại dọc.
-- Hộp rộng `min(320px, 100%)` trong nền mờ có padding 16 px; cao khoảng 220 px, vừa màn hình ngang 390 px.
-
-### Kiểm tra phía server
-
-- Kiểu: handler chỉ gọi `release` khi `typeof message?.palId === "string"`. Payload thiếu, sai kiểu, hay `undefined` thì bỏ qua.
-- Id lạ, hoặc id thú của người khác: server chỉ tìm trong túi của người gửi (`player.pals.findIndex`), không thấy thì bỏ qua **im lặng**. Không gửi notice, để không lộ thông tin và không thành kênh spam notice.
-- Spam: không cần cooldown riêng. Tin không hợp lệ chỉ tốn một lần duyệt tối đa 30 phần tử. Tin hợp lệ thì gỡ một con, nên mỗi người chơi có tối đa 30 lần thả thật (mỗi lần một notice). Thả chỉ làm người gửi mất thú, không được gì, nên không có động cơ gian lận.
-- Ném bóng: lần ném bị `throwBlocker` từ chối **vẫn tính thời gian chờ ném** (`lastThrowAt = now`), nên notice từ chối tối đa khoảng 1,25 lần/giây mỗi người. Client bình thường không gửi khi bị chặn, nên người chơi thật không thấy khác.
-- Không có khe hở giữa kiểm tra và thêm thú: `handleThrow` chạy đồng bộ (kiểm tra, tung xúc xắc, `removePal`, `push` trong cùng một lời gọi, không `await`, không hẹn giờ). Bóng lắc chỉ là hình ảnh, kết quả đã quyết lúc ném. Vì vậy bỏ hẳn nhánh `else { notify("Túi thú đã đầy") }`.
-- Những chỗ khác thêm thú vào túi (đã rà):
-  - `quests.ts` và `rewards.ts`: `Reward` chỉ có tài nguyên, vật phẩm, đồ mặc, không có thú;
-  - rương và trùm: không cho thú;
-  - `onJoin`: nạp từ hồ sơ đã qua `sanitizeProfile`, cắt ở `MAX_PARTY`;
-  - `debug:givePal`: đã chặn khi đầy nhưng im lặng; nay báo `PARTY_FULL_TEXT` (chỉ có khi `PETGAME_DEBUG=1`).
-- Dọn dữ liệu chỉ server có khi thả: `despawnCompanion` đã dọn companion, timers, casts chưa bắn, `forgetSkills`, `lastDamagedAt`, thú hoang đang nhắm nó. Thêm:
-  - `faintedUntil.delete(id)`: map này hiện không bao giờ được dọn;
-  - `control.skillOrder = undefined` nếu lệnh chiêu đang dành cho con này.
-  
-  Chiêu đã bắn vẫn bay tiếp và trúng, vì `land` đã kiểm `owned` trước khi cộng XP (`GameRoom.ts:1307, 1348`). Hẹn giờ XP thú đầu đàn đã kiểm `pals.includes(follower)` (`GameRoom.ts:829`).
+- Đã đo trên 100-150 phòng mới, không lần nào hỏng:
+  - "winds up before biting" 0/150. Chiêu 6% có thể ra trước cú cắn, nhưng ember bay khoảng 111 ms (360 px/s), nên người chơi đã bước đi trước khi nó rơi xuống. Đã ép ember ra trước cú cắn 10/10 lần: test vẫn qua cả 10.
+  - "misses a dashing player, and bites push the others back" 0/150.
+  - "companion attacks the wild pal its owner hit" 0/100.
+- An toàn theo code:
+  - `capture()` giả random bằng 0.
+  - "captured pals keep the wild level..." chấp nhận cả trường hợp lên cấp.
+  - "snacks... great balls" không phụ thuộc kết quả bắt.
+  - "the boss rears up..." và "stomps everyone nearby": cú dậm không ngẫu nhiên, và `clock.currentTime` là `Date.now()` nên thời gian hồi 6 giây đã qua từ đầu.
+  - Cú đấm 10 sát thương (chí mạng 16) không làm choáng thú vừa sinh (máu tối thiểu 35).
+  - "makes a pal dizzy... loot": pebblet (hệ đất) chỉ rơi đá.
+  - Các test còn lại dùng `placeWild` hoặc vị trí cố định, giả random, hoặc không đợi sự kiện ngẫu nhiên.
+- Unit test ở `shared` và `ai/` đều dùng random tiêm vào hoặc `mulberry32` có seed.
+- Không còn test chập chờn nào cần đưa vào `TASKS.md`.
 
 ## Kế hoạch triển khai
 
-1. **`packages/shared/src/capture.ts`**
-   - `import { MAX_PARTY } from "./constants.ts";`
-   - Thêm hằng số và hàm (có JSDoc tiếng Anh):
-     ```ts
-     /** What a player is told when their party is full (MAX_PARTY): no ball is thrown. */
-     export const PARTY_FULL_TEXT = `Túi thú đầy (${MAX_PARTY}/${MAX_PARTY}): mở 🐾 Thú và bấm 🕊️ Thả bớt`;
+Chỉ sửa `packages/server/src/rooms/GameRoom.test.ts`, một commit. Chú thích và JSDoc viết bằng tiếng Anh, theo giọng văn của file.
 
-     /**
-      * Why a ball cannot be thrown at this wild pal, or undefined if it can: the boss is never caught,
-      * and a full party has no room. Shared so the client refuses, without throwing, exactly what the server would.
-      */
-     export function throwBlocker(partySize: number, target: { boss: boolean }): string | undefined
-     ```
-     Thứ tự: `target.boss` trả câu trùm (giữ nguyên chữ hiện ở `GameRoom.ts:785`); `partySize >= MAX_PARTY` trả `PARTY_FULL_TEXT`; còn lại `undefined`. Thú đầu đàn không có nhánh riêng.
-
-2. **`packages/shared/src/capture.test.ts`**: `describe("throwBlocker")`, xem mục Test.
-
-3. **`packages/shared/src/messages.ts`**
-   - Trong `ClientMessage`, sau `PalAuto`: `/** Let one of the player's pals go for good (the party panel asks first). */ Release: "release",`
-   - Thêm `export interface ReleaseMessage { /** OwnedPal id from the player's party. */ palId: string; }`.
-
-4. **`packages/server/src/rooms/GameRoom.ts`**
-   - a. Import thêm `PARTY_FULL_TEXT`, `throwBlocker`, `type ReleaseMessage`. `MAX_PARTY` vẫn dùng ở `debug:givePal`.
-   - b. Đăng ký handler cạnh `Summon`/`Assign` (khoảng dòng 349-356):
-     ```ts
-     this.onMessage(ClientMessage.Release, (client, message: ReleaseMessage) => {
-       if (typeof message?.palId === "string") this.release(client, message.palId);
-     });
-     ```
-   - c. **`handleThrow` (777-840)**, thứ tự kiểm tra mới (đây là phần quan trọng):
-     ```ts
-     if (!player || !control || !pal) return;
-     const now = this.clock.currentTime;
-     if (now - control.lastThrowAt < THROW_COOLDOWN_MS) return;
-     if (distance(player, pal) > THROW_RANGE) return;
-     if (this.inBall.has(palId)) return;
-     control.lastThrowAt = now; // a refused throw waits out the cooldown too: refusals cannot flood notices
-     // The boss is never caught and a full party has no room: refuse before any roll or great ball is used.
-     const blocker = throwBlocker(player.pals.length, pal);
-     if (blocker) return this.notify(client, blocker);
-     ```
-     - Xoá dòng 785 (trùm) và 786 (đầu đàn, "cho bớt thú đi"); cả hai nay nằm trong `throwBlocker`. Dòng `control.lastThrowAt = now` cũ (788) thay bằng dòng ở trên.
-     - Nhánh `success`: bỏ `if (player.pals.length < MAX_PARTY) { ... } else { this.notify(client, "Túi thú đã đầy"); }`, giữ nguyên thân khối `if` (tạo `OwnedPal`, `push`, XP, `summon`, nhiệm vụ, thú đầu đàn). Thêm chú thích ngắn: đã kiểm còn chỗ ở trên, trong cùng lời gọi.
-     - Còn lại không đổi (tỉ lệ, bóng xịn, `inBall`, `CaptureResult`).
-   - d. **Hàm mới `release`**, đặt ngay sau `rest()` (dòng 891-899):
-     ```ts
-     /** Lets one of the player's pals go for good (the party panel asks first): it leaves the party and the world, nothing is given back. */
-     private release(client: Client, ownedId: string) {
-       const player = this.state.players.get(client.sessionId);
-       const index = player ? player.pals.findIndex((p) => p.id === ownedId) : -1;
-       if (!player || index < 0) return; // not one of theirs: ignored quietly
-       const owned = player.pals[index];
-       if (player.activePalId === ownedId) player.activePalId = "";
-       this.despawnCompanion(ownedId);
-       const control = this.controls.get(client.sessionId);
-       if (control?.skillOrder?.companionId === ownedId) control.skillOrder = undefined;
-       this.faintedUntil.delete(ownedId);
-       player.pals.splice(index, 1);
-       this.notify(client, `Đã thả ${getSpecies(owned.speciesId).name}. Tạm biệt! 👋`);
-       this.scheduleSave(client.sessionId);
-     }
-     ```
-     Không gọi `rest()` trước `splice`, vì `rest()` sẽ đổi `assignment` của phần tử sắp bị xoá, một thao tác thừa. Đã kiểm bằng Encoder/Decoder của `@colyseus/schema` 5.0.36: `splice` phần tử giữa, đổi rồi xoá trong cùng tick, đổi phần tử sau khi chỉ số dịch đều đồng bộ đúng sang client.
-   - e. **`debug:givePal` (418-420)**: tách điều kiện thành `if (!player) return;` và `if (player.pals.length >= MAX_PARTY) return this.notify(client, PARTY_FULL_TEXT);`.
-
-5. **`packages/client/src/ui/party.ts`**
-   - Import thêm `MAX_PARTY`. Hằng số module `/** The release button in the confirm dialog stays locked this long, so a double tap on a card's button cannot confirm. */ const CONFIRM_ARM_MS = 500;`
-   - `PartyActions`: thêm `release(palId: string): void;`.
-   - Trường mới:
-     - `title` (`strong.party-title`), `releaseToggle` (`button.party-release-toggle`), `releasing = false`;
-     - tham số của lần `update` gần nhất: `party`, `hasBase`, `snacks`;
-     - phần tử hộp: `confirm` (nền mờ `div.party-confirm`), `confirmHead`, `confirmTitle` (`strong#party-confirm-title`), `confirmStatus`, `confirmWarn` (`p`), `keepButton` (`button.confirm-keep`), `releaseButton` (`button.confirm-release`);
-     - `confirmId = ""`, `armTimer = 0`.
-   - Constructor:
-     - Header gồm `title`, `releaseToggle`, `close`. Bấm toggle thì gọi `setReleasing(!this.releasing)`.
-     - Dựng hộp **một lần**, gắn vào `parent` sau panel: `parent.append(this.button, this.panel, this.confirm)`. Cấu trúc:
-       ```
-       div.party-confirm (hidden)
-         div.party-confirm-box (role="dialog", aria-modal="true", aria-labelledby="party-confirm-title")
-           div.party-confirm-head
-           p.party-confirm-text
-           p.party-confirm-status
-           p.party-confirm-warn
-           div.party-confirm-buttons
-             button.confirm-keep
-             button.confirm-release
-       ```
-       Mọi nút có `type="button"`. Dùng `textContent`, không dùng `innerHTML` cho chữ có tên thú.
-     - Sự kiện:
-       - `keepButton` click: `closeConfirm()`;
-       - `releaseButton` click: `confirmRelease()`;
-       - `confirm` click khi `e.target === this.confirm` (chạm nền mờ): `closeConfirm()`.
-     - Listener `keydown` trên `window` (thay khối dòng 79-82):
-       ```ts
-       if (e.key.toLowerCase() === "q" && !e.repeat) this.toggle();
-       if (e.key === "Escape") {
-         if (this.confirmId) this.closeConfirm(); // the dialog first, the panel on the next press
-         else this.toggle(false);
-       }
-       if (e.key === "Tab" && this.confirmId) {
-         e.preventDefault(); // focus stays on the dialog's two buttons
-         (document.activeElement === this.keepButton ? this.releaseButton : this.keepButton).focus();
-       }
-       ```
-       `focus()` lên nút còn khoá không có tác dụng, nên focus ở yên `Giữ lại`. Đó là hành vi mong muốn.
-   - `toggle(force)`: khi đóng, gọi `closeConfirm(false)` và `if (this.releasing) this.setReleasing(false)`.
-   - `update(party, hasBase, snacks = 0)`:
-     - lưu ba tham số;
-     - `if (party.length === 0) this.releasing = false;`
-     - `if (this.confirmId && !party.some((p) => p.id === this.confirmId)) this.closeConfirm();`
-     - key thêm `this.releasing`; key đổi thì gọi `render()` (phần thân cũ, dòng 102-118, chuyển vào đây).
-   - `render()`:
-     - `title`: `Túi thú ${n}/${MAX_PARTY}`;
-     - nút HUD: `🐾 Thú (${n})` khi `n < MAX_PARTY`, ngược lại `🐾 Thú (${n}/${MAX_PARTY})`; `classList.toggle("full", n >= MAX_PARTY)`;
-     - `releaseToggle.hidden = n === 0`; chữ, class `on` và `aria-pressed` theo `releasing`;
-     - danh sách: túi trống thì chữ túi trống (mới); khi `releasing` thì gợi ý thả (`p.party-hint.release`) thay cho gợi ý đặt trại; rồi các thẻ.
-   - `private setReleasing(on: boolean)`: `this.releasing = on; this.lastKey = ""; this.update(this.party, this.hasBase, this.snacks);`. Vẽ lại ngay, không chờ khung hình sau.
-   - `card()`: tách phần tạo `party-swatch` (dòng 128-138) thành `private swatch(entry: PartyEntry): HTMLSpanElement`, dùng lại trong hộp. Khi `this.releasing`, cột nút chỉ có `add("Thả", () => this.openConfirm(entry), "release")` và đặt `aria-label`; các nút khác không thêm. Hàm `add` cần trả về nút, hoặc đặt `aria-label` ngay trong đó.
-   - `private openConfirm(entry)`:
-     - `confirmId = entry.id`;
-     - `confirmHead.replaceChildren(this.swatch(entry), this.confirmTitle)`;
-     - điền tiêu đề, dòng trạng thái (`hidden` khi `assignment === ""`) và dòng con cuối (`hidden = this.party.length !== 1`);
-     - `releaseButton.disabled = true`; `armTimer = window.setTimeout(() => (this.releaseButton.disabled = false), CONFIRM_ARM_MS)`;
-     - `confirm.hidden = false`; `keepButton.focus()`.
-   - `private closeConfirm(restoreFocus = true)`:
-     - `confirmId` rỗng thì `return`;
-     - `clearTimeout(armTimer)`; ẩn hộp; `confirmId = ""`;
-     - nếu `restoreFocus && this.open && !this.releaseToggle.hidden` thì `releaseToggle.focus()`.
-   - `private confirmRelease()`: lấy `id = this.confirmId`; rỗng thì `return`; `closeConfirm()`; `this.actions.release(id)`.
-   - Cập nhật JSDoc của class: thêm việc thả thú.
-
-6. **`packages/client/src/game/Game.ts`**
-   - Import `throwBlocker`.
-   - `PartyPanel` (dòng 259-264): thêm `release: (palId) => this.room.send(ClientMessage.Release, { palId }),`.
-   - `throwBall()` (1028-1042), sau khi có `[targetId, pal]` và `state`, trước `room.send`:
-     ```ts
-     // Refused for the same reason the server would give (the boss, a full party): no ball leaves the hand.
-     const wild = this.room.state.pals.get(targetId);
-     const blocker = wild ? throwBlocker(state?.pals.length ?? 0, wild) : undefined;
-     if (blocker) {
-       this.hud.showToast(blocker, 3000);
-       return;
-     }
-     ```
-     Bị chặn thì không `send`, không `me.play("throw")`. Toast 3 giây vì câu dài hơn thường lệ và người chơi cần đọc để làm theo.
-
-7. **`packages/client/index.html`** (CSS, cạnh khối `.party-*`, dòng 116-151):
-   - `.party-btn.full { background: #ffd54f; color: #4e342e; }`
-   - `.party-header { ... gap: 6px; }`: thêm `gap` vào luật có sẵn.
-   - `.party-title { flex: 1; min-width: 0; }`
-   - `.party-release-toggle { min-height: 44px; min-width: 44px; padding: 0 12px; border: none; border-radius: 10px; background: #ffebee; color: #b71c1c; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; }`, `.party-release-toggle.on { background: #b71c1c; color: #fff; }`, `.party-release-toggle[hidden] { display: none; }`
-   - `.party-action.release { background: #e53935; min-height: 44px; }`, `.party-hint.release { color: #b71c1c; }`
-   - `.party-confirm { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; background: rgba(0,0,0,0.45); pointer-events: auto; }`, `.party-confirm[hidden] { display: none; }`
-   - `.party-confirm-box { width: min(320px, 100%); max-height: 100%; overflow-y: auto; box-sizing: border-box; padding: 14px 16px; border-radius: 14px; background: #fafcf6; color: #253020; box-shadow: 0 8px 28px rgba(0,0,0,0.4); }`
-   - `.party-confirm-head { display: flex; align-items: center; gap: 10px; font-size: 17px; }`, `.party-confirm-box p { margin: 8px 0 0; font-size: 14px; line-height: 1.4; }`, `.party-confirm-warn { color: #b71c1c; font-weight: 700; }`
-   - `.party-confirm-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }`, `.party-confirm-buttons button { min-height: 44px; min-width: 96px; padding: 0 16px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; }`, `.confirm-keep { background: #e0e0e0; color: #263238; }`, `.confirm-release { background: #e53935; color: #fff; }`, `.confirm-release:disabled { opacity: 0.45; cursor: default; }`
-   - `.party-confirm-buttons button:focus-visible, .party-release-toggle:focus-visible, .party-action.release:focus-visible { outline: 3px solid #1e88e5; outline-offset: 2px; }`
-   
-   `.hud` có `z-index: 2`; bảng `z-index: 3`, bản đồ lớn 4; hộp 5 nằm trên tất cả trong HUD, kể cả joystick và nút cảm ứng.
-
-8. **`packages/server/src/rooms/GameRoom.test.ts`**: các test ở mục Test.
-
-9. **`tests/e2e/multiplayer.spec.ts`**: test mới ở mục Test, đặt sau test "pack leaders", trước test "lobby:".
-
-10. **`docs/architecture.md`**:
-    - dòng `capture.ts`: thêm "`throwBlocker` (trùm, túi đầy; client và server dùng chung)";
-    - dòng `ui/`: `party.ts` thành "(bảng thú; chế độ 🕊️ Thả bớt và hộp xác nhận)".
+1. **Import** từ `@petgame/shared`: thêm `biomeAt`, `pickSpecies`, `type Biome`, `type Vec2`. `BOSS`, `isSea`, `defaultWorld`, `distance`, `getSpecies` đã có sẵn. File này nằm trong typecheck (`noUnusedLocals`), nên không import thừa.
+2. **`describe("day and night")`:**
+   - Thêm hàm cục bộ `rollFor(speciesId: string, where: { biome: Biome; night: boolean }): number` như mục Thiết kế 2. JSDoc nói hàm trả về roll ở giữa khoảng mà `pickSpecies` biến thành loài đó, và throw nếu không có.
+   - Viết lại thân test theo thứ tự sau, giữ tên test:
+     1. `const { room } = await setup();` rồi `expect(room.state.dayTime).toBeGreaterThan(0)` (giữ).
+     2. `room.state.pals.clear()` (giữ, chuyển lên đây).
+     3. `const { layout } = defaultWorld(); const at = layout.regions.meadow; const roll = rollFor("mothlume", { biome: biomeAt(layout, at.x, at.y), night: true });`
+     4. Hàm cục bộ `spawnWith(roll)`: mock `Math.random` bằng roll, gọi `(room as any).spawnPal({ ...at })`, rồi `vi.restoreAllMocks()` trong `finally`; trả về id.
+     5. Ban ngày (phòng bắt đầu ở `DAY_START`): `expect(room.state.pals.get(spawnWith(roll))!.speciesId).not.toBe("mothlume")`. Chú thích: cùng lượt bốc nhưng ban ngày ra thú ngày, vì Mothlume chỉ ra ban đêm.
+     6. `(room as any).dayTime = 0.8; await ticks(room, 30);` (giữ) rồi `expect(room.state.dayTime).toBeCloseTo(0.8, 1)` (mới: bản sao trong state được đồng bộ mỗi giây, `GameRoom.ts:1677-1680`; sai số cho phép 0,05, tức khoảng 24 giây giờ game).
+     7. `const moth = spawnWith(roll); expect(room.state.pals.get(moth)!.speciesId).toBe("mothlume");`
+     8. Bình minh: `(room as any).dayTime = 0.999; await ticks(room, 10);` (giữ). Kiểm `expect(room.state.pals.has(moth)).toBe(false)` (mới, kiểm thẳng) và giữ nguyên `expect([...].some((p) => p.speciesId === "mothlume" && !p.angry)).toBe(false)`.
+   - Bỏ: biến `night` (luôn rỗng), vòng 30 lần `spawnPal()` và phép kiểm `> 0`. Lý do: thay bằng phép kiểm chặt hơn, theo một lần sinh cụ thể.
+3. **`describe("regions and climate")`:**
+   - Thêm hàm cục bộ `bossWalk(): { home: Vec2; stray: Vec2; away: Vec2 }` cạnh `westShore()`, như mục Thiết kế 1. Dùng hằng cục bộ `STRAY = 600` (khoảng cách cũ) và `PAST = 150` (lớn hơn quãng 90 px trùm đi được trong 40 tick, còn dư vì tick thật có thể dài hơn 50 ms).
+   - JSDoc nói hàm làm gì: một đường đi thẳng không vướng cây, đá, hồ, núi lửa hay biển, kể cả với cả thân trùm, tìm từ thế giới cố định; throw nếu thế giới không có đường như vậy.
+   - Viết lại thân test `walks the boss back home when it strays` theo các bước ở mục Thiết kế 1. Thay chú thích cũ "west, toward the meadow" bằng chú thích nói ý: để mặc thì trùm đi xa thêm về `away`, dây xích phải kéo nó về.
+4. **`describe("elements and skills")` > "wild pals cast too...":**
+   - Ngay trước dòng `for (let i = 0; i < 160 && casts.length === 0; i++) ...`, thêm `vi.spyOn(Math, "random").mockReturnValue(0);` kèm chú thích: thú hoang chỉ thử tung chiêu ở khoảng 6% số tick đang đánh (`wildSkill`), mọi lượt bốc dưới ngưỡng thì nó tung ngay ở tick đánh đầu tiên.
+   - Ngay sau vòng lặp thêm `vi.restoreAllMocks();`. Không sửa gì khác trong test này.
+5. Chạy `npm run typecheck` và các lệnh ở mục Test; ghi `PROGRESS.md` (số lần chạy, số phòng, kết quả đột biến).
 
 ## Giao thức
 
-- **`messages.ts`:** thêm `ClientMessage.Release = "release"` với `ReleaseMessage { palId: string }`. Không thêm `ServerMessage` (kết quả báo bằng `Notice`, state tự cập nhật).
-- **`schema.ts`:** không đổi. Thả là `player.pals.splice(index, 1)` trên `ArraySchema` có sẵn, kèm `activePalId = ""` và xoá khỏi `state.companions` như khi cho nghỉ. Client không dùng callback theo phần tử của `pals` (đọc `me.pals` mỗi khung hình trong `updateHud`, tìm thú đi theo theo id), nên không cần đổi gì thêm.
-- **Lưu game:** `Profile`, `emptyProfile`, `sanitizeProfile` không đổi. Lần lưu sau (`scheduleSave`, hoặc `saveNow` khi rời phòng) ghi danh sách `pals` đã bớt con được thả. Hồ sơ cũ đọc y như trước, không cần chuyển đổi. Server sập trong 2 giây trước khi lưu thì con vừa thả quay lại; vô hại.
-- **Ảnh hưởng client:** `Game.ts` gửi `release` và chặn ném theo `throwBlocker`. Client và server deploy cùng một container. Client cũ còn trong cache (chưa có service worker, T13) vẫn chơi được: chỉ thiếu nút thả, và ném khi túi đầy thì nhận notice của server thay vì mất thú.
+Không đổi `schema.ts`, `messages.ts`, `Profile`, `store.ts`. Không ảnh hưởng client, e2e hay dữ liệu đã lưu.
 
 ## Test
 
-**Unit (`packages/shared/src/capture.test.ts`)**, `describe("throwBlocker")`:
-- `throwBlocker(MAX_PARTY - 1, { boss: false })` là `undefined`; `throwBlocker(0, { boss: false })` là `undefined`.
-- `throwBlocker(MAX_PARTY, { boss: false })` và `throwBlocker(MAX_PARTY + 3, { boss: false })` là `PARTY_FULL_TEXT`.
-- `PARTY_FULL_TEXT` chứa `${MAX_PARTY}/${MAX_PARTY}` và "Thả bớt", không chứa "cho bớt".
-- `throwBlocker(0, { boss: true })` và `throwBlocker(MAX_PARTY, { boss: true })` chứa "trùm" (trùm xét trước).
-
-**Tích hợp (`packages/server/src/rooms/GameRoom.test.ts`)**: thêm `describe("releasing pals and a full party")` ở cuối file.
-- Import thêm `OwnedPal`, `MAX_PARTY`, `PARTY_FULL_TEXT`.
-- Helper `addPals(player, n, speciesId = "leafkit")`: tạo `OwnedPal` đang nghỉ với id duy nhất (`fill-<i>-<ngẫu nhiên>`), `push` thẳng vào `player.pals`, trả mảng.
-
-Các test:
-1. **"lets a resting pal go for good; ignores unknown ids, bad payloads and other players' pals"**
-   - `setup()`, `capture()` (con A đi theo), `addPals(player, 2)` (B, C); `other = await colyseus.connectTo(room, { name: "Other" })`; `notices = collect(client, Notice)`.
-   - `other` gửi `Release { palId: B.id }`; `client` gửi `Release { palId: "nope" }`, `Release { palId: 42 }`, `Release {}`, `Release` không payload; `ticks(3)`. Kiểm: id vẫn `[A, B, C]`, `notices` rỗng.
-   - `client` gửi `Release { palId: B.id }`; `ticks(3)`. Kiểm:
-     - server còn `[A, C]`;
-     - state phía client cũng còn `[A, C]`: `await vi.waitFor(() => expect([...client.state.players.get(client.sessionId).pals].map((p) => p.id)).toEqual([A, C]))`;
-     - `notices.at(-1)` chứa "Đã thả";
-     - A vẫn đi theo (`activePalId`, `companions.has(A)`).
-2. **"releasing the follower, even the last pal, sends it away and forgets it"**
-   - `setup()`, `capture()`: F là con duy nhất, đang đi theo.
-   - Đặt `(room as any).controls.get(client.sessionId).skillOrder = { companionId: F.id, skill: "seed_shot", until: Number.MAX_SAFE_INTEGER }` và `(room as any).faintedUntil.set(F.id, Number.MAX_SAFE_INTEGER)`.
-   - Gửi `Release { palId: F.id }`; `ticks(2)`. Kiểm:
-     - `pals.length === 0`, `activePalId === ""`;
-     - `companions.has(F.id) === false`;
-     - `skillOrder` là `undefined`;
-     - `faintedUntil.has(F.id) === false`;
-     - `skillReady.has("c:" + F.id) === false`.
-   - Rồi `ticks(20)`, `capture()` lần nữa: con mới tự đi theo (`activePalId` là id của nó).
-3. **"releasing a worker takes it off the camp"**
-   - Đặt trại như `atCamp()` của describe crafting (dòng 297-305), `capture()`, gửi `Assign work`, `ticks(2)`: companion ở `mode "work"`.
-   - Gửi `Release`, `ticks(2)`. Kiểm: companion không còn, `pals.length === 0`.
-4. **"a released pal stays gone after rejoining"**
-   - `token = "release-token-0123456789"`; `setup(token)`, `capture()` (A đi theo), `addPals(player, 1)` (B).
-   - Gửi `Release { palId: A.id }`, `ticks(2)`, `client.leave()`, `colyseus.cleanup()`.
-   - `setup(token)` lại. Kiểm: id là `[B.id]`, `activePalId === ""`, `companions.size === 0`.
-5. **"a full party cannot throw: no ball is used and nothing is caught or lost, pack leaders included"**
-   - `setup()`; `addPals(player, MAX_PARTY)`; `[alphaId, alpha]` = thú đầu đàn đầu tiên trong state; xoá mọi thú hoang khác; `leaf = placeWild(room, "leafkit", player, 60)`, `hp = 1`; `player.greatBalls = 1`.
-   - `notices = collect(Notice)`, `results = collect(CaptureResult)`.
-   - Không mock `Math.random` ở bước này (bị từ chối trước khi tung xúc xắc).
-   - Ném bóng xịn vào `leaf`, `ticks(3)`. Kiểm:
-     - `results` rỗng;
-     - `leaf` còn trong state;
-     - `(room as any).inBall.has(leaf) === false`;
-     - `pals.length === MAX_PARTY`;
-     - `greatBalls === 1`;
-     - `notices.at(-1) === PARTY_FULL_TEXT`.
-   - `ticks(20)` (lần bị từ chối cũng tính thời gian chờ ném). Đặt người chơi cạnh `alpha` (+40 px), ném vào `alphaId`, `ticks(3)`. Kiểm: `results` vẫn rỗng, `alpha` còn trong state, notice là `PARTY_FULL_TEXT`.
-   - Đưa người chơi về cạnh `leaf` (cách 60 px). Gửi `Release` một con, `ticks(2)`: còn `MAX_PARTY - 1`.
-   - `ticks(20)`; `vi.spyOn(Math, "random").mockReturnValue(0)`; ném vào `leaf`; `waitForMessage(CaptureResult)`; `vi.restoreAllMocks()`. Kiểm: `success === true`, `pals.length === MAX_PARTY`, `leaf` không còn trong state.
-   - Không dùng helper `capture()` trong test này: `palNextTo` lấy thú hoang đầu tiên trong state, ở đây có thể là thú đầu đàn.
-   
-   Test có sẵn "spawns one boss ... cannot be captured" (kiểm notice chứa "trùm") phải tiếp tục qua mà không sửa.
-
-**E2E (`tests/e2e/multiplayer.spec.ts`)**: test mới `"party: let a pal go after confirming; a full party cannot throw"`, có `test.slow()`.
-1. `join(browser, "Keeper")`, `waitForWorld`, chờ `game.frames > 0`. Helper `party()` đọc từ `__petgame.room.state` `{ ids, species, active }` của mình; `companions()` như các test khác.
-2. `room.send("debug:givePal", { species: "leafkit", level: 3 })` rồi `{ species: "pebblet", level: 2 }`. Poll: 2 con, 1 companion (Pebblet đi theo).
-3. Bấm `.party-btn`. `.party-panel .party-title` chứa "2/30". `.party-action.release` có 0 phần tử. Bấm `.party-release-toggle`: có 2 phần tử, nút toggle có chữ "✓ Xong".
-4. Bấm `.party-card.follow .party-action.release`. Kiểm:
-   - `.party-confirm-box` hiện, chứa "Thả Pebblet · Lv 2?" và "Đang đi theo bạn";
-   - `.confirm-keep` được focus.
-5. Kích thước chạm (hộp đang mở): lần lượt `setViewportSize` 390×844 và 844×390.
-   - `boundingBox` của `.party-release-toggle`, `.party-action.release` (đầu tiên), `.confirm-keep`, `.confirm-release`: rộng và cao ≥ 44;
-   - `.party-confirm-box` nằm trọn trong khung nhìn;
-   - xong trả về 1280×720 (khung mặc định của "Desktop Chrome").
-6. Bấm `.confirm-keep`: hộp ẩn, vẫn 2 con.
-7. Mở lại hộp, `keyboard.press("Escape")`: hộp ẩn, `.party-panel` vẫn hiện.
-8. Mở lại hộp. Chờ `.confirm-release` **enabled** (hết thời gian khoá), rồi `Tab`: `.confirm-release` được focus; `Enter`. Kiểm:
-   - `.hud-toast` chứa "Đã thả Pebblet";
-   - poll `species` là `["leafkit"]`, `companions()` là 0, `active === ""`;
-   - `.party-card` còn 1.
-9. Bấm `.party-action.release` còn lại: hộp chứa "cuối cùng"; bấm `.confirm-release` (Playwright tự chờ nút hết khoá). Poll 0 con. `.party-empty` hiện; `.party-release-toggle` ẩn.
-10. Escape đóng bảng. Gửi `debug:givePal { species: "leafkit" }` 30 lần; poll 30 con. `.party-btn` có chữ `🐾 Thú (30/30)` và class `full`.
-11. Ghi lại tin client gửi: `const sent = []; const send = room.send.bind(room); room.send = (t, m) => (sent.push(t), send(t, m));` (lưu vào `window.__sent`). `room.send("debug:spawnPal")`; poll đến khi state có một thú hoang trong vòng 100 px quanh người chơi.
-12. `keyboard.press("e")`. Kiểm: `.hud-toast` chứa "Túi thú đầy"; `__sent` không có `"throw"`; vẫn 30 con; thú hoang vừa sinh còn trong state.
-13. `room.send("release", { palId: <id con đầu> })`; poll 29 con; `.party-btn` không còn class `full`. `keyboard.press("e")`; poll đến khi `__sent` có `"throw"`. Không chờ kết quả bắt, vì kết quả ngẫu nhiên.
-
-**Lệnh**
-- Coder: `npm run typecheck`, `npm test`, `npm run build`, `npx playwright test -g "party:" --workers=1`. Tắt server dev trước khi chạy; không sửa file client/shared khi e2e đang chạy.
-- Tester: thêm `npm run test:e2e` cả bộ.
-- Ảnh kiểm tra bố cục: coder chụp bảng ở chế độ thả kèm hộp đang mở ở 390×844, 844×390, 1280×720 bằng Playwright tạm, không commit. Lưu vào scratchpad, ghi đường dẫn vào `PROGRESS.md`.
+- Không thêm test mới. Sửa 3 test tích hợp nói trên. Không sửa unit test ở `shared`, không sửa e2e.
+- Lệnh cho tester:
+  - `npm run typecheck`.
+  - Chạy riêng 3 test, lặp 20 lần (mỗi lần tạo phòng mới):
+    `npx vitest run packages/server/src/rooms/GameRoom.test.ts -t "walks the boss back home when it strays|syncs the time of day|wild pals cast too"`.
+  - `npm test` 20 lần liền (mỗi lần khoảng 65 giây, tổng khoảng 22 phút). Ghi kết quả từng lần.
+  - **Chạy thân test trên 120 phòng mới** (như tester làm ở T2), trên bản sao tạm ngoài repo:
+    - Tạo bản sao bằng `git archive HEAD packages/server packages/shared vitest.config.ts package.json tsconfig.base.json`, rồi chép `GameRoom.test.ts` mới vào. Tạo `node_modules` gồm liên kết tới từng mục trong `node_modules` của repo, riêng `@petgame/shared` và `@petgame/server` trỏ vào `packages/` của bản sao.
+    - Viết một file khảo sát chạy lại 3 thân test trên 120 phòng mới mỗi thân. Test trùm và test thú đêm chạy theo lô song song được, vì mock của test thú đêm là đồng bộ. Test tung chiêu phải chạy tuần tự, vì mock của nó kéo dài qua vài tick, chạy song song sẽ lan sang phòng khác.
+    - Yêu cầu: 0/120 hỏng ở cả 3 thân test.
+    - Bản nháp của game-designer (có thể đã mất khi phiên khởi động lại): `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t17/copy/packages/server/src/rooms/survey.test.ts` và `wildcast.survey.test.ts`.
+  - **Kiểm đột biến** trên bản sao đó, mỗi lần chỉ một đột biến trong `GameRoom.ts` của bản sao rồi khôi phục. Chạy test tương ứng của file test mới bằng `-t`, ít nhất 5 lần. Mỗi lần đều phải hỏng, đúng ở phép kiểm ghi bên cạnh:
+    - M-B1: xoá dòng `:618` (`if (pal.boss && distance(pos, this.bossHome) > BOSS_LEASH) brain.target = { ...this.bossHome };`). Test trùm hỏng (khoảng 690 px, không nhỏ hơn 600).
+    - M-N1: ở `:1982` đổi `night: isNight(this.dayTime)` thành `night: false`. Test thú đêm hỏng ở bước ban đêm.
+    - M-N2: cùng chỗ, đổi thành `night: true`. Hỏng ở bước ban ngày.
+    - M-N3: ở `:1682` đổi `if (this.wasNight && !night) {` thành `if (false) {`. Hỏng ở bước bình minh.
+    - M-N4: xoá dòng `:1679` (`this.state.dayTime = ...`). Hỏng ở bước đồng bộ.
+    - M-W1: ở `:1196` và `:1205` đổi `homing: !wild` thành `homing: true`. Test tung chiêu hỏng.
+    - M-W2: thay dòng đầu của `wildSkill` (`:1420`) bằng `return undefined;`. Test tung chiêu hỏng (không có chiêu nào).
+    - Đối chứng (không bắt buộc): test trùm cũ khi có M-B1 vẫn qua phần lớn số lần (đã đo 53/60). Điều này cho thấy dòng `brain.target = away` là cần thiết.
+  - Không sửa code sản phẩm trong repo khi kiểm đột biến: chỉ sửa trong bản sao.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `messages.ts` có `ClientMessage.Release = "release"` và `ReleaseMessage { palId: string }`, kèm JSDoc tiếng Anh.
-- [ ] `capture.ts` có `PARTY_FULL_TEXT` (dựng từ `MAX_PARTY`) và `throwBlocker(partySize, { boss })`; có unit test như mục Test.
-- [ ] Server, `release`:
-  - kiểm kiểu `palId`; id lạ, id của người khác, payload hỏng thì không đổi gì và không gửi notice;
-  - id hợp lệ thì: gỡ khỏi `player.pals` bằng `splice`; xoá companion; xoá `activePalId` nếu là thú đi theo; xoá `skillOrder` dành cho nó; xoá `faintedUntil`; gửi notice "Đã thả …"; `scheduleSave`.
-- [ ] Server, `handleThrow`:
-  - thứ tự: cooldown, tầm ném, `inBall`, đặt `lastThrowAt`, rồi `throwBlocker`;
-  - bị chặn thì không có `CaptureResult`, không trừ bóng xịn, thú hoang không vào bóng;
-  - nhánh `else { "Túi thú đã đầy" }` đã xoá;
-  - `grep -rn "cho bớt\|Túi thú đã đầy" packages` không ra kết quả.
-- [ ] `debug:givePal` báo `PARTY_FULL_TEXT` khi túi đầy.
-- [ ] Client: `throwBall` không gửi `throw` khi `throwBlocker` chặn (cả trùm), hiện toast đúng câu đó 3 giây.
-- [ ] Bảng 🐾 Thú:
-  - tiêu đề `Túi thú n/30`;
-  - nút `🕊️ Thả bớt` / `✓ Xong` có `aria-pressed`, ẩn khi túi trống;
-  - chế độ thả: mỗi thẻ chỉ có nút `Thả` và gợi ý đỏ; chế độ tắt khi đóng bảng (✕, Q, Escape, mở bảng khác) và khi túi trống.
-- [ ] Hộp xác nhận:
-  - đúng chữ ở mục Thiết kế, kể cả dòng trạng thái và dòng con cuối;
-  - nền mờ chặn chạm phía sau, chạm nền mờ là huỷ;
-  - focus mặc định ở `Giữ lại`; Tab và Shift+Tab chỉ đổi giữa hai nút;
-  - Escape đóng hộp trước rồi mới đóng bảng;
-  - nút `Thả` khoá 500 ms đầu;
-  - hộp tự đóng khi con đó không còn trong túi; focus về nút chế độ sau khi đóng.
-- [ ] Nút HUD hiện `🐾 Thú (30/30)` kèm class `full` khi đầy; dưới 30 thì chữ như cũ (test e2e cũ vẫn qua). Chữ túi trống đã đổi.
-- [ ] Mọi nút mới ≥ 44×44 px ở 390×844, 844×390, 1280×720; hộp nằm trọn trong khung nhìn (e2e đo).
-- [ ] Không đổi `schema.ts`, `Profile`, `emptyProfile`, `sanitizeProfile`, `store.ts`. Thú đã thả không quay lại sau khi vào lại phòng (test tích hợp 4).
-- [ ] Unit, tích hợp, e2e mới đều qua; `npm run typecheck` sạch; `npm run build` qua; cả bộ e2e qua. Không nới lỏng hay bỏ test nào.
-- [ ] Chú thích code bằng tiếng Anh, chữ hiển thị bằng tiếng Việt. `docs/architecture.md` đã cập nhật 2 dòng.
+- [ ] `git diff --stat`: trong số file code, chỉ có `packages/server/src/rooms/GameRoom.test.ts` thay đổi (cùng các file làm việc `PLAN.md`, `PROGRESS.md`, `REVIEW.md`, `TASKS.md`).
+- [ ] Test trùm:
+  - Không còn `boss.x -= 600`.
+  - Dùng `bossWalk()`. Helper tìm theo thứ tự cố định, kiểm bằng `BOSS.radius` và `isSea` mỗi 8 px, và throw khi không có tuyến.
+  - Gán `bossHome = home`, trùm ở `stray`, `brain.target = away`, `brain.idleMs = 0`.
+  - Vẫn chờ 40 tick. Vẫn kiểm `toBeLessThan(before)` với `before` = 600.
+- [ ] Test thú đêm:
+  - Mock `Math.random` chỉ đồng bộ quanh `spawnPal(at)`, trả lại trong `finally`.
+  - Có đủ các phép kiểm: ban ngày không ra Mothlume; `state.dayTime` khoảng 0,8 sau 30 tick; ban đêm ra Mothlume; bình minh con đó bị xoá và không còn Mothlume nào không giận.
+  - Vẫn chờ 30 tick và 10 tick.
+- [ ] Test tung chiêu: mock chỉ bao quanh vòng đợi và được trả lại trước các `expect`. Giới hạn 160 tick và mọi `expect` giữ nguyên.
+- [ ] Không có `retry`, không tăng ngưỡng hay timeout, không đổi tên hay `skip` test nào, không `vi.mock` module. Các test khác không đổi.
+- [ ] `npm run typecheck` sạch. `npm test` qua 20 lần liền.
+- [ ] Chạy riêng 3 test bằng `-t` 20 lần: lần nào cũng qua.
+- [ ] Khảo sát 120 phòng mới cho mỗi thân test: 0 lần hỏng.
+- [ ] Đủ 7 đột biến M-B1, M-N1 đến M-N4, M-W1, M-W2: mỗi đột biến làm test tương ứng hỏng ở mọi lần chạy (ít nhất 5 lần), đúng phép kiểm đã ghi. Đã khôi phục bản sao sau mỗi đột biến.
+- [ ] `PROGRESS.md` ghi số lần chạy, số phòng và kết quả từng đột biến.
 
 ## Rủi ro, câu hỏi mở
 
-Không có dòng CHẶN.
+- Không có quyết định nào cần người dùng: **không có dòng CHẶN**.
+- `bossWalk()` phụ thuộc bố cục thế giới, nhưng thế giới cố định theo seed nên kết quả vẫn tất định. Nếu sau này `worldgen` đổi đến mức không còn tuyến nào, test sẽ hỏng mọi lần với thông báo rõ ràng (không phải chập chờn); khi đó nới vùng tìm kiếm, ví dụ thêm vòng hoặc bước góc nhỏ hơn.
+- Test truy cập trường và hàm riêng qua `as any` (`bossHome`, `brains`, `dayTime`, `spawnPal`, `provoke`). Đây là lệ có sẵn của file. T10 (tách `GameRoom.ts`) phải giữ được các trường này hoặc sửa test theo.
+- Mock `Math.random`:
+  - Ở test thú đêm, mock là đồng bộ nên không lan ra tick nào.
+  - Ở test tung chiêu, mock kéo dài 1-2 tick trong phòng chỉ có một con thú. Không có lần gọi random nào khác ảnh hưởng kết quả (không có thú lang thang, người chơi không đánh, chưa đến lượt sinh thú). `afterEach` cũng tự trả lại mock.
+- Test tung chiêu nay luôn dùng ember (phóng thẳng). Trước đây thỉnh thoảng thú áp sát rồi dùng fire_breath (hình nón), nhưng việc đó chưa bao giờ xảy ra chắc chắn. Không mất phép kiểm nào; việc né chiêu hình nón chưa có test riêng. Mức ưu tiên thấp, không cần thêm việc.
+- `toBeCloseTo(0.8, 1)` cho sai số 0,05, tức khoảng 24 giây giờ game, đủ an toàn cả khi máy chậm.
 
-- **Thả nhầm.** Đã có 4 lớp chặn:
-  - phải bật chế độ thả trước;
-  - phải xác nhận trong hộp, focus mặc định ở `Giữ lại`;
-  - nút `Thả` trong hộp khoá 500 ms;
-  - chế độ thả tắt khi đóng bảng.
-  
-  Không có hoàn tác. Thêm hoàn tác cần giữ thú "đang thả" trên server một lúc, phức tạp hơn nhiều so với lợi ích.
-- **Cùng một token ở hai tab.** Lần lưu sau cùng thắng (có từ trước, mọi dữ liệu đều vậy). Thú đã thả có thể "sống lại" nếu tab kia lưu sau. Thả không cho gì nên không tạo đường nhân bản mới. Ngoài phạm vi.
-- **Choáng 6 giây.** Người chơi túi đầy đánh choáng một con rồi mới thả bớt thì có thể không kịp ném. Nút 🐾 vàng khi đầy giúp họ biết trước. Nếu vẫn thấy khó, có thể cân nhắc kho thú ở trại (ý tưởng, chưa đề xuất thành việc).
-- **Bố cục tiêu đề trên điện thoại dọc** (`Túi thú 30/30`, nút chế độ, ✕ trong 300 px) ước tính vừa. Coder kiểm bằng ảnh chụp; nếu tràn thì cho chữ nút chế độ nhỏ đi (13 px) trong media query `max-width: 600px`, không đổi chữ.
-- **Ghi chú cho việc sau:**
-  - T8: khi có cờ đầu đàn, hộp xác nhận nên thêm dòng "★ Thú đầu đàn";
-  - T12: chữ mới nằm ở `ui/party.ts`, `capture.ts` (`PARTY_FULL_TEXT`, câu trùm) và notice "Đã thả" trong `GameRoom.ts`;
-  - T4: xem lưu ý về kinh nghiệm khi bắt ở mục Thiết kế.
+## Đề xuất cho TASKS.md
 
-## Đề xuất việc mới cho TASKS.md
-
-T2 làm trong một vòng coder, không cần tách. Đề xuất thêm:
-
-- **P2, "Nút cảm ứng dưới 44 px trong HUD và các bảng trong game".** Ước tính từ CSS, cần đo bằng e2e như test `lobby:`:
-  - `.party-action` (cao 36 px; dùng ở bảng Thú, Chế tạo, Tủ đồ), `.party-close` (44×32), `.wardrobe-tab` (34);
-  - `.eat-btn`, `.sound-btn` (30, điện thoại 28); `.invite-btn` (khoảng 24);
-  - `.party-btn`, `.base-btn`, `.craft-btn`, `.wardrobe-btn` (khoảng 34, điện thoại khoảng 29); `.ball-btn` (khoảng 31); `.skill-auto` (khoảng 27).
-  
-  T15 đã nhận `.style-btn` và `.swatch`; hai class này dùng chung cho sảnh và Tủ đồ, nên sửa một lần là được cả hai. Khi làm, cần sắp lại cột nút của thẻ thú (ví dụ 2 cột), để thẻ không cao quá trên điện thoại ngang (bảng cao khoảng 374 px).
+- **T21 (P3, đề xuất):** Trùm va chạm khi lang thang như một thú thường. `stepWander` của trùm dùng `species.size` (20) (`GameRoom.ts:624`), trong khi lúc xuất hiện, lúc đuổi và lúc cắn trùm dùng `BOSS.radius` (40) (`:555`, `:599`, `:1460`). Khi đi dạo, trùm có thể lấn vào đá, cây và lọt qua khe hẹp hơn thân mình (trùm được vẽ to gấp 2,4 lần). Cần game-designer quyết định có thống nhất hay không. Nếu đổi, test trùm của T17 vẫn qua, vì tuyến đã được kiểm với bán kính 40.

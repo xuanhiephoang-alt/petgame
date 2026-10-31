@@ -1,67 +1,52 @@
 PASS
-# REVIEW: T2 Thả bớt thú; túi đầy thì không ném bóng (không còn mất thú), vòng 1
+# REVIEW: T17 Làm tất định các test chập chờn trong GameRoom.test.ts, vòng 1
 
 ## Kết luận
 
-Thay đổi làm đúng và đủ PLAN.md. Server chặn ném bóng khi túi đầy trước khi tung xúc xắc hay trừ bóng xịn, và không còn đường nào bắt được rồi mất thú. Handler `release` kiểm kiểu, chỉ tìm trong túi của người gửi, dọn hết dữ liệu chỉ server giữ về con thú, rồi lưu game. Client chặn ném cùng lý do với server (`throwBlocker` dùng chung). Hộp xác nhận đúng thiết kế: focus, Tab, Escape, khoá 500 ms, nền mờ, nút ≥ 44 px. Không có lỗi phải sửa; các góp ý dưới đây không chặn commit.
+Thay đổi chỉ nằm trong `packages/server/src/rooms/GameRoom.test.ts` (ngoài các file làm việc) và đạt mọi tiêu chí của PLAN.md. Cả ba test giờ cho cùng một kết quả mỗi lần chạy mà không bị nới lỏng: ngưỡng, số tick và các `expect` cũ giữ nguyên, có thêm phép kiểm chặt hơn. Test trùm và test thú đêm còn bắt được những lỗi mà bản cũ bỏ lọt (mất dây xích, không đồng bộ giờ, sinh thú đêm vào ban ngày). Không có lỗi phải sửa.
 
 ## Lỗi phải sửa (FAIL khi còn mục này)
 
 Không có.
 
+## Đã kiểm
+
+- **Phạm vi:** `git status` và `git diff` chỉ có `GameRoom.test.ts`, cùng `PLAN.md`, `PROGRESS.md`, `TASKS.md`. Không có file chưa theo dõi. Các hunk chỉ nằm ở phần import, `day and night`, `wild pals cast too...` và `regions and climate`. Không có `retry`, `skip`, `only`, `vi.mock`, không đổi timeout. Tên test và số test không đổi.
+- **Test trùm** (`:978-1011`, `:1071-1085`):
+  - `bossWalk()` dùng đúng lưới mà phòng dùng: `this.obstacles` là `defaultWorld().grid`, được cache. Lưới gồm lửa trại, núi lửa, hồ, cây và đá. Thứ tự tìm cố định, kiểm `BOSS.radius` và `isSea` mỗi ≤ 8 px, và throw khi không có tuyến.
+  - Trùm đi trên chính đoạn `home`→`away` đã kiểm. Đoạn đó trống với bán kính 40, nên `resolve(…, 20)` không đẩy trùm. `stepWander` không vào nhánh bị chặn và không gọi `random`.
+  - Người chơi ở xa hơn `AGGRESSIVE_SIGHT` rất nhiều. Thú hoang không va chạm nhau.
+  - Gán `brain.target = away` là đúng ý: không có dây xích thì trùm đi xa thêm. Tôi chạy lại M-B1 (bỏ `GameRoom.ts:618`) trên bản sao của tester: `expected 690.36 to be less than 599.99`, hỏng như báo cáo. Sau đó đã khôi phục và so khớp với `HEAD`.
+  - Ghi chú phụ: PLAN nói tuyến vẫn đúng nếu đổi sang bán kính 40 (T21). Điều này đúng: giữa hai điểm mẫu cách 8 px, thân trùm lấn vào vật cản tối đa khoảng 0,2 px, và `resolve` vẫn tất định.
+- **Test thú đêm** (`:495-536`):
+  - `spawnWith` mock đồng bộ, trả lại trong `finally`.
+  - Mọi lần gọi `random` trong `spawnPal(at)` (loài, cấp, não) nhận cùng một giá trị, nên kết quả không phụ thuộc thứ tự gọi.
+  - `rollFor` lấy roll ở giữa dải Mothlume (0,9005-0,9995), cách mỗi đầu dải 0,05.
+  - Mothlume và voltmouse đều thụ động, nên Mothlume không nổi giận. Khi bình minh tới, con đó bị xoá ngay ở tick đầu, vì `wasNight` đúng và giờ là 0,9991.
+  - Lượt sinh tự động (`PAL_RESPAWN_MS` 5 giây) không xảy ra trong khoảng 2 giây của test. Nếu có xảy ra thì cũng không làm hỏng phép kiểm nào.
+  - Bốn phép kiểm ứng với M-N1 đến M-N4 đúng như PLAN.
+- **Test tung chiêu** (`:671-674`):
+  - Trong cửa sổ mock, chỉ `wildSkill` gọi `Math.random`. Không còn thú lang thang nào; `handleAttack` và `handleThrow` không chạy.
+  - Ở 120 px chỉ ember với tới, nên thú tung ember ngay ở tick đầu.
+  - Mock được trả lại trước các `expect`. Khi test lỗi, `afterEach` cũng trả lại. Vòng lặp còn dở sau khi hết giờ không chạy tiếp được, vì `waitForNextTimestep` treo ở phòng đã huỷ. Bản kiểm cả file của tester (78 qua + 1 hỏng với mỗi đột biến) khớp với nhận định này.
+- **Helper:**
+  - Không trùng helper sẵn có. `placeWild` bỏ qua `spawnPal` nên không dùng thay được; `westShore` làm việc khác.
+  - Đặt tên, JSDoc tiếng Anh và hằng `UPPER_SNAKE` cục bộ đúng quy ước.
+  - Các trường riêng mới dùng qua `as any` là `bossHome` và `brain.target`. Đây là lệ có sẵn của file, chấp nhận được. T10 phải giữ các trường này hoặc sửa test theo.
+- Tôi tự chạy: `npm run typecheck` sạch; 3 test bằng `-t` qua.
+
 ## Góp ý không bắt buộc
 
-- **Trùng lặp trong e2e.** `tests/e2e/multiplayer.spec.ts`:
-  - `party()` ở dòng 489, `send()` ở dòng 499 và đoạn ghi tin gửi đi ở dòng 650-657 (test `party:` đầu tiên) làm đúng việc của `partyOf`, `sendFrom`, `recordSends` (dòng 678-702, tester thêm sau).
-  - Đề xuất: chuyển ba helper lên trước test `party:` đầu tiên và dùng chúng trong cả ba test, bỏ bản sao cục bộ.
-- **`scheduleSave` trong `release()` chưa có test riêng.** Test "a released pal stays gone after rejoining" (`GameRoom.test.ts:1435`) vẫn qua nếu ai đó xoá `scheduleSave` khỏi `release()`, vì `onLeave` gọi `saveNow`. Muốn kiểm đúng việc lưu mà không cần rời phòng:
-  - thả một con, chờ quá `SAVE_DELAY_MS` (khoảng 45 tick);
-  - đọc hồ sơ thẳng từ store (`useStore`/`SqliteStore` đã import trong file);
-  - kiểm con đó không còn trong hồ sơ.
-- **Biến môi trường trong test.** `GameRoom.test.ts:1504-1514` nên nhớ giá trị cũ của `PETGAME_DEBUG` rồi trả lại, thay vì `delete`. Nếu ai đó chạy `PETGAME_DEBUG=1 npm test`, các test chạy sau test này sẽ mất biến đó.
-- **Focus khi thả con cuối.** `closeConfirm()` đưa focus về nút chế độ, rồi `render()` ẩn nút đó vì túi trống (`party.ts:200`), nên focus rơi về `body`. Khi nút chế độ bị ẩn, có thể đưa focus sang nút ✕.
-- **Focus mất khi danh sách được vẽ lại** (có từ trước, nay dễ thấy hơn ở chế độ thả).
-  - Khoá ở `party.ts:188` chứa `xp` của mọi con. Mỗi khi một con làm việc hay con đi theo nhận XP, mọi thẻ được tạo lại, và người dùng bàn phím đang Tab giữa các nút `Thả` bị mất focus.
-  - Có thể gộp vào việc P2 về bảng: nhớ id của thẻ đang có focus và trả focus lại sau `render()`.
-- **Phím của game vẫn chạy khi hộp mở.** Shift+Tab làm nhân vật lướt; E ném bóng, B đặt trại, Space đánh.
-  - PLAN.md đã chấp nhận giữ nguyên lớp `Keyboard`, nên không tính là lỗi.
-  - Đề xuất việc riêng: `Keyboard` bỏ qua các phím hành động khi có hộp thoại modal đang mở.
-- **Nút chế độ.** `title` luôn là "Chọn thú để thả về thiên nhiên", kể cả khi nút đang ghi "✓ Xong". Với nút có `aria-pressed`, nên giữ nhãn cố định, hoặc đổi `title` theo trạng thái. Việc nhỏ.
-- **Tài liệu.** Dòng "Helper" ở `docs/architecture.md:73` chưa nhắc tham số `options` của `openPage`/`join` (màn hình, cảm ứng), cũng chưa nhắc ba helper mới `partyOf`, `sendFrom`, `recordSends`.
-- **Cho TASKS.md (agent chính):**
-  - P1: hai test chập chờn có từ trước. Tester đã ghi nguyên nhân trong PROGRESS.md: trùm bị dịch vào vật cản, khoảng 7,5%; 30 lần sinh mà không ra Mothlume, khoảng 3,8-5,5%. Gộp lại, khoảng 11% số lần chạy `npm test` hỏng oan.
-  - P2: nút cảm ứng dưới 44 px (đề xuất cuối PLAN.md).
-  - `.party-panel` là `content-box`, tràn 8 px ở 390×844 khi có từ 7 thú.
-  - Tạm dừng phím game khi hộp thoại mở (mục trên).
-
-## Đã xác minh
-
-1. **Mọi chỗ đổi túi thú ở server.** Có 3 chỗ `push` và 1 chỗ `splice`, không chỗ nào để túi vượt `MAX_PARTY`:
-   - `debug:givePal` chặn khi đầy;
-   - `onJoin` nạp từ hồ sơ, đã cắt ở `MAX_PARTY` trong `sanitizeProfile`;
-   - `handleThrow` có `throwBlocker` chặn trước, trong cùng lời gọi đồng bộ;
-   - `release` là chỗ `splice`.
-
-   Thứ tự trong `handleThrow` đúng PLAN.md: cooldown, tầm ném, `inBall`, `lastThrowAt`, `throwBlocker`. Câu báo trùm giữ nguyên.
-2. **Dọn dữ liệu khi thả.**
-   - `despawnCompanion` dọn: companion, `companionTimers`, chiêu chưa bắn, `skillReady`/`skillGapUntil`/`castingUntil`, `lastDamagedAt`, thú hoang đang nhắm nó.
-   - `release` dọn thêm: `skillOrder`, `faintedUntil`.
-   - Chiêu đã bắn: `land()` bỏ qua chiêu xuất phát từ người dùng chiêu (`FROM_CASTER`), và không cộng XP vì `owned` không còn.
-   - Hẹn giờ XP khi bắt thú đầu đàn kiểm `pals.includes(follower)`.
-   - Thú hoang bỏ chạy hay nổi giận với một companion đã mất thì tự thôi (`targetPos` trả `undefined`).
-   - Hẹn giờ lưu: nếu người chơi đã rời phòng thì `saveNow` không làm gì.
-3. **Đồng bộ schema.** Chạy script với Encoder/Decoder thật (`@colyseus/schema` 5.0.36) và `schema.ts`.
-   - 12 tình huống `splice`, state phía client đều khớp server: giữa danh sách; con đầu trong 30; con cuối; con duy nhất; `splice` rồi `push` trong cùng một patch (thả rồi bắt trong cùng tick); `splice` rồi sửa phần tử bị dịch chỉ số; sửa rồi `splice` chính nó; hai `splice` trong một patch; thả hết rồi thêm lại 30 con trong một patch.
-   - `delete` một companion không tồn tại (thả con đang nghỉ) cũng khớp.
-   - Script nằm ngoài repo: `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/review/`.
-4. **Client.**
-   - Không có callback theo từng phần tử của `pals`; `updateHud` đọc `me.pals` mỗi khung hình. Thanh chiêu tự ẩn khi `activePalId` rỗng.
-   - Hộp thoại dựng một lần, listener gắn một lần, hẹn giờ khoá được xoá khi đóng.
-   - Mỗi khung hình không tạo thêm object nào đáng kể (chỉ một `some()` khi hộp mở).
-   - `z-index` của hộp (5) nằm trên mọi thứ trong HUD (2) và nhãn (1).
-5. **Lệnh đã chạy.**
-   - `npm run typecheck`: sạch.
-   - `npx vitest run packages/shared/src/capture.test.ts packages/server/src/rooms/GameRoom.test.ts -t "throwBlocker|releasing pals|cannot be captured|adds a captured pal"`: 12/12 qua.
-   - `npx playwright test -g "party:" --workers=1`: 3/3 qua (1,2 phút). Cổng 2567/5173 trống trước và sau.
-   - `grep -rn "cho bớt\|Túi thú đã đầy" packages`: không ra kết quả.
-   - Không đổi `schema.ts`, `store.ts`, `Profile`, `constants.ts`, `scripts/shots.mjs`, `playwright.config.ts`.
+- **`boot(..., 2571)` bỏ qua cổng** (`GameRoom.test.ts:74`, có từ `7572a34`). Tôi đã xác nhận: `defineServer` trả về một `Server`, và `boot` của `@colyseus/testing` 0.18.6 với `Server` luôn gọi `listen(DEFAULT_TEST_PORT)` = 2568.
+  - Người chơi không bị ảnh hưởng, nên không chặn T17. Sửa trong T17 sẽ vượt phạm vi PLAN.
+  - Nên đưa thành **việc riêng P3** (ví dụ T22), vì việc nhỏ nhưng có ích thật:
+    - Dòng này gây hiểu nhầm: ghi chú của coder trong `PROGRESS.md` sai vì nó.
+    - Đội thường chạy bản sao `GameRoom.test.ts` song song để khảo sát hoặc kiểm đột biến, và đã gặp `EADDRINUSE 2568` trong T17.
+  - Cách sửa khoảng 3 dòng, giống bản sao của tester: `const server = defineServer(...); await server.listen(port); colyseus = new ColyseusTestServer(server);`. Đổi `ColyseusTestServer` từ import `type` sang import giá trị. Lấy `port` từ biến môi trường (ví dụ `PETGAME_TEST_PORT`, mặc định 2568 hoặc 2571) để các lần chạy song song chọn được cổng riêng.
+- **Test tung chiêu:**
+  - PLAN viết bản cũ "thỉnh thoảng" dùng fire_breath. Thực ra là khoảng 2/3 số lần. Thú đuổi với tốc độ 6,3 px/tick (70 × 1,8), nên chỉ có 6 tick đầu, khi còn cách hơn 85 px, là chỉ ember với tới: P(ember trước) ≈ 1 − 0,94^6 ≈ 31%.
+  - Test không mất phép kiểm nào. Ember còn kiểm chặt hơn: ở bản cũ, người chơi né được hình nón chỉ vì ra khỏi tầm 85 px, kể cả khi chiêu có `homing`.
+  - Nếu muốn kiểm hướng của chiêu hình nón: viết một test tất định riêng. Đặt emberpup từ cấp 7 cách người chơi dưới 85 px, mock `random` = 0, rồi cho người chơi bước ngang ra khỏi góc quạt 70° nhưng vẫn trong tầm. Ưu tiên thấp.
+- Với mock, chiêu ra trong ≤ 2 tick. Giới hạn 160 tick (8 giây) dài hơn timeout 5 giây của Vitest, nên M-W2 hỏng vì hết giờ chứ không ở một `expect`. Có từ trước, và PLAN cấm đổi giới hạn trong nhiệm vụ này. Sau này có thể hạ giới hạn xuống khoảng 20 tick để thông báo lỗi rõ hơn; đó là siết lại, không phải nới lỏng.
+- JSDoc của `rollFor` (`:495-498`) chưa nói hàm throw khi không có roll nào ra loài đó. PLAN có yêu cầu điều này.
+- `spawnWith` có thể chỉ trả lại spy của chính nó: `const spy = vi.spyOn(...); try { ... } finally { spy.mockRestore(); }`. Như vậy nếu sau này test thêm spy khác thì không bị trả lại theo. Cách hiện tại vẫn đúng và giống `capture()`.

@@ -57,6 +57,10 @@ import {
   type DefeatedMessage,
   type GatheredMessage,
   type LungeMessage,
+  biomeAt,
+  pickSpecies,
+  type Biome,
+  type Vec2,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
 import { SqliteStore } from "../persistence/store.ts";
@@ -488,21 +492,46 @@ describe("combat", () => {
 });
 
 describe("day and night", () => {
+  /**
+   * A roll for `pickSpecies` that gives `speciesId` in this biome at this hour: the one in the middle of the
+   * rolls that do. Lets a test choose which pal a spawn draws without leaving the room's own way of picking.
+   */
+  function rollFor(speciesId: string, where: { biome: Biome; night: boolean }): number {
+    const rolls = Array.from({ length: 1000 }, (_, k) => (k + 0.5) / 1000).filter((roll) => pickSpecies(roll, where)?.id === speciesId);
+    if (rolls.length === 0) throw new Error(`no roll picks ${speciesId} in the ${where.biome} ${where.night ? "at night" : "by day"}`);
+    return rolls[Math.floor(rolls.length / 2)];
+  }
+
   it("syncs the time of day and spawns night pals at night", async () => {
     const { room } = await setup();
     expect(room.state.dayTime).toBeGreaterThan(0);
-    (room as any).dayTime = 0.8; // night
     room.state.pals.clear();
+    // Fix the place and the draw of a spawn; the room still picks the species from the biome and the hour.
+    const { layout } = defaultWorld();
+    const at = layout.regions.meadow;
+    const roll = rollFor("mothlume", { biome: biomeAt(layout, at.x, at.y), night: true });
+    const spawnWith = (draw: number): string => {
+      vi.spyOn(Math, "random").mockReturnValue(draw);
+      try {
+        return (room as any).spawnPal({ ...at });
+      } finally {
+        vi.restoreAllMocks();
+      }
+    };
+
+    // The same draw by day gives a day pal: Mothlume only comes out at night.
+    expect(room.state.pals.get(spawnWith(roll))!.speciesId).not.toBe("mothlume");
+
+    (room as any).dayTime = 0.8; // night
     await ticks(room, 30);
-    const night = [...room.state.pals.values()].filter((p) => getSpecies(p.speciesId).spawn.time === "night");
-    // Respawning is gradual; force a few spawns to sample the night pool.
-    for (let i = 0; i < 30; i++) (room as any).spawnPal();
-    const all = [...room.state.pals.values()].map((p) => p.speciesId);
-    expect(night.length + all.filter((id) => id === "mothlume").length).toBeGreaterThan(0);
+    expect(room.state.dayTime).toBeCloseTo(0.8, 1); // the synced copy follows (once a second)
+    const moth = spawnWith(roll);
+    expect(room.state.pals.get(moth)!.speciesId).toBe("mothlume");
 
     // Dawn: night pals leave.
     (room as any).dayTime = 0.999;
     await ticks(room, 10);
+    expect(room.state.pals.has(moth)).toBe(false);
     expect([...room.state.pals.values()].some((p) => p.speciesId === "mothlume" && !p.angry)).toBe(false);
   });
 });
@@ -639,7 +668,10 @@ describe("elements and skills", () => {
     (room as any).provoke(id, { kind: "player", id: client.sessionId });
     const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
     const damage = collect<DamageMessage>(client, ServerMessage.Damage);
+    // A fighting wild pal tries a skill on only about 6% of its ticks (wildSkill); with every draw below that, it casts at once.
+    vi.spyOn(Math, "random").mockReturnValue(0);
     for (let i = 0; i < 160 && casts.length === 0; i++) await ticks(room, 1);
+    vi.restoreAllMocks();
     const cast = casts[0];
     expect(cast).toMatchObject({ caster: "wild", casterId: id, homing: false, targetId: client.sessionId });
     expect(cast.at).toEqual({ x: player.x, y: player.y });
@@ -943,6 +975,41 @@ describe("regions and climate", () => {
     return { x, y };
   }
 
+  /**
+   * A straight walk over open ground near the volcano, found in the fixed world: `home`, `stray` far from it and
+   * `away` further along the same line. Nothing on the line (tree, rock, lake, volcano, sea) touches even the
+   * boss's whole body, so a boss walking it is never pushed off its way, and the walk never depends on chance.
+   */
+  function bossWalk(): { home: Vec2; stray: Vec2; away: Vec2 } {
+    const STRAY = 600; // beyond the boss's leash
+    const PAST = 150; // more than the boss walks in the test
+    const { layout, grid } = defaultWorld();
+    const open = (p: Vec2) => !grid.blocked(p, BOSS.radius) && !isSea(layout.terrain, p.x, p.y);
+    const clear = (from: Vec2, to: Vec2) => {
+      const steps = Math.ceil(distance(from, to) / 8);
+      for (let i = 0; i <= steps; i++) {
+        if (!open({ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps })) return false;
+      }
+      return true;
+    };
+    const unit = (degrees: number): Vec2 => ({ x: Math.cos((degrees * Math.PI) / 180), y: Math.sin((degrees * Math.PI) / 180) });
+    const { volcano } = layout;
+    // A fixed order (the rings the boss spawns on, then the angles), so the first walk found is always the same.
+    for (let ring = 3; ring <= 13; ring++) {
+      const r = volcano.r + ring * 32;
+      for (let a = 0; a < 360; a += 5) {
+        const spot = unit(a);
+        const home = { x: volcano.x + spot.x * r, y: volcano.y + spot.y * r };
+        for (let b = 0; b < 360; b += 5) {
+          const dir = unit(b);
+          const along = (d: number) => ({ x: home.x + dir.x * d, y: home.y + dir.y * d });
+          if (clear(home, along(STRAY + PAST))) return { home, stray: along(STRAY), away: along(STRAY + PAST) };
+        }
+      }
+    }
+    throw new Error("no straight open walk for the boss near the volcano");
+  }
+
   it("stops players at the sea until they build a raft", async () => {
     const { room, client, player } = await setup();
     const shore = (room as any).obstacles.resolve(westShore(), 14);
@@ -1004,9 +1071,14 @@ describe("regions and climate", () => {
   it("walks the boss back home when it strays", async () => {
     const { room } = await setup();
     const [bossId, boss] = bossOf(room)!;
-    const home = { x: boss.x, y: boss.y };
-    boss.x -= 600; // west, toward the meadow (east of the volcano is the sea)
-    (room as any).brains.get(bossId).idleMs = 0;
+    const { home, stray, away } = bossWalk();
+    (room as any).bossHome = { ...home };
+    boss.x = stray.x;
+    boss.y = stray.y;
+    // Left alone it would walk on, further out; only the leash can turn it back.
+    const brain = (room as any).brains.get(bossId);
+    brain.target = { ...away };
+    brain.idleMs = 0;
     const before = distance(boss, home);
     await ticks(room, 40);
     expect(distance(boss, home)).toBeLessThan(before);

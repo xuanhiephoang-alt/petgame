@@ -1,105 +1,102 @@
-# PROGRESS: T2 Thả thú, túi đầy không mất thú
+# PROGRESS: T17 Test chập chờn trong GameRoom.test.ts
 
 ## Vòng 1: coder
 
-- [x] **Bước 1-2: `packages/shared/src/capture.ts` + `capture.test.ts`.** `PARTY_FULL_TEXT` (dựng từ `MAX_PARTY`) và `throwBlocker(partySize, { boss })` (trùm xét trước, rồi túi đầy; thú đầu đàn không có nhánh riêng). Test mới `describe("throwBlocker")`: 4 test (còn chỗ, đầy hoặc quá đầy, chữ có `30/30` và "Thả bớt" mà không còn câu cũ, trùm xét trước).
-- [x] **Bước 3: `packages/shared/src/messages.ts`.** `ClientMessage.Release = "release"` và `ReleaseMessage { palId }`, JSDoc tiếng Anh.
-- [x] **Bước 4: `packages/server/src/rooms/GameRoom.ts`.**
-  - Handler `release` cạnh `Summon`/`Assign`, chỉ gọi khi `typeof message?.palId === "string"`.
-  - `handleThrow`: thứ tự cooldown, tầm ném, `inBall`, đặt `lastThrowAt`, rồi `throwBlocker`; bị chặn thì chỉ `notify`. Hai dòng cũ (trùm, đầu đàn "cho bớt thú đi") và nhánh `else { "Túi thú đã đầy" }` đã xoá; thân nhánh `success` bỏ một cấp thụt lề, kèm chú thích "đã kiểm còn chỗ ở trên, trong cùng lời gọi".
-  - Hàm `release()` ngay sau `rest()`: tìm trong túi người gửi (id lạ thì bỏ qua im lặng), xoá `activePalId` nếu là thú đi theo, `despawnCompanion`, xoá `skillOrder` dành cho nó, `faintedUntil.delete`, `splice`, `Notice` "Đã thả <tên>. Tạm biệt! 👋", `scheduleSave`.
-  - `debug:givePal` báo `PARTY_FULL_TEXT` khi túi đầy.
-  - `grep -rn "cho bớt\|Túi thú đã đầy" packages` không ra kết quả.
-- [x] **Bước 5: `packages/client/src/ui/party.ts`.** Tiêu đề `Túi thú n/30`; nút chế độ `🕊️ Thả bớt` / `✓ Xong` (`aria-pressed`, ẩn khi túi trống); chế độ thả (gợi ý đỏ, mỗi thẻ chỉ còn nút đỏ `Thả` kèm `aria-label`); hộp xác nhận dựng một lần (nền mờ chặn chạm, `role="dialog"`, focus ở `Giữ lại`, nút `Thả` khoá `CONFIRM_ARM_MS` = 500 ms, Tab/Shift+Tab chỉ đổi giữa hai nút, Escape đóng hộp trước rồi mới đóng bảng, Q đóng cả hai, chạm nền mờ là huỷ, hộp tự đóng khi con đó không còn trong túi, focus về nút chế độ); đóng bảng (✕, Q, Escape, mở bảng khác) thì chế độ thả và hộp tự tắt; nút 🐾 hiện `(30/30)` kèm class `full`; chữ túi trống mới; `swatch()` tách ra dùng chung cho thẻ và hộp; JSDoc của class cập nhật.
-- [x] **Bước 6: `packages/client/src/game/Game.ts`.** `PartyPanel` thêm `release` (gửi `ClientMessage.Release`); `throwBall()` hỏi `throwBlocker` trước khi ném: bị chặn thì toast đúng câu đó 3 giây, không `send`, không `me.play("throw")`.
-- [x] **Bước 7: `packages/client/index.html`.** CSS cho `.party-btn.full`, `gap` và `.party-title` ở header, `.party-release-toggle`, `.party-action.release`, `.party-hint.release`, `.party-confirm*`, `.confirm-keep`, `.confirm-release`, `:focus-visible`; đúng như PLAN.md (hộp `z-index: 5` trên bảng 3 và bản đồ lớn 4).
-- [x] **Bước 8: `packages/server/src/rooms/GameRoom.test.ts`.** `describe("releasing pals and a full party")` ở cuối file, 6 test, helper `addPals`:
-  1. thả con đang nghỉ; id lạ, `palId: 42`, `{}`, không payload, và con của người khác đều bị bỏ qua im lặng (không notice); state phía client cũng mất đúng con ở giữa danh sách;
-  2. thả con đang đi theo và là con cuối: `activePalId`, companion, `skillOrder`, `faintedUntil`, `skillReady`, `castingUntil` đều sạch; bắt tiếp thì con mới tự đi theo;
-  3. thả con đang làm việc: companion biến mất, con làm việc còn lại vẫn `work`;
-  4. thả rồi vào lại phòng cùng token: con đã thả không quay lại;
-  5. túi đầy: ném (cả bóng xịn, cả thú đầu đàn) không có `CaptureResult`, thú hoang không vào bóng, không trừ bóng xịn, notice đúng `PARTY_FULL_TEXT`; ném hai lần liền chỉ có một notice; thả một con rồi bắt được ngay, túi lại đầy;
-  6. `debug:givePal` báo `PARTY_FULL_TEXT` khi đầy.
-  - Test có sẵn "spawns one boss ... cannot be captured" vẫn qua, không sửa.
-- [x] **Bước 9: `tests/e2e/multiplayer.spec.ts`.** Test `party: let a pal go after confirming; a full party cannot throw` (`test.slow()`), đặt sau "pack leaders", trước `lobby:`. Làm đủ 13 bước của PLAN.md và thêm: khoá nút `Thả` (bấm lần hai trong cùng một tác vụ JS thì hộp vẫn mở), nền mờ che nút HUD (`elementFromPoint`), chạm nền mờ, Shift+Tab, Q khi hộp mở (rồi bảng mở lại là bảng thường), mở bảng Chế tạo (phím C) ngắt chế độ thả, hộp con cuối (cảnh báo hiện, dòng trạng thái ẩn).
-- [x] **Bước 10: `docs/architecture.md`.** Dòng `capture.ts` (`throwBlocker`) và dòng `ui/` (`party.ts`). `docs/design/pals.md` không sửa (game-designer đã cập nhật).
+Chỉ sửa một file: `packages/server/src/rooms/GameRoom.test.ts`. Không đụng code sản phẩm, không thêm hay bớt test (vẫn 194), không đổi tên test, không retry, không đổi ngưỡng hay thời gian chờ (600 px, 40 / 30 / 10 tick, giới hạn 160 tick), không `vi.mock` module.
 
-### Kiểm tra thêm (không phải thay cho tester)
+- [x] **Bước 1: import.** Thêm `biomeAt`, `pickSpecies`, `type Biome`, `type Vec2` vào import `@petgame/shared`. `getSpecies`, `BOSS`, `isSea`, `defaultWorld`, `distance` đã có sẵn (`getSpecies` vẫn được dùng ở `placeWild`).
+- [x] **Bước 2: thú đêm** (`describe("day and night")`).
+  - Hàm cục bộ `rollFor(speciesId, where)`, JSDoc tiếng Anh: thử 1000 lượt bốc `(k + 0.5) / 1000`, giữ những lượt mà `pickSpecies` ra loài đó, trả lượt ở giữa; `throw` kèm lý do nếu không có. Với dữ liệu hiện tại: 0,9505 cho Mothlume ở meadow ban đêm (ban ngày cùng lượt đó ra voltmouse).
+  - Thân test viết lại đúng thứ tự PLAN.md. `dayTime > 0` (giữ), `pals.clear()` (chuyển lên đầu), chỗ sinh `layout.regions.meadow`, `roll = rollFor("mothlume", { biome: biomeAt(...), night: true })`, hàm `spawnWith(draw)` (mock `Math.random` bằng `draw`, gọi `(room as any).spawnPal({ ...at })`, `vi.restoreAllMocks()` trong `finally`, toàn bộ đồng bộ). Rồi:
+    1. ban ngày, `not.toBe("mothlume")`;
+    2. `dayTime = 0.8`, 30 tick, `expect(room.state.dayTime).toBeCloseTo(0.8, 1)` (mới);
+    3. sinh lại: `toBe("mothlume")`;
+    4. `dayTime = 0.999`, 10 tick, `expect(room.state.pals.has(moth)).toBe(false)` (mới) và phép kiểm "không còn Mothlume nào không giận" (giữ nguyên).
+  - Bỏ: biến `night` (luôn rỗng), vòng 30 lần `spawnPal()` ngẫu nhiên và phép kiểm `> 0`.
+- [x] **Bước 3: trùm về nhà** (`describe("regions and climate")`).
+  - Hàm cục bộ `bossWalk()` cạnh `westShore()`, JSDoc tiếng Anh, `STRAY = 600` và `PAST = 150` là hằng cục bộ trong hàm. Tìm theo thứ tự cố định: ring 3 đến 13, góc đặt nhà 0 đến 355 độ bước 5, hướng đi 0 đến 355 độ bước 5; "trống" = mỗi 8 px không `grid.blocked(p, BOSS.radius)` và không `isSea`; lấy kết quả đầu tiên; không có thì `throw`.
+  - Thân test: `setup()`, `bossOf`, `bossHome = { ...home }`, trùm đặt ở `stray`, `brain.target = { ...away }`, `brain.idleMs = 0`, `before = distance(boss, home)`, 40 tick, `toBeLessThan(before)`. Không còn `boss.x -= 600`. Chú thích cũ "west, toward the meadow" thay bằng chú thích nói ý: để mặc thì trùm đi xa thêm, chỉ dây xích kéo nó về.
+  - Tuyến `bossWalk()` chọn (chạy lại đúng thuật toán đó bằng `tsx`, file tạm đã xoá): ring 3, nhà ở 10 độ, hướng 245 độ; `home` (5058,6; 2436,1), `stray` (4805,0; 1892,3), `away` (4741,6; 1756,4); khoảng cách nhà đến `stray` 600,0 và đến `away` 750,0; 154 cặp nhà/hướng hợp lệ. Khớp số của PLAN.md.
+- [x] **Bước 4: thú hoang tung chiêu** (`wild pals cast too...`). Thêm `vi.spyOn(Math, "random").mockReturnValue(0)` ngay trước vòng đợi (kèm chú thích tiếng Anh) và `vi.restoreAllMocks()` ngay sau vòng, trước các `expect`. Vòng 160 tick và mọi `expect` giữ nguyên.
+- [x] **Bước 5: kiểm.** Xem "Tự kiểm" dưới đây.
 
-- **Kiểm đột biến**, mỗi lần khôi phục ngay (đã xem `git diff` sau cùng, đúng như dự định):
-  - server: `throwBlocker(0, pal)` thay `throwBlocker(player.pals.length, pal)`: test "a full party cannot throw" không qua ở `results` có 1 phần tử;
-  - server: bỏ hai dòng dọn `skillOrder` và `faintedUntil` trong `release`: test "releasing the follower..." không qua ở `skillOrder` còn giá trị; bỏ riêng dòng `faintedUntil.delete`: không qua ở `faintedUntil.has` (`expected true to be false`);
-  - client: `if (blocker && false)` trong `throwBall`: e2e không qua ở `expect(await sent()).not.toContain("throw")` (tin `throw` đã được gửi).
-- **Ảnh kiểm tra bố cục** (không commit), spec và cấu hình tạm nằm ngoài repo: `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/shots/` (`layout.spec.ts`, `playwright.config.ts`). Ba khung (390×844 và 844×390 có giả lập cảm ứng, 1280×720), 30 thú nhiều loài, năm ảnh mỗi khung: `<khung>-1-hud-full.png`, `-2-panel.png`, `-3-release-mode.png`, `-4-confirm-locked.png`, `-5-confirm.png` (`phone-portrait`, `phone-landscape`, `desktop`). Đã xem bằng mắt, bình thường. Số đo:
-  - nút 🐾 là `🐾 Thú (30/30)`, nền `rgb(255, 213, 79)`, class `full`, ở cả ba khung;
-  - hàng tiêu đề ở điện thoại dọc: tiêu đề `Túi thú 30/30` rộng 159 px, nút chế độ 97×44, ✕ 44×32; mép phải ✕ (364) trùng mép trong của bảng, không tràn, không chồng nhau, nên không cần thu nhỏ chữ nút (rủi ro đã nêu trong PLAN.md không xảy ra);
-  - hộp 320×185 px: ở 390×844 nằm y 329-515, ở 844×390 nằm y 102-288, ở 1280×720 nằm y 267-453; đều trọn trong khung nhìn;
-  - nền mờ nhận chạm thay cho joystick, `.btn-attack`, `.btn-capture`, `.btn-dash`, `.ball-btn`, `.base-btn`, `.craft-btn`, `.eat-btn` (`elementFromPoint` trả `div.party-confirm`).
+### Tự kiểm (không thay cho tester)
+
+- 3 test đã sửa chạy riêng bằng `-t "walks the boss back home when it strays|syncs the time of day|wild pals cast too"`: **20/20 lần qua** (mỗi lần tạo phòng mới, khoảng 8 giây).
+- `npm test` cả bộ: **4/4 lần qua, mỗi lần 194/194** (65,0 đến 66,0 giây).
+- Đột biến, mỗi cái 2 lần, trên bản sao ngoài repo (bản sao của designer, `GameRoom.ts` giống HEAD `2d81602`, thêm file test mới đổi cổng thành 2591; mỗi đột biến thay bằng `GameRoomM*.ts` có sẵn rồi khôi phục). Code thật qua 1/1. Cả 7 đột biến hỏng 2/2, đúng phép kiểm ghi bên cạnh (số dòng của `GameRoom.test.ts` trong repo):
+  - M-B1 (bỏ dây xích): dòng 1084 `toBeLessThan(before)`, `expected 690.675 to be less than 599.99` (lần hai 690.45).
+  - M-N1 (luôn `night: false`): dòng 529, `expected 'voltmouse' to be 'mothlume'` (bước ban đêm).
+  - M-N2 (luôn `night: true`): dòng 523, `expected 'mothlume' not to be 'mothlume'` (bước ban ngày).
+  - M-N3 (bỏ xoá thú đêm lúc bình minh): dòng 534, `pals.has(moth)` là `true` (bước bình minh).
+  - M-N4 (bỏ đồng bộ `state.dayTime`): dòng 527, `expected 0.12 to be close to 0.8` (bước đồng bộ).
+  - M-W1 (`homing: true`): dòng 676, `toMatchObject({ ..., homing: false, ... })`.
+  - M-W2 (`wildSkill` luôn `undefined`): hỏng vì hết giờ 5000 ms của Vitest (`Test timed out in 5000ms`), không phải ở một `expect`: vòng chờ 160 tick (8 giây) dài hơn 5 giây, test cũ cũng thế. Vẫn là hỏng đúng vì không có chiêu nào.
+- Chưa làm (việc của tester): lặp `npm test` 20 lần liền, khảo sát 120 phòng mới cho mỗi thân test, đột biến ít nhất 5 lần mỗi cái.
 
 ### Lệch kế hoạch
 
-- `setReleasing` không đặt `lastKey = ""` (PLAN.md bước 5): khoá của `update` đã chứa `releasing` nên đổi chế độ tự vẽ lại ngay, kết quả như nhau.
-- `party.ts` có thêm `fillConfirm()`, gọi trong `openConfirm()` và cuối `render()` khi hộp đang mở: tên, cấp, dòng trạng thái và cảnh báo "con cuối" luôn khớp với túi nếu túi đổi lúc hộp mở (ví dụ một quả bóng đã ném xong, thì cảnh báo "con cuối" không còn đúng). PLAN.md chỉ nói hộp tự đóng khi con đó biến mất.
-- `release()` lấy tên loài trước khi `splice` (PLAN.md đọc `owned.speciesId` sau `splice`): để không phụ thuộc vào việc phần tử schema đã gỡ còn đọc được. Hành vi y hệt.
-- Test thêm hoặc đổi so với mục Test của PLAN.md:
-  - test tích hợp 3 dùng hai con làm việc (PLAN.md: một con) để kiểm con còn lại vẫn làm việc; test 2 đặt thêm `skillReady` và `castingUntil` (giữ lệnh chiêu khỏi bị thực hiện hoặc bỏ trước khi tin `release` tới, và để kiểm `skillReady` có ý nghĩa); test 5 ném hai lần liền để chứng minh lần từ chối cũng tính cooldown; test 6 (`debug:givePal`) là mới, đặt `PETGAME_DEBUG=1` trong test rồi xoá;
-  - unit test dùng `not.toMatch(/cho\s+bớt/i)` thay `not.toContain("cho bớt")`: để tiêu chí `grep -rn "cho bớt" packages` không ra kết quả (kiểm cùng một điều);
-  - e2e: PLAN.md viết `.party-panel` và `.party-card`, nhưng bảng Chế tạo và Tủ đồ dùng chung hai class này (3 phần tử, 16 thẻ), nên dùng `.party-panel:has(.party-release-toggle)` và `panel.locator(".party-card")`; `toContainText` đọc cả chữ trong phần tử `hidden`, nên dòng "cuối cùng" và dòng trạng thái kiểm bằng `toBeVisible`/`toBeHidden`.
+- Không có. Chỉ khác chi tiết nhỏ: tham số của `spawnWith` tên `draw` (để không che biến `roll` bên ngoài); `bossWalk` dùng thêm hàm `unit(degrees)` để khỏi lặp biểu thức lượng giác (cùng phép tính, cùng kết quả số học).
 
-### Ghi chú cho agent chính và tester (không chặn)
+### Ghi chú cho tester
 
-- Phím của game (Space, E, Shift...) vẫn chạy khi hộp xác nhận mở, vì lớp `Keyboard` nghe toàn cửa sổ (như mọi bảng khác, PLAN.md không đổi). Hệ quả: Shift+Tab trong hộp làm nhân vật lướt một đoạn. Muốn chặn cần cờ tạm dừng trong `keyboard.ts`: việc riêng, ngoài T2.
-- Có từ trước, ngoài phạm vi: `.party-panel` là `content-box`, nên ở điện thoại dọc (390×844) với từ 7 thú trở lên bảng cao 680 px từ y=172, đáy ở 852, lệch 8 px khỏi khung nhìn. Có thể gộp vào việc P2 "nút cảm ứng dưới 44 px và các bảng" mà PLAN.md đề xuất.
-- Test có sẵn, không liên quan T2, từng không qua một lần: `regions and climate > walks the boss back home when it strays`. Trong 3 lần chạy cả bộ `npm test` có 1 lần hỏng (lần khác 194/194 qua); chạy riêng qua 1 + 12 lần liên tiếp. Chưa lấy được thông báo lỗi của lần hỏng nên chưa biết nguyên nhân (`spawnBoss` đặt trùm ở vị trí ngẫu nhiên quanh núi lửa; một phép thử nhanh cho thấy khoảng 58% vị trí đó có điểm `x - 600` rơi vào biển hoặc vật cản, nhưng test vẫn gần như luôn qua, nên đó chưa chắc là nguyên nhân). Test này đứng trước khối test mới của T2 trong file và không đi qua `handleThrow` hay `release`. Nếu tester gặp lại, đề nghị ghi thông báo lỗi và tách thành việc riêng.
-- Cổng 2567 và 5173 trống sau khi xong (đã kiểm bằng `ss`). Không còn file tạm nào trong repo (`git status` chỉ có các file của nhiệm vụ).
+- Test dùng cổng 2571 cố định (`boot(..., 2571)`), nên không chạy song song với `npm test` hay một lần chạy khác của file này.
+- Bản sao và script đột biến của coder, dùng lại được (ngoài repo): `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t17r1/` (`copy/` đã chứa file test mới và các `GameRoomM*.ts`; `mutate.sh <BASE|MB1|MN1|MN2|MN3|MN4|MW1|MW2> "<mẫu -t>" <số lần>`; nhật ký `mutation-results.log`). Bản sao của designer ở `.../scratchpad/t17/copy/`.
+- `git status` chỉ có `PLAN.md`, `TASKS.md`, `PROGRESS.md`, `packages/server/src/rooms/GameRoom.test.ts`. Cổng 2567, 5173, 2571, 2591 trống sau khi xong.
 
 ### Lệnh đã chạy
 
-- `npm run typecheck` ✓ (8,7 s). `tests/e2e` không nằm trong typecheck: kiểm riêng bằng `tsc` với tsconfig tạm ngoài repo, sạch.
-- `npm test` ✓ (20 file, 194 test, 65 s; trước nhiệm vụ là 184: thêm 4 unit và 6 tích hợp). Lần chạy cuối cùng trên cây làm việc cuối: 194/194 qua (một lần chạy trước đó có 1 test boss có sẵn hỏng, xem ghi chú trên).
-- `npm run build` ✓ (2,5 s).
-- `npx playwright test -g "party:" --workers=1` ✓ (24-34 s); `--repeat-each=3 --workers=1` 3/3 qua (1,7 phút).
-- `npx playwright test -g "captured pal|skills:|crafting|pack leaders|party:" --workers=1` 5/5 qua (1,3 phút): các test đụng bảng Thú, Escape và phím mở panel vẫn qua. Chưa chạy cả bộ `npm run test:e2e` (việc của tester).
+- `npm run typecheck` ✓ (sạch, trên file test cuối cùng).
+- `npm test` ✓ (20 file, 194 test, 4 lần liền).
+- `npm run build`: không chạy (không đụng client).
 
 ## Kiểm thử vòng 1: PASS
+- typecheck ✓ (10 s)   test ✓ (`npm test` 20 lần liền, mỗi lần 20 file / 194 test, 66-67 s)   build (không chạy: chỉ đổi file test)   e2e (không chạy: chỉ đổi file test)   photo3d (không chạy: không đụng `tools/photo3d`)
+- `git diff --stat`: trong số file code chỉ có `packages/server/src/rooms/GameRoom.test.ts` (+81 -9), cùng `PLAN.md`, `PROGRESS.md`, `TASKS.md`; không có file chưa theo dõi. `GameRoom.test.ts` nằm trong typecheck (`tsc -p packages/server --listFiles`). Tester không sửa file nào của repo trừ mục này.
+- Kết quả chạy (`GameRoom.test.ts` nghe ở cổng 2568, xem ghi chú cổng ở cuối; hai lần thử đầu của bản sao bị `EADDRINUSE` trong lúc `npm test` lần 4-5 giữ cổng, chúng không bind được nên không ảnh hưởng, và hai lần `npm test` đó vẫn qua):
 
-- typecheck ✓   test ✓ (194, 20 file)   build ✓   e2e ✓ (16: 14 cũ + 2 mới)   photo3d (không chạy: không đụng `tools/photo3d`)
-- Chạy trên cây làm việc của T2 (HEAD `b46b1d6` + thay đổi chưa commit); cổng 2567/5173 trống trước và sau mỗi lần chạy. Tuyệt đối không sửa code sản phẩm.
-  - `npm run typecheck` sạch (16,7 s). `tests/e2e` không nằm trong typecheck: kiểm riêng bằng `tsc` với tsconfig tạm ngoài repo, sạch (kể cả hai test mới). `npm run build` qua (2,0 s).
-  - `npm test`: 6 lần trên T2, 5 lần 194/194, 1 lần 193/194 do test chập chờn có từ trước (mục dưới). Đối chứng: 5 lần trên bản sao `HEAD` ngoài repo (trước T2, 184 test): 3 lần qua, 2 lần hỏng một test chập chờn khác.
-  - `npm run test:e2e` cả bộ: lần đầu 14/14 (2,7 phút); sau khi tôi thêm 2 test, 16/16 (3,2 phút). Hai test mới lặp `--repeat-each=4 --workers=1`: 8/8. Hai thông báo `MatchMakeError` trong log là của test "6th is turned away" và "lobby:", có chủ ý.
-- Tiêu chí hoàn thành (PLAN.md), đối chiếu từng mục:
-  - [x] `messages.ts`: `ClientMessage.Release = "release"`, `ReleaseMessage { palId }`, JSDoc tiếng Anh.
-  - [x] `capture.ts`: `PARTY_FULL_TEXT` dựng từ `MAX_PARTY`, `throwBlocker(partySize, { boss })` (trùm xét trước); 4 unit test.
-  - [x] Server `release`: kiểm kiểu `palId`; id lạ, `palId: 42`, `{}`, không payload, thú của người khác đều bị bỏ qua và không có notice; id hợp lệ thì `splice`, xoá companion, `activePalId`, `skillOrder`, `faintedUntil` (cả `skillReady`, `castingUntil`), notice "Đã thả …", lưu (thả rồi vào lại phòng cùng token: không quay lại). Test tích hợp 1-4.
-  - [x] Server `handleThrow`: thứ tự cooldown, tầm ném, `inBall`, `lastThrowAt`, rồi `throwBlocker` (đọc code). Bị chặn thì không có `CaptureResult`, không trừ bóng xịn, thú hoang không vào bóng, cả thú đầu đàn; hai lần ném liền chỉ một notice. Nhánh `else { "Túi thú đã đầy" }` đã xoá. `grep -rn "cho bớt\|Túi thú đã đầy" packages` không ra kết quả. Test có sẵn "spawns one boss ... cannot be captured" vẫn qua.
-  - [x] `debug:givePal` báo `PARTY_FULL_TEXT` khi đầy (test tích hợp 6).
-  - [x] Client `throwBall`: bị chặn thì không gửi `throw` (e2e đọc bản ghi tin gửi đi), toast đúng câu. Trùm đi cùng đường `throwBlocker` (unit test); không có e2e ném riêng vào trùm. Thời gian 3 giây: đọc code (`showToast(blocker, 3000)`), e2e chỉ kiểm chữ.
-  - [x] Bảng 🐾 Thú: tiêu đề `Túi thú n/30`; nút `🕊️ Thả bớt` / `✓ Xong` có `aria-pressed`, ẩn khi túi trống; chế độ thả (gợi ý đỏ, mỗi thẻ chỉ còn `Thả`); chế độ tắt khi đóng bằng Q, Escape, mở bảng Chế tạo, và khi hết thú (e2e); ✕ đi chung đường `toggle(false)` (đọc code). Mọi chữ khớp bảng chữ của PLAN.md.
-  - [x] Hộp xác nhận: chữ, dòng trạng thái, dòng con cuối; nền mờ che nút HUD (`elementFromPoint`) và nhận chạm thật (chạm vào chỗ nút Đánh thì hộp huỷ, không gửi `attack`: test mới 2); chạm nền mờ là huỷ; focus mặc định ở `Giữ lại`; Tab, Shift+Tab chỉ đổi giữa hai nút; Escape đóng hộp trước, Q đóng cả hai; `Thả` khoá lúc mở (`disabled`, 500 ms); hộp tự đóng khi con đó biến mất; focus về nút chế độ sau Giữ lại, Escape, chạm nền mờ, và khi con biến mất (test mới 1; trước đó chưa có test nào kiểm việc hộp tự đóng và việc trả focus).
-  - [x] Nút HUD `🐾 Thú (30/30)` nền `rgb(255, 213, 79)` kèm class `full` khi đầy; `🐾 Thú (29)` và bỏ class khi còn chỗ; chữ túi trống mới khớp PLAN.md.
-  - [x] Nút mới ≥ 44×44 px ở 390×844, 844×390, 1280×720 và hộp nằm trọn trong khung nhìn (e2e của coder đo; ảnh chụp của tôi khớp).
-  - [x] Không đổi `schema.ts`, `Profile`, `emptyProfile`, `sanitizeProfile`, `store.ts` (`git diff --stat`); không thêm `ServerMessage`; không đổi `MAX_PARTY`, `scripts/shots.mjs`, `playwright.config.ts`.
-  - [x] Unit, tích hợp, e2e mới đều qua; typecheck sạch; build qua; cả bộ e2e qua. Test cũ không bị sửa hay bỏ (diff của các file test chỉ thêm dòng, trừ dòng import ở `capture.test.ts` và hai hàm helper `openPage`, `join` ở e2e mà tôi thêm tham số tuỳ chọn).
-  - [x] Chú thích code tiếng Anh, chữ hiển thị tiếng Việt; `docs/architecture.md` đã cập nhật 2 dòng.
-- Lỗi của T2: không có.
-- Chập chờn có từ trước (không tính là lỗi của T2; code T2 không đụng `spawnBoss`, `spawnPal`, AI của thú hoang):
-  - **`regions and climate > walks the boss back home when it strays`** (`GameRoom.test.ts:1004-1012` ở cây T2). Hỏng 2/5 lần `npm test` trên bản sao HEAD (cả hai lần ở `GameRoom.test.ts:1008:34` của HEAD, dòng `expect(distance(boss, home)).toBeLessThan(before)`): `AssertionError: expected 610.2833640713945 to be less than 600` và `expected 623.7267240180252 to be less than 600`. Trên cây T2, 0/6 lần trong đợt này (coder gặp 1/3 lần). Khảo sát riêng thân test trong 120 phòng mới: **HEAD 9/120 hỏng (7,5%), cây T2 9/120 (7,5%)**, cùng nguyên nhân.
-    - Nguyên nhân: `spawnBoss()` (`GameRoom.ts:1452-1473`) chưa lần nào dùng vị trí mặc định (0/120) mà luôn bốc điểm ngẫu nhiên quanh chân núi lửa; test lại dịch trùm đúng 600 px sang tây (`boss.x -= 600`). Ở 31-35% số phòng (37/120 ở HEAD, 42/120 ở T2) điểm dịch rơi vào vật cản (cây, đá); khoảng một phần tư trong số đó (9/37, 9/42) cú đẩy ra khỏi vật cản làm trùm sau 40 tick (2 giây, tốc độ 45 px/s) xa `home` hơn 600 px (600,6 đến 643,8). Cả 9 lần hỏng đều có điểm dịch bị chặn; không lần nào rơi xuống biển (0/120).
-    - Đề xuất (việc riêng, chỉ sửa file test): chọn điểm dịch không bị chặn, hoặc đặt cố định vị trí và `bossHome` của trùm trước khi dịch.
-  - **`day and night > syncs the time of day and spawns night pals at night`** (`GameRoom.test.ts:491-501`). Hỏng 1 lần trong 6 lần `npm test` trên T2, lần chạy đầu: `AssertionError: expected 0 to be greater than 0` tại `GameRoom.test.ts:501:73`; 5 lần sau qua.
-    - Nguyên nhân: test ép 30 lần `spawnPal()` giữa đêm rồi đòi có ít nhất một Mothlume (loài đêm duy nhất, trọng số 2). Mỗi lần sinh ra Mothlume với xác suất 10,3% (lấy mẫu 200 000 lần theo đúng cách chọn của `spawnPal`: 10,35% ở HEAD, 10,31% ở T2), nên không ra con nào trong 30 lần với xác suất 3,8%. Khảo sát 200 phòng: **11/200 hỏng (5,5%) ở cả HEAD và T2**.
-    - Đề xuất (việc riêng, chỉ sửa file test): ép `pickSpecies` ra Mothlume hoặc giả `Math.random`.
-  - Cộng lại, một lần `npm test` có khoảng 1-(1-0,075)(1-0,038) = 11% hỏng chập chờn, độc lập với T2. Nên xử lý trước khi để vòng tự động coi một lần hỏng như vậy là FAIL.
-- Phím game khi hộp xác nhận mở (coder báo Shift+Tab làm nhân vật lướt): **đúng như báo, nhưng không vi phạm tiêu chí nào**.
-  - Đo bằng Playwright tạm (hộp mở cho thú đang đi theo, nút `Thả` đã mở khoá): bấm E, Space, Shift, Shift+Tab, 1, B, H rồi giữ D thì client gửi `["throw","attack","dash","palSkill","placeBase","eat","input","input"]`; hộp vẫn mở, vẫn 2 thú, Tab và Shift+Tab vẫn đổi focus đúng giữa hai nút.
-  - PLAN.md mục Bàn phím chỉ quy định focus mặc định, Tab/Shift+Tab, Enter, Escape, Q, và nói rõ lớp `Keyboard` có sẵn giữ nguyên (Space); tiêu chí "nền mờ chặn chạm" nói về chạm. Bảng Chế tạo và Tủ đồ cũng không chặn phím game. Không có dòng nào đòi tạm dừng phím game khi hộp mở.
-  - Nhận xét UX (không chặn): Shift+Tab là phím "lùi" quen thuộc nhưng game gán Shift là lướt, nên người dùng bàn phím đang cân nhắc có thể làm nhân vật lướt tới trước; B (đặt trại) và E (ném) cũng chạy khi hộp mở, trong khi chạm bị nền mờ chặn hết. Đề xuất việc riêng: cờ tạm dừng trong `keyboard.ts` khi một hộp xác nhận (hay mọi bảng) đang mở.
-- Test đã thêm (`tests/e2e/multiplayer.spec.ts`, đặt sau test "party:" của coder, trước "lobby:"):
-  - `party: the dialog hands the focus back, closes with its pal and keeps its warning true` (desktop): focus về `Thả bớt` sau `Giữ lại`, Escape, chạm nền mờ; hộp tự đóng khi con đó biến mất (gửi thẳng `release`, như thả từ thiết bị khác) và focus về nút chế độ; cảnh báo "con cuối" tắt khi con thứ hai tới lúc hộp mở; dòng trạng thái đổi theo khi con được gọi đi theo; Q đóng cả hộp lẫn bảng, mở lại là bảng thường.
-  - `party: by touch alone a pal is let go; the dimmed layer takes the taps meant for what lies under it` (390×844, `hasTouch`, `isMobile`, chỉ chạm): chạm vào chỗ nút Đánh thì rơi vào nền mờ (hộp huỷ, không có `attack`); rồi chạm `Thả` trên thẻ và `Thả` trong hộp: thú được thả, toast "Đã thả Pebblet", vẫn ở chế độ thả.
-  - Helper `openPage` và `join` thêm tham số tuỳ chọn `options` (`BrowserContextOptions`, mặc định `{}`, nên các test cũ không đổi) để mở trang với màn hình và cảm ứng riêng. Dòng "Helper" của `docs/architecture.md` chưa nhắc tham số này (tester không sửa tài liệu).
-  - Kiểm đột biến trên bản sao cây T2 ngoài repo, mỗi lần một thay đổi, đều bị bắt rồi khôi phục (bản sao giống hệt cây làm việc): bỏ `releaseToggle.focus()` thì test 1 hỏng ở `toBeFocused`; bỏ đóng hộp khi con đó biến mất thì test 1 hỏng ở `toBeHidden`; bỏ `fillConfirm()` khi vẽ lại thì test 1 hỏng vì cảnh báo "con cuối" còn hiện; nền mờ `pointer-events: none` thì test 2 hỏng vì hộp không huỷ (test 1 cũng treo tới hết thời gian, chỉ khi lỗi).
-  - Không thêm test chạm đúp vào nút `Thả` của thẻ vì kết quả phụ thuộc cửa sổ 500 ms theo đồng hồ thật (máy chậm sẽ hỏng oan); nút khoá đã có e2e của coder (hai lần bấm trong cùng một tác vụ JS). Kiểm tay bằng Playwright tạm ở 390×844: chạm đúp tại (320, 497), chỗ nút `Thả` của thẻ (282-358 × 475-519) chồng lên nút `Thả` của hộp (243-339 × 470-514): hộp vẫn mở, không có tin `release`, vẫn 2 thú; sau đó chạm chủ ý (chạm, chờ mở khoá, chạm) thả đúng một con và chỉ gửi một tin `release`.
-- Ảnh chụp (đã xem bằng mắt) ở 390×844, 844×390 và 1280×720: chế độ thả, hộp xác nhận, nút HUD vàng `🐾 Thú (30/30)`, bảng 30/30 ở chế độ thường (có `🕊️ Thả bớt`). Hàng tiêu đề `Túi thú n/30`, nút chế độ, ✕ vừa một hàng ở điện thoại dọc; hộp nằm trọn trong khung nhìn ở cả ba. Ảnh "hộp đang khoá" chụp sau 500 ms nên không thấy nút mờ (trạng thái khoá đã được kiểm bằng DOM). Ảnh, nhật ký, mã khảo sát, mã đột biến: `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t2r1/` (ngoài repo, không commit).
-- Sau khi xong: cổng 2567/5173 trống; `git status` chỉ có các file của T2 và `tests/e2e/multiplayer.spec.ts` (của tôi).
+  | Việc | Kết quả |
+  |---|---|
+  | `npm run typecheck` | sạch |
+  | `npm test` lặp 20 lần liền (chạy nền) | **20/20 qua**, lần nào cũng 20 file, 194 test, 66-67 s; log không có `Unhandled`/lỗi, chỉ cảnh báo SQLite. Có lúc bị tải thêm (đột biến chạy song song trên 1 nhân) mà vẫn qua |
+  | 3 test riêng, `-t "walks the boss back home when it strays\|syncs the time of day\|wild pals cast too"`, 20 lần (mỗi lần phòng mới) | **20/20 qua** (60 test qua, 1520 bỏ qua); mỗi lần 8-10 s; trùm 2,06-2,08 s, thú đêm 2,59-2,88 s, tung chiêu 1,01-1,06 s (giới hạn Vitest 5 s) |
+  | Khảo sát 120 phòng mới cho mỗi thân test | trùm **0/120**, thú đêm **0/120**, tung chiêu **0/120** (xem dưới) |
+  | 7 đột biến, mỗi cái 6 lần `-t` + 1 lần cả file | **7/7 đột biến hỏng ở mọi lần** (xem bảng) |
+
+- Khảo sát 120 phòng (bản sao ngoài repo; thân test thật được bọc `for`, thêm duy nhất một dòng ghi nhật ký ngay trước `expect` cuối và đổi cổng; ba tiến trình riêng nên mock của test tung chiêu không lan sang phòng khác):
+  - Trùm: 120/120 qua. `before` = 600,0 cả 120 lần; sau 40 tick trùm cách nhà **508,2 đến 509,9 px** (trung bình 509,5): còn dư ít nhất 90 px so với ngưỡng 600, không có phòng nào gần ngưỡng. Mỗi test 2,06-3,05 s.
+  - Thú đêm: 120/120 qua (mỗi test 2,06-2,81 s).
+  - Tung chiêu: 120/120 qua, mỗi phòng đúng 1 chiêu `ember` (mỗi test 1,0-1,75 s).
+  - Đối chứng (thân test **cũ** của HEAD, 60 phòng mỗi dòng): code thật hỏng 2/60 (607,8 và 603,7 px, tức vẫn chập chờn); khi bỏ dây xích (M-B1) cũ **vẫn qua 51/60** (chỉ hỏng 9/60). Test cũ gần như không phát hiện mất dây xích; test mới hỏng 7/7.
+- Đột biến (trên bản sao `HEAD` ngoài repo, mỗi lần áp bằng thay chữ có kiểm số lần xuất hiện, in diff, rồi khôi phục và so với `HEAD:GameRoom.ts`: 15/15 lần khôi phục khớp). Số dòng là của `GameRoom.test.ts` trong repo:
+
+  | Đột biến | Test | Lần chạy | Kết quả | Hỏng ở |
+  |---|---|---|---|---|
+  | M-B1 bỏ dây xích `:618` | trùm | 6 + 1 cả file | 7/7 hỏng | dòng 1084 `toBeLessThan(before)`: `expected 690,4-690,9 to be less than 599.99` |
+  | M-N1 `night: false` | thú đêm | 6 + 1 | 7/7 | dòng 529 (bước ban đêm): `expected 'voltmouse' to be 'mothlume'` |
+  | M-N2 `night: true` | thú đêm | 6 + 1 | 7/7 | dòng 523 (bước ban ngày): `expected 'mothlume' not to be 'mothlume'` |
+  | M-N3 `if (false)` lúc bình minh | thú đêm | 6 + 1 | 7/7 | dòng 534 (bước bình minh): `pals.has(moth)` là `true` |
+  | M-N4 bỏ đồng bộ `state.dayTime` | thú đêm | 6 + 1 | 7/7 | dòng 527 (bước đồng bộ): `expected 0.12 to be close to 0.8` |
+  | M-W1 `homing: true` | tung chiêu | 6 + 1 | 7/7 | dòng 676 `toMatchObject`; diff cho thấy đúng khoá `homing` (`- false` / `+ true`) |
+  | M-W2 `wildSkill` luôn `undefined` | tung chiêu | 6 + 1 | 7/7 | hết giờ 5000 ms (vòng đợi không thấy chiêu nào), không tới `expect` (vòng đợi 160 tick này có sẵn từ test cũ) |
+
+- Rò mock `Math.random` (kiểm riêng): chạy **cả file** với từng đột biến, kết quả luôn là 78 test qua + đúng 1 test mục tiêu hỏng (code thật: 79/79). Gồm M-W2, nơi test hết giờ khi mock còn bật: các test sau vẫn qua. Thêm đột biến phụ M-X1 (cho `spawnPal` ném lỗi đúng tại chỗ sinh của test thú đêm, tức ném bên trong `try`): 78 qua + 1 hỏng (lỗi ném), mock vẫn được trả lại. Thêm một test thăm dò ngoài repo có đúng dạng `afterEach(vi.restoreAllMocks)`: Vitest 5.0.3 trả lại `Math.random` sau cả lỗi ném lẫn hết giờ. Test tung chiêu không bọc `try/finally` nhưng dựa vào `afterEach` có sẵn của file, và an toàn như đã thấy; theo code `waitForNextTimestep` (`@colyseus/testing`), sau khi hết giờ thì vòng lặp bị bỏ lại chỉ treo ở phòng đã huỷ, không gọi lại `vi.restoreAllMocks()` vào test sau (suy từ code; kết quả cả file ở trên khớp).
+- Không bị nới lỏng: ngưỡng 600 px (`before` = 599,9999999999997), 40 / 30 / 10 / 160 tick và mọi `expect` cũ giữ nguyên (`expect(` từ 259 lên 262: thú đêm bỏ 1, thêm 4); không còn `boss.x -= 600`; không thêm `retry`, `skip`, `only`, `vi.mock`, `timeout`; tên và số test không đổi (79 `it`, 194 test cả bộ); các test khác không đổi (hunk của `git diff` chỉ ở import, `day and night`, `wild pals cast too`, `regions and climate`).
+- Tính lại độc lập (tsx) cho `bossWalk()`: tuyến đầu tiên là ring 3, nhà ở 10 độ, hướng 245 độ; `home` (5058,6; 2436,1), `stray` (4805,0; 1892,3), `away` (4741,6; 1756,4); khoảng cách 600,0 và 750,0; 154 cặp nhà/hướng hợp lệ ở bước 5 độ; điểm gần nhất của mọi tuyến hợp lệ tới chỗ người chơi xuất hiện là 508 px (> `AGGRESSIVE_SIGHT` 120). `rollFor("mothlume")` ra 0,9505 (dải Mothlume ban đêm là 0,9005-0,9995, lệch 0,05 hai đầu), cùng lượt đó ban ngày ra `voltmouse`.
+- Tiêu chí hoàn thành (PLAN.md):
+  - [x] Trong số file code chỉ `GameRoom.test.ts` đổi.
+  - [x] Test trùm: không còn `boss.x -= 600`; dùng `bossWalk()` (thứ tự cố định, kiểm `BOSS.radius` và `isSea` mỗi ≤ 8 px, `throw` khi không có tuyến); `bossHome = home`, trùm ở `stray`, `brain.target = away`, `idleMs = 0`; 40 tick; `toBeLessThan(before)`.
+  - [x] Test thú đêm: mock đồng bộ quanh `spawnPal(at)`, trả lại trong `finally`; đủ 4 phép kiểm (ban ngày không ra Mothlume, `dayTime` ≈ 0,8 sau 30 tick, ban đêm ra Mothlume, bình minh xoá con đó và không còn Mothlume không giận); 30 và 10 tick.
+  - [x] Test tung chiêu: mock chỉ bao vòng đợi, trả lại trước các `expect`; giữ 160 tick và mọi `expect`.
+  - [x] Không `retry`, không tăng ngưỡng/timeout, không đổi tên/`skip`, không `vi.mock`; test khác không đổi.
+  - [x] `npm run typecheck` sạch; `npm test` qua 20/20 lần liền.
+  - [x] Chạy riêng 3 test bằng `-t` 20 lần: lần nào cũng qua.
+  - [x] Khảo sát 120 phòng mới cho mỗi thân test: 0 lần hỏng.
+  - [x] 7 đột biến: mỗi cái hỏng ở mọi lần (6 lần `-t` cộng 1 lần cả file), đúng phép kiểm; đã khôi phục bản sao sau mỗi lần.
+  - [x] `PROGRESS.md` ghi số lần chạy, số phòng và kết quả từng đột biến (mục này).
+- Lỗi: không có.
+  - Ghi chú không chặn 1 (có từ trước, không thuộc T17): `boot(defineServer(...), 2571)` **bỏ qua tham số cổng**. `defineServer` trả về một `Server`, và `boot` của `@colyseus/testing` với `Server` luôn nghe ở `DEFAULT_TEST_PORT` = 2568 (bằng chứng: `EADDRINUSE 0.0.0.0:2568` khi bản sao chạy cùng lúc với `npm test`). Câu "Test dùng cổng 2571 cố định" ở mục coder vòng 1 vì vậy không đúng: cổng thật là 2568, và hai lần chạy `GameRoom.test.ts` cùng lúc (repo hoặc bản sao) sẽ tranh cổng này. Chỉ ảnh hưởng người chạy song song; bản sao của tester đổi `boot` thành `server.listen(<cổng>)` + `new ColyseusTestServer(server)` (đúng phần `boot` làm cho `Server`). Mức ưu tiên thấp.
+  - Ghi chú không chặn 2: M-W2 hỏng bằng hết giờ chứ không bằng một `expect`, vì vòng đợi 160 tick (8 s) dài hơn giới hạn 5 s của Vitest (cũng như test cũ); kế hoạch yêu cầu giữ 160 tick nên không đổi.
+  - Không làm: thử tải CPU (6 vòng lặp bận chạy song song) bị hệ thống từ chối quyền, nên bỏ; không bắt buộc, và các test đều chờ theo tick nên ít nhạy với tải.
+- Test đã thêm: không. PLAN.md không yêu cầu test mới và không có test nào còn thiếu; tester không sửa file test nào.
+- Công cụ tạm của tester (ngoài repo, dùng lại được): `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t17t1/` (`npmtest-loop.sh`, `t-loop.sh`, `make-copy.sh`, `portpatch.py`, `mutate.py` + `mutrun.sh` + `run-mutants.sh`, `mksurvey.py` + `run-surveys.sh` + `summ_survey.py`, `mkold.py` + `run-control.sh`, `summ.py`; kết quả trong `res/`, `svy/`, `tres/`, `npmtest-*.log`).
