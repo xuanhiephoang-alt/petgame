@@ -1,7 +1,7 @@
 import type { Reward } from "./rewards.ts";
 
 /** Things that move a quest forward. "palLevel" reports the highest level reached. */
-export type QuestEvent = "catch" | "camp" | "work" | "craft" | "visit" | "chest" | "harvest" | "palLevel" | "boss";
+export type QuestEvent = "catch" | "camp" | "work" | "craft" | "visit" | "chest" | "harvest" | "palLevel" | "boss" | "alpha";
 
 export interface Quest {
   id: string;
@@ -33,6 +33,7 @@ export const QUESTS: readonly Quest[] = [
   { id: "trainer", title: "Nuôi một con thú lên cấp 5", hint: "Thú lên cấp khi đánh, làm việc, ăn bánh", event: "palLevel", goal: 5, reward: { berries: 10 } },
   { id: "volcano", title: "Đến núi lửa", hint: "Phía đông, nóng rực", event: "visit", subject: "volcano", goal: 1, reward: { stone: 10 } },
   { id: "boss", title: "Hạ Vua Đá Boulderhorn", hint: "Rủ bạn bè, trùm ở chân núi lửa", event: "boss", goal: 1, reward: { greatBalls: 3, wood: 20, stone: 20 } },
+  { id: "alpha", title: "Hạ hoặc bắt một thú đầu đàn", hint: "Mỗi vùng có một con, dấu ★ trên bản đồ", event: "alpha", goal: 1, reward: { greatBalls: 3, snacks: 3 } },
 ];
 
 export interface QuestProgress {

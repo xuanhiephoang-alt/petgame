@@ -9,9 +9,10 @@ Game 2D bắt thú, chiến đấu, sinh tồn góc nhìn từ trên xuống (h�
 - Tự chọn ngoại hình ở sảnh (8 kiểu tóc, 8 màu tóc, 5 màu da) và thay đồ trong **👕 Tủ đồ** (phím T): 8 bộ quần áo, 8 mũ, 8 vũ khí (gậy, kiếm, rìu, giáo đánh gần; ná, cung, gậy phép bắn xa). Đồ có từ đầu, chế tạo ở trại, tìm trong rương hoặc hạ trùm mới có; giáp và mũ sắt giảm sát thương.
 - 13 loài thú theo vùng và giờ (ngày/đêm), càng xa càng mạnh; bắt, nuôi lên cấp, cho đi theo đánh cùng hoặc làm việc ở trại.
 - 30 chiêu thức của thú (mỗi loài học 3 chiêu ở cấp 1, 7, 15): cầu lửa, phun lửa, thiên thạch, dây leo trói, bão lá, mưa hồi máu, sóng thần, bão tuyết, khiên đá, động đất, sấm sét, sét chuỗi... Mỗi chiêu có hoạt ảnh riêng, sát thương tăng theo cấp và khắc hệ. Thú hoang cũng tung chiêu: vùng đỏ trên đất cho biết chỗ sắp trúng. Bảng chiêu: [`docs/design/skills.md`](docs/design/skills.md).
+- 6 thú đầu đàn ★, mỗi vùng một con (Voltmouse ở đồng cỏ, Bogbloom ở đầm lầy, Cactoad ở sa mạc, Frostfang ở núi tuyết, Scorchtail ở núi lửa, Coralcrab ở đảo hoang): to hơn, cấp 15-22, thuộc đủ 3 chiêu, canh lãnh địa và tấn công ai lại gần, bị kéo đi xa thì quay về hồi máu. Hạ được thì thưởng lớn và nhiều kinh nghiệm cho thú đi theo; bắt được (khó hơn thường) thì có ngay một con thú cấp cao. Xuất hiện lại sau 6 phút; dấu ★ trên bản đồ.
 - Chiến đấu: thú gồng người trước khi cắn (lùi hoặc lướt để né), đòn đánh văng thú, đòn chí mạng, thú choáng ở 1 máu (bắt dễ hơn hoặc hạ gục lấy đồ), thú hiền bị đánh thì bỏ chạy. Bắt thú có bóng lắc 1–3 lần trước khi biết kết quả.
 - Chặt cây lấy gỗ, đập đá lấy đá (rìu, búa được gấp đôi); cây thành gốc, đá thành đống vụn rồi mọc lại.
-- 40 rương báu, bụi quả mọng để hái, chuỗi 16 nhiệm vụ, chế tạo, nâng cấp trại, bản đồ thu nhỏ (phím N), lưu game tự động.
+- 40 rương báu, bụi quả mọng để hái, chuỗi 17 nhiệm vụ, chế tạo, nâng cấp trại, bản đồ thu nhỏ (phím N), lưu game tự động.
 
 ## Chơi trên iPhone / điện thoại
 

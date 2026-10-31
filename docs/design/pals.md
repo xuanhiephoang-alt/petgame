@@ -39,6 +39,25 @@ Ghép vào câu lệnh mẫu trong `docs/art-style.md` (ảnh ghép 4 góc: trư
 | coralcrab | a pink-red crab with a crown of coral branches on its shell and two big claws |
 | frostfang | a white and pale blue wolf pup with a fluffy white mane, three glowing ice crystals along its spine, pointed ears, two small fangs, a fluffy tail with an icy tip |
 
+## Thú đầu đàn
+
+Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) canh một lãnh địa cố định (`alphaLairs`, tính từ seed của thế giới nên server và client giống nhau; dấu ★ trên bản đồ):
+
+| Vùng | Loài | Cấp |
+|---|---|---|
+| 🌳 Đồng cỏ (tây nam, xa chỗ xuất phát) | Voltmouse | 15 |
+| 🌧️ Đầm lầy | Bogbloom (tự hồi máu bằng Phấn hoa) | 17 |
+| 🏜️ Sa mạc | Cactoad | 18 |
+| ❄️ Núi tuyết | Frostfang | 19 |
+| 🌋 Núi lửa (phía bắc núi, xa trùm) | Scorchtail (Thiên thạch) | 20 |
+| 🏝️ Đảo hoang (cần bè) | Coralcrab (Sóng thần) | 22 |
+
+- To gấp 1,6 lần, có quầng vàng dưới chân, nhãn "★ Đầu đàn" màu vàng (đỏ khi đang đánh) và thanh máu luôn hiện. Máu gấp 3 lần thú cùng loài cùng cấp.
+- Thuộc đủ 3 chiêu và dùng thường hơn thú hoang khác (8% mỗi lượt, nghỉ 2,2 giây, không bị kéo dài thời gian hồi); sức mạnh chiêu tính tối đa ở cấp 8 để một người chơi biết né vẫn đánh được.
+- Canh lãnh địa: tấn công ai lại gần (170 px), kể cả loài vốn hiền, không bỏ chạy. Bị kéo xa hơn 12 m khỏi chỗ ở thì bỏ trận, đi về, và hồi máu (4% mỗi giây) khi không ai làm phiền.
+- Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm, cả thế giới được báo tin. Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; túi đầy thì không ném được.
+- Quay lại chỗ ở sau 6 phút. Nhiệm vụ cuối chuỗi: "Hạ hoặc bắt một thú đầu đàn".
+
 ## Tính khí
 
 - **passive** (hiền): không bao giờ tấn công.
@@ -63,4 +82,4 @@ Thế giới rộng 6400×4800 px (200×150 m): một lục địa giữa biển
 
 Thú càng xa điểm xuất phát càng mạnh: cấp tối đa từ 6 (gần lửa trại) đến 14 (góc bản đồ), xem `dangerAt` và `wildMaxLevel`.
 40 rương báu đặt cố định theo seed (`layout.chests`), tự mở khi đi tới gần, mở lại sau 3 phút; rương ở xa có nhiều đồ hơn.
-Chuỗi 16 nhiệm vụ dẫn người chơi đi qua mọi vùng: `packages/shared/src/quests.ts`.
+Chuỗi 17 nhiệm vụ dẫn người chơi đi qua mọi vùng (cuối cùng là hạ trùm rồi một thú đầu đàn): `packages/shared/src/quests.ts`.

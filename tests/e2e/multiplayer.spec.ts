@@ -411,3 +411,29 @@ test("skills: pals cast their skills in a fight and the party panel lists them",
   await expect.poll(async () => (await seen()).casts, { timeout: 30_000 }).toContain("wild:fire_breath");
   await expect.poll(async () => (await seen()).labels.some((l) => l.includes("skill foe") && l.includes("Phun lửa"))).toBe(true);
 });
+
+test("pack leaders: a gold-tagged leader guards its lair, warns you and attacks", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Scout");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  // One leader per region, all in the synced state; walk up to the meadow's.
+  const leaders = await page.evaluate(() => {
+    const found: { species: string; x: number; y: number; level: number }[] = [];
+    (window as any).__petgame.room.state.pals.forEach((p: any) => p.alpha && found.push({ species: p.speciesId, x: p.x, y: p.y, level: p.level }));
+    return found;
+  });
+  expect(leaders).toHaveLength(6);
+  const meadow = leaders.find((l) => l.species === "voltmouse")!;
+  expect(meadow.level).toBeGreaterThanOrEqual(15);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__hurt = 0;
+    w.__petgame.room.onMessage("damage", (m: any) => m.targetId === w.__petgame.room.sessionId && w.__hurt++);
+  });
+  await page.evaluate((l) => (window as any).__petgame.room.send("debug:teleport", { x: l.x + 110, y: l.y }), meadow);
+  await expect(page.locator(".label.pal.alpha").filter({ hasText: "Đầu đàn" }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".hud-toast")).toContainText("Lãnh địa của Voltmouse đầu đàn");
+  // It comes for us.
+  await expect.poll(() => page.evaluate(() => (window as any).__hurt as number), { timeout: 20_000 }).toBeGreaterThan(0);
+});

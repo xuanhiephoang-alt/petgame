@@ -77,6 +77,8 @@ export const WildPal = schema(
     dizzy: t.boolean(),
     /** The world boss: much bigger, cannot be captured, can be defeated. */
     boss: t.boolean(),
+    /** A region's pack leader (alphas.ts): bigger and tougher, guards its lair. */
+    alpha: t.boolean(),
   },
   "WildPal",
 );

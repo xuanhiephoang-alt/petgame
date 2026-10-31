@@ -152,6 +152,8 @@ export class PalActor extends Actor {
   private windupColor = 0xfff59d;
   /** Stars circling over the head while dizzy. */
   private stars?: Container;
+  /** A pack leader's glow on the ground. */
+  private auraGlow?: Graphics;
 
   constructor(at: Vec2, private sprite: PalSprite, speciesId: string, shadowTexture: Texture, private scale = 1) {
     super(at, shadowTexture, sprite.height * 0.62 * scale);
@@ -176,6 +178,16 @@ export class PalActor extends Actor {
     const rx = this.sprite.height * 0.42 * this.scale, ry = rx * 0.4;
     g.ellipse(0, 0, rx, ry).stroke({ color, width, alpha });
     this.ground.addChild(g);
+  }
+
+  /** A soft glow pulsing on the ground under it (a pack leader). */
+  aura(color: number) {
+    const rx = this.sprite.height * 0.55 * this.scale, ry = rx * 0.42;
+    this.auraGlow = new Graphics()
+      .ellipse(0, 0, rx, ry).fill({ color, alpha: 0.28 })
+      .ellipse(0, 0, rx * 0.72, ry * 0.72).fill({ color, alpha: 0.22 })
+      .ellipse(0, 0, rx, ry).stroke({ color, width: 2, alpha: 0.85 });
+    this.ground.addChildAt(this.auraGlow, 0);
   }
 
   get height() {
@@ -326,6 +338,11 @@ export class PalActor extends Actor {
     this.body.position.set(x, y);
     this.body.rotation = rot;
     this.body.tint = tint;
+    if (this.auraGlow) {
+      const beat = Math.sin(t * 2.6);
+      this.auraGlow.scale.set(1 + beat * 0.07);
+      this.auraGlow.alpha = 0.75 + beat * 0.25;
+    }
     // The shadow shrinks as the pal rises.
     const shadow = this.ground.children[0];
     const lift = Math.min(1, -y / 30);

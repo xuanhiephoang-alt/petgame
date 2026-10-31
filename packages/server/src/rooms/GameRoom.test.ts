@@ -25,6 +25,12 @@ import {
   type HealedMessage,
   getSkill,
   skillPower,
+  knownSkills,
+  captureChance,
+  levelCatchRate,
+  ALPHA,
+  ALPHAS,
+  alphaLairs,
   BOSS,
   QUESTS,
   CHEST_COUNT,
@@ -170,7 +176,7 @@ describe("wild pal levels", () => {
   it("spawns pals with a level and HP scaled to it", async () => {
     const { room } = await setup();
     room.state.pals.forEach((pal) => {
-      if (pal.boss) return; // the boss has its own HP rules
+      if (pal.boss || pal.alpha) return; // the boss and pack leaders have their own HP rules
       expect(pal.level).toBeGreaterThanOrEqual(1);
       expect(pal.maxHp).toBe(scaledMaxHp(getSpecies(pal.speciesId).maxHp, pal.level));
     });
@@ -740,6 +746,82 @@ describe("ordering skills (keys 1-3)", () => {
   });
 });
 
+describe("pack leaders", () => {
+  const alphaOf = (room: GameRoom, speciesId: string) => [...room.state.pals.entries()].find(([, p]) => p.alpha && p.speciesId === speciesId)!;
+
+  it("one guards each region's lair: bigger, tougher, knowing all three skills", async () => {
+    const { room } = await setup();
+    expect([...room.state.pals.values()].filter((p) => p.alpha)).toHaveLength(ALPHAS.length);
+    for (const def of ALPHAS) {
+      const [, pal] = alphaOf(room, def.speciesId);
+      expect(pal.level).toBe(def.level);
+      expect(pal.maxHp).toBe(scaledMaxHp(getSpecies(def.speciesId).maxHp, def.level) * ALPHA.hpMultiplier);
+      expect(distance(pal, alphaLairs().get(def.region)!)).toBeLessThanOrEqual(ALPHA.roam);
+      expect(knownSkills(getSpecies(def.speciesId), pal.level)).toHaveLength(3);
+    }
+  });
+
+  it("attacks whoever comes close, even a passive kind, and walks home when led too far", async () => {
+    const { room, client, player } = await setup();
+    const [id, pal] = alphaOf(room, "voltmouse"); // voltmice run away; this one does not
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    player.x = pal.x + 100;
+    player.y = pal.y;
+    await ticks(room, 3);
+    expect((room as any).wildAggro.get(id)?.target).toMatchObject({ kind: "player", id: client.sessionId });
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    expect((room as any).fleeing.has(id)).toBe(false);
+    // Dragged past its leash, it gives up and goes back to its lair.
+    const home = alphaLairs().get("meadow")!;
+    pal.x = home.x + ALPHA.leash + 40;
+    pal.y = home.y;
+    player.x = pal.x + 60;
+    player.y = pal.y;
+    await ticks(room, 2);
+    expect((room as any).wildAggro.has(id)).toBe(false);
+    for (let i = 0; i < 400 && distance(pal, home) > ALPHA.roam; i++) await ticks(room, 1);
+    expect(distance(pal, home)).toBeLessThanOrEqual(ALPHA.roam);
+  });
+
+  it("is harder to catch than its kind", async () => {
+    const { room, client, player } = await setup();
+    const [id, pal] = alphaOf(room, "voltmouse");
+    player.x = pal.x + 40;
+    player.y = pal.y;
+    const species = getSpecies("voltmouse");
+    const expected = captureChance(pal.hp, pal.maxHp, levelCatchRate(species.catchRate, pal.level), 1) * ALPHA.catchMultiplier;
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    expect(result.chance).toBeCloseTo(expected, 6);
+  });
+
+  it("knocked out, it pays well, its knocker's pal learns a lot, everyone hears, and it comes back", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 1);
+    const [id, pal] = alphaOf(room, "cactoad");
+    const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+    const timers = vi.spyOn(room.clock, "setTimeout");
+    player.greatBalls = 0;
+    player.snacks = 0;
+    pal.hp = 1;
+    (room as any).daze(id, pal);
+    (room as any).knockOut(id, pal, client.sessionId);
+    await ticks(room, 2);
+    expect(room.state.pals.has(id)).toBe(false);
+    expect(player.greatBalls).toBeGreaterThanOrEqual(ALPHA.reward.greatBalls);
+    expect(player.snacks).toBeGreaterThanOrEqual(ALPHA.reward.snacks);
+    expect(owned.level).toBeGreaterThan(1);
+    expect(notices.map((n) => n.text)).toContain(`★ ${player.name} đã hạ Cactoad đầu đàn!`);
+    // It is back at its lair once its time is up.
+    const respawn = timers.mock.calls.find(([, ms]) => ms === ALPHA.respawnMs)!;
+    expect(respawn).toBeDefined();
+    (respawn[0] as () => void)();
+    const [, back] = alphaOf(room, "cactoad");
+    expect(back.hp).toBe(back.maxHp);
+    expect(distance(back, alphaLairs().get("desert")!)).toBeLessThan(1);
+  });
+});
+
 describe("boss", () => {
 
   it("spawns one boss by the volcano that cannot be captured", async () => {
@@ -872,6 +954,7 @@ describe("regions and climate", () => {
 
   it("hurts players in the snow unless they wear a coat", async () => {
     const { room, client, player } = await setup();
+    room.state.pals.clear(); // the snow's pack leader lives right there
     const notices: string[] = [];
     client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
     const { snow } = defaultWorld().layout.regions;

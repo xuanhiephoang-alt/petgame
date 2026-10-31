@@ -5,6 +5,8 @@ export interface MinimapMarkers {
   players: (Vec2 & { color: number })[];
   base?: Vec2;
   boss?: Vec2;
+  /** Pack leaders out at their lairs. */
+  alphas: Vec2[];
   chests: Vec2[];
 }
 
@@ -16,7 +18,7 @@ const TERRAIN_COLORS: Record<TerrainKind, string> = {
 
 /**
  * Corner map of the whole world: biomes and trees prerendered once, players,
- * camp, boss and closed chests drawn a few times a second. Click (or N) to
+ * camp, boss, pack leaders (★) and closed chests drawn a few times a second. Click (or N) to
  * enlarge it.
  */
 export class Minimap {
@@ -79,6 +81,16 @@ export class Minimap {
       c.textAlign = "center";
       c.textBaseline = "middle";
       c.fillText("🏕️", markers.base.x * SCALE, markers.base.y * SCALE);
+    }
+    for (const alpha of markers.alphas) {
+      c.font = `bold ${r * 3.6}px system-ui`;
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.lineWidth = 2;
+      c.strokeStyle = "#5d4037";
+      c.strokeText("★", alpha.x * SCALE, alpha.y * SCALE);
+      c.fillStyle = "#ffc107";
+      c.fillText("★", alpha.x * SCALE, alpha.y * SCALE);
     }
     if (markers.boss) {
       c.font = `${r * 4}px system-ui`;

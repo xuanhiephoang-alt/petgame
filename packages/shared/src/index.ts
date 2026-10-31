@@ -22,3 +22,4 @@ export * from "./climate.ts";
 export * from "./wardrobe.ts";
 export * from "./gathering.ts";
 export * from "./skills.ts";
+export * from "./alphas.ts";

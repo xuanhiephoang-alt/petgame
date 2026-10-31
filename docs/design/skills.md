@@ -64,6 +64,7 @@ Nút **Tự động ✓ / Theo lệnh** (`ClientMessage.PalAuto`, lưu theo ngư
 - Không thì dùng chiêu đánh mạnh nhất (học sau cùng) đã hồi xong và với tới mục tiêu (`skillReach`).
 - Mỗi chiêu có thời gian hồi riêng (`cooldownMs`); sau mỗi chiêu thú đi theo nghỉ 1,5 giây, thú hoang 2,5 giây, và chiêu của thú hoang hồi lâu hơn ×1,3. Mỗi lượt server chỉ có 6% khả năng thú hoang bắt đầu một chiêu, nên nó vẫn cắn xen kẽ.
 - Boss (Vua Đá Boulderhorn) dùng Húc sừng và Gai đá ở sức mạnh cấp 4 (`BOSS.skills`, `BOSS.skillLevel`).
+- Thú đầu đàn (`alphas.ts`) thuộc đủ 3 chiêu, dùng thường hơn (8% mỗi lượt, nghỉ 2,2 giây, không bị ×1,3 thời gian hồi) nhưng sức mạnh chiêu tính tối đa ở cấp 8 (`ALPHA.skillLevel`).
 
 ## 30 chiêu
 

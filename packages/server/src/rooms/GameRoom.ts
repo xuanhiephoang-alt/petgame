@@ -86,6 +86,11 @@ import {
   skillTravelMs,
   SKILL_ORDER_MS,
   SKILL_ORDER_RANGE,
+  ALPHA,
+  ALPHAS,
+  alphaLairs,
+  type AlphaDef,
+  type Region,
   type PalAutoMessage,
   type PalSkillMessage,
   type HealedMessage,
@@ -298,6 +303,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   private bossHome: Vec2 = { x: 0, y: 0 };
   private bossHelpers = new Set<string>();
   private bossLastStompAt = 0;
+  /** Each region's pack leader (its pal id while it is out) and where its lair is (alphas.ts). */
+  private alphas = new Map<Region, string>();
+  private alphaHome = new Map<string, Vec2>();
+  /** Pack leaders led too far from their lair, walking back (they fight nobody on the way). */
+  private alphaReturning = new Set<string>();
   private daySyncTimer = 0;
   private wasNight = false;
   /** Trees, rocks and the campfire; shared with the client for prediction. */
@@ -311,6 +321,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.dayTime = DAY_START;
     for (let i = 0; i < WILD_PAL_TARGET; i++) this.spawnPal();
     this.spawnBoss();
+    for (const def of ALPHAS) this.spawnAlpha(def);
     defaultWorld().layout.chests.forEach((_, i) => this.placeChest(`chest${i}`));
     defaultWorld().layout.fruits.forEach((_, i) => this.growFruit(`fruit${i}`));
 
@@ -535,6 +546,21 @@ export class GameRoom extends Room<{ state: GameState }> {
       }
       if ((this.rootedUntil.get(id) ?? 0) > now) return; // held by vines
       const radius = pal.boss ? BOSS.radius : species.size;
+      // A pack leader led too far from its lair gives up the fight and walks back.
+      const home = pal.alpha ? this.alphaHome.get(id) : undefined;
+      if (home && (this.alphaReturning.has(id) || distance(pos, home) > ALPHA.leash)) {
+        if (!this.alphaReturning.has(id)) {
+          this.alphaReturning.add(id);
+          this.wildAggro.delete(id);
+          this.cancelWindup(id, pal);
+          pal.angry = false;
+        }
+        const step = stepChase(pos, home, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, radius, this.obstacles, 8);
+        pal.x = step.pos.x;
+        pal.y = step.pos.y;
+        if (distance(pal, home) <= ALPHA.roam * 0.5 || step.inRange) this.alphaReturning.delete(id);
+        return;
+      }
       const flee = this.fleeing.get(id);
       const from = flee && flee.until > now ? this.targetPos(flee.from) : undefined;
       if (from) {
@@ -559,7 +585,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         const skill = this.wildSkill(id, pal, species, target, now);
         if (skill) {
           pal.angry = true;
-          this.startCast("wild", id, pal, pal.boss ? BOSS.skillLevel : pal.level, skill, target);
+          this.startCast("wild", id, pal, pal.boss ? BOSS.skillLevel : pal.alpha ? Math.min(pal.level, ALPHA.skillLevel) : pal.level, skill, target);
           return;
         }
         const reach = pal.boss ? BOSS.radius + 24 : undefined;
@@ -583,6 +609,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       pal.windup = "";
       // The boss stays near the volcano: stray too far and it heads home.
       if (pal.boss && distance(pos, this.bossHome) > BOSS_LEASH) brain.target = { ...this.bossHome };
+      // A pack leader strolls around its lair, licking its wounds.
+      if (home) {
+        if (distance(pos, home) > ALPHA.roam) brain.target = { ...home };
+        pal.hp = Math.min(pal.maxHp, pal.hp + pal.maxHp * ALPHA.healPerSecond * (dtMs / 1000));
+      }
       stepWander(pos, brain, species.speed, dtMs, Math.random, { grid: this.obstacles, radius: species.size });
       if (isSea(this.terrain, pos.x, pos.y)) {
         // Turn back at the water's edge and wander somewhere else.
@@ -601,7 +632,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.tickRegen(dtMs, now);
     this.tickDay(dtMs);
 
-    const target = WILD_PAL_TARGET + (isNight(this.dayTime) ? 3 : 0) + (this.bossId ? 1 : 0);
+    const target = WILD_PAL_TARGET + (isNight(this.dayTime) ? 3 : 0) + (this.bossId ? 1 : 0) + this.alphas.size;
     if (this.state.pals.size < target) {
       this.respawnTimer += dtMs;
       if (this.respawnTimer >= PAL_RESPAWN_MS) {
@@ -752,6 +783,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (now - control.lastThrowAt < THROW_COOLDOWN_MS) return;
     if (distance(player, pal) > THROW_RANGE) return;
     if (pal.boss) return this.notify(client, "Không thể bắt trùm! Hãy cùng nhau hạ nó");
+    if (pal.alpha && player.pals.length >= MAX_PARTY) return this.notify(client, "Túi thú đã đầy: cho bớt thú đi trước khi bắt đầu đàn");
     if (this.inBall.has(palId)) return;
     control.lastThrowAt = now;
 
@@ -759,7 +791,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const useGreat = greatBall && player.greatBalls > 0;
     if (useGreat) player.greatBalls -= 1;
     const bonus = (useGreat ? GREAT_BALL_BONUS : 1) * (pal.dizzy ? DIZZY_CATCH_BONUS : 1);
-    const chance = captureChance(pal.hp, pal.maxHp, levelCatchRate(species.catchRate, pal.level), bonus);
+    const chance = captureChance(pal.hp, pal.maxHp, levelCatchRate(species.catchRate, pal.level), bonus) * (pal.alpha ? ALPHA.catchMultiplier : 1);
     const roll = Math.random();
     const success = roll < chance;
     const shakes = captureShakes(success, chance, roll);
@@ -774,6 +806,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.inBallThrower.set(palId, client.sessionId);
     }
     if (success) {
+      const alphaName = pal.alpha ? this.alphaName(pal) : "";
       this.removePal(palId);
       if (player.pals.length < MAX_PARTY) {
         const owned = new OwnedPal();
@@ -788,6 +821,15 @@ export class GameRoom extends Room<{ state: GameState }> {
         // The first catch starts following right away.
         else this.summon(client.sessionId, owned.id);
         this.questEvent(client.sessionId, "catch");
+        if (alphaName) {
+          // Once the ball has clicked shut: the news, and a lot of XP for the pal that helped.
+          const reveal = captureRevealMs(shakes);
+          this.announce(`★ ${player.name} đã bắt được ${alphaName}!`, reveal + 300);
+          this.clock.setTimeout(() => {
+            if (follower && this.state.players.get(client.sessionId)?.pals.includes(follower)) this.grantXp(client.sessionId, follower, ALPHA.xp);
+          }, reveal + 300);
+          this.questEvent(client.sessionId, "alpha");
+        }
       } else {
         this.notify(client, "Túi thú đã đầy");
       }
@@ -1004,12 +1046,19 @@ export class GameRoom extends Room<{ state: GameState }> {
   /** A player's hit on a dizzy pal knocks it out: it leaves loot for them, and a new pal comes later. */
   private knockOut(palId: string, pal: WildPal, sessionId: string) {
     const loot = palDrops(getSpecies(pal.speciesId), pal.level, Math.random);
+    // A pack leader leaves more, and its knocker's pal learns a lot.
+    if (pal.alpha) for (const [item, n] of Object.entries(ALPHA.reward) as [keyof typeof ALPHA.reward, number][]) loot[item] = (loot[item] ?? 0) + n;
+    const name = pal.alpha ? this.alphaName(pal) : "";
     this.removePal(palId);
     const player = this.state.players.get(sessionId);
     if (player) {
       applyReward(player, loot);
       const follower = player.pals.find((p) => p.id === player.activePalId);
-      if (follower) this.grantXp(sessionId, follower, XP_PER_KNOCKOUT);
+      if (follower) this.grantXp(sessionId, follower, name ? ALPHA.xp : XP_PER_KNOCKOUT);
+      if (name) {
+        this.questEvent(sessionId, "alpha");
+        this.announce(`★ ${player.name} đã hạ ${name}!`);
+      }
       this.scheduleSave(sessionId);
     }
     const message: DefeatedMessage = { palId, playerId: sessionId, loot: { ...loot } as Record<string, number> };
@@ -1029,6 +1078,15 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.wildShieldUntil.delete(palId);
     this.cancelCasts("wild", palId);
     this.forgetSkills(`w:${palId}`);
+    // A pack leader comes back to its lair a while later.
+    if (this.alphaHome.delete(palId)) {
+      this.alphaReturning.delete(palId);
+      const def = ALPHAS.find((a) => this.alphas.get(a.region) === palId);
+      if (def) {
+        this.alphas.delete(def.region);
+        this.clock.setTimeout(() => this.spawnAlpha(def), ALPHA.respawnMs);
+      }
+    }
   }
 
   /** Drops the skills a caster is still winding up (it was dazed, caught or is gone); ones already let go fly on. */
@@ -1072,7 +1130,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     const dodged = distance(pal, target.pos) > reach || this.invulnerable(target);
     const lunge: LungeMessage = { palId, targetType: target.kind, targetId: target.id, dodged };
     this.broadcast(ServerMessage.Lunge, lunge);
-    if (!dodged) this.damage(target, pal.boss ? BOSS.biteDamage : wildDamage(getSpecies(pal.speciesId), pal.level), palId, BITE_KNOCKBACK);
+    const bite = pal.boss ? BOSS.biteDamage : wildDamage(getSpecies(pal.speciesId), pal.level) * (pal.alpha ? ALPHA.damageMultiplier : 1);
+    if (!dodged) this.damage(target, bite, palId, BITE_KNOCKBACK);
   }
 
   /** A dashing player: bites and stomps miss. */
@@ -1102,10 +1161,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     const now = this.clock.currentTime;
     const key = `${caster === "wild" ? "w" : "c"}:${casterId}`;
     const wild = caster === "wild";
+    // Pack leaders use their skills like companions do, with a pause of their own.
+    const alpha = wild && !!this.state.pals.get(casterId)?.alpha;
     let ready = this.skillReady.get(key);
     if (!ready) this.skillReady.set(key, (ready = new Map()));
-    ready.set(skill.id, now + skill.cooldownMs * (wild ? WILD_COOLDOWN_FACTOR : 1));
-    this.skillGapUntil.set(key, now + skill.castMs + (wild ? WILD_SKILL_GAP_MS : COMPANION_SKILL_GAP_MS));
+    ready.set(skill.id, now + skill.cooldownMs * (wild && !alpha ? WILD_COOLDOWN_FACTOR : 1));
+    this.skillGapUntil.set(key, now + skill.castMs + (alpha ? ALPHA.skillGapMs : wild ? WILD_SKILL_GAP_MS : COMPANION_SKILL_GAP_MS));
     this.castingUntil.set(key, now + skill.castMs);
     const from = { x: pos.x, y: pos.y };
     const aim = target ? { x: target.pos.x, y: target.pos.y } : { ...from };
@@ -1335,7 +1396,7 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   /** The skill a fighting wild pal starts now, if any (support first, then the strongest that reaches); none most ticks. */
   private wildSkill(id: string, pal: WildPal, species: PalSpecies, target: CombatTarget, now: number): SkillDef | undefined {
-    if (Math.random() > 0.06 || (this.skillGapUntil.get(`w:${id}`) ?? 0) > now) return undefined;
+    if (Math.random() > (pal.alpha ? ALPHA.skillChance : 0.06) || (this.skillGapUntil.get(`w:${id}`) ?? 0) > now) return undefined;
     const known = pal.boss ? BOSS.skills.map(getSkill) : knownSkills(species, pal.level);
     return chooseSkill({
       known,
@@ -1373,7 +1434,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     // On open ground at the foot of the volcano.
     const { volcano } = defaultWorld().layout;
     let pos: Vec2 = { x: volcano.x, y: volcano.y + volcano.r + 4 * 32 };
-    for (let i = 0; i < 300 && (this.obstacles.blocked(pos, BOSS.radius) || isSea(this.terrain, pos.x, pos.y)); i++) {
+    // Clear of the pack leaders' lairs (the volcano has one).
+    const nearLair = (p: Vec2) => [...alphaLairs().values()].some((lair) => distance(lair, p) < ALPHA.leash + 120);
+    for (let i = 0; i < 300 && (this.obstacles.blocked(pos, BOSS.radius) || isSea(this.terrain, pos.x, pos.y) || nearLair(pos)); i++) {
       const a = Math.random() * Math.PI * 2, r = volcano.r + (3 + Math.random() * 10) * 32;
       pos = { x: volcano.x + Math.cos(a) * r, y: volcano.y + Math.sin(a) * r };
     }
@@ -1386,6 +1449,34 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.bossId = id;
     this.bossHome = { ...pos };
     this.bossHelpers.clear();
+  }
+
+  /** A region's pack leader appears at its lair (alphas.ts). */
+  private spawnAlpha(def: AlphaDef) {
+    const out = this.alphas.get(def.region);
+    if (out && this.state.pals.has(out)) return;
+    const species = getSpecies(def.speciesId);
+    const lair = alphaLairs().get(def.region)!;
+    const id = this.spawnPal(lair, species);
+    const pal = this.state.pals.get(id)!;
+    pal.alpha = true;
+    pal.level = def.level;
+    pal.maxHp = scaledMaxHp(species.maxHp, def.level) * ALPHA.hpMultiplier;
+    pal.hp = pal.maxHp;
+    this.alphas.set(def.region, id);
+    this.alphaHome.set(id, { ...lair });
+  }
+
+  /** "Voltmouse đầu đàn". */
+  private alphaName(pal: WildPal): string {
+    return `${getSpecies(pal.speciesId).name} đầu đàn`;
+  }
+
+  /** Tells everyone (after `delayMs`, once what did it has played out). */
+  private announce(text: string, delayMs = 0) {
+    const send = () => this.broadcast(ServerMessage.Notice, { text } satisfies NoticeMessage);
+    if (delayMs > 0) this.clock.setTimeout(send, delayMs);
+    else send();
   }
 
   private defeatBoss(bossId: string) {
@@ -1420,7 +1511,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const pal = this.state.pals.get(palId);
     if (!pal) return;
     const now = this.clock.currentTime;
-    if (getSpecies(pal.speciesId).temperament === "passive") {
+    if (getSpecies(pal.speciesId).temperament === "passive" && !pal.alpha) {
       this.fleeing.set(palId, { from: target, until: now + FLEE_MS });
       return;
     }
@@ -1436,11 +1527,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (pos) return { ...aggro.target, pos };
     }
     if (aggro) this.wildAggro.delete(id);
-    if (species.temperament !== "aggressive") return undefined;
+    if (species.temperament !== "aggressive" && !pal.alpha) return undefined;
     const candidates: CombatTarget[] = [];
     this.state.players.forEach((p, sid) => candidates.push({ kind: "player", id: sid, pos: p }));
     this.state.companions.forEach((c, cid) => candidates.push({ kind: "companion", id: cid, pos: c }));
-    const found = findNearestTarget(pal, AGGRESSIVE_SIGHT, candidates);
+    const found = findNearestTarget(pal, pal.alpha ? ALPHA.sight : AGGRESSIVE_SIGHT, candidates);
     if (!found) return undefined;
     this.wildAggro.set(id, { target: { kind: found.kind, id: found.id }, until: now + WILD_AGGRO_MS, lastAttackAt: 0 });
     return found;
@@ -1569,7 +1660,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const night = isNight(this.dayTime);
     if (this.wasNight && !night) {
       this.state.pals.forEach((pal, id) => {
-        if (getSpecies(pal.speciesId).spawn.time === "night" && !pal.angry && !pal.dizzy && !this.inBall.has(id)) this.removePal(id);
+        if (getSpecies(pal.speciesId).spawn.time === "night" && !pal.alpha && !pal.angry && !pal.dizzy && !this.inBall.has(id)) this.removePal(id);
       });
     }
     this.wasNight = night;
@@ -1873,6 +1964,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     pal.x = pos.x;
     pal.y = pos.y;
     pal.boss = false;
+    pal.alpha = false;
     pal.angry = false;
     pal.windup = "";
     pal.dizzy = false;

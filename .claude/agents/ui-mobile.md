@@ -20,6 +20,7 @@ Bạn là lập trình viên **UI & mobile** của PetGame.
 - `audio.ts`: âm thanh tự tổng hợp bằng Web Audio (nhạc nền ngày/đêm + hiệu ứng), tắt/bật nút 🔊 hoặc phím M, nhớ trong localStorage. Thanh máu boss ở HUD khi lại gần.
 - `crafting.ts`: bảng chế tạo (phím C, nút 🔨), mờ nút kèm lý do từ `craftBlocker`. Nút chọn bóng (phím R) ở HUD. Chỉ mở một bảng một lúc (`onOpen`).
 - `party.ts`: thẻ thú có cấp, thanh XP, nút Đi theo / Làm việc / Nghỉ; HUD có tài nguyên (🪵🪨🫐) và nút 🏕️ Đặt trại (phím B).
+- `minimap.ts`: bản đồ góc màn hình (phím N phóng to): người chơi, trại, trùm 👑, thú đầu đàn ★, rương.
 
 ## Quy tắc
 - Mọi thao tác phải dùng được bằng **cả cảm ứng lẫn bàn phím**. Nút cảm ứng tối thiểu 44×44 px.

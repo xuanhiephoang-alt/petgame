@@ -130,6 +130,7 @@ Gợi ý: các repo Phaser + Colyseus ở trên gần với bản 2D nhất (net
 - **Âm thanh:** sfxr/jsfxr (hiệu ứng), nhạc CC0 hoặc nhạc tạo bằng AI có giấy phép thương mại.
 - **Chống gian lận:** client chỉ gửi "ý định" (bấm phím, ném bóng hướng X, lướt hướng Y); mọi kết quả (bắt được hay không, sát thương, né được không, chặt được gì) đều do server quyết định. Client chỉ đoán trước chuyển động của chính mình (đi, lướt, bị đánh văng) bằng cùng hàm trong `packages/shared`.
 - **Cảm giác đánh đấm:** thú gồng trước khi cắn (`WILD_WINDUP_MS`), đánh văng (`knockback` trong `wearables.json`), chí mạng, khựng hình khi trúng đòn, số sát thương, thú choáng ở 1 máu rồi bắt hoặc hạ gục (`hitWildPal`, `palDrops` trong `combat.ts`); chặt cây, đập đá ở `gathering.ts`.
+- **Thú đầu đàn:** mỗi vùng một con mạnh canh lãnh địa (`alphas.ts`, `WildPal.alpha`), thưởng lớn khi hạ hoặc bắt; xem `docs/design/pals.md`.
 - **Chiêu thức của thú:** 30 chiêu trong `skills.json`, mỗi loài 3 chiêu học ở cấp 1/7/15, sức mạnh tăng 12% mỗi cấp (`skills.ts`); server cho thú gồng, chiêu bay rồi trúng một vùng (`GameRoom.startCast`/`land`, chọn chiêu ở `ai/skillAi.ts`); client vẽ hoạt ảnh riêng từng chiêu (`skillfx.ts`) và vùng đỏ cho chiêu của thú hoang. Thiết kế: `docs/design/skills.md`.
 - **Dữ liệu điều khiển game:** thú, chiêu thức, vật phẩm, công thức, quần áo, mũ và vũ khí (`wearables.json`: chống rét/nắng, giáp, sát thương, tầm đánh) đều nằm trong JSON nên cân bằng game không cần sửa code.
 

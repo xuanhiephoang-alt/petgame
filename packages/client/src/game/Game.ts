@@ -24,6 +24,7 @@ import {
   daylight,
   phaseAt,
   BOSS,
+  ALPHA,
   rewardText,
   GEAR,
   ITEMS,
@@ -162,6 +163,8 @@ export class Game {
   private skillBar!: SkillBar;
   /** The pal whose skills the bar shows ("" none). */
   private skillBarPal = "";
+  /** Pack leaders (by species) whose lair the player was warned about this session. */
+  private alphasMet = new Set<string>();
   private craft!: CraftPanel;
   private wardrobe!: WardrobePanel;
   /** When the local player last attacked (ms), to keep to the weapon's pace. */
@@ -345,16 +348,20 @@ export class Game {
     $.onAdd("pals", (pal, id) => {
       const species = getSpecies(pal.speciesId);
       const sprite = spriteFor(this.assets.pals, species.id);
-      const actor = new PalActor({ x: pal.x, y: pal.y }, sprite, species.id, this.shadowTexture, pal.boss ? BOSS.displayScale : 1);
+      const actor = new PalActor({ x: pal.x, y: pal.y }, sprite, species.id, this.shadowTexture, pal.boss ? BOSS.displayScale : pal.alpha ? ALPHA.displayScale : 1);
       if (pal.boss) {
         this.bossId = id;
         actor.ring(0xff3d00, 3, 0.7);
         actor.crowned();
       }
+      // A pack leader: bigger, glowing gold.
+      if (pal.alpha) actor.aura(0xffc107);
       this.addActor(actor);
       const { tag, label } = pal.boss
         ? this.nameTag(`👑 ${BOSS.name}`, "label pal boss", () => actor.pos, actor.height + 8)
-        : this.nameTag(`Lv ${pal.level} ${species.name}`, "label pal", () => actor.pos, actor.height + 4);
+        : pal.alpha
+          ? this.nameTag(`★ Đầu đàn · Lv ${pal.level} ${species.name}`, "label pal alpha", () => actor.pos, actor.height + 6)
+          : this.nameTag(`Lv ${pal.level} ${species.name}`, "label pal", () => actor.pos, actor.height + 4);
       const hpFill = addHpBar(label);
       const entity: PalEntity = { actor, tag, label, hpFill, hp: pal.hp, maxHp: pal.maxHp };
       this.pals.set(id, entity);
@@ -1102,6 +1109,16 @@ export class Game {
       if (id !== this.room.sessionId && entity) players.push({ ...entity.actor.pos, color: p.color });
     });
     const boss = this.bossId ? this.pals.get(this.bossId)?.actor.pos : undefined;
+    const alphas: Vec2[] = [];
+    this.room.state.pals.forEach((p) => {
+      if (!p.alpha) return;
+      alphas.push({ x: p.x, y: p.y });
+      // Walking into a pack leader's lair: a warning, once per leader each session.
+      if (self && distance(self.pos, p) < ALPHA.sight + 150 && !this.alphasMet.has(p.speciesId)) {
+        this.alphasMet.add(p.speciesId);
+        this.hud.showToast(`★ Lãnh địa của ${getSpecies(p.speciesId).name} đầu đàn (Lv ${p.level}): nó tấn công ai lại gần!`, 3500);
+      }
+    });
     const chests: Vec2[] = [];
     this.room.state.chests?.forEach((c) => chests.push({ x: c.x, y: c.y }));
     const headings = { front: 0, right: Math.PI / 2, back: Math.PI, left: -Math.PI / 2 };
@@ -1110,6 +1127,7 @@ export class Game {
       players,
       base,
       boss,
+      alphas,
       chests,
     });
   }
