@@ -108,6 +108,7 @@ Khi đó: ghi vào `QUESTIONS.md` (ngày, mã nhiệm vụ, câu hỏi, bối c�
 
 - Làm và commit trên nhánh hiện tại; mỗi nhiệm vụ một commit (hoặc vài commit nhỏ có nghĩa).
 - **Không** `git push`, **không** `git reset --hard`, **không** xoá thư mục, **không** `git clean` (đã chặn trong `.claude/settings.json`). Người dùng tự push.
+- `.claude/settings.json` cho phép sẵn các lệnh build, test, git add/commit và chặn lệnh nguy hiểm; agent không được sửa file này. Cần một lệnh chưa có trong danh sách cho phép: dùng lệnh tương đương đã được phép nếu có, không thì ghi vào `QUESTIONS.md`.
 - Không commit file sinh ra: `dist/`, `test-results/`, `shots/`, `packages/server/data/` (đã có trong `.gitignore`).
 - Không tắt, bỏ qua hay nới lỏng test để cho qua.
 
