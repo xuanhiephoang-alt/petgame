@@ -28,6 +28,8 @@ export const ClientMessage = {
   PalSkill: "palSkill",
   /** Let the following pal use its skills on its own, or only when ordered. */
   PalAuto: "palAuto",
+  /** Let one of the player's pals go for good (the party panel asks first). */
+  Release: "release",
 } as const;
 
 export interface PalSkillMessage {
@@ -82,6 +84,11 @@ export interface AssignMessage {
   palId: string;
   /** "work" sends the pal to the base, "" rests it in the party. */
   assignment: "work" | "";
+}
+
+export interface ReleaseMessage {
+  /** OwnedPal id from the player's party. */
+  palId: string;
 }
 
 /** Server -> client message types and payloads. */

@@ -1,7 +1,22 @@
+import { MAX_PARTY } from "./constants.ts";
+
 /** The ball's flight, its drop to the ground and each wobble (ms): the catch animation, and how long a pal stays in the ball. */
 export const BALL_FLIGHT_MS = 380;
 export const BALL_DROP_MS = 260;
 export const BALL_SHAKE_MS = 420;
+
+/** What a player is told when their party is full (MAX_PARTY): no ball is thrown. */
+export const PARTY_FULL_TEXT = `Túi thú đầy (${MAX_PARTY}/${MAX_PARTY}): mở 🐾 Thú và bấm 🕊️ Thả bớt`;
+
+/**
+ * Why a ball cannot be thrown at this wild pal, or undefined if it can: the boss is never caught,
+ * and a full party has no room. Shared so the client refuses, without throwing, exactly what the server would.
+ */
+export function throwBlocker(partySize: number, target: { boss: boolean }): string | undefined {
+  if (target.boss) return "Không thể bắt trùm! Hãy cùng nhau hạ nó";
+  if (partySize >= MAX_PARTY) return PARTY_FULL_TEXT;
+  return undefined;
+}
 
 /**
  * How many times the ball wobbles: three before it clicks shut, otherwise

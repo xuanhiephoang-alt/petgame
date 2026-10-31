@@ -1,266 +1,446 @@
-# PLAN: T1 Test e2e chập chờn khi vào phòng
+# PLAN: T2 Thả bớt thú; túi đầy thì không ném bóng (không còn mất thú vừa bắt)
 
 ## Mục tiêu
 
-- Bộ e2e (đội agent dựa vào để chấm PASS) không còn kẹt ở sảnh vì bấm "Vào chơi" lúc sảnh chưa sẵn sàng. Sửa ở gốc: sảnh có tín hiệu "sẵn sàng" rõ ràng, test chờ đúng tín hiệu đó. Không thêm lần chạy lại (retry), không tăng timeout.
-- Người chơi cũng được lợi. Trên 4G chậm, HTML của sảnh hiện ra trước khi script game chạy xong (PixiJS khoảng 600 kB). Bấm "Vào chơi" lúc đó thì trình duyệt tự gửi form theo cách mặc định và tải lại trang ở `/?`: mất tên vừa gõ, mất luôn `?room=` của link mời (người chơi vào nhầm một thế giới mới thay vì thế giới của bạn). Sau nhiệm vụ này, nút ghi "Đang tải..." và chưa bấm được cho đến khi sảnh sẵn sàng.
+- **Không còn mất thú.** Hiện túi đầy (30 con, `MAX_PARTY`) mà bắt thú thường vẫn "thành công": thú hoang bị xoá khỏi thế giới rồi chỉ hiện "Túi thú đã đầy" (`GameRoom.ts:808-835`), nên người chơi mất cả công đánh choáng lẫn con thú. Sau nhiệm vụ này, túi đầy thì không ném được bóng (cả thú thường lẫn thú đầu đàn). Thú hoang không bị động tới, bóng xịn không bị trừ, và người chơi được báo rõ cách khắc phục.
+- **Thả bớt được thú.** Bảng 🐾 Thú có chế độ "🕊️ Thả bớt" và hộp xác nhận, dùng được bằng cảm ứng lẫn bàn phím. Câu thông báo cũ "cho bớt thú đi" (`GameRoom.ts:786`) bảo người chơi làm một việc chưa làm được; nay câu mới chỉ đúng nút để bấm.
+- Khi túi đầy, nút 🐾 Thú hiện "(30/30)" trên nền vàng, để người chơi thả bớt trước khi đánh choáng con mới (choáng chỉ kéo dài 6 giây, `DIZZY_MS`).
 
 ## Phạm vi
 
 Làm:
-1. `packages/client/index.html`: ô tên và nút khoá sẵn (`disabled`) trong HTML, nút ghi "Đang tải..."; CSS cho trạng thái khoá; nút cao tối thiểu 44 px (điện thoại ngang hiện chỉ 39 px).
-2. `packages/client/src/main.ts`: mở khoá ô tên và nút ngay sau khi gắn handler `submit`.
-3. `tests/e2e/multiplayer.spec.ts`:
-   - thêm helper `openPage` và `enterLobby` (chờ sảnh sẵn sàng, điền tên, kiểm tra giá trị, bấm);
-   - `join` và 3 chỗ đang tự điền sảnh chuyển sang dùng các helper này;
-   - `waitForWorld` báo lỗi ngay khi sảnh hiện lỗi;
-   - nhật ký chẩn đoán của trang, chỉ in khi test lỗi;
-   - thêm 1 test hồi quy cho sảnh.
-4. `docs/architecture.md`: ghi quy ước "sảnh sẵn sàng" và lưu ý khi chạy e2e.
+1. Shared: `throwBlocker` và `PARTY_FULL_TEXT` trong `capture.ts` (+ test); `ClientMessage.Release` và `ReleaseMessage` trong `messages.ts`.
+2. Server: handler `release` có kiểm tra; `handleThrow` chặn ném khi túi đầy (trước khi tung xúc xắc hay trừ bóng xịn), bỏ nhánh "bắt được rồi mất"; `debug:givePal` báo cùng câu khi túi đầy.
+3. Client:
+   - `ui/party.ts`: tiêu đề có số thú, nút chế độ thả, nút "Thả" trên thẻ, hộp xác nhận, nút 🐾 báo đầy, chữ khi túi trống;
+   - `game/Game.ts`: gửi `release`; `throwBall` hỏi `throwBlocker` trước khi ném;
+   - CSS trong `index.html`.
+4. Test: unit (shared), tích hợp (`GameRoom.test.ts`), một test e2e mới.
+5. Tài liệu: `docs/architecture.md` (2 dòng). `docs/design/pals.md` đã được game-designer cập nhật (mục "Túi thú và thả thú"); coder không cần sửa.
 
 KHÔNG làm:
-- Không sửa `playwright.config.ts`: không thêm `retries`, không tăng `timeout`, không đổi `workers`. Không thêm `waitForTimeout`. Không tăng timeout ở bất kỳ đâu.
-- Không đổi luồng kết nối: thân handler `submit` (`main.ts:51-67`), `connect()`, server, schema, message, hồ sơ lưu đều giữ nguyên.
-- Không sửa `scripts/shots.mjs`. `page.fill` và `page.click` của Playwright tự chờ ô và nút được mở khoá, nên script này tự an toàn sau bước 1-2.
-- Không chuyển e2e sang chạy trên bản build (đề xuất thành nhiệm vụ riêng ở cuối file). Không bỏ tham số `?quality=low`. Không thêm chữ "Đang vào..." khi đang kết nối. Không đổi bố cục sảnh.
+- Không đổi `schema.ts`, `Profile`, `emptyProfile`, `sanitizeProfile`, `store.ts`. Không thêm `ServerMessage` mới (dùng `Notice`). Không đổi `MAX_PARTY`.
+- Không có phần thưởng khi thả, không rơi đồ, không biến thú được thả thành thú hoang, không có kho thú ở trại, không chọn nhiều con một lúc, không trao đổi thú.
+- Không thêm hiệu ứng, âm thanh khi thả.
+- Không sửa kích thước các nút có sẵn dưới 44 px (`.party-action` 36 px, `.party-close` cao 32 px...); đề xuất thành việc riêng ở cuối file. Chỉ các nút **mới** phải ≥ 44×44 px.
+- Không đổi cách focus khi mở bảng bằng phím Q. Không đổi vị trí hay độ dài toast (T6). Không gom chữ hiển thị (T12). Không thêm cờ đầu đàn (T8).
+- Không sửa `scripts/shots.mjs`, `playwright.config.ts`.
 
 ## Thiết kế
 
-### Nguyên nhân gốc
+### Luật
 
-**Dấu hiệu:** test kẹt ở sảnh với ô tên trống, dù đã điền "Tamer" và bấm "Vào chơi".
+| Tình huống | Kết quả |
+|---|---|
+| Ném bóng khi `pals.length >= MAX_PARTY`, vào thú thường hoặc thú đầu đàn | Không ném. Client hiện toast `PARTY_FULL_TEXT` và không gửi tin `throw`. Nếu tin vẫn tới server (client sửa đổi, hoặc trạng thái client trễ), server từ chối với cùng câu: không gửi `CaptureResult`, không tung xúc xắc, không trừ bóng xịn, thú hoang không bị động tới (không vào bóng, không nổi giận). |
+| Ném bóng vào trùm | Như cũ: "Không thể bắt trùm! Hãy cùng nhau hạ nó". Câu này chuyển vào `throwBlocker`, nên client cũng báo ngay. |
+| Thả một con (đang nghỉ, đi theo, làm việc ở trại, kiệt sức, hoặc con cuối) | Được, sau khi xác nhận. Con đó rời túi và thế giới ngay, không hoàn lại gì. |
+| Thả con đang đi theo | Hết thú đi theo (`activePalId = ""`), thanh chiêu tự ẩn. Lần bắt tới, con mới tự đi theo như lần bắt đầu tiên (`GameRoom.ts:821-822`, giữ nguyên). |
+| Thả con đang làm việc | Rời trại; các con làm việc còn lại tự đi tới chỗ mới (`workSpotFor` theo thứ tự, giống khi bấm "Nghỉ"). |
+| Thả con cuối cùng | Được (người chơi mới cũng bắt đầu với 0 thú, không cơ chế nào cần ≥ 1 con). Hộp xác nhận có thêm dòng cảnh báo. |
 
-**Cơ chế đã xác nhận:** người dùng bấm vào form sảnh khi handler `submit` của `main.ts` chưa được gắn trên trang đó, nên trình duyệt gửi form theo cách mặc định.
+**Vì sao không hoàn lại gì.** Bóng thường không giới hạn. Bắt một Leafkit cấp 1 gần lửa trại mất khoảng 3,5 giây:
+- 40 máu, 4 đòn × 400 ms = 1,6 giây;
+- 96% bắt được khi choáng;
+- bóng lắc 1,9 giây.
 
-Chuỗi suy luận:
-1. **Lỗi xảy ra ở lần vào đầu tiên, không phải lần vào lại sau reload.** Handler ghi tên vào `localStorage` (`main.ts:54`); sau reload, sảnh tự điền lại tên đã lưu (`main.ts:24-25`). Nếu kẹt ở lần vào lại, ô sẽ có chữ "Tamer". Ô trống thì chỉ có thể là lần vào đầu.
-2. **Handler chưa từng chạy trong context đó.** Mỗi test dùng một context mới (`multiplayer.spec.ts:14`), nên `localStorage` ban đầu trống. Nếu handler đã chạy dù một lần, tên đã được lưu và mọi sảnh sau đó phải hiện "Tamer".
-3. **Nếu handler đã chạy thì không thể kẹt im lặng.** Server nhận cả tên rỗng (`GameRoom.ts:447`: `sanitizeName(...) || profile.name || "Player N"`). Kết nối lỗi thì sảnh hiện chữ lỗi (`main.ts:64`), không bao giờ đứng yên với ô trống.
-4. **Thứ duy nhất tải tài liệu mới khi bấm `#join-btn` mà không qua handler là trình duyệt tự gửi form.** Form không có `action`/`method` (`index.html:293`), tức là GET về URL hiện tại. Ô tên không có thuộc tính `name` (`index.html:296`), nên dữ liệu form rỗng và query bị thay bằng chuỗi rỗng. Trang chuyển sang `http://localhost:5173/?` (mất `?quality=low`; nếu có link mời thì mất `?room=`), hiện sảnh mới với ô tên trống. Không ai bấm lần nữa, nên `waitForWorld` chờ đến hết giờ: 180 s × 3 = 540 s, vì test này có `test.slow()`.
-5. **Vì sao handler chưa có, dù `page.goto` chờ sự kiện `load`?** Bình thường script module chạy xong trước `load`, và `main.ts` không có top-level await. Vậy trang được bấm không phải trang mà `goto` đã chờ, hoặc script của trang đó hỏng:
-   - (a) Vite dev tải lại trang sau `load`. Các đường dẫn tới reload trong `node_modules/vite/dist/client/client.mjs`:
-     - `:1091-1100`: tin `full-reload`, khi file client/shared đổi lúc e2e đang chạy hoặc khi Vite tối ưu lại phụ thuộc;
-     - `:1080-1088`: mất kết nối HMR rồi có lại, sau đó gọi `location.reload()`.
-     
-     Khi trang đang tải lại, `fill`/`click` của Playwright chuyển sang tài liệu mới ngay khi `#name`/`#join-btn` được parse, sớm hơn nhiều so với lúc cả cây module của `main.ts` tải xong qua Vite dev.
-   - (b) Một module trong cây `main.ts` tải lỗi ở lần đầu (Vite trả 504 "Outdated Optimize Dep", hoặc request bị huỷ khi máy quá tải). Khi đó `main.ts` không chạy, nhưng `load` vẫn bắn.
+Tính bằng `captureChance`, `levelCatchRate`, `captureRevealMs`. Cộng thời gian đi lại thì khoảng 6 lần bắt mỗi phút. Thưởng 1 quả mọng mỗi lần thả đã ra khoảng 6 quả/phút, ngang hái vài bụi quả (2-4 quả mỗi bụi, mọc lại sau 90 giây). Vì vậy phần thưởng nào khi thả cũng thành vòng lặp bắt rồi thả.
+
+**Kinh nghiệm khi bắt (lưu ý cho T4).** Thả bớt nghĩa là bắt thú không còn bị chặn ở 30 con, nên thú đi theo nhận `XP_PER_CAPTURE` (25) mỗi lần bắt mãi mãi. Không phải lỗ hổng: khoảng 25 XP mỗi 10 giây vẫn thấp hơn đánh liên tục (4 XP mỗi đòn của thú đi theo, khoảng 1 đòn/giây).
+
+### Luồng trên bảng 🐾 Thú
+
+Bảng thường không đổi (các nút Đi theo / Làm việc / Cho về / Nghỉ / Cho ăn như cũ). Thêm:
+
+1. **Tiêu đề** `Túi thú n/30` thay cho "Thú của bạn". Cạnh tiêu đề là nút chế độ `🕊️ Thả bớt`, rồi tới nút ✕. Nút chế độ ẩn khi túi trống.
+2. Bấm `🕊️ Thả bớt`:
+   - nút đổi thành `✓ Xong` (class `on`, `aria-pressed="true"`);
+   - đầu danh sách hiện gợi ý (đỏ) thay cho gợi ý đặt trại;
+   - mỗi thẻ giữ nguyên ảnh, tên, cấp, trạng thái, chiêu, thanh XP, nhưng cột nút chỉ còn một nút đỏ `Thả`.
    
-   Lần lỗi cũ không để lại log hay trace, nên không phân biệt được (a) hay (b). Cách sửa dưới đây chặn được cả hai, và nhật ký chẩn đoán sẽ chỉ rõ nguồn nếu lỗi tái diễn.
-6. **Lỗi gốc trong code của mình:** sảnh là một form bấm được ngay từ HTML tĩnh, trước khi script sẵn sàng; còn helper `join` (`multiplayer.spec.ts:13-22`) dựa vào `load` thay vì một tín hiệu sẵn sàng tường minh. Mẫu `fill` rồi `click` không chờ này còn lặp lại ở `:134-136`, `:238-239` và `:287-288`.
-
-Ghi chú: client không còn đọc `?quality=low` từ commit 9ab605b. Mất tham số này không gây lỗi; nó chỉ là dấu vết cho thấy trang đã tự gửi form (URL thành `/?`).
-
-### Bảng giả thuyết
-
-| # | Giả thuyết | Kết luận | Bằng chứng | Cách coder xác nhận |
-|---|---|---|---|---|
-| H1 | Bấm khi handler chưa gắn, trình duyệt tự gửi form, trang thành `/?` với ô trống | **Cơ chế đã xác nhận** | Suy luận 1-4 ở trên; thực nghiệm bên dưới | Test tạm ở bước 0 (bản A) phải qua trên code cũ |
-| H1a | Nguồn: Vite tải lại trang sau `load` | Có thể | `client.mjs:1080-1100`; client chạy bằng Vite dev (`playwright.config.ts:19-23`) | Test tạm bản B (tuỳ chọn); nếu lỗi tái diễn, nhật ký chẩn đoán có 2 dòng `navigated` và tin `[vite]` |
-| H1b | Nguồn: module của `main.ts` tải lỗi | Có thể | `load` vẫn bắn khi script module lỗi (thực nghiệm "abort") | Nhật ký chẩn đoán có dòng `requestfailed ... script` |
-| H2 | Sảnh khởi tạo xoá hoặc ghi đè ô tên | Loại trừ cho lần lỗi này; vẫn là rủi ro ngầm | `main.ts:25` chỉ ghi khi có tên đã lưu. Nếu điền trước khi script chạy, ô sẽ bị ghi đè bằng tên cũ | Đọc code; sau khi sửa, `enterLobby` kiểm tra `toHaveValue(name)` |
-| H3 | Ngoại hình ngẫu nhiên làm `main.ts` ném lỗi trước dòng 51 | Loại trừ | `DollPreview.draw()` thoát sớm khi chưa có ảnh (`ui/wardrobe.ts:48`); `LookPicker` chỉ tạo DOM; `index.json` có đủ ảnh cho 8 kiểu tóc; các hàm tải là `async`, không ném lỗi đồng bộ (`palSprites.ts:109`, `art/pictures.ts:28`, `art/doll.ts:51`) | Không cần |
-| H4 | Top-level await làm `main.ts` chạy sau `load` | Loại trừ | Chỉ `gallery.ts:44` có top-level await, và đó là trang khác | Không cần |
-| H5 | Token thiết bị, hồ sơ mới so với cũ | Loại trừ | Token chỉ được tạo trong `connect()` (`net/connection.ts:22,38-49`), tức là bên trong handler | Không cần |
-| H6 | Handler đã chạy nhưng `connect`/`assets` lỗi hoặc treo | Loại trừ | Ô vẫn sẽ có "Tamer" vì handler không xoá ô, kèm chữ lỗi hoặc nút bị khoá | Sau khi sửa, `waitForWorld` báo lỗi ngay khi sảnh hiện lỗi |
-
-Không nên dùng việc chạy lặp `-g "a captured pal follows" --repeat-each=N` để xác nhận nguyên nhân: nguồn kích hoạt do môi trường, rất hiếm, nên chạy lặp gần như không tái hiện được. Dùng test tạm có tính tất định ở bước 0.
-
-### Thực nghiệm đã làm (chỉ đọc, không đụng file dự án)
-
-Môi trường: Chromium headless của Playwright 1.56.1. Bản sao form sảnh được phục vụ trong bộ nhớ qua `page.route`. Script nằm trong scratchpad của phiên.
-
-1. **Script sảnh tải lỗi ở lần đầu, sau đó tải bình thường.** Chạy `goto` (chờ `load`), `fill("Tamer")`, `click`. Kết quả:
-   - URL `http://lobby.test/?quality=low` chuyển thành `http://lobby.test/?`;
-   - ô tên `""`, handler không chạy, `localStorage` trống;
-   - trang đứng ở sảnh.
+   Bấm `✓ Xong` thì về bảng thường. **Đóng bảng (✕, Q, Escape, hay mở bảng khác) thì chế độ thả tự tắt**, nên lần mở sau luôn là bảng thường.
+3. Bấm `Thả` trên một thẻ thì mở **hộp xác nhận** giữa màn hình, kèm nền mờ che toàn màn hình. Nền mờ chặn chạm vào joystick và các nút phía sau; chạm vào nền mờ là huỷ.
+   - Trong hộp: ảnh thú (dùng lại `party-swatch`), tiêu đề, dòng chính, dòng trạng thái (nếu có), dòng cảnh báo con cuối (nếu có), hai nút `Giữ lại` (xám) và `Thả` (đỏ), theo thứ tự đó từ trái sang phải.
+   - Focus mặc định ở `Giữ lại`, nên Enter vô tình (hay giữ phím Enter) là huỷ.
+   - **Nút `Thả` trong hộp bị khoá (`disabled`) 500 ms đầu** (`CONFIRM_ARM_MS`). Nếu không, chạm đúp vào nút `Thả` trên thẻ có thể trúng luôn nút `Thả` trong hộp: trên điện thoại dọc, cột nút của thẻ (x khoảng 290-366) chồng lên nút phải của hộp (x khoảng 243-339). Chạm đúp thường dưới 300 ms.
+4. Bấm `Thả` trong hộp:
+   - hộp đóng ngay, client gửi `release`, focus về nút chế độ;
+   - server gỡ thú và gửi `Notice` "Đã thả Pebblet. Tạm biệt! 👋";
+   - thẻ biến mất khi patch tới; vẫn ở chế độ thả để thả tiếp.
    
-   Khớp đúng dấu hiệu lỗi.
-2. **Cùng tình huống, nhưng ô và nút có `disabled` sẵn trong HTML (script mở khoá khi gắn handler).** `click` đứng chờ; không chuyển trang; URL giữ `?quality=low`; ô vẫn là "Tamer".
-3. **Trang tự tải lại ngay sau `load`, script chậm 2 s; helper chờ `#join-btn:enabled` rồi mới điền.** Vào được, đúng tên "Tamer".
-4. **Đo nút bằng `index.html` thật:**
+   Thả hết thì bảng hiện chữ túi trống, chế độ thả tắt, nút chế độ ẩn.
+5. Hộp đang mở mà con thú đó không còn trong túi thì hộp tự đóng.
 
-   | Khung hình | Kích thước nút |
-   |---|---|
-   | Desktop 1280×720 | 340×45 px |
-   | Điện thoại dọc 390×844 | 340×45 px |
-   | Điện thoại ngang 844×390 | 680×**39** px (dưới 44 px, vi phạm quy tắc nút cảm ứng) |
+**Bàn phím:**
+- Q mở bảng. Tab tới `🕊️ Thả bớt` rồi Enter. Tab tới `Thả` của một thẻ rồi Enter.
+- Trong hộp: focus ở `Giữ lại`; Tab và Shift+Tab đổi qua lại giữa hai nút (chỉ hai nút này, không thoát ra ngoài; nút `Thả` còn khoá thì focus đứng yên). Enter bấm nút đang focus.
+- **Escape khi hộp mở thì chỉ đóng hộp** (bảng vẫn mở); Escape lần nữa mới đóng bảng. Q khi hộp mở thì đóng cả bảng lẫn hộp.
+- Space là phím đánh của game: lớp `Keyboard` chặn Space trên nút (`keyboard.ts:9-11`). Đây là hành vi có sẵn, không đổi, nên không dùng Space để bấm nút trong bảng.
 
-### Cách sửa ở sảnh (tín hiệu "sẵn sàng")
+### Chữ hiển thị (tiếng Việt)
 
-Hợp đồng: `#name` và `#join-btn` bị khoá ngay trong `index.html`. `main.ts` mở khoá cả hai **sau khi** đã gắn handler `submit` và đã điền sẵn tên lưu.
+| Chỗ | Chữ |
+|---|---|
+| Nút HUD, dưới 30 con | `🐾 Thú (n)` (như cũ) |
+| Nút HUD, đủ 30 con | `🐾 Thú (30/30)` + class `full` (nền vàng) |
+| Tiêu đề bảng | `Túi thú n/30` |
+| Nút chế độ, tắt / bật | `🕊️ Thả bớt` / `✓ Xong`; `title`: "Chọn thú để thả về thiên nhiên" |
+| Gợi ý khi bật chế độ | `Chọn thú muốn thả. Thú được thả sẽ về với thiên nhiên và không quay lại.` |
+| Nút trên thẻ | `Thả`; `aria-label`: `Thả Pebblet · Lv 2` |
+| Hộp: tiêu đề | `Thả Pebblet · Lv 2?` |
+| Hộp: dòng chính | `Nó sẽ về với thiên nhiên, không quay lại và không để lại gì.` |
+| Hộp: trạng thái (ẩn khi đang nghỉ) | đi theo: `Đang đi theo bạn.`; làm việc: `Đang làm việc ở trại.` |
+| Hộp: con cuối (đỏ, đậm) | `Đây là con thú cuối cùng của bạn.` |
+| Hộp: hai nút | `Giữ lại` / `Thả` |
+| Notice của server khi thả | `Đã thả Pebblet. Tạm biệt! 👋` |
+| Túi đầy (`PARTY_FULL_TEXT`, client và server) | `Túi thú đầy (30/30): mở 🐾 Thú và bấm 🕊️ Thả bớt` |
+| Trùm (giữ nguyên chữ cũ) | `Không thể bắt trùm! Hãy cùng nhau hạ nó` |
+| Túi trống (thay câu "Chưa bắt được thú nào..." vì sai sau khi thả hết) | `Túi đang trống. Đánh đến khi thú choáng 💫 rồi ném bóng để bắt!` |
 
-Vì sao chọn cách này:
-- Nút bị khoá thì trình duyệt không tạo sự kiện click, và cũng chặn gửi form bằng phím Enter (implicit submission bị chặn khi nút mặc định bị khoá). Không còn đường nào để trình duyệt tự gửi form.
-- Playwright tự chờ: `click` chờ nút được mở khoá, `fill` chờ ô sửa được. Mọi script đang điền sảnh (kể cả `shots.mjs`) đều tự an toàn.
-- Khoá ô tên còn bỏ được rủi ro H2: không ai gõ được trước khi `main.ts:25` điền tên đã lưu.
-- Thêm `autocomplete="off"` cho nút, vì Firefox giữ trạng thái `disabled` do script đặt qua các lần tải lại (theo MDN). Thiếu thuộc tính này, sau một lần reload, nút có thể đã mở sẵn trước khi script chạy.
-- Không dùng `<fieldset disabled>`: fieldset làm hỏng bố cục flex của form trên điện thoại.
+Số 30 trong các câu lấy từ `MAX_PARTY`, không viết cứng.
 
-Chữ hiển thị:
-- Trước khi sẵn sàng: nút ghi **"Đang tải..."** (ba dấu chấm ASCII), mờ đi (`opacity: 0.6`, `cursor: progress`); ô tên cũng mờ.
-- Khi sẵn sàng: nút ghi **"Vào chơi"**, ô tên dùng được (có sẵn tên lần trước nếu có).
-- Khi đang kết nối: giữ như hiện nay (handler khoá nút, nút mờ nhờ CSS mới).
-- Khi lỗi: giữ như hiện nay.
+### Bố cục và kích thước chạm
 
-Trải nghiệm theo thiết bị:
-- **Desktop:** Tab vào ô tên, gõ, Enter để vào. Trước khi sảnh sẵn sàng, Enter không làm gì vì ô đang khoá.
-- **Điện thoại dọc và ngang:** nút cao ít nhất 44 px (`min-height: 44px`, `box-sizing: border-box`). Trên Wi-Fi, trạng thái "Đang tải..." gần như không thấy; trên 4G chậm thì hiện vài giây.
-- **Script sảnh hỏng hẳn:** sảnh đứng ở "Đang tải..." thay vì tải lại trang vô ích. E2E sẽ báo rõ là đang chờ `#join-btn:enabled`.
+- Nút mới đều ≥ 44×44 px ở 390×844, 844×390 và 1280×720: nút chế độ, nút `Thả` trên thẻ, hai nút trong hộp.
+- Tiêu đề rút thành `Túi thú n/30` (khoảng 120 px) để vừa một hàng với nút chế độ (khoảng 100 px) và ✕ (44 px) trong 300 px của bảng trên điện thoại dọc.
+- Hộp rộng `min(320px, 100%)` trong nền mờ có padding 16 px; cao khoảng 220 px, vừa màn hình ngang 390 px.
 
-### Cách sửa trong helper e2e
+### Kiểm tra phía server
 
-- `enterLobby(page, name)`:
-  1. chờ `#join-btn:enabled`;
-  2. `fill("#name", name)`;
-  3. `expect(#name).toHaveValue(name)`;
-  4. `click("#join-btn")`.
+- Kiểu: handler chỉ gọi `release` khi `typeof message?.palId === "string"`. Payload thiếu, sai kiểu, hay `undefined` thì bỏ qua.
+- Id lạ, hoặc id thú của người khác: server chỉ tìm trong túi của người gửi (`player.pals.findIndex`), không thấy thì bỏ qua **im lặng**. Không gửi notice, để không lộ thông tin và không thành kênh spam notice.
+- Spam: không cần cooldown riêng. Tin không hợp lệ chỉ tốn một lần duyệt tối đa 30 phần tử. Tin hợp lệ thì gỡ một con, nên mỗi người chơi có tối đa 30 lần thả thật (mỗi lần một notice). Thả chỉ làm người gửi mất thú, không được gì, nên không có động cơ gian lận.
+- Ném bóng: lần ném bị `throwBlocker` từ chối **vẫn tính thời gian chờ ném** (`lastThrowAt = now`), nên notice từ chối tối đa khoảng 1,25 lần/giây mỗi người. Client bình thường không gửi khi bị chặn, nên người chơi thật không thấy khác.
+- Không có khe hở giữa kiểm tra và thêm thú: `handleThrow` chạy đồng bộ (kiểm tra, tung xúc xắc, `removePal`, `push` trong cùng một lời gọi, không `await`, không hẹn giờ). Bóng lắc chỉ là hình ảnh, kết quả đã quyết lúc ném. Vì vậy bỏ hẳn nhánh `else { notify("Túi thú đã đầy") }`.
+- Những chỗ khác thêm thú vào túi (đã rà):
+  - `quests.ts` và `rewards.ts`: `Reward` chỉ có tài nguyên, vật phẩm, đồ mặc, không có thú;
+  - rương và trùm: không cho thú;
+  - `onJoin`: nạp từ hồ sơ đã qua `sanitizeProfile`, cắt ở `MAX_PARTY`;
+  - `debug:givePal`: đã chặn khi đầy nhưng im lặng; nay báo `PARTY_FULL_TEXT` (chỉ có khi `PETGAME_DEBUG=1`).
+- Dọn dữ liệu chỉ server có khi thả: `despawnCompanion` đã dọn companion, timers, casts chưa bắn, `forgetSkills`, `lastDamagedAt`, thú hoang đang nhắm nó. Thêm:
+  - `faintedUntil.delete(id)`: map này hiện không bao giờ được dọn;
+  - `control.skillOrder = undefined` nếu lệnh chiêu đang dành cho con này.
   
-  Dùng timeout mặc định của Playwright (giống `page.click` hiện tại). Không đặt timeout riêng.
-- `waitForWorld` dừng ngay, kèm nội dung `#join-error`, nếu sảnh hiện lỗi, thay vì chờ hết 180-540 s. Thay đổi này chỉ làm kiểm tra chặt hơn: trong đường vào thành công, `#join-error` luôn trống (`main.ts:57`) rồi bị gỡ cùng sảnh (`main.ts:60`).
-- Nhật ký chẩn đoán cho mỗi trang, chỉ in khi test lỗi:
-  - điều hướng của khung chính;
-  - `pageerror`;
-  - `console` loại lỗi và mọi tin bắt đầu bằng `[vite]`;
-  - request `document`/`script` bị lỗi.
-  
-  Reporter dạng list in `console.log` của test ra terminal (`node_modules/playwright/lib/reporters/list.js:63-65`), nên tester đọc được ngay.
+  Chiêu đã bắn vẫn bay tiếp và trúng, vì `land` đã kiểm `owned` trước khi cộng XP (`GameRoom.ts:1307, 1348`). Hẹn giờ XP thú đầu đàn đã kiểm `pals.includes(follower)` (`GameRoom.ts:829`).
 
 ## Kế hoạch triển khai
 
-0. **Xác nhận nguyên nhân bằng test tạm (KHÔNG commit), trên code cũ.** Thêm vào cuối `tests/e2e/multiplayer.spec.ts` một test `T1 repro (temporary)`:
-   - tạo context và page như test explorer, nhớ đẩy context vào `contexts`;
-   - chặn script sảnh ở lần tải đầu: `page.route(/\/src\/main\.ts(\?.*)?$/, ...)` gọi `route.abort()` cho request đầu và `route.continue()` cho các request sau. Ghi URL của request bằng `page.on("request")` để chắc Vite dev phục vụ entry đúng ở `/src/main.ts`;
-   - `goto("/?quality=low")`, `fill("#name", "Tamer")`, `click("#join-btn")`;
-   - `await page.waitForURL((url) => url.search === "")`, rồi `await expect(page.locator("#name")).toHaveValue("")`.
-   
-   Chạy `npx playwright test -g "T1 repro"`. Kỳ vọng: **qua** trên code cũ (tái hiện đúng: trang chuyển sang `/?`, ô trống). Ghi kết quả vào `PROGRESS.md`.
-   
-   Bản B (tuỳ chọn, tái hiện nguồn H1a):
-   - sau `goto`, chạy `page.evaluate(() => location.reload())`;
-   - giữ request `/src/main.ts` thứ hai bằng một promise cho đến sau khi `fill` + `click` xong;
-   - kỳ vọng như bản A.
-1. **`packages/client/index.html`:**
-   - dòng 296: thêm `disabled` vào `<input id="name" ...>`, giữ `autocomplete="nickname"`;
-   - dòng 297: đổi thành `<button type="submit" id="join-btn" disabled autocomplete="off">Đang tải...</button>`;
-   - thêm một chú thích HTML (tiếng Anh) phía trên form: ô và nút được khoá cho đến khi `src/main.ts` gắn handler submit; bấm sớm sẽ khiến trình duyệt tự gửi form và tải lại trang, mất `?room=` và tên vừa gõ;
-   - CSS (khối sảnh, dòng 242-245):
-     - thêm `min-height: 44px; box-sizing: border-box;` vào rule `#join-btn` (dòng 243);
-     - thêm `#join-btn:disabled { opacity: 0.6; cursor: progress; }`;
-     - thêm `#lobby input:disabled { opacity: 0.6; }`;
-     - không đổi media query điện thoại ngang (dòng 255); `min-height` ở rule gốc vẫn áp dụng.
-2. **`packages/client/src/main.ts`:** ngay sau khối `form.addEventListener("submit", ...)` (sau dòng 67), thêm ba lệnh cùng chú thích tiếng Anh. Chú thích nói rằng sảnh dùng được từ đây; `index.html` khoá ô và nút đến khi handler ở trên tồn tại; e2e chờ nút được mở khoá.
-   ```ts
-   nameInput.disabled = false;
-   joinBtn.disabled = false;
-   joinBtn.textContent = "Vào chơi";
-   ```
-   Không đổi gì khác: thân handler, việc điền sẵn tên ở dòng 24-25, thứ tự các dòng phía trên.
-3. **`tests/e2e/multiplayer.spec.ts`:**
-   - a. **Nhật ký chẩn đoán.** Thêm `const pageLog: string[] = []` và hàm `watch(page: Page, tag: string)`. Hàm này đăng ký:
-     - `framenavigated` (chỉ khung chính) → dòng `navigated <url>`;
-     - `pageerror`;
-     - `console`: khi `msg.type() === "error"` hoặc `msg.text().startsWith("[vite]")`;
-     - `requestfailed`: chỉ khi `resourceType()` là `document` hoặc `script`.
-     
-     Mỗi dòng có tiền tố `[tag]` và giờ `HH:MM:SS.mmm`. Đổi `test.afterEach` thành `async ({}, testInfo) => ...`: nếu `testInfo.status !== testInfo.expectedStatus` và `pageLog` có nội dung thì `console.log` toàn bộ nhật ký; sau đó xoá `pageLog`, rồi đóng các context như cũ.
-   - b. **`openPage(browser, path = "/", tag = "page"): Promise<Page>`**: `newContext`, đẩy vào `contexts`, `newPage`, `watch(page, tag)`, `goto(path + (path.includes("?") ? "&" : "?") + "quality=low")`. Phần này lấy từ `join` hiện tại ra.
-   - c. **`enterLobby(page, name)`** (JSDoc tiếng Anh, nói hợp đồng sảnh sẵn sàng):
+1. **`packages/shared/src/capture.ts`**
+   - `import { MAX_PARTY } from "./constants.ts";`
+   - Thêm hằng số và hàm (có JSDoc tiếng Anh):
      ```ts
-     await page.locator("#join-btn:enabled").waitFor();
-     await page.fill("#name", name);
-     await expect(page.locator("#name")).toHaveValue(name);
-     await page.click("#join-btn");
+     /** What a player is told when their party is full (MAX_PARTY): no ball is thrown. */
+     export const PARTY_FULL_TEXT = `Túi thú đầy (${MAX_PARTY}/${MAX_PARTY}): mở 🐾 Thú và bấm 🕊️ Thả bớt`;
+
+     /**
+      * Why a ball cannot be thrown at this wild pal, or undefined if it can: the boss is never caught,
+      * and a full party has no room. Shared so the client refuses, without throwing, exactly what the server would.
+      */
+     export function throwBlocker(partySize: number, target: { boss: boolean }): string | undefined
      ```
-   - d. **`join(browser, name, path = "/")`** = `openPage(browser, path, name)` rồi `enterLobby(page, name)`.
-   - e. **`waitForWorld`**: dùng `page.waitForFunction` trả về `"ok"` khi `__petgame.room.state.players.size > 0`, hoặc trả về `textContent` của `#join-error` nếu có chữ (ngoài hai trường hợp đó trả `false`). Lấy giá trị bằng `jsonValue()`; khác `"ok"` thì `throw new Error(\`Still in the lobby: ${value}\`)`.
-   - f. **Thay các chỗ tự điền sảnh:**
-     - Test "a captured pal...", dòng 134-136: `await page.reload(); await enterLobby(page, "Tamer");`.
-     - Test "explorer...", dòng 229-232: thay bằng `const page = await openPage(browser, "/", "Stylist");`.
-     - Test "explorer...", dòng 238-239: `await enterLobby(page, "Stylist");`.
-     - Test "explorer...", dòng 287-288: giữ `reload` và kiểm tra `.style-btn.active[data-hair="curly"]` ở dòng 286, rồi `await enterLobby(page, "Stylist");`.
-   - g. **Test hồi quy mới, đặt cuối file:** `lobby: nothing is sent before the lobby script is ready; the invite and the name are kept`. Không tải thế giới WebGL, chỉ mất vài giây.
-     1. Tạo context và page (đẩy context vào `contexts`, gọi `watch(page, "lobby")`). Đếm điều hướng khung chính bằng `page.on("framenavigated")`.
-     2. Giữ script sảnh: `page.route(/\/src\/main\.ts(\?.*)?$/, async (route) => { await held; await route.continue(); })`, trong đó `held` là promise do test tự giải phóng.
-     3. `goto("/?room=no-such-room&quality=low", { waitUntil: "commit" })`.
-     4. Kiểm tra `#join-btn` `toBeDisabled()` và `toHaveText("Đang tải...")`; `#name` `toBeDisabled()`.
-     5. Đặt lần lượt từng khung hình 844×390, 390×844, rồi 1280×720 bằng `setViewportSize`; ở mỗi khung hình, kiểm tra `boundingBox().height >= 44` cho nút.
-     6. `click({ force: true })` lên nút đang khoá, để mô phỏng người bấm vội. Đây là chỗ duy nhất được dùng `force`.
-     7. Giải phóng `held`; `await page.locator("#join-btn:enabled").waitFor()`; kiểm tra chữ "Vào chơi".
-     8. `fill("#name", "Early")`, `click("#join-btn")`.
-     9. Kiểm tra:
-        - `#join-error` chứa "Không vào được". Điều này chứng minh handler đã chạy và đã thử vào phòng của link mời: phòng không tồn tại nên lỗi. Nếu `?room=` bị mất, handler sẽ tạo thế giới mới và vào thành công;
-        - `new URL(page.url()).searchParams.get("room") === "no-such-room"`;
-        - số lần điều hướng là 1. Lần kiểm tra này diễn ra sau cả một vòng tải module và kết nối, nên nếu cú bấm ở bước 6 đã làm trang tự gửi form thì đã có lần điều hướng thứ 2;
-        - `localStorage["petgame:name"] === "Early"`.
-4. **Chạy lại test tạm ở bước 0 trên code mới.** Riêng test tạm này được đặt `timeout: 10_000` cho `page.fill`. Kỳ vọng: test **không qua**, dừng ở bước chờ `#name` được mở khoá (script bị chặn thì sảnh đứng ở "Đang tải..."), không có điều hướng sang `/?`. Ghi kết quả vào `PROGRESS.md`, rồi **xoá test tạm**.
-5. **`docs/architecture.md`:**
-   - mục packages/client, dòng `main.ts`: thêm một câu nói `#name` và `#join-btn` được khoá trong `index.html` đến khi `main.ts` gắn handler submit; đó là tín hiệu "sảnh sẵn sàng";
-   - mục Kiểm thử, thêm:
-     - helper `openPage`, `enterLobby` (chờ `#join-btn:enabled`), `waitForWorld` báo lỗi sảnh ngay;
-     - nhật ký trang in khi test lỗi;
-     - không sửa file của `packages/client` hay `packages/shared` khi e2e đang chạy, vì Vite dev sẽ tải lại mọi trang đang mở;
-     - chạy lặp cả bộ thì dùng `--repeat-each=N --workers=1`, vì không có `--workers=1` thì các lượt chạy song song: máy 4 nhân mặc định có 2 worker (`node_modules/playwright/lib/common/suiteUtils.js:98`).
+     Thứ tự: `target.boss` trả câu trùm (giữ nguyên chữ hiện ở `GameRoom.ts:785`); `partySize >= MAX_PARTY` trả `PARTY_FULL_TEXT`; còn lại `undefined`. Thú đầu đàn không có nhánh riêng.
+
+2. **`packages/shared/src/capture.test.ts`**: `describe("throwBlocker")`, xem mục Test.
+
+3. **`packages/shared/src/messages.ts`**
+   - Trong `ClientMessage`, sau `PalAuto`: `/** Let one of the player's pals go for good (the party panel asks first). */ Release: "release",`
+   - Thêm `export interface ReleaseMessage { /** OwnedPal id from the player's party. */ palId: string; }`.
+
+4. **`packages/server/src/rooms/GameRoom.ts`**
+   - a. Import thêm `PARTY_FULL_TEXT`, `throwBlocker`, `type ReleaseMessage`. `MAX_PARTY` vẫn dùng ở `debug:givePal`.
+   - b. Đăng ký handler cạnh `Summon`/`Assign` (khoảng dòng 349-356):
+     ```ts
+     this.onMessage(ClientMessage.Release, (client, message: ReleaseMessage) => {
+       if (typeof message?.palId === "string") this.release(client, message.palId);
+     });
+     ```
+   - c. **`handleThrow` (777-840)**, thứ tự kiểm tra mới (đây là phần quan trọng):
+     ```ts
+     if (!player || !control || !pal) return;
+     const now = this.clock.currentTime;
+     if (now - control.lastThrowAt < THROW_COOLDOWN_MS) return;
+     if (distance(player, pal) > THROW_RANGE) return;
+     if (this.inBall.has(palId)) return;
+     control.lastThrowAt = now; // a refused throw waits out the cooldown too: refusals cannot flood notices
+     // The boss is never caught and a full party has no room: refuse before any roll or great ball is used.
+     const blocker = throwBlocker(player.pals.length, pal);
+     if (blocker) return this.notify(client, blocker);
+     ```
+     - Xoá dòng 785 (trùm) và 786 (đầu đàn, "cho bớt thú đi"); cả hai nay nằm trong `throwBlocker`. Dòng `control.lastThrowAt = now` cũ (788) thay bằng dòng ở trên.
+     - Nhánh `success`: bỏ `if (player.pals.length < MAX_PARTY) { ... } else { this.notify(client, "Túi thú đã đầy"); }`, giữ nguyên thân khối `if` (tạo `OwnedPal`, `push`, XP, `summon`, nhiệm vụ, thú đầu đàn). Thêm chú thích ngắn: đã kiểm còn chỗ ở trên, trong cùng lời gọi.
+     - Còn lại không đổi (tỉ lệ, bóng xịn, `inBall`, `CaptureResult`).
+   - d. **Hàm mới `release`**, đặt ngay sau `rest()` (dòng 891-899):
+     ```ts
+     /** Lets one of the player's pals go for good (the party panel asks first): it leaves the party and the world, nothing is given back. */
+     private release(client: Client, ownedId: string) {
+       const player = this.state.players.get(client.sessionId);
+       const index = player ? player.pals.findIndex((p) => p.id === ownedId) : -1;
+       if (!player || index < 0) return; // not one of theirs: ignored quietly
+       const owned = player.pals[index];
+       if (player.activePalId === ownedId) player.activePalId = "";
+       this.despawnCompanion(ownedId);
+       const control = this.controls.get(client.sessionId);
+       if (control?.skillOrder?.companionId === ownedId) control.skillOrder = undefined;
+       this.faintedUntil.delete(ownedId);
+       player.pals.splice(index, 1);
+       this.notify(client, `Đã thả ${getSpecies(owned.speciesId).name}. Tạm biệt! 👋`);
+       this.scheduleSave(client.sessionId);
+     }
+     ```
+     Không gọi `rest()` trước `splice`, vì `rest()` sẽ đổi `assignment` của phần tử sắp bị xoá, một thao tác thừa. Đã kiểm bằng Encoder/Decoder của `@colyseus/schema` 5.0.36: `splice` phần tử giữa, đổi rồi xoá trong cùng tick, đổi phần tử sau khi chỉ số dịch đều đồng bộ đúng sang client.
+   - e. **`debug:givePal` (418-420)**: tách điều kiện thành `if (!player) return;` và `if (player.pals.length >= MAX_PARTY) return this.notify(client, PARTY_FULL_TEXT);`.
+
+5. **`packages/client/src/ui/party.ts`**
+   - Import thêm `MAX_PARTY`. Hằng số module `/** The release button in the confirm dialog stays locked this long, so a double tap on a card's button cannot confirm. */ const CONFIRM_ARM_MS = 500;`
+   - `PartyActions`: thêm `release(palId: string): void;`.
+   - Trường mới:
+     - `title` (`strong.party-title`), `releaseToggle` (`button.party-release-toggle`), `releasing = false`;
+     - tham số của lần `update` gần nhất: `party`, `hasBase`, `snacks`;
+     - phần tử hộp: `confirm` (nền mờ `div.party-confirm`), `confirmHead`, `confirmTitle` (`strong#party-confirm-title`), `confirmStatus`, `confirmWarn` (`p`), `keepButton` (`button.confirm-keep`), `releaseButton` (`button.confirm-release`);
+     - `confirmId = ""`, `armTimer = 0`.
+   - Constructor:
+     - Header gồm `title`, `releaseToggle`, `close`. Bấm toggle thì gọi `setReleasing(!this.releasing)`.
+     - Dựng hộp **một lần**, gắn vào `parent` sau panel: `parent.append(this.button, this.panel, this.confirm)`. Cấu trúc:
+       ```
+       div.party-confirm (hidden)
+         div.party-confirm-box (role="dialog", aria-modal="true", aria-labelledby="party-confirm-title")
+           div.party-confirm-head
+           p.party-confirm-text
+           p.party-confirm-status
+           p.party-confirm-warn
+           div.party-confirm-buttons
+             button.confirm-keep
+             button.confirm-release
+       ```
+       Mọi nút có `type="button"`. Dùng `textContent`, không dùng `innerHTML` cho chữ có tên thú.
+     - Sự kiện:
+       - `keepButton` click: `closeConfirm()`;
+       - `releaseButton` click: `confirmRelease()`;
+       - `confirm` click khi `e.target === this.confirm` (chạm nền mờ): `closeConfirm()`.
+     - Listener `keydown` trên `window` (thay khối dòng 79-82):
+       ```ts
+       if (e.key.toLowerCase() === "q" && !e.repeat) this.toggle();
+       if (e.key === "Escape") {
+         if (this.confirmId) this.closeConfirm(); // the dialog first, the panel on the next press
+         else this.toggle(false);
+       }
+       if (e.key === "Tab" && this.confirmId) {
+         e.preventDefault(); // focus stays on the dialog's two buttons
+         (document.activeElement === this.keepButton ? this.releaseButton : this.keepButton).focus();
+       }
+       ```
+       `focus()` lên nút còn khoá không có tác dụng, nên focus ở yên `Giữ lại`. Đó là hành vi mong muốn.
+   - `toggle(force)`: khi đóng, gọi `closeConfirm(false)` và `if (this.releasing) this.setReleasing(false)`.
+   - `update(party, hasBase, snacks = 0)`:
+     - lưu ba tham số;
+     - `if (party.length === 0) this.releasing = false;`
+     - `if (this.confirmId && !party.some((p) => p.id === this.confirmId)) this.closeConfirm();`
+     - key thêm `this.releasing`; key đổi thì gọi `render()` (phần thân cũ, dòng 102-118, chuyển vào đây).
+   - `render()`:
+     - `title`: `Túi thú ${n}/${MAX_PARTY}`;
+     - nút HUD: `🐾 Thú (${n})` khi `n < MAX_PARTY`, ngược lại `🐾 Thú (${n}/${MAX_PARTY})`; `classList.toggle("full", n >= MAX_PARTY)`;
+     - `releaseToggle.hidden = n === 0`; chữ, class `on` và `aria-pressed` theo `releasing`;
+     - danh sách: túi trống thì chữ túi trống (mới); khi `releasing` thì gợi ý thả (`p.party-hint.release`) thay cho gợi ý đặt trại; rồi các thẻ.
+   - `private setReleasing(on: boolean)`: `this.releasing = on; this.lastKey = ""; this.update(this.party, this.hasBase, this.snacks);`. Vẽ lại ngay, không chờ khung hình sau.
+   - `card()`: tách phần tạo `party-swatch` (dòng 128-138) thành `private swatch(entry: PartyEntry): HTMLSpanElement`, dùng lại trong hộp. Khi `this.releasing`, cột nút chỉ có `add("Thả", () => this.openConfirm(entry), "release")` và đặt `aria-label`; các nút khác không thêm. Hàm `add` cần trả về nút, hoặc đặt `aria-label` ngay trong đó.
+   - `private openConfirm(entry)`:
+     - `confirmId = entry.id`;
+     - `confirmHead.replaceChildren(this.swatch(entry), this.confirmTitle)`;
+     - điền tiêu đề, dòng trạng thái (`hidden` khi `assignment === ""`) và dòng con cuối (`hidden = this.party.length !== 1`);
+     - `releaseButton.disabled = true`; `armTimer = window.setTimeout(() => (this.releaseButton.disabled = false), CONFIRM_ARM_MS)`;
+     - `confirm.hidden = false`; `keepButton.focus()`.
+   - `private closeConfirm(restoreFocus = true)`:
+     - `confirmId` rỗng thì `return`;
+     - `clearTimeout(armTimer)`; ẩn hộp; `confirmId = ""`;
+     - nếu `restoreFocus && this.open && !this.releaseToggle.hidden` thì `releaseToggle.focus()`.
+   - `private confirmRelease()`: lấy `id = this.confirmId`; rỗng thì `return`; `closeConfirm()`; `this.actions.release(id)`.
+   - Cập nhật JSDoc của class: thêm việc thả thú.
+
+6. **`packages/client/src/game/Game.ts`**
+   - Import `throwBlocker`.
+   - `PartyPanel` (dòng 259-264): thêm `release: (palId) => this.room.send(ClientMessage.Release, { palId }),`.
+   - `throwBall()` (1028-1042), sau khi có `[targetId, pal]` và `state`, trước `room.send`:
+     ```ts
+     // Refused for the same reason the server would give (the boss, a full party): no ball leaves the hand.
+     const wild = this.room.state.pals.get(targetId);
+     const blocker = wild ? throwBlocker(state?.pals.length ?? 0, wild) : undefined;
+     if (blocker) {
+       this.hud.showToast(blocker, 3000);
+       return;
+     }
+     ```
+     Bị chặn thì không `send`, không `me.play("throw")`. Toast 3 giây vì câu dài hơn thường lệ và người chơi cần đọc để làm theo.
+
+7. **`packages/client/index.html`** (CSS, cạnh khối `.party-*`, dòng 116-151):
+   - `.party-btn.full { background: #ffd54f; color: #4e342e; }`
+   - `.party-header { ... gap: 6px; }`: thêm `gap` vào luật có sẵn.
+   - `.party-title { flex: 1; min-width: 0; }`
+   - `.party-release-toggle { min-height: 44px; min-width: 44px; padding: 0 12px; border: none; border-radius: 10px; background: #ffebee; color: #b71c1c; font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; }`, `.party-release-toggle.on { background: #b71c1c; color: #fff; }`, `.party-release-toggle[hidden] { display: none; }`
+   - `.party-action.release { background: #e53935; min-height: 44px; }`, `.party-hint.release { color: #b71c1c; }`
+   - `.party-confirm { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; background: rgba(0,0,0,0.45); pointer-events: auto; }`, `.party-confirm[hidden] { display: none; }`
+   - `.party-confirm-box { width: min(320px, 100%); max-height: 100%; overflow-y: auto; box-sizing: border-box; padding: 14px 16px; border-radius: 14px; background: #fafcf6; color: #253020; box-shadow: 0 8px 28px rgba(0,0,0,0.4); }`
+   - `.party-confirm-head { display: flex; align-items: center; gap: 10px; font-size: 17px; }`, `.party-confirm-box p { margin: 8px 0 0; font-size: 14px; line-height: 1.4; }`, `.party-confirm-warn { color: #b71c1c; font-weight: 700; }`
+   - `.party-confirm-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }`, `.party-confirm-buttons button { min-height: 44px; min-width: 96px; padding: 0 16px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; }`, `.confirm-keep { background: #e0e0e0; color: #263238; }`, `.confirm-release { background: #e53935; color: #fff; }`, `.confirm-release:disabled { opacity: 0.45; cursor: default; }`
+   - `.party-confirm-buttons button:focus-visible, .party-release-toggle:focus-visible, .party-action.release:focus-visible { outline: 3px solid #1e88e5; outline-offset: 2px; }`
+   
+   `.hud` có `z-index: 2`; bảng `z-index: 3`, bản đồ lớn 4; hộp 5 nằm trên tất cả trong HUD, kể cả joystick và nút cảm ứng.
+
+8. **`packages/server/src/rooms/GameRoom.test.ts`**: các test ở mục Test.
+
+9. **`tests/e2e/multiplayer.spec.ts`**: test mới ở mục Test, đặt sau test "pack leaders", trước test "lobby:".
+
+10. **`docs/architecture.md`**:
+    - dòng `capture.ts`: thêm "`throwBlocker` (trùm, túi đầy; client và server dùng chung)";
+    - dòng `ui/`: `party.ts` thành "(bảng thú; chế độ 🕊️ Thả bớt và hộp xác nhận)".
 
 ## Giao thức
 
-Không đổi gì về giao thức:
-- `schema.ts`, `messages.ts`, `Profile` và server không đổi.
-- Các khoá `localStorage` giữ nguyên: `petgame:name`, `petgame:look`, `petgame:worn`, `petgame:token`.
-- Phía client chỉ đổi `index.html` (thuộc tính và CSS) và 3 dòng trong `main.ts`. Hồ sơ cũ không bị ảnh hưởng.
+- **`messages.ts`:** thêm `ClientMessage.Release = "release"` với `ReleaseMessage { palId: string }`. Không thêm `ServerMessage` (kết quả báo bằng `Notice`, state tự cập nhật).
+- **`schema.ts`:** không đổi. Thả là `player.pals.splice(index, 1)` trên `ArraySchema` có sẵn, kèm `activePalId = ""` và xoá khỏi `state.companions` như khi cho nghỉ. Client không dùng callback theo phần tử của `pals` (đọc `me.pals` mỗi khung hình trong `updateHud`, tìm thú đi theo theo id), nên không cần đổi gì thêm.
+- **Lưu game:** `Profile`, `emptyProfile`, `sanitizeProfile` không đổi. Lần lưu sau (`scheduleSave`, hoặc `saveNow` khi rời phòng) ghi danh sách `pals` đã bớt con được thả. Hồ sơ cũ đọc y như trước, không cần chuyển đổi. Server sập trong 2 giây trước khi lưu thì con vừa thả quay lại; vô hại.
+- **Ảnh hưởng client:** `Game.ts` gửi `release` và chặn ném theo `throwBlocker`. Client và server deploy cùng một container. Client cũ còn trong cache (chưa có service worker, T13) vẫn chơi được: chỉ thiếu nút thả, và ném khi túi đầy thì nhận notice của server thay vì mất thú.
 
 ## Test
 
-- **Unit (shared):** không có (không đổi logic dùng chung).
-- **Tích hợp server (`GameRoom.test.ts`):** không có (server không đổi).
-- **E2E:**
-  - Sửa helper `join` và `waitForWorld`; thêm `openPage`, `enterLobby`, `watch`; sửa `afterEach`.
-  - Chuyển 3 chỗ tự điền sảnh sang helper.
-  - Thêm 1 test hồi quy (bước 3g).
-  - Test tạm ở bước 0 và 4 không commit.
-- **Lệnh** (tắt server dev trước, để cổng 2567 và 5173 trống):
-  - `npm run typecheck`, `npm test`, `npm run build`. Lưu ý: `tests/e2e` không nằm trong `typecheck`, nên phải tự giữ đúng kiểu.
-  - `npx playwright test -g "lobby:" --repeat-each=5 --workers=1`: test hồi quy, khoảng 1 phút.
-  - `npx playwright test -g "wild pals spawn" --repeat-each=10 --workers=1`: chạy lặp đường `join` + `waitForWorld`, khoảng 2-4 phút.
-  - `npx playwright test --repeat-each=3 --workers=1`: 3 lượt cả bộ liên tiếp trong một phiên server, giống bối cảnh lỗi gốc (test thứ 4 của một lượt cả bộ). Ước khoảng 15-20 phút (chưa đo), nên **chạy nền** vì lệnh chạy tiền cảnh bị cắt ở 10 phút.
-  - `npm run test:e2e`: 1 lần như CI, server khởi động mới.
-  - Ghi thời gian thật của từng lệnh vào `PROGRESS.md`.
+**Unit (`packages/shared/src/capture.test.ts`)**, `describe("throwBlocker")`:
+- `throwBlocker(MAX_PARTY - 1, { boss: false })` là `undefined`; `throwBlocker(0, { boss: false })` là `undefined`.
+- `throwBlocker(MAX_PARTY, { boss: false })` và `throwBlocker(MAX_PARTY + 3, { boss: false })` là `PARTY_FULL_TEXT`.
+- `PARTY_FULL_TEXT` chứa `${MAX_PARTY}/${MAX_PARTY}` và "Thả bớt", không chứa "cho bớt".
+- `throwBlocker(0, { boss: true })` và `throwBlocker(MAX_PARTY, { boss: true })` chứa "trùm" (trùm xét trước).
+
+**Tích hợp (`packages/server/src/rooms/GameRoom.test.ts`)**: thêm `describe("releasing pals and a full party")` ở cuối file.
+- Import thêm `OwnedPal`, `MAX_PARTY`, `PARTY_FULL_TEXT`.
+- Helper `addPals(player, n, speciesId = "leafkit")`: tạo `OwnedPal` đang nghỉ với id duy nhất (`fill-<i>-<ngẫu nhiên>`), `push` thẳng vào `player.pals`, trả mảng.
+
+Các test:
+1. **"lets a resting pal go for good; ignores unknown ids, bad payloads and other players' pals"**
+   - `setup()`, `capture()` (con A đi theo), `addPals(player, 2)` (B, C); `other = await colyseus.connectTo(room, { name: "Other" })`; `notices = collect(client, Notice)`.
+   - `other` gửi `Release { palId: B.id }`; `client` gửi `Release { palId: "nope" }`, `Release { palId: 42 }`, `Release {}`, `Release` không payload; `ticks(3)`. Kiểm: id vẫn `[A, B, C]`, `notices` rỗng.
+   - `client` gửi `Release { palId: B.id }`; `ticks(3)`. Kiểm:
+     - server còn `[A, C]`;
+     - state phía client cũng còn `[A, C]`: `await vi.waitFor(() => expect([...client.state.players.get(client.sessionId).pals].map((p) => p.id)).toEqual([A, C]))`;
+     - `notices.at(-1)` chứa "Đã thả";
+     - A vẫn đi theo (`activePalId`, `companions.has(A)`).
+2. **"releasing the follower, even the last pal, sends it away and forgets it"**
+   - `setup()`, `capture()`: F là con duy nhất, đang đi theo.
+   - Đặt `(room as any).controls.get(client.sessionId).skillOrder = { companionId: F.id, skill: "seed_shot", until: Number.MAX_SAFE_INTEGER }` và `(room as any).faintedUntil.set(F.id, Number.MAX_SAFE_INTEGER)`.
+   - Gửi `Release { palId: F.id }`; `ticks(2)`. Kiểm:
+     - `pals.length === 0`, `activePalId === ""`;
+     - `companions.has(F.id) === false`;
+     - `skillOrder` là `undefined`;
+     - `faintedUntil.has(F.id) === false`;
+     - `skillReady.has("c:" + F.id) === false`.
+   - Rồi `ticks(20)`, `capture()` lần nữa: con mới tự đi theo (`activePalId` là id của nó).
+3. **"releasing a worker takes it off the camp"**
+   - Đặt trại như `atCamp()` của describe crafting (dòng 297-305), `capture()`, gửi `Assign work`, `ticks(2)`: companion ở `mode "work"`.
+   - Gửi `Release`, `ticks(2)`. Kiểm: companion không còn, `pals.length === 0`.
+4. **"a released pal stays gone after rejoining"**
+   - `token = "release-token-0123456789"`; `setup(token)`, `capture()` (A đi theo), `addPals(player, 1)` (B).
+   - Gửi `Release { palId: A.id }`, `ticks(2)`, `client.leave()`, `colyseus.cleanup()`.
+   - `setup(token)` lại. Kiểm: id là `[B.id]`, `activePalId === ""`, `companions.size === 0`.
+5. **"a full party cannot throw: no ball is used and nothing is caught or lost, pack leaders included"**
+   - `setup()`; `addPals(player, MAX_PARTY)`; `[alphaId, alpha]` = thú đầu đàn đầu tiên trong state; xoá mọi thú hoang khác; `leaf = placeWild(room, "leafkit", player, 60)`, `hp = 1`; `player.greatBalls = 1`.
+   - `notices = collect(Notice)`, `results = collect(CaptureResult)`.
+   - Không mock `Math.random` ở bước này (bị từ chối trước khi tung xúc xắc).
+   - Ném bóng xịn vào `leaf`, `ticks(3)`. Kiểm:
+     - `results` rỗng;
+     - `leaf` còn trong state;
+     - `(room as any).inBall.has(leaf) === false`;
+     - `pals.length === MAX_PARTY`;
+     - `greatBalls === 1`;
+     - `notices.at(-1) === PARTY_FULL_TEXT`.
+   - `ticks(20)` (lần bị từ chối cũng tính thời gian chờ ném). Đặt người chơi cạnh `alpha` (+40 px), ném vào `alphaId`, `ticks(3)`. Kiểm: `results` vẫn rỗng, `alpha` còn trong state, notice là `PARTY_FULL_TEXT`.
+   - Đưa người chơi về cạnh `leaf` (cách 60 px). Gửi `Release` một con, `ticks(2)`: còn `MAX_PARTY - 1`.
+   - `ticks(20)`; `vi.spyOn(Math, "random").mockReturnValue(0)`; ném vào `leaf`; `waitForMessage(CaptureResult)`; `vi.restoreAllMocks()`. Kiểm: `success === true`, `pals.length === MAX_PARTY`, `leaf` không còn trong state.
+   - Không dùng helper `capture()` trong test này: `palNextTo` lấy thú hoang đầu tiên trong state, ở đây có thể là thú đầu đàn.
+   
+   Test có sẵn "spawns one boss ... cannot be captured" (kiểm notice chứa "trùm") phải tiếp tục qua mà không sửa.
+
+**E2E (`tests/e2e/multiplayer.spec.ts`)**: test mới `"party: let a pal go after confirming; a full party cannot throw"`, có `test.slow()`.
+1. `join(browser, "Keeper")`, `waitForWorld`, chờ `game.frames > 0`. Helper `party()` đọc từ `__petgame.room.state` `{ ids, species, active }` của mình; `companions()` như các test khác.
+2. `room.send("debug:givePal", { species: "leafkit", level: 3 })` rồi `{ species: "pebblet", level: 2 }`. Poll: 2 con, 1 companion (Pebblet đi theo).
+3. Bấm `.party-btn`. `.party-panel .party-title` chứa "2/30". `.party-action.release` có 0 phần tử. Bấm `.party-release-toggle`: có 2 phần tử, nút toggle có chữ "✓ Xong".
+4. Bấm `.party-card.follow .party-action.release`. Kiểm:
+   - `.party-confirm-box` hiện, chứa "Thả Pebblet · Lv 2?" và "Đang đi theo bạn";
+   - `.confirm-keep` được focus.
+5. Kích thước chạm (hộp đang mở): lần lượt `setViewportSize` 390×844 và 844×390.
+   - `boundingBox` của `.party-release-toggle`, `.party-action.release` (đầu tiên), `.confirm-keep`, `.confirm-release`: rộng và cao ≥ 44;
+   - `.party-confirm-box` nằm trọn trong khung nhìn;
+   - xong trả về 1280×720 (khung mặc định của "Desktop Chrome").
+6. Bấm `.confirm-keep`: hộp ẩn, vẫn 2 con.
+7. Mở lại hộp, `keyboard.press("Escape")`: hộp ẩn, `.party-panel` vẫn hiện.
+8. Mở lại hộp. Chờ `.confirm-release` **enabled** (hết thời gian khoá), rồi `Tab`: `.confirm-release` được focus; `Enter`. Kiểm:
+   - `.hud-toast` chứa "Đã thả Pebblet";
+   - poll `species` là `["leafkit"]`, `companions()` là 0, `active === ""`;
+   - `.party-card` còn 1.
+9. Bấm `.party-action.release` còn lại: hộp chứa "cuối cùng"; bấm `.confirm-release` (Playwright tự chờ nút hết khoá). Poll 0 con. `.party-empty` hiện; `.party-release-toggle` ẩn.
+10. Escape đóng bảng. Gửi `debug:givePal { species: "leafkit" }` 30 lần; poll 30 con. `.party-btn` có chữ `🐾 Thú (30/30)` và class `full`.
+11. Ghi lại tin client gửi: `const sent = []; const send = room.send.bind(room); room.send = (t, m) => (sent.push(t), send(t, m));` (lưu vào `window.__sent`). `room.send("debug:spawnPal")`; poll đến khi state có một thú hoang trong vòng 100 px quanh người chơi.
+12. `keyboard.press("e")`. Kiểm: `.hud-toast` chứa "Túi thú đầy"; `__sent` không có `"throw"`; vẫn 30 con; thú hoang vừa sinh còn trong state.
+13. `room.send("release", { palId: <id con đầu> })`; poll 29 con; `.party-btn` không còn class `full`. `keyboard.press("e")`; poll đến khi `__sent` có `"throw"`. Không chờ kết quả bắt, vì kết quả ngẫu nhiên.
+
+**Lệnh**
+- Coder: `npm run typecheck`, `npm test`, `npm run build`, `npx playwright test -g "party:" --workers=1`. Tắt server dev trước khi chạy; không sửa file client/shared khi e2e đang chạy.
+- Tester: thêm `npm run test:e2e` cả bộ.
+- Ảnh kiểm tra bố cục: coder chụp bảng ở chế độ thả kèm hộp đang mở ở 390×844, 844×390, 1280×720 bằng Playwright tạm, không commit. Lưu vào scratchpad, ghi đường dẫn vào `PROGRESS.md`.
 
 ## Tiêu chí hoàn thành
 
-- [ ] Test tạm (bản A) **tái hiện** được lỗi trên code cũ: URL thành `/?`, ô tên trống, không vào phòng. Trên code mới thì **không tái hiện**: không điều hướng, sảnh đứng ở "Đang tải...". Cả hai kết quả có trong `PROGRESS.md`; test tạm đã xoá khỏi spec.
-- [ ] `index.html`: `#name` có `disabled`; `#join-btn` có `disabled autocomplete="off"` và chữ "Đang tải..."; có CSS `:disabled` cho nút và ô; nút có `min-height: 44px; box-sizing: border-box`.
-- [ ] `main.ts`: ba lệnh mở khoá nằm ngay sau `form.addEventListener("submit", ...)`; thân handler không đổi một ký tự.
-- [ ] Spec:
-  - `grep -n '#join-btn' tests/e2e/multiplayer.spec.ts` chỉ còn trong `enterLobby` và test hồi quy;
-  - `join` dùng `openPage` + `enterLobby`;
-  - không có `waitForTimeout` mới, không timeout nào bị tăng, không có `retries`;
-  - `force: true` chỉ xuất hiện ở test hồi quy.
-- [ ] `waitForWorld` ném lỗi ngay kèm nội dung `#join-error` khi sảnh hiện lỗi.
-- [ ] Nhật ký trang chỉ in khi test lỗi. Tester kiểm một lần bằng cách cố ý làm hỏng tạm một test (không commit): log phải có dòng `navigated` và `console.debug [vite] ...`.
-- [ ] Test hồi quy qua, kể cả kiểm tra nút ≥ 44 px ở 844×390, 390×844 và 1280×720.
-- [ ] `npm run typecheck`, `npm test`, `npm run build` sạch.
-- [ ] Mọi lệnh e2e ở mục Test đều qua, 0 lỗi:
-  - 5 lượt test hồi quy;
-  - 10 lượt "wild pals spawn";
-  - **3 lượt cả bộ liên tiếp** (`--repeat-each=3 --workers=1`) và **1 lần `npm run test:e2e`**, tổng cộng 4 lượt cả bộ.
-  
-  Nếu đo thấy một lượt cả bộ dài hơn 8 phút, được giảm còn `--repeat-each=2` cộng 1 lần chạy thường, nhưng **không ít hơn 3 lượt cả bộ**.
-- [ ] `docs/architecture.md` đã có quy ước sảnh sẵn sàng và các lưu ý chạy e2e (bước 5).
+- [ ] `messages.ts` có `ClientMessage.Release = "release"` và `ReleaseMessage { palId: string }`, kèm JSDoc tiếng Anh.
+- [ ] `capture.ts` có `PARTY_FULL_TEXT` (dựng từ `MAX_PARTY`) và `throwBlocker(partySize, { boss })`; có unit test như mục Test.
+- [ ] Server, `release`:
+  - kiểm kiểu `palId`; id lạ, id của người khác, payload hỏng thì không đổi gì và không gửi notice;
+  - id hợp lệ thì: gỡ khỏi `player.pals` bằng `splice`; xoá companion; xoá `activePalId` nếu là thú đi theo; xoá `skillOrder` dành cho nó; xoá `faintedUntil`; gửi notice "Đã thả …"; `scheduleSave`.
+- [ ] Server, `handleThrow`:
+  - thứ tự: cooldown, tầm ném, `inBall`, đặt `lastThrowAt`, rồi `throwBlocker`;
+  - bị chặn thì không có `CaptureResult`, không trừ bóng xịn, thú hoang không vào bóng;
+  - nhánh `else { "Túi thú đã đầy" }` đã xoá;
+  - `grep -rn "cho bớt\|Túi thú đã đầy" packages` không ra kết quả.
+- [ ] `debug:givePal` báo `PARTY_FULL_TEXT` khi túi đầy.
+- [ ] Client: `throwBall` không gửi `throw` khi `throwBlocker` chặn (cả trùm), hiện toast đúng câu đó 3 giây.
+- [ ] Bảng 🐾 Thú:
+  - tiêu đề `Túi thú n/30`;
+  - nút `🕊️ Thả bớt` / `✓ Xong` có `aria-pressed`, ẩn khi túi trống;
+  - chế độ thả: mỗi thẻ chỉ có nút `Thả` và gợi ý đỏ; chế độ tắt khi đóng bảng (✕, Q, Escape, mở bảng khác) và khi túi trống.
+- [ ] Hộp xác nhận:
+  - đúng chữ ở mục Thiết kế, kể cả dòng trạng thái và dòng con cuối;
+  - nền mờ chặn chạm phía sau, chạm nền mờ là huỷ;
+  - focus mặc định ở `Giữ lại`; Tab và Shift+Tab chỉ đổi giữa hai nút;
+  - Escape đóng hộp trước rồi mới đóng bảng;
+  - nút `Thả` khoá 500 ms đầu;
+  - hộp tự đóng khi con đó không còn trong túi; focus về nút chế độ sau khi đóng.
+- [ ] Nút HUD hiện `🐾 Thú (30/30)` kèm class `full` khi đầy; dưới 30 thì chữ như cũ (test e2e cũ vẫn qua). Chữ túi trống đã đổi.
+- [ ] Mọi nút mới ≥ 44×44 px ở 390×844, 844×390, 1280×720; hộp nằm trọn trong khung nhìn (e2e đo).
+- [ ] Không đổi `schema.ts`, `Profile`, `emptyProfile`, `sanitizeProfile`, `store.ts`. Thú đã thả không quay lại sau khi vào lại phòng (test tích hợp 4).
+- [ ] Unit, tích hợp, e2e mới đều qua; `npm run typecheck` sạch; `npm run build` qua; cả bộ e2e qua. Không nới lỏng hay bỏ test nào.
+- [ ] Chú thích code bằng tiếng Anh, chữ hiển thị bằng tiếng Việt. `docs/architecture.md` đã cập nhật 2 dòng.
 
 ## Rủi ro, câu hỏi mở
 
-Không có CHẶN.
+Không có dòng CHẶN.
 
-- **Nguồn kích hoạt chưa biết chắc (H1a hay H1b).** Cách sửa đóng cơ chế chung cho cả hai. Nếu lỗi tái diễn, nhật ký chẩn đoán sẽ chỉ ra nguồn.
-- **Rủi ro còn lại:** Vite tải lại trang *sau* khi đã bấm, lúc đang kết nối. Trang quay về sảnh với tên đã lưu, và test sẽ chờ đến hết giờ. Đây là sự cố môi trường của Vite dev, không phải lỗi game; nhật ký sẽ có 2 dòng `navigated` cùng tin `[vite]`. Trị tận gốc: không sửa file client/shared khi e2e đang chạy (sẽ ghi vào `docs/architecture.md`), hoặc làm nhiệm vụ đề xuất bên dưới. Có thể cân nhắc thêm câu này vào mục "Môi trường và lưu ý" của `CLAUDE.md` (việc của agent chính hoặc người dùng).
-- **Biểu thức chặn `/src/main.ts` trong test hồi quy gắn với Vite dev.** Nếu sau này e2e chạy trên bản build, test phải chặn file bundle (`/build/index-*.js`).
-- **Ô tên bị khoá lúc tải:** trên mạng rất chậm, người chơi phải chờ vài giây mới gõ được. Chấp nhận được, vì nút cũng chưa bấm được, và khoá ô tránh việc `main.ts:25` ghi đè chữ vừa gõ bằng tên đã lưu.
-- **Thời gian chạy e2e là ước lượng** (chưa chạy trong lúc lập kế hoạch). Tester ghi số thật để các nhiệm vụ sau dùng.
+- **Thả nhầm.** Đã có 4 lớp chặn:
+  - phải bật chế độ thả trước;
+  - phải xác nhận trong hộp, focus mặc định ở `Giữ lại`;
+  - nút `Thả` trong hộp khoá 500 ms;
+  - chế độ thả tắt khi đóng bảng.
+  
+  Không có hoàn tác. Thêm hoàn tác cần giữ thú "đang thả" trên server một lúc, phức tạp hơn nhiều so với lợi ích.
+- **Cùng một token ở hai tab.** Lần lưu sau cùng thắng (có từ trước, mọi dữ liệu đều vậy). Thú đã thả có thể "sống lại" nếu tab kia lưu sau. Thả không cho gì nên không tạo đường nhân bản mới. Ngoài phạm vi.
+- **Choáng 6 giây.** Người chơi túi đầy đánh choáng một con rồi mới thả bớt thì có thể không kịp ném. Nút 🐾 vàng khi đầy giúp họ biết trước. Nếu vẫn thấy khó, có thể cân nhắc kho thú ở trại (ý tưởng, chưa đề xuất thành việc).
+- **Bố cục tiêu đề trên điện thoại dọc** (`Túi thú 30/30`, nút chế độ, ✕ trong 300 px) ước tính vừa. Coder kiểm bằng ảnh chụp; nếu tràn thì cho chữ nút chế độ nhỏ đi (13 px) trong media query `max-width: 600px`, không đổi chữ.
+- **Ghi chú cho việc sau:**
+  - T8: khi có cờ đầu đàn, hộp xác nhận nên thêm dòng "★ Thú đầu đàn";
+  - T12: chữ mới nằm ở `ui/party.ts`, `capture.ts` (`PARTY_FULL_TEXT`, câu trùm) và notice "Đã thả" trong `GameRoom.ts`;
+  - T4: xem lưu ý về kinh nghiệm khi bắt ở mục Thiết kế.
 
-## Đề xuất việc mới cho `TASKS.md`
+## Đề xuất việc mới cho TASKS.md
 
-- **P3: E2E chạy trên bản build như bản thật, thay vì Vite dev.**
-  - Cách làm: server phục vụ `packages/client/dist` ở cổng 2567, giống `npm run play`.
-  - Lợi ích: hết hẳn rủi ro HMR tải lại trang; mỗi lần tải trang không còn phải tải hàng trăm module riêng lẻ (chậm khi Chromium vẽ WebGL bằng phần mềm); test gần với bản deploy hơn.
-  - Cần xem: thêm bước build trước e2e (CI job e2e hiện chưa build); `baseURL` đổi sang 2567; test hồi quy sảnh đổi file cần chặn.
-  - Không cấp bách sau T1.
+T2 làm trong một vòng coder, không cần tách. Đề xuất thêm:
+
+- **P2, "Nút cảm ứng dưới 44 px trong HUD và các bảng trong game".** Ước tính từ CSS, cần đo bằng e2e như test `lobby:`:
+  - `.party-action` (cao 36 px; dùng ở bảng Thú, Chế tạo, Tủ đồ), `.party-close` (44×32), `.wardrobe-tab` (34);
+  - `.eat-btn`, `.sound-btn` (30, điện thoại 28); `.invite-btn` (khoảng 24);
+  - `.party-btn`, `.base-btn`, `.craft-btn`, `.wardrobe-btn` (khoảng 34, điện thoại khoảng 29); `.ball-btn` (khoảng 31); `.skill-auto` (khoảng 27).
+  
+  T15 đã nhận `.style-btn` và `.swatch`; hai class này dùng chung cho sảnh và Tủ đồ, nên sửa một lần là được cả hai. Khi làm, cần sắp lại cột nút của thẻ thú (ví dụ 2 cột), để thẻ không cao quá trên điện thoại ngang (bảng cao khoảng 374 px).

@@ -1,53 +1,9 @@
 PASS
-# REVIEW: T1 Test e2e chập chờn khi vào phòng, vòng 1
+# REVIEW: T2 Thả bớt thú; túi đầy thì không ném bóng (không còn mất thú), vòng 1
 
 ## Kết luận
 
-Sửa đúng nguyên nhân gốc. Sảnh là một form bấm được ngay từ HTML tĩnh, trước khi `main.ts` gắn handler `submit`, nên cú bấm sớm khiến trình duyệt tự gửi form (GET về `/?`, mất tên vừa gõ và `?room=`). Nay ô tên và nút bị khoá sẵn và chỉ mở khoá ngay sau khi gắn handler, nên mọi nguồn kích hoạt (Vite tải lại trang sau `load`, module tải lỗi) đều bị chặn. Làm đủ các bước và tiêu chí của PLAN.md, không làm thừa phạm vi; helper e2e chỉ chặt hơn, không thêm timeout hay retry. Không có lỗi phải sửa.
-
-## Đã kiểm
-
-1. **Nguyên nhân gốc.** Chuỗi suy luận trong PLAN.md đứng vững: ô trống nghĩa là handler chưa từng chạy trên trang đó (`main.ts:54` lưu tên, `main.ts:25` điền lại). Form không có `action`, ô không có `name`, nên trình duyệt gửi form về `/?`. Bằng chứng:
-   - test tạm A và B tái hiện được lỗi trên code cũ, không tái hiện trên code mới (coder làm, tester làm lại độc lập);
-   - test hồi quy hỏng trên client cũ, kể cả bản chỉ giữ các kiểm tra về hệ quả.
-   
-   Tôi chạy lại `npx playwright test -g "lobby:" --workers=1`: qua (1,3 s).
-2. **Không còn đường nào để trình duyệt tự gửi form.**
-   - Nút `disabled` (`index.html:303`) chặn cả click lẫn gửi ngầm bằng Enter: khi nút mặc định bị khoá, trình duyệt không gửi form.
-   - Ô tên bị khoá nên không nhận focus.
-   - Các nút chọn ngoại hình là `type="button"` (`ui/wardrobe.ts:126`) và được gắn trong cùng lượt chạy đồng bộ với handler.
-   - `autocomplete="off"` chặn Firefox khôi phục trạng thái đã mở khoá của nút sau khi tải lại.
-   - Lệnh mở khoá (`main.ts:71-73`) chạy cùng lượt đồng bộ với `addEventListener` và sau bước điền tên đã lưu (`main.ts:25`), nên rủi ro H2 cũng hết.
-3. **Script hỏng thì nút khoá mãi.** Người chơi chỉ thấy nút "Đang tải..." mờ với con trỏ `progress`; không có thông báo lỗi, không có nút tải lại. Chấp nhận được cho T1, vì:
-   - (a) đây là lớp lỗi có từ trước. Trước đây nút bấm được nhưng chỉ tải lại trang về `/?`, mất `?room=` và tên. Nếu lỗi nằm trong code thì mỗi lần bấm lại tải lại y hệt;
-   - (b) không thêm đường hỏng mới: mọi lệnh trước `main.ts:71` vốn đã chạy trên code cũ (H3), và e2e qua;
-   - (c) `index.html` luôn được kiểm tra lại khi tải (`server/src/index.ts:25`, chỉ `/build` được cache vĩnh viễn), nên người chơi tự tải lại trang là hồi phục được, vẫn giữ `?room=`;
-   - (d) PLAN.md đã chọn hành vi này và nêu lý do.
-   
-   Đề xuất việc tiếp theo ở phần góp ý.
-4. **Helper e2e không nới lỏng.**
-   - Không có `retries`; `playwright.config.ts` không đổi.
-   - 13 `waitForTimeout` và 5 giá trị `timeout` giữ nguyên như `HEAD`.
-   - `enterLobby` dùng timeout mặc định và thêm kiểm tra `toHaveValue`.
-   - `waitForWorld` chỉ chặt hơn: trong đường vào thành công, `#join-error` luôn trống (`main.ts:57`) rồi bị gỡ cùng sảnh (`main.ts:60`).
-   - `force: true` chỉ có ở `multiplayer.spec.ts:510`, trong test hồi quy.
-   - Kiểm kiểu `tests/e2e` bằng tsconfig tạm kế thừa `tsconfig.base.json` (strict, noUnused): sạch.
-5. **Nhật ký trang.**
-   - Chỉ in khi `status !== expectedStatus` (`multiplayer.spec.ts:12`).
-   - Trên CI, reporter `dot` vẫn ghi stdout của test ra log (`node_modules/playwright/lib/reporters/dot.js:34-38`).
-   - Lỗi 504 "Outdated Optimize Dep" của Vite không phải `requestfailed`, nhưng vẫn vào nhật ký qua `console.error` "Failed to load resource", vì Playwright chuyển `Log.entryAdded` thành sự kiện console (`crPage.js:699-711`).
-6. **Nút ≥ 44 px.** Có `min-height: 44px; box-sizing: border-box` (`index.html:243`). Tôi đo bằng CSS thật: 844×390 là 680×44, 390×844 là 340×45, 1280×720 là 340×45. Test hồi quy đo cả ba khung hình.
-7. **Link mời `?room=`.** `connect()` và thân handler không đổi. Test hồi quy khẳng định:
-   - `?room=` được giữ;
-   - handler thử vào đúng phòng được mời;
-   - chỉ có 1 lần điều hướng;
-   - tên được lưu.
-   
-   Hai test vào bằng link mời ("5 players", "movement") qua trong cả 4 lượt chạy toàn bộ.
-8. **Phạm vi và quy ước.**
-   - Chỉ 5 file bị sửa, cộng PLAN.md và PROGRESS.md.
-   - Không đổi: `main.ts:51-67`, `connect()`, server, schema, hồ sơ lưu, `playwright.config.ts`, `scripts/shots.mjs` (script này dùng `fill`/`click` nên tự chờ; tester chạy được).
-   - Chú thích code bằng tiếng Anh, chữ người chơi thấy bằng tiếng Việt, tài liệu bằng tiếng Việt.
+Thay đổi làm đúng và đủ PLAN.md. Server chặn ném bóng khi túi đầy trước khi tung xúc xắc hay trừ bóng xịn, và không còn đường nào bắt được rồi mất thú. Handler `release` kiểm kiểu, chỉ tìm trong túi của người gửi, dọn hết dữ liệu chỉ server giữ về con thú, rồi lưu game. Client chặn ném cùng lý do với server (`throwBlocker` dùng chung). Hộp xác nhận đúng thiết kế: focus, Tab, Escape, khoá 500 ms, nền mờ, nút ≥ 44 px. Không có lỗi phải sửa; các góp ý dưới đây không chặn commit.
 
 ## Lỗi phải sửa (FAIL khi còn mục này)
 
@@ -55,18 +11,57 @@ Không có.
 
 ## Góp ý không bắt buộc
 
-- **Sảnh báo lỗi khi script không tải được (đề xuất thành việc mới, P2 hoặc P3).**
-  - Cách làm: thêm handler `error` cho thẻ `<script type="module">`; sự kiện này bắn khi bất kỳ module nào trong cây không tải được. Thêm một lời nhắc hẹn giờ (ví dụ sau 20 s) kèm nút "Tải lại" gọi `location.reload()`; lệnh này giữ `?room=`.
-  - Lưu ý: lỗi ném ra lúc chạy không bắn `error` trên thẻ script (nó đi vào `window.onerror`), nên muốn phủ hết thì cần cả hai cách.
-  - Kiểm tra xem bản build của Vite có giữ nguyên thuộc tính trên thẻ script không.
-- `multiplayer.spec.ts:13-14`: đổi thứ tự, xoá `pageLog` **sau** khi đóng context. Như hiện tại, dòng nào phát sinh trong lúc đóng (ví dụ request bị huỷ) sẽ lẫn vào nhật ký của test lỗi tiếp theo.
-- **Kích thước chạm trong sảnh còn hở** (có từ trước, ngoài phạm vi T1; đề xuất thành việc P2):
-  - ô tên ở 844×390 chỉ cao 39 px (padding `9px 12px`, `index.html:258`);
-  - `.style-btn` có `min-height: 34px` (`index.html:176`);
-  - `.swatch` 32×32 px (`index.html:179`).
-- Firefox có thể khôi phục trạng thái đã mở khoá của **ô tên** khi tải lại, vì ô dùng `autocomplete="nickname"` chứ không phải `off`. Khi đó ô gõ được trước khi `main.ts` chạy, và chữ gõ sớm có thể bị tên đã lưu ghi đè. Form vẫn không bị gửi vì nút còn khoá. Không cần sửa (giữ gợi ý nickname có ích hơn), chỉ ghi nhận.
-- `docs/architecture.md:51`: câu "Bấm lúc chưa sẵn sàng thì trình duyệt tự gửi form..." đọc như mô tả hành vi hiện tại. Nên viết "Nếu không khoá, bấm lúc chưa sẵn sàng thì...".
-- Test hồi quy: thêm bước Enter như tester đề xuất, để repo kiểm cả đường bàn phím (khoá: Enter không gửi form; sẵn sàng: Enter vào được).
-- Việc của agent chính khi hoàn tất:
-  - thêm việc P3 "E2E chạy trên bản build" từ PLAN.md vào `TASKS.md`, cùng hai việc đề xuất ở trên nếu đồng ý;
-  - cân nhắc ghi "không sửa file client/shared khi e2e đang chạy" vào mục môi trường của `CLAUDE.md` (việc này do agent chính hoặc người dùng quyết).
+- **Trùng lặp trong e2e.** `tests/e2e/multiplayer.spec.ts`:
+  - `party()` ở dòng 489, `send()` ở dòng 499 và đoạn ghi tin gửi đi ở dòng 650-657 (test `party:` đầu tiên) làm đúng việc của `partyOf`, `sendFrom`, `recordSends` (dòng 678-702, tester thêm sau).
+  - Đề xuất: chuyển ba helper lên trước test `party:` đầu tiên và dùng chúng trong cả ba test, bỏ bản sao cục bộ.
+- **`scheduleSave` trong `release()` chưa có test riêng.** Test "a released pal stays gone after rejoining" (`GameRoom.test.ts:1435`) vẫn qua nếu ai đó xoá `scheduleSave` khỏi `release()`, vì `onLeave` gọi `saveNow`. Muốn kiểm đúng việc lưu mà không cần rời phòng:
+  - thả một con, chờ quá `SAVE_DELAY_MS` (khoảng 45 tick);
+  - đọc hồ sơ thẳng từ store (`useStore`/`SqliteStore` đã import trong file);
+  - kiểm con đó không còn trong hồ sơ.
+- **Biến môi trường trong test.** `GameRoom.test.ts:1504-1514` nên nhớ giá trị cũ của `PETGAME_DEBUG` rồi trả lại, thay vì `delete`. Nếu ai đó chạy `PETGAME_DEBUG=1 npm test`, các test chạy sau test này sẽ mất biến đó.
+- **Focus khi thả con cuối.** `closeConfirm()` đưa focus về nút chế độ, rồi `render()` ẩn nút đó vì túi trống (`party.ts:200`), nên focus rơi về `body`. Khi nút chế độ bị ẩn, có thể đưa focus sang nút ✕.
+- **Focus mất khi danh sách được vẽ lại** (có từ trước, nay dễ thấy hơn ở chế độ thả).
+  - Khoá ở `party.ts:188` chứa `xp` của mọi con. Mỗi khi một con làm việc hay con đi theo nhận XP, mọi thẻ được tạo lại, và người dùng bàn phím đang Tab giữa các nút `Thả` bị mất focus.
+  - Có thể gộp vào việc P2 về bảng: nhớ id của thẻ đang có focus và trả focus lại sau `render()`.
+- **Phím của game vẫn chạy khi hộp mở.** Shift+Tab làm nhân vật lướt; E ném bóng, B đặt trại, Space đánh.
+  - PLAN.md đã chấp nhận giữ nguyên lớp `Keyboard`, nên không tính là lỗi.
+  - Đề xuất việc riêng: `Keyboard` bỏ qua các phím hành động khi có hộp thoại modal đang mở.
+- **Nút chế độ.** `title` luôn là "Chọn thú để thả về thiên nhiên", kể cả khi nút đang ghi "✓ Xong". Với nút có `aria-pressed`, nên giữ nhãn cố định, hoặc đổi `title` theo trạng thái. Việc nhỏ.
+- **Tài liệu.** Dòng "Helper" ở `docs/architecture.md:73` chưa nhắc tham số `options` của `openPage`/`join` (màn hình, cảm ứng), cũng chưa nhắc ba helper mới `partyOf`, `sendFrom`, `recordSends`.
+- **Cho TASKS.md (agent chính):**
+  - P1: hai test chập chờn có từ trước. Tester đã ghi nguyên nhân trong PROGRESS.md: trùm bị dịch vào vật cản, khoảng 7,5%; 30 lần sinh mà không ra Mothlume, khoảng 3,8-5,5%. Gộp lại, khoảng 11% số lần chạy `npm test` hỏng oan.
+  - P2: nút cảm ứng dưới 44 px (đề xuất cuối PLAN.md).
+  - `.party-panel` là `content-box`, tràn 8 px ở 390×844 khi có từ 7 thú.
+  - Tạm dừng phím game khi hộp thoại mở (mục trên).
+
+## Đã xác minh
+
+1. **Mọi chỗ đổi túi thú ở server.** Có 3 chỗ `push` và 1 chỗ `splice`, không chỗ nào để túi vượt `MAX_PARTY`:
+   - `debug:givePal` chặn khi đầy;
+   - `onJoin` nạp từ hồ sơ, đã cắt ở `MAX_PARTY` trong `sanitizeProfile`;
+   - `handleThrow` có `throwBlocker` chặn trước, trong cùng lời gọi đồng bộ;
+   - `release` là chỗ `splice`.
+
+   Thứ tự trong `handleThrow` đúng PLAN.md: cooldown, tầm ném, `inBall`, `lastThrowAt`, `throwBlocker`. Câu báo trùm giữ nguyên.
+2. **Dọn dữ liệu khi thả.**
+   - `despawnCompanion` dọn: companion, `companionTimers`, chiêu chưa bắn, `skillReady`/`skillGapUntil`/`castingUntil`, `lastDamagedAt`, thú hoang đang nhắm nó.
+   - `release` dọn thêm: `skillOrder`, `faintedUntil`.
+   - Chiêu đã bắn: `land()` bỏ qua chiêu xuất phát từ người dùng chiêu (`FROM_CASTER`), và không cộng XP vì `owned` không còn.
+   - Hẹn giờ XP khi bắt thú đầu đàn kiểm `pals.includes(follower)`.
+   - Thú hoang bỏ chạy hay nổi giận với một companion đã mất thì tự thôi (`targetPos` trả `undefined`).
+   - Hẹn giờ lưu: nếu người chơi đã rời phòng thì `saveNow` không làm gì.
+3. **Đồng bộ schema.** Chạy script với Encoder/Decoder thật (`@colyseus/schema` 5.0.36) và `schema.ts`.
+   - 12 tình huống `splice`, state phía client đều khớp server: giữa danh sách; con đầu trong 30; con cuối; con duy nhất; `splice` rồi `push` trong cùng một patch (thả rồi bắt trong cùng tick); `splice` rồi sửa phần tử bị dịch chỉ số; sửa rồi `splice` chính nó; hai `splice` trong một patch; thả hết rồi thêm lại 30 con trong một patch.
+   - `delete` một companion không tồn tại (thả con đang nghỉ) cũng khớp.
+   - Script nằm ngoài repo: `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/review/`.
+4. **Client.**
+   - Không có callback theo từng phần tử của `pals`; `updateHud` đọc `me.pals` mỗi khung hình. Thanh chiêu tự ẩn khi `activePalId` rỗng.
+   - Hộp thoại dựng một lần, listener gắn một lần, hẹn giờ khoá được xoá khi đóng.
+   - Mỗi khung hình không tạo thêm object nào đáng kể (chỉ một `some()` khi hộp mở).
+   - `z-index` của hộp (5) nằm trên mọi thứ trong HUD (2) và nhãn (1).
+5. **Lệnh đã chạy.**
+   - `npm run typecheck`: sạch.
+   - `npx vitest run packages/shared/src/capture.test.ts packages/server/src/rooms/GameRoom.test.ts -t "throwBlocker|releasing pals|cannot be captured|adds a captured pal"`: 12/12 qua.
+   - `npx playwright test -g "party:" --workers=1`: 3/3 qua (1,2 phút). Cổng 2567/5173 trống trước và sau.
+   - `grep -rn "cho bớt\|Túi thú đã đầy" packages`: không ra kết quả.
+   - Không đổi `schema.ts`, `store.ts`, `Profile`, `constants.ts`, `scripts/shots.mjs`, `playwright.config.ts`.

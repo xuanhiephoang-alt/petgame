@@ -14,6 +14,7 @@ import {
   NODE_HITS,
   NODE_REGROW_MS,
   NODE_RESOURCE,
+  PARTY_FULL_TEXT,
   PLAYER_RADIUS,
   STOMP_KNOCKBACK,
   WILD_BITE_REACH,
@@ -29,6 +30,7 @@ import {
   nodeId,
   palDrops,
   stepWithDash,
+  throwBlocker,
   type DashMessage,
   type DashedMessage,
   type DefeatedMessage,
@@ -178,6 +180,7 @@ import {
   type LevelUpMessage,
   type NoticeMessage,
   type ProducedMessage,
+  type ReleaseMessage,
   type SummonMessage,
   type ThrowMessage,
   type Vec2,
@@ -354,6 +357,9 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (message.assignment === "work") this.sendToWork(client, message.palId);
       else if (message.assignment === "") this.rest(client.sessionId, message.palId);
     });
+    this.onMessage(ClientMessage.Release, (client, message: ReleaseMessage) => {
+      if (typeof message?.palId === "string") this.release(client, message.palId);
+    });
     this.onMessage(ClientMessage.PlaceBase, (client) => this.placeBase(client));
     this.onMessage(ClientMessage.Craft, (client, message: CraftMessage) => {
       if (typeof message?.recipeId === "string") this.craft(client, message.recipeId);
@@ -417,7 +423,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       // A pal of this species and level joins the party and follows (to try its skills).
       this.onMessage("debug:givePal", (client, message?: { species?: string; level?: number }) => {
         const player = this.state.players.get(client.sessionId);
-        if (!player || player.pals.length >= MAX_PARTY) return;
+        if (!player) return;
+        if (player.pals.length >= MAX_PARTY) return this.notify(client, PARTY_FULL_TEXT);
         let species: PalSpecies;
         try {
           species = getSpecies(String(message?.species));
@@ -782,10 +789,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     const now = this.clock.currentTime;
     if (now - control.lastThrowAt < THROW_COOLDOWN_MS) return;
     if (distance(player, pal) > THROW_RANGE) return;
-    if (pal.boss) return this.notify(client, "Không thể bắt trùm! Hãy cùng nhau hạ nó");
-    if (pal.alpha && player.pals.length >= MAX_PARTY) return this.notify(client, "Túi thú đã đầy: cho bớt thú đi trước khi bắt đầu đàn");
     if (this.inBall.has(palId)) return;
-    control.lastThrowAt = now;
+    control.lastThrowAt = now; // a refused throw waits out the cooldown too: refusals cannot flood notices
+    // The boss is never caught and a full party has no room: refuse before any roll is made or great ball used.
+    const blocker = throwBlocker(player.pals.length, pal);
+    if (blocker) return this.notify(client, blocker);
 
     const species = getSpecies(pal.speciesId);
     const useGreat = greatBall && player.greatBalls > 0;
@@ -808,30 +816,27 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (success) {
       const alphaName = pal.alpha ? this.alphaName(pal) : "";
       this.removePal(palId);
-      if (player.pals.length < MAX_PARTY) {
-        const owned = new OwnedPal();
-        owned.id = randomUUID();
-        owned.speciesId = species.id;
-        owned.level = pal.level;
-        owned.xp = 0;
-        owned.assignment = "";
-        player.pals.push(owned);
-        const follower = player.pals.find((p) => p.id === player.activePalId);
-        if (follower) this.grantXp(client.sessionId, follower, XP_PER_CAPTURE);
-        // The first catch starts following right away.
-        else this.summon(client.sessionId, owned.id);
-        this.questEvent(client.sessionId, "catch");
-        if (alphaName) {
-          // Once the ball has clicked shut: the news, and a lot of XP for the pal that helped.
-          const reveal = captureRevealMs(shakes);
-          this.announce(`★ ${player.name} đã bắt được ${alphaName}!`, reveal + 300);
-          this.clock.setTimeout(() => {
-            if (follower && this.state.players.get(client.sessionId)?.pals.includes(follower)) this.grantXp(client.sessionId, follower, ALPHA.xp);
-          }, reveal + 300);
-          this.questEvent(client.sessionId, "alpha");
-        }
-      } else {
-        this.notify(client, "Túi thú đã đầy");
+      // There is room: checked above, in this same call (nothing runs in between), so a catch is never lost.
+      const owned = new OwnedPal();
+      owned.id = randomUUID();
+      owned.speciesId = species.id;
+      owned.level = pal.level;
+      owned.xp = 0;
+      owned.assignment = "";
+      player.pals.push(owned);
+      const follower = player.pals.find((p) => p.id === player.activePalId);
+      if (follower) this.grantXp(client.sessionId, follower, XP_PER_CAPTURE);
+      // The first catch starts following right away.
+      else this.summon(client.sessionId, owned.id);
+      this.questEvent(client.sessionId, "catch");
+      if (alphaName) {
+        // Once the ball has clicked shut: the news, and a lot of XP for the pal that helped.
+        const reveal = captureRevealMs(shakes);
+        this.announce(`★ ${player.name} đã bắt được ${alphaName}!`, reveal + 300);
+        this.clock.setTimeout(() => {
+          if (follower && this.state.players.get(client.sessionId)?.pals.includes(follower)) this.grantXp(client.sessionId, follower, ALPHA.xp);
+        }, reveal + 300);
+        this.questEvent(client.sessionId, "alpha");
       }
       this.scheduleSave(client.sessionId);
     }
@@ -896,6 +901,22 @@ export class GameRoom extends Room<{ state: GameState }> {
     owned.assignment = "";
     this.despawnCompanion(ownedId);
     this.scheduleSave(sessionId);
+  }
+
+  /** Lets one of the player's pals go for good (the party panel asks first): it leaves the party and the world, nothing is given back. */
+  private release(client: Client, ownedId: string) {
+    const player = this.state.players.get(client.sessionId);
+    const index = player ? player.pals.findIndex((p) => p.id === ownedId) : -1;
+    if (!player || index < 0) return; // not one of theirs: ignored quietly, so it tells nothing and cannot be used to spam notices
+    const name = getSpecies(player.pals[index].speciesId).name;
+    if (player.activePalId === ownedId) player.activePalId = "";
+    this.despawnCompanion(ownedId);
+    const control = this.controls.get(client.sessionId);
+    if (control?.skillOrder?.companionId === ownedId) control.skillOrder = undefined;
+    this.faintedUntil.delete(ownedId);
+    player.pals.splice(index, 1);
+    this.notify(client, `Đã thả ${name}. Tạm biệt! 👋`);
+    this.scheduleSave(client.sessionId);
   }
 
   private placeBase(client: Client) {

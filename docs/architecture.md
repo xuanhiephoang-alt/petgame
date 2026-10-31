@@ -26,7 +26,7 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 | `pals.ts` + `data/pals.json` | 13 loài: chỉ số, hệ, tính khí, nơi sinh, 3 chiêu (`skills`) |
 | `skills.ts` + `data/skills.json` | 30 chiêu: `skillPower`, `learnset`, `knownSkills`, `skillTravelMs`, `inSkillArea`, hằng số lệnh chiêu |
 | `elements.ts` | Khắc hệ (×1,5 / ×0,75), màu hệ |
-| `capture.ts` | Tỉ lệ bắt, số lần lắc bóng, thời gian |
+| `capture.ts` | Tỉ lệ bắt, số lần lắc bóng, thời gian; `throwBlocker` (trùm, túi đầy; client và server dùng chung) |
 | `combat.ts`, `gathering.ts` | Sát thương, choáng, hạ gục, rơi đồ; chặt cây, đập đá |
 | `progression.ts`, `work.ts` | Kinh nghiệm, lên cấp, máu theo cấp; thú làm việc ở trại |
 | `crafting.ts` + `data/recipes.json` | Chế tạo, nâng trại (`craftBlocker` dùng chung client/server) |
@@ -55,7 +55,7 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 - `game/entities.ts`: `PlayerActor` (búp bê giấy `art/doll.ts`), `PalActor` (một hình mỗi hướng, nhún nhảy; gồng `setWindup`, choáng `setDizzy`, quầng đầu đàn `aura`, bóng mờ `ghost`), `play(...)`, `freeze()`.
 - `game/effects.ts`: hiệu ứng ngắn tự dọn (`fx.add(layer, node, giây, update(k))`). `game/skillfx.ts`: hoạt ảnh riêng từng chiêu (`SKILL_SHOWS`), gồng chiêu, cảnh báo trước, vùng đỏ chiêu của thú hoang (`danger`).
 - `game/labels.ts`: tên, thanh máu, chữ bay là phần tử DOM theo vị trí thế giới (CSS trong `index.html`). `game/palSprites.ts` + `art/`: hình thú, cây, đồ vật (ảnh AI trong `public/assets/` hoặc vẽ bằng code).
-- `ui/`: DOM overlay: `hud.ts` (trạng thái, toast, nút cảm ứng), `party.ts` (bảng thú), `skillbar.ts` (chiêu của thú, phím 1-3), `crafting.ts`, `wardrobe.ts`, `minimap.ts`, `quests.ts`, `joystick.ts`, `keyboard.ts`, `audio.ts` (âm thanh tổng hợp Web Audio, không có file âm thanh).
+- `ui/`: DOM overlay: `hud.ts` (trạng thái, toast, nút cảm ứng), `party.ts` (bảng thú; chế độ 🕊️ Thả bớt và hộp xác nhận), `skillbar.ts` (chiêu của thú, phím 1-3), `crafting.ts`, `wardrobe.ts`, `minimap.ts`, `quests.ts`, `joystick.ts`, `keyboard.ts`, `audio.ts` (âm thanh tổng hợp Web Audio, không có file âm thanh).
 - `gallery.ts` (`sprites.html`): xem mọi hình (`?show=pals|players|nature|skills`).
 - Hiệu năng điện thoại: resolution ≤ 2, dùng chung texture, không tạo object mới mỗi khung hình, ẩn thứ ở xa camera, `destroy()` khi xoá. Ngân sách: ≤ 600 sprite mỗi khung hình (in bởi `npm run shots`), ảnh ≤ 1024×1024, ảnh thú cao 256 px mỗi ô.
 - Mọi thao tác dùng được bằng cả cảm ứng lẫn bàn phím; nút cảm ứng ≥ 44×44 px; kiểm tra ở điện thoại dọc, ngang và desktop 1280×720.

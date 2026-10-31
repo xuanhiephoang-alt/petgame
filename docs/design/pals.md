@@ -58,6 +58,14 @@ Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) ca
 - Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm, cả thế giới được báo tin. Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; túi đầy thì không ném được.
 - Quay lại chỗ ở sau 6 phút. Nhiệm vụ cuối chuỗi: "Hạ hoặc bắt một thú đầu đàn".
 
+## Túi thú và thả thú
+
+- Mỗi người chơi mang tối đa 30 thú (`MAX_PARTY`), tính cả con đang đi theo và các con làm việc ở trại.
+- **Túi đầy thì không ném bóng được**, với mọi thú hoang kể cả thú đầu đàn (trùm thì không bao giờ bắt được). Khi đó bóng không bay đi, bóng xịn không bị trừ, thú hoang không bị động tới, và người chơi thấy "Túi thú đầy (30/30): mở 🐾 Thú và bấm 🕊️ Thả bớt". Client báo ngay mà không gửi tin; server vẫn tự kiểm tra lại. Cả hai dùng chung `throwBlocker` (`capture.ts`). Không còn trường hợp bắt được rồi mất thú.
+- Khi túi đầy, nút 🐾 Thú hiện "🐾 Thú (30/30)" trên nền vàng. Nhờ vậy người chơi biết để thả bớt trước khi đánh choáng một con mới, vì choáng chỉ kéo dài 6 giây.
+- **Thả thú:** mở bảng 🐾 Thú, bấm "🕊️ Thả bớt" (mỗi thẻ thú chỉ còn nút "Thả"), chọn một con, rồi xác nhận trong hộp "Giữ lại" / "Thả". Nút "Thả" trong hộp mờ 0,5 giây đầu để chạm đúp nhầm không thả mất thú. Thả được mọi con: đang nghỉ, đang đi theo, đang làm việc ở trại, đang kiệt sức, và cả con cuối cùng (hộp xác nhận nhắc riêng). Đóng bảng thì chế độ thả tự tắt.
+- Thú được thả rời đi hẳn: không thành thú hoang, không rơi đồ, không hoàn lại gì. Lý do: bóng thường không giới hạn, và bắt một Leafkit cấp 1 gần lửa trại chỉ mất khoảng 3,5 giây (4 đòn, 96% bắt được khi choáng, bóng lắc 1,9 giây). Vì vậy phần thưởng nào khi thả cũng biến thành vòng lặp bắt rồi thả để kiếm đồ.
+
 ## Tính khí
 
 - **passive** (hiền): không bao giờ tấn công.

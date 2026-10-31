@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { BALL_DROP_MS, BALL_FLIGHT_MS, BALL_SHAKE_MS, captureChance, captureRevealMs, captureShakes } from "./capture.ts";
+import {
+  BALL_DROP_MS,
+  BALL_FLIGHT_MS,
+  BALL_SHAKE_MS,
+  PARTY_FULL_TEXT,
+  captureChance,
+  captureRevealMs,
+  captureShakes,
+  throwBlocker,
+} from "./capture.ts";
+import { MAX_PARTY } from "./constants.ts";
 
 describe("captureChance", () => {
   it("equals catchRate at full HP", () => {
@@ -31,5 +41,32 @@ describe("ball wobbles", () => {
   it("takes the throw, the drop and each wobble to reveal", () => {
     expect(captureRevealMs(3)).toBe(BALL_FLIGHT_MS + BALL_DROP_MS + 3 * BALL_SHAKE_MS);
     expect(captureRevealMs(1)).toBeLessThan(captureRevealMs(2));
+  });
+});
+
+describe("throwBlocker", () => {
+  const wild = { boss: false };
+
+  it("lets a ball fly while the party has room", () => {
+    expect(throwBlocker(0, wild)).toBeUndefined();
+    expect(throwBlocker(MAX_PARTY - 1, wild)).toBeUndefined();
+  });
+
+  it("refuses once the party is full, or somehow over", () => {
+    expect(throwBlocker(MAX_PARTY, wild)).toBe(PARTY_FULL_TEXT);
+    expect(throwBlocker(MAX_PARTY + 3, wild)).toBe(PARTY_FULL_TEXT);
+  });
+
+  it("tells the player which way out there is, naming the button and the limit", () => {
+    expect(PARTY_FULL_TEXT).toContain(`${MAX_PARTY}/${MAX_PARTY}`);
+    expect(PARTY_FULL_TEXT).toContain("Thả bớt");
+    // The old text told players to do something no button could do (a regex, so the old wording is not repeated in the code).
+    expect(PARTY_FULL_TEXT).not.toMatch(/cho\s+bớt/i);
+  });
+
+  it("never lets the boss be caught, whatever the party size (the boss is judged first)", () => {
+    expect(throwBlocker(0, { boss: true })).toContain("trùm");
+    expect(throwBlocker(MAX_PARTY, { boss: true })).toContain("trùm");
+    expect(throwBlocker(MAX_PARTY, { boss: true })).not.toBe(PARTY_FULL_TEXT);
   });
 });

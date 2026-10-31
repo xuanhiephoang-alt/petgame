@@ -20,6 +20,10 @@ import {
   PLAYER_MAX_HP,
   BERRY_HEAL,
   WildPal,
+  OwnedPal,
+  MAX_PARTY,
+  PARTY_FULL_TEXT,
+  type Player,
   type DamageMessage,
   type SkillCastMessage,
   type HealedMessage,
@@ -1327,5 +1331,187 @@ describe("chopping, dodging, dizzy pals", () => {
     expect(reared).toBe(true);
     await client.waitForMessage(ServerMessage.BossStomp, 3000);
     expect(player.hp).toBe(PLAYER_MAX_HP);
+  });
+});
+
+/** Puts resting pals straight into a player's party (no catching needed) and returns them. */
+function addPals(player: Pick<Player, "pals">, n: number, speciesId = "leafkit"): OwnedPal[] {
+  const added: OwnedPal[] = [];
+  for (let i = 0; i < n; i++) {
+    const owned = new OwnedPal();
+    owned.id = `fill-${player.pals.length}-${Math.random().toString(36).slice(2, 8)}`;
+    owned.speciesId = speciesId;
+    owned.level = 1;
+    owned.xp = 0;
+    owned.assignment = "";
+    player.pals.push(owned);
+    added.push(owned);
+  }
+  return added;
+}
+
+describe("releasing pals and a full party", () => {
+  it("lets a resting pal go for good; ignores unknown ids, bad payloads and other players' pals", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player); // A follows
+    const [b, c] = addPals(player, 2);
+    const [idA, idB, idC] = [player.pals[0].id, b.id, c.id];
+    const other = await colyseus.connectTo(room, { name: "Other" });
+    const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+    const ids = () => player.pals.map((p) => p.id);
+
+    other.send(ClientMessage.Release, { palId: idB }); // somebody else's pal
+    client.send(ClientMessage.Release, { palId: "nope" });
+    client.send(ClientMessage.Release, { palId: 42 });
+    client.send(ClientMessage.Release, {});
+    client.send(ClientMessage.Release);
+    await ticks(room, 3);
+    expect(ids()).toEqual([idA, idB, idC]);
+    expect(notices).toHaveLength(0); // refusals are silent: nothing to learn from them, nothing to flood with
+
+    client.send(ClientMessage.Release, { palId: idB });
+    await ticks(room, 3);
+    expect(ids()).toEqual([idA, idC]);
+    // The client's own copy of the state loses it too (a removal from the middle of the list).
+    await vi.waitFor(() => expect([...client.state.players.get(client.sessionId)!.pals].map((p: OwnedPal) => p.id)).toEqual([idA, idC]));
+    expect(notices.at(-1)?.text).toContain("Đã thả");
+    expect(player.activePalId).toBe(idA); // the follower is untouched
+    expect(room.state.companions.has(idA)).toBe(true);
+  });
+
+  it("releasing the follower, even the last pal, sends it away and forgets it", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    const id = player.pals[0].id;
+    expect(player.activePalId).toBe(id);
+    // Things only the server keeps about a pal: an order for it, its tiredness, its recharges and its cast.
+    // Standing mid-cast keeps the order from being carried out (or dropped) before the release arrives.
+    const inner = room as any;
+    inner.controls.get(client.sessionId).skillOrder = { companionId: id, skill: "seed_shot", until: Number.MAX_SAFE_INTEGER };
+    inner.faintedUntil.set(id, Number.MAX_SAFE_INTEGER);
+    inner.skillReady.set(`c:${id}`, new Map([["seed_shot", Number.MAX_SAFE_INTEGER]]));
+    inner.castingUntil.set(`c:${id}`, Number.MAX_SAFE_INTEGER);
+
+    client.send(ClientMessage.Release, { palId: id });
+    await ticks(room, 2);
+    expect(player.pals.length).toBe(0);
+    expect(player.activePalId).toBe("");
+    expect(room.state.companions.has(id)).toBe(false);
+    expect(inner.controls.get(client.sessionId).skillOrder).toBeUndefined();
+    expect(inner.faintedUntil.has(id)).toBe(false);
+    expect(inner.skillReady.has(`c:${id}`)).toBe(false);
+    expect(inner.castingUntil.has(`c:${id}`)).toBe(false);
+
+    // Like a new player's first catch: the next pal follows by itself.
+    await ticks(room, 20);
+    await capture(room, client, player);
+    expect(player.pals.length).toBe(1);
+    expect(player.activePalId).toBe(player.pals[0].id);
+  });
+
+  it("releasing a worker takes it off the camp; the other workers carry on", async () => {
+    const { room, client, player } = await setup();
+    player.x = WORLD_WIDTH / 2;
+    player.y = WORLD_HEIGHT / 2 + 150;
+    client.send(ClientMessage.PlaceBase);
+    await ticks(room, 3);
+    expect(player.hasBase).toBe(true);
+    await capture(room, client, player);
+    const [b] = addPals(player, 1);
+    const [idA, idB] = [player.pals[0].id, b.id];
+    client.send(ClientMessage.Assign, { palId: idA, assignment: "work" });
+    client.send(ClientMessage.Assign, { palId: idB, assignment: "work" });
+    await ticks(room, 2);
+    expect(room.state.companions.get(idA)?.mode).toBe("work");
+    expect(room.state.companions.get(idB)?.mode).toBe("work");
+
+    client.send(ClientMessage.Release, { palId: idA });
+    await ticks(room, 2);
+    expect(room.state.companions.has(idA)).toBe(false);
+    expect(player.pals.map((p) => p.id)).toEqual([idB]);
+    expect(room.state.companions.get(idB)?.mode).toBe("work");
+  });
+
+  it("a released pal stays gone after rejoining", async () => {
+    const token = "release-token-0123456789";
+    const first = await setup(token);
+    await capture(first.room, first.client, first.player); // A follows
+    const [b] = addPals(first.player, 1);
+    const idA = first.player.pals[0].id;
+    first.client.send(ClientMessage.Release, { palId: idA });
+    await ticks(first.room, 2);
+    await first.client.leave();
+    await colyseus.cleanup();
+
+    const second = await setup(token);
+    expect(second.player.pals.map((p) => p.id)).toEqual([b.id]);
+    expect(second.player.activePalId).toBe("");
+    expect(second.room.state.companions.size).toBe(0);
+  });
+
+  it("a full party cannot throw: no ball is used and nothing is caught or lost, pack leaders included", async () => {
+    const { room, client, player } = await setup();
+    addPals(player, MAX_PARTY);
+    const [alphaId, alpha] = [...room.state.pals.entries()].find(([, p]) => p.alpha)!;
+    // Only the pals this test names are around: nobody else bites, and the throw's target is chosen by id.
+    for (const id of [...room.state.pals.keys()]) if (id !== alphaId) room.state.pals.delete(id);
+    const leaf = placeWild(room, "leafkit", player, 60);
+    const leafPal = room.state.pals.get(leaf)!;
+    leafPal.hp = 1; // a throw that went through would very likely catch it
+    player.greatBalls = 1;
+    const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+    const results = collect<CaptureResultMessage>(client, ServerMessage.CaptureResult);
+
+    // Twice in a row: only the first is answered (a refusal waits out the cooldown too).
+    client.send(ClientMessage.Throw, { palId: leaf, ball: "great" });
+    client.send(ClientMessage.Throw, { palId: leaf, ball: "great" });
+    await ticks(room, 3);
+    expect(results).toHaveLength(0);
+    expect(room.state.pals.has(leaf)).toBe(true);
+    expect((room as any).inBall.has(leaf)).toBe(false);
+    expect(player.pals.length).toBe(MAX_PARTY);
+    expect(player.greatBalls).toBe(1);
+    expect(notices.map((n) => n.text)).toEqual([PARTY_FULL_TEXT]);
+
+    // A pack leader gets the same answer.
+    await ticks(room, 20);
+    player.x = alpha.x + 40;
+    player.y = alpha.y;
+    client.send(ClientMessage.Throw, { palId: alphaId });
+    await ticks(room, 3);
+    expect(results).toHaveLength(0);
+    expect(room.state.pals.has(alphaId)).toBe(true);
+    expect(player.pals.length).toBe(MAX_PARTY);
+    expect(notices.map((n) => n.text)).toEqual([PARTY_FULL_TEXT, PARTY_FULL_TEXT]);
+
+    // Back by the leafkit, one place is freed and the next catch goes through: the party is full again, nothing lost.
+    player.x = leafPal.x - 60;
+    player.y = leafPal.y;
+    client.send(ClientMessage.Release, { palId: player.pals[0].id });
+    await ticks(room, 2);
+    expect(player.pals.length).toBe(MAX_PARTY - 1);
+    await ticks(room, 20);
+    vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
+    client.send(ClientMessage.Throw, { palId: leaf });
+    const caught: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult);
+    vi.restoreAllMocks();
+    expect(caught.success).toBe(true);
+    expect(player.pals.length).toBe(MAX_PARTY);
+    expect(room.state.pals.has(leaf)).toBe(false);
+  });
+
+  it("the test hook that gives a pal says why when the party is full", async () => {
+    process.env.PETGAME_DEBUG = "1"; // the hooks are registered when the room is created
+    try {
+      const { room, client, player } = await setup();
+      addPals(player, MAX_PARTY);
+      const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+      client.send("debug:givePal", { species: "leafkit" });
+      await ticks(room, 3);
+      expect(player.pals.length).toBe(MAX_PARTY);
+      expect(notices.at(-1)?.text).toBe(PARTY_FULL_TEXT);
+    } finally {
+      delete process.env.PETGAME_DEBUG;
+    }
   });
 });

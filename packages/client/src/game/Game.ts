@@ -13,6 +13,7 @@ import {
   nearestNode,
   nodeId,
   captureRevealMs,
+  throwBlocker,
   BALL_FLIGHT_MS,
   DASH_COOLDOWN_MS,
   DASH_MS,
@@ -261,6 +262,7 @@ export class Game {
       work: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "work" }),
       rest: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "" }),
       feed: (palId) => this.room.send(ClientMessage.Feed, { palId }),
+      release: (palId) => this.room.send(ClientMessage.Release, { palId }),
     }, (speciesId) => palPortrait(spriteFor(this.assets.pals, speciesId)));
     this.skillBar = new SkillBar(this.hud.root, isTouch, {
       use: (skill) => this.room.send(ClientMessage.PalSkill, { skill }),
@@ -1035,6 +1037,13 @@ export class Game {
     }
     const [targetId, pal] = target;
     const state = this.room.state.players.get(this.room.sessionId);
+    // Refused for the same reason the server would give (the boss, a full party): no ball leaves the hand.
+    const wild = this.room.state.pals.get(targetId);
+    const blocker = wild ? throwBlocker(state?.pals.length ?? 0, wild) : undefined;
+    if (blocker) {
+      this.hud.showToast(blocker, 3000);
+      return;
+    }
     const great = this.useGreatBall && (state?.greatBalls ?? 0) > 0;
     this.room.send(ClientMessage.Throw, { palId: targetId, ball: great ? "great" : "basic" });
     me.play("throw");
