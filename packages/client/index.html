@@ -240,7 +240,10 @@
       #lobby form { display: flex; flex-direction: column; gap: 12px; width: min(340px, 92vw); margin: auto; padding: 16px 0; }
       #lobby h1 { margin: 0 0 4px; text-align: center; }
       #lobby input, #join-btn { font-size: 18px; padding: 12px; border-radius: 8px; border: none; }
-      #join-btn { background: #7cc35a; color: #10200f; font-weight: bold; cursor: pointer; }
+      #join-btn { min-height: 44px; box-sizing: border-box; background: #7cc35a; color: #10200f; font-weight: bold; cursor: pointer; }
+      /* Locked while the lobby script loads (see the comment on the form). */
+      #join-btn:disabled { opacity: 0.6; cursor: progress; }
+      #lobby input:disabled { opacity: 0.6; }
       #lobby .hint { font-size: 14px; opacity: 0.7; text-align: center; }
       #lobby .error { color: #ff8a80; text-align: center; min-height: 1em; }
       .lobby-look { display: flex; flex-direction: column; align-items: center; gap: 10px; }
@@ -290,11 +293,14 @@
   <body>
     <div id="game"></div>
     <div id="lobby">
+      <!-- The name box and the button are locked until src/main.ts has attached the submit handler (it unlocks them).
+           A press before that would make the browser submit the form itself and reload the page: the typed name and
+           the ?room= of an invite link would be lost. The end-to-end tests wait for the button to be enabled. -->
       <form id="join-form">
         <h1>🐾 PetGame</h1>
         <div id="look" class="lobby-look"></div>
-        <input id="name" placeholder="Tên của bạn" maxlength="16" autocomplete="nickname" />
-        <button type="submit" id="join-btn">Vào chơi</button>
+        <input id="name" placeholder="Tên của bạn" maxlength="16" autocomplete="nickname" disabled />
+        <button type="submit" id="join-btn" disabled autocomplete="off">Đang tải...</button>
         <div class="hint" id="room-hint"></div>
         <div class="error" id="join-error"></div>
       </form>

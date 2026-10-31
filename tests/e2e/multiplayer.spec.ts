@@ -6,23 +6,68 @@ const SERVER = "http://localhost:2567";
 // Pages render WebGL in software here; close them after each test so they
 // do not keep eating CPU and starve the next test.
 const contexts: BrowserContext[] = [];
-test.afterEach(async () => {
+// What the pages did (navigations, errors, Vite messages): printed only when a test fails.
+const pageLog: string[] = [];
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus && pageLog.length > 0) console.log(`Page log:\n${pageLog.join("\n")}`);
+  pageLog.length = 0;
   await Promise.all(contexts.splice(0).map((c) => c.close()));
 });
 
-async function join(browser: Browser, name: string, path = "/"): Promise<Page> {
+/**
+ * Records what a page does into `pageLog`: navigations of the main frame, script errors, console errors,
+ * Vite's own messages (it reloads the page when files change) and documents or scripts that failed to load.
+ */
+function watch(page: Page, tag: string) {
+  const note = (text: string) => pageLog.push(`${new Date().toISOString().slice(11, 23)} [${tag}] ${text}`);
+  page.on("framenavigated", (frame) => frame === page.mainFrame() && note(`navigated ${frame.url()}`));
+  page.on("pageerror", (err) => note(`pageerror ${err.message}`));
+  page.on("console", (msg) => {
+    if (msg.type() === "error" || msg.text().startsWith("[vite]")) note(`console.${msg.type()} ${msg.text()}`);
+  });
+  page.on("requestfailed", (request) => {
+    const type = request.resourceType();
+    if (type === "document" || type === "script") note(`requestfailed ${type} ${request.url()} ${request.failure()?.errorText}`);
+  });
+}
+
+/** Opens the game in a fresh browser context (an empty localStorage: a new device); `tag` names the page in the log. */
+async function openPage(browser: Browser, path = "/", tag = "page"): Promise<Page> {
   const context = await browser.newContext();
   contexts.push(context);
   const page = await context.newPage();
+  watch(page, tag);
   // Software-rendered WebGL here: skip post-processing so tests stay fast.
   await page.goto(path + (path.includes("?") ? "&" : "?") + "quality=low");
-  await page.fill("#name", name);
-  await page.click("#join-btn");
   return page;
 }
 
+/**
+ * Types the name and presses "Vào chơi". The lobby is ready when the button is enabled: index.html keeps it locked
+ * until main.ts has attached the submit handler, and a press before that would make the browser submit the form
+ * itself (the page reloads with an empty name box and the world is never entered).
+ */
+async function enterLobby(page: Page, name: string) {
+  await page.locator("#join-btn:enabled").waitFor();
+  await page.fill("#name", name);
+  await expect(page.locator("#name")).toHaveValue(name);
+  await page.click("#join-btn");
+}
+
+async function join(browser: Browser, name: string, path = "/"): Promise<Page> {
+  const page = await openPage(browser, path, name);
+  await enterLobby(page, name);
+  return page;
+}
+
+/** Waits until the player is in the world; fails at once if the lobby shows an error instead. */
 async function waitForWorld(page: Page) {
-  await page.waitForFunction(() => (window as any).__petgame?.room?.state?.players?.size > 0);
+  const state = await page.waitForFunction(() => {
+    if ((window as any).__petgame?.room?.state?.players?.size > 0) return "ok";
+    return document.getElementById("join-error")?.textContent || false;
+  });
+  const value = await state.jsonValue();
+  if (value !== "ok") throw new Error(`Still in the lobby: ${value}`);
 }
 
 const playerCount = (page: Page) =>
@@ -132,8 +177,7 @@ test("a captured pal follows the player and shows in the party panel", async ({ 
   // Everything comes back after a reload (same device token in localStorage).
   await page.waitForTimeout(2500); // saves are batched every 2 s
   await page.reload();
-  await page.fill("#name", "Tamer");
-  await page.click("#join-btn");
+  await enterLobby(page, "Tamer");
   await waitForWorld(page);
   await expect.poll(async () => (await me()).pals).toBeGreaterThanOrEqual(caught);
   expect((await me()).hasBase).toBe(true);
@@ -226,17 +270,13 @@ test("regions: the HUD names the region and gear shows in the status", async ({ 
 
 test("explorer: a look picked in the lobby, clothes and weapons from the wardrobe", async ({ browser }) => {
   test.slow();
-  const context = await browser.newContext();
-  contexts.push(context);
-  const page = await context.newPage();
-  await page.goto("/?quality=low");
+  const page = await openPage(browser, "/", "Stylist");
   // Pick a look before joining: the preview and the server both take it.
   await page.locator('.style-btn[data-hair="bun"]').click();
   await page.locator('.swatch[data-hair-color="6"]').click();
   await page.locator('.swatch[data-skin="3"]').click();
   await expect(page.locator(".lobby-look .doll-preview")).toBeVisible();
-  await page.fill("#name", "Stylist");
-  await page.click("#join-btn");
+  await enterLobby(page, "Stylist");
   await waitForWorld(page);
   const me = () => page.evaluate(() => {
     const { room } = (window as any).__petgame;
@@ -284,8 +324,7 @@ test("explorer: a look picked in the lobby, clothes and weapons from the wardrob
   await page.waitForTimeout(2500); // saves are batched every 2 s
   await page.reload();
   await expect(page.locator('.style-btn.active[data-hair="curly"]')).toBeVisible();
-  await page.fill("#name", "Stylist");
-  await page.click("#join-btn");
+  await enterLobby(page, "Stylist");
   await waitForWorld(page);
   await expect.poll(me).toMatchObject({ hair: "curly", outfit: "knight", hat: "crown", weapon: "bow", owned: 24 });
 });
@@ -436,4 +475,49 @@ test("pack leaders: a gold-tagged leader guards its lair, warns you and attacks"
   await expect(page.locator(".hud-toast")).toContainText("Lãnh địa của Voltmouse đầu đàn");
   // It comes for us.
   await expect.poll(() => page.evaluate(() => (window as any).__hurt as number), { timeout: 20_000 }).toBeGreaterThan(0);
+});
+
+// No WebGL world is loaded here (the invited room does not exist), so this one is quick.
+test("lobby: nothing is sent before the lobby script is ready; the invite and the name are kept", async ({ browser }) => {
+  const context = await browser.newContext();
+  contexts.push(context);
+  const page = await context.newPage();
+  watch(page, "lobby");
+  let navigations = 0;
+  page.on("framenavigated", (frame) => frame === page.mainFrame() && navigations++);
+
+  // A slow network: the lobby script (Vite serves it at /src/main.ts) is held back until the test lets go.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/src\/main\.ts(\?.*)?$/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/?room=no-such-room&quality=low", { waitUntil: "commit" });
+
+  // Until the script is ready the lobby is locked and says so.
+  await expect(page.locator("#join-btn")).toBeDisabled();
+  await expect(page.locator("#join-btn")).toHaveText("Đang tải...");
+  await expect(page.locator("#name")).toBeDisabled();
+  // The button is big enough to touch on a phone held sideways, upright, and on a desktop.
+  for (const size of [{ width: 844, height: 390 }, { width: 390, height: 844 }, { width: 1280, height: 720 }]) {
+    await page.setViewportSize(size);
+    const box = await page.locator("#join-btn").boundingBox();
+    expect(box?.height, `button height at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+  }
+  // An impatient press on the locked button (the only forced click in this file): without the lock the
+  // browser would submit the form itself and load the page again.
+  await page.locator("#join-btn").click({ force: true });
+
+  release();
+  await page.locator("#join-btn:enabled").waitFor();
+  await expect(page.locator("#join-btn")).toHaveText("Vào chơi");
+  await enterLobby(page, "Early");
+
+  // The handler ran and tried the invited room, which does not exist: with ?room= lost it would have
+  // created a new world and gone in. The page was never loaded a second time.
+  await expect(page.locator("#join-error")).toContainText("Không vào được");
+  expect(new URL(page.url()).searchParams.get("room")).toBe("no-such-room");
+  expect(navigations).toBe(1);
+  expect(await page.evaluate(() => localStorage.getItem("petgame:name"))).toBe("Early");
 });

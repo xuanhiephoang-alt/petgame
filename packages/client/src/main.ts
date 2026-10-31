@@ -66,6 +66,12 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+// The lobby is ready from here on. index.html keeps the name box and the button locked until the handler above
+// exists (a press before that would make the browser submit the form itself); the e2e tests wait for the button.
+nameInput.disabled = false;
+joinBtn.disabled = false;
+joinBtn.textContent = "Vào chơi";
+
 async function startGame(room: GameRoom, art: GameAssets) {
   // Expose for debugging and end-to-end tests (the room first: tests poll it).
   (window as any).__petgame = { room };

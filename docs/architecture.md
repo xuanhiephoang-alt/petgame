@@ -48,7 +48,7 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 
 ## packages/client
 
-- `main.ts`: sảnh (chọn ngoại hình, tên), vào phòng, token thiết bị; `net/connection.ts`: kết nối Colyseus, link mời.
+- `main.ts`: sảnh (chọn ngoại hình, tên), vào phòng, token thiết bị; `net/connection.ts`: kết nối Colyseus, link mời. **Sảnh sẵn sàng:** `#name` và `#join-btn` bị khoá sẵn trong `index.html` (nút ghi "Đang tải..."), `main.ts` mở khoá (nút ghi "Vào chơi") ngay sau khi gắn handler `submit` và điền tên đã lưu. Bấm lúc chưa sẵn sàng thì trình duyệt tự gửi form và tải lại trang (mất tên vừa gõ và `?room=` của link mời), nên chỉ được vào sảnh khi nút đã mở khoá; e2e chờ `#join-btn:enabled`.
 - `game/Game.ts`: nối state phòng với hình (`Callbacks`), gửi input, dự đoán chuyển động, xử lý mọi `ServerMessage`, cập nhật HUD. `window.__petgame = { game, room }` cho e2e và `npm run shots` (đừng xoá).
 - `game/stage.ts`: các lớp từ dưới lên: `ground`, `water`, `marks`, `shadows`, `objects` (xếp theo y của chân), `air`, `weather`; `overlay` (ánh sáng đêm). Camera chỉ dời và phóng.
 - `game/ground.ts`, `water.ts`, `scenery.ts`, `lighting.ts`, `weather.ts`: mặt đất nướng sẵn theo mảng, biển và hồ bằng shader, cây/đá theo `defaultWorld()`, ngày đêm, thời tiết theo vùng.
@@ -69,6 +69,10 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 ## Kiểm thử
 
 - `npm test` (Vitest): `packages/**/src/**/*.test.ts`. Test tích hợp server ở `rooms/GameRoom.test.ts` dùng `@colyseus/testing` với các helper `setup`, `capture`, `giveCompanion`, `placeWild`, `ticks`, `collect`.
-- `npm run test:e2e` (Playwright): `tests/e2e/multiplayer.spec.ts`, tự bật server (2567, `PETGAME_DEBUG=1`, DB trong RAM) và Vite (5173); helper `join`, `waitForWorld`. Chromium vẽ WebGL bằng phần mềm nên chờ `window.__petgame.game.frames` tăng thay vì chờ theo giờ.
+- `npm run test:e2e` (Playwright): `tests/e2e/multiplayer.spec.ts`, tự bật server (2567, `PETGAME_DEBUG=1`, DB trong RAM) và Vite (5173). Chromium vẽ WebGL bằng phần mềm nên chờ `window.__petgame.game.frames` tăng thay vì chờ theo giờ.
+  - Helper: `openPage` (trang mới trong context mới, tức thiết bị mới), `enterLobby` (chờ `#join-btn:enabled`, điền tên, kiểm tra giá trị, bấm), `join` (hai cái trước), `waitForWorld` (chờ vào thế giới; báo lỗi ngay, kèm chữ lỗi, khi sảnh hiện `#join-error`). Vào sảnh luôn qua `enterLobby`, không `page.fill`/`page.click` rời vào `#name`, `#join-btn`.
+  - Nhật ký trang (`watch`): điều hướng của khung chính, `pageerror`, console lỗi, tin `[vite]`, `document`/`script` tải lỗi; chỉ in khi test lỗi. Hai dòng `navigated` liền nhau kèm tin `[vite]` nghĩa là Vite dev đã tải lại trang giữa chừng.
+  - Không sửa file của `packages/client` hay `packages/shared` khi e2e đang chạy: Vite dev tải lại mọi trang đang mở.
+  - Chạy lặp: `--repeat-each=N --workers=1`. Thiếu `--workers=1` thì các lượt chạy song song (mặc định số worker bằng 50% số nhân CPU, máy 4 nhân là 2).
 - `cd tools/photo3d && python -m pytest`: công cụ photo3d (Python).
 - `npm run shots -- --name <tên>`: bộ ảnh chuẩn để so sánh hình ảnh trước/sau.
