@@ -45,31 +45,25 @@ petgame/
 ├── assets/         # ghi nguồn asset (CREDITS.md)
 ├── docs/           # phong cách đồ họa, tài liệu thiết kế
 ├── tests/e2e/      # Playwright: nhiều người chơi
-├── .claude/agents/ # định nghĩa 7 Agent
+├── .claude/agents/ # đội agent tự động (xem CLAUDE.md)
 └── GAME_PLAN.md
 ```
 
 ---
 
-## 3. Cần bao nhiêu Agent, mỗi Agent làm gì?
+## 3. Đội agent
 
-Đề xuất **1 điều phối + 6 agent chuyên môn**. Đừng chạy cả 7 cùng lúc ngay từ đầu: MVP chỉ cần 3–4 agent, các agent khác thêm dần.
+Project chạy ở chế độ **đội agent tự động**: người dùng ghi việc vào `TASKS.md`, agent chính điều phối các agent trong `.claude/agents/` theo quy trình bắt buộc **game-designer → coder → tester → reviewer** (sửa tối đa 3 vòng), commit sau mỗi nhiệm vụ, và chỉ hỏi lại khi yêu cầu mâu thuẫn, cần quyết định lớn không thể đảo ngược, hoặc sau 3 vòng vẫn lỗi (câu hỏi ghi vào `QUESTIONS.md`). Vai trò, model, file làm việc và quy trình chi tiết: `CLAUDE.md`. Bản đồ hệ thống cho các agent: `docs/architecture.md`.
 
-| # | Agent | Nhiệm vụ cụ thể | Thư mục phụ trách | Khi nào dùng |
-|---|---|---|---|---|
-| 0 | **Điều phối (phiên Claude chính, tức bạn + tôi)** | Chia việc, giữ GAME_PLAN, duyệt PR, quyết định kiến trúc | toàn bộ | Luôn luôn |
-| 1 | **game-designer** | Viết dữ liệu: danh sách thú (chỉ số, hệ, kỹ năng), vật phẩm, công thức chế tạo, tỉ lệ bắt, đường cong lên cấp. Chỉ sửa JSON/Markdown | `packages/shared/src/data/`, `docs/` | Từ MVP |
-| 2 | **server-netcode** | Colyseus room, đồng bộ trạng thái, server quyết định va chạm/sát thương, vào lại khi rớt mạng, giới hạn 5 người | `packages/server`, `packages/shared` | Từ MVP |
-| 3 | **client-gameplay** | Thế giới 2D PixiJS, sprite, di chuyển, camera, nội suy chuyển động người khác, hiệu ứng, ném bóng bắt thú | `packages/client/src/game` | Từ MVP |
-| 4 | **ai-systems** | AI của thú/quái (đi lang thang, đuổi, bỏ chạy), thú đi theo chủ, giao việc ở căn cứ (chặt cây, đào mỏ), tìm đường A* | `packages/server/src/ai` | Alpha |
-| 5 | **ui-mobile** | HUD, túi đồ, menu chế tạo, joystick ảo, nút cảm ứng, co giãn theo màn hình, PWA | `packages/client/src/ui` | Từ MVP (joystick), mở rộng ở Alpha |
-| 6 | **art-pipeline** | Hình 2D: vẽ bằng code (`art/`) hoặc ảnh AI tách nền thành sprite (`npm run sprite`), giữ phong cách thống nhất | `packages/client/src/game/art`, `packages/client/public/assets` | Từ MVP |
-| 7 | **qa-tester** | Viết test Vitest + Playwright (5 người cùng vào), đo FPS trên màn hình điện thoại, tìm bug lệch đồng bộ | `tests/` | Từ Alpha |
-
-**Quy tắc để các agent không giẫm chân nhau:**
-- Mỗi agent chỉ sửa thư mục của mình. Mọi thứ dùng chung đều đi qua `packages/shared`, và chỉ server-netcode được sửa phần này.
-- Mỗi tính năng là một nhánh git + PR riêng; agent điều phối review trước khi merge.
-- Định nghĩa mỗi agent là một file `.claude/agents/<tên>.md` (có frontmatter `name`, `description`, `tools`) để Claude Code gọi đúng chuyên gia.
+| Agent | Model | Việc |
+|---|---|---|
+| game-designer | opus | Phân tích yêu cầu, thiết kế, kế hoạch triển khai (`PLAN.md`) |
+| balance-analyst | sonnet | Tính toán cân bằng chỉ số (`BALANCE.md`) |
+| coder | sonnet | Viết/sửa code theo kế hoạch (`PROGRESS.md`) |
+| asset-manager | sonnet | Hình ảnh, sprite từ ảnh AI, ảnh chụp kiểm tra |
+| tester | sonnet | Typecheck, test, build, e2e, viết test còn thiếu |
+| reviewer | opus | Rà soát độc lập (`REVIEW.md`, PASS/FAIL) |
+| explorer | haiku | Tra cứu nhanh trong code, chỉ đọc |
 
 ---
 
@@ -136,11 +130,6 @@ Gợi ý: các repo Phaser + Colyseus ở trên gần với bản 2D nhất (net
 
 ---
 
-## 7. Bước tiếp theo (MVP: tuần 1–2)
+## 7. Bước tiếp theo
 
-1. Dựng monorepo (`shared` / `server` / `client`), TypeScript, Vite, Colyseus.
-2. Tạo các file `.claude/agents/*.md` cho 7 agent ở mục 3.
-3. Một bản đồ đơn giản với hình tạm (vẽ bằng code).
-4. Room Colyseus tối đa 5 người, di chuyển đồng bộ, joystick ảo trên điện thoại.
-5. 3 loài thú lang thang, ném bóng để bắt (tỉ lệ theo máu còn lại).
-6. Deploy thử: client lên Cloudflare Pages, server lên Fly.io, rồi gửi link cho 4 người bạn test.
+Các bước MVP ban đầu (monorepo, bản đồ, 5 người, bắt thú, deploy) đã xong. Việc tiếp theo, xếp theo ưu tiên, nằm trong `TASKS.md`.
