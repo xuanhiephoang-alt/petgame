@@ -3,7 +3,7 @@
 Game 2D nhìn từ trên xuống kiểu bắt thú (bắt thú, chiến đấu, xây trại, chế tạo, khám phá) cho web và điện thoại, tối đa 5 người chơi một thế giới. Project chạy ở **chế độ đội agent tự động**: người dùng giao việc một lần (qua `TASKS.md`), các agent tự làm đến khi xong, chỉ hỏi lại theo đúng mục "Khi nào dừng lại hỏi".
 
 - Bản đồ hệ thống (file nào làm gì): `docs/architecture.md`
-- Thiết kế: `docs/design/pals.md` (thú, vùng, thú đầu đàn), `docs/design/skills.md` (chiêu), `docs/art-style.md` (phong cách hình); kế hoạch tổng thể: `GAME_PLAN.md`
+- Thiết kế: `docs/design/pals.md` (thú, vùng, thú đầu đàn), `docs/design/skills.md` (chiêu), `docs/design/multiplayer.md` (nhiều người chơi, kết nối lại), `docs/art-style.md` (phong cách hình); kế hoạch tổng thể: `GAME_PLAN.md`
 
 ## Công nghệ và cấu trúc
 
@@ -61,7 +61,7 @@ CI (`.github/workflows/ci.yml`) chạy: typecheck, test, build, pytest photo3d, 
 - Dữ liệu chỉ server cần (input, cooldown, não AI, hồi chiêu) để trong `Map` của `GameRoom`, không đưa vào schema. Hẹn giờ bằng `this.clock.setTimeout`.
 - Số liệu cân bằng nằm trong dữ liệu (`src/data/*.json`) hoặc bảng hằng số (`BOSS`, `ALPHA`, `progression.ts`), không rải số cứng trong logic.
 - Lưu game: `packages/server/src/persistence/store.ts` (SQLite ở `PETGAME_DB`, mặc định `packages/server/data/`), hồ sơ theo token ngẫu nhiên của thiết bị, luôn qua `sanitizeProfile` khi đọc. Thêm dữ liệu cần lưu: `Profile`, `emptyProfile`, `sanitizeProfile`, chỗ đọc/ghi trong `GameRoom` và test. Hồ sơ cũ phải còn đọc được. Test dùng `PETGAME_DB=:memory:`.
-- Hook thử nghiệm `debug:*` (spawnPal, give, givePal, gear, wardrobe, quest, setTime, teleport) chỉ bật khi `PETGAME_DEBUG=1` (Playwright tự đặt). Không bao giờ bật trên server thật.
+- Hook thử nghiệm `debug:*` (spawnPal, give, givePal, gear, wardrobe, quest, setTime, teleport, endGrace) chỉ bật khi `PETGAME_DEBUG=1` (Playwright tự đặt). Không bao giờ bật trên server thật.
 - Client: không tạo object mới mỗi khung hình, ẩn thứ ở xa camera, `destroy()` khi xoá; ngân sách ≤ 600 sprite mỗi khung hình. Mọi thao tác dùng được bằng cả cảm ứng lẫn bàn phím, nút cảm ứng ≥ 44×44 px; kiểm tra ở điện thoại dọc, ngang và desktop.
 - `window.__petgame = { game, room }` phục vụ e2e và `npm run shots`: không xoá.
 - Không dùng tên, hình hay thiết kế thú của Palworld, Pokémon hoặc game có bản quyền. Ảnh lấy từ ngoài ghi nguồn vào `assets/CREDITS.md`.

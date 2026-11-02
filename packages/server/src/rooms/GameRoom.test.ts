@@ -1,7 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
-import { defineRoom, defineServer } from "colyseus";
+import { CloseCode, defineRoom, defineServer } from "colyseus";
 import {
+  CLOSE_REPLACED,
   ClientMessage,
   ROOM_NAME,
   ServerMessage,
@@ -21,7 +22,9 @@ import {
   BERRY_HEAL,
   WildPal,
   OwnedPal,
+  Chest,
   MAX_PARTY,
+  MAX_PLAYERS,
   PARTY_FULL_TEXT,
   type Player,
   type DamageMessage,
@@ -1584,6 +1587,375 @@ describe("releasing pals and a full party", () => {
       expect(notices.at(-1)?.text).toBe(PARTY_FULL_TEXT);
     } finally {
       delete process.env.PETGAME_DEBUG;
+    }
+  });
+});
+
+describe("reconnecting after a dropped connection", () => {
+  type TestClient = Awaited<ReturnType<typeof setup>>["client"];
+
+  /** Kills a player's socket from the server's side: the server sees it close abnormally (1006), as when the network dies. */
+  function cutConnection(room: GameRoom, sessionId: string) {
+    (room.clients.find((c) => c.sessionId === sessionId) as any).ref.terminate();
+  }
+
+  /**
+   * Lets the client's own reconnection start right away (by default it waits for 5 s of uptime) but holds its
+   * first try at a gate: the player stays away until the returned function opens it.
+   */
+  function holdReconnect(client: TestClient): () => void {
+    client.reconnection.minUptime = 0;
+    client.reconnection.minDelay = 10;
+    client.reconnection.maxDelay = 50;
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const reconnect = client.connection.reconnect.bind(client.connection);
+    client.connection.reconnect = (query) => void gate.then(() => reconnect(query));
+    return open;
+  }
+
+  /** Resolves once the client is back and the full state sent on its return is applied. Ask for it before opening the gate. */
+  async function reconnected(client: TestClient) {
+    await new Promise<void>((resolve) => client.onReconnect.once(resolve));
+    await client.waitForNextPatch();
+  }
+
+  /** A world with `n` players: the first from `setup`, then `n - 1` more. */
+  async function crowd(n: number) {
+    const { room, client } = await setup();
+    const clients = [client];
+    for (let i = 1; i < n; i++) clients.push(await colyseus.connectTo(room, { name: `Player ${i + 1}` }));
+    return { room, clients };
+  }
+
+  const holdsOf = (room: GameRoom) => (room as any).holds as Map<string, unknown>;
+
+  it("holds a dropped player where they stood, safe, with their pal frozen; the SDK's own retry brings the same player back", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    const sessionId = client.sessionId;
+    const palId = player.activePalId;
+    const companion = room.state.companions.get(palId)!;
+    client.send(ClientMessage.Input, { x: 1, y: 0 });
+    await ticks(room, 3);
+    // The pal lags well behind (a pal that still followed would run up to its owner) and is hurt (time would heal it).
+    companion.x = player.x - 200;
+    companion.y = player.y;
+    companion.hp = Math.round(companion.maxHp / 2);
+    const letGo = holdReconnect(client);
+    cutConnection(room, sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    const still = { x: player.x, y: player.y, hp: player.hp, palX: companion.x, palY: companion.y, palHp: companion.hp };
+
+    // A biter right next to them and after them, and blows that land anyway (with a shove): none of it counts.
+    room.state.pals.clear();
+    const foe = placeWild(room, "scorchtail", player, 30);
+    (room as any).provoke(foe, { kind: "player", id: sessionId });
+    (room as any).damage({ kind: "player", id: sessionId, pos: player }, 40, foe, 20);
+    (room as any).damage({ kind: "companion", id: palId, pos: companion }, 40, foe, 20);
+    await ticks(room, 20);
+    expect([player.x, player.y, player.hp]).toEqual([still.x, still.y, still.hp]);
+    expect([companion.x, companion.y, companion.hp]).toEqual([still.palX, still.palY, still.palHp]);
+    expect((room as any).wildAggro.get(foe)?.target.id).not.toBe(sessionId);
+    expect(room.state.players.size).toBe(1);
+
+    room.state.pals.delete(foe); // out of the way for the walk below
+    const back = reconnected(client);
+    letGo();
+    await back;
+    expect(client.sessionId).toBe(sessionId);
+    expect(player.offline).toBe(false);
+    expect(holdsOf(room).size).toBe(0); // nobody is waited for any more
+    expect(room.state.players.size).toBe(1);
+    expect(room.state.players.get(sessionId)).toBe(player); // the same player, not a new one
+    expect(room.state.companions.get(palId)).toBe(companion);
+    expect(companion.ownerId).toBe(sessionId);
+    expect(client.state.players.size).toBe(1);
+    expect(client.state.players.get(sessionId)!.offline).toBe(false);
+    const x = player.x;
+    client.send(ClientMessage.Input, { x: 1, y: 0 });
+    await ticks(room, 10);
+    expect(player.x).toBeGreaterThan(x + 20);
+  });
+
+  it("a drop wipes what the player was doing: the walk, a dash, an ordered skill, the fight and the skill their pal was winding up", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    const sessionId = client.sessionId;
+    const palId = player.activePalId;
+    const inner = room as any;
+    const control = inner.controls.get(sessionId);
+    client.send(ClientMessage.Input, { x: 1, y: 0 });
+    await ticks(room, 2);
+    // The pal winds up a skill that would never go off by itself; its owner has ordered one, picked a fight and is
+    // dashing (the pal stands casting, so the order stays pending).
+    inner.startCast("companion", palId, room.state.companions.get(palId)!, 1, getSkill("seed_shot"), undefined, sessionId);
+    for (const cast of inner.casts) cast.firesAt = cast.landsAt = Number.MAX_SAFE_INTEGER;
+    inner.castingUntil.set(`c:${palId}`, Number.MAX_SAFE_INTEGER);
+    control.skillOrder = { companionId: palId, skill: "seed_shot", until: Number.MAX_SAFE_INTEGER };
+    control.aggroUntil = Number.MAX_SAFE_INTEGER;
+    control.dashDir = { x: 1, y: 0 };
+    control.dashLeftMs = 100_000;
+    holdReconnect(client);
+    cutConnection(room, sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+
+    expect(control.input).toEqual({ x: 0, y: 0 });
+    expect(control.dashLeftMs).toBe(0);
+    expect(control.skillOrder).toBeUndefined();
+    expect(control.aggroUntil).toBe(0);
+    expect(inner.casts.some((c: { casterId: string }) => c.casterId === palId)).toBe(false);
+    expect(inner.castingUntil.has(`c:${palId}`)).toBe(false);
+    const at = { x: player.x, y: player.y };
+    await ticks(room, 5);
+    expect([player.x, player.y]).toEqual([at.x, at.y]);
+  });
+
+  it("time stands still for a player who is away: the cold does not hurt, nothing heals, no chest opens, no quest moves", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear(); // the snow's pack leader lives right there
+    const { snow } = defaultWorld().layout.regions;
+    const spot = (room as any).obstacles.resolve(snow, 14);
+    player.x = spot.x;
+    player.y = spot.y;
+    holdReconnect(client);
+    cutConnection(room, client.sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    // Hurt and not hit lately: time alone would heal them (4 HP a second), and the snow, unprotected, would hurt them.
+    player.hp = 50;
+    (room as any).lastDamagedAt.delete(`p:${client.sessionId}`);
+    // A chest at their feet, and a quest that asks for the snowfield they stand in.
+    const chest = new Chest();
+    chest.x = player.x + 5;
+    chest.y = player.y;
+    room.state.chests.set("chest-away", chest);
+    const snowQuest = QUESTS.findIndex((q) => q.id === "snow");
+    player.questIndex = snowQuest;
+    await ticks(room, 50); // 2.5 s: more than one climate tick
+    expect(player.hp).toBe(50);
+    expect(room.state.chests.has("chest-away")).toBe(true);
+    expect(player.questIndex).toBe(snowQuest);
+  });
+
+  it("saves at the drop and lets the player go when the grace runs out; a late try is refused", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "grace-token-0123456789ab";
+    const { room, client, player } = await setup(token);
+    (room as any).reconnectGraceMs = 1000;
+    await capture(room, client, player);
+    const sessionId = client.sessionId;
+    const palId = player.activePalId;
+    const watcher = await colyseus.connectTo(room, { name: "Watcher" });
+    const letGo = holdReconnect(client);
+    const refused = new Promise<number>((resolve) => client.onLeave.once(resolve));
+    cutConnection(room, sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    // Saved at the drop itself: the batched save (2 s after the catch) has not run, and the grace is not over yet.
+    expect(db.load(token)?.pals).toHaveLength(1);
+
+    await vi.waitFor(() => expect(room.state.players.has(sessionId)).toBe(false), { timeout: 4000 });
+    expect(room.state.companions.has(palId)).toBe(false);
+    expect((room as any).controls.has(sessionId)).toBe(false);
+    expect(holdsOf(room).size).toBe(0);
+    expect(db.load(token)?.pals).toHaveLength(1);
+    await vi.waitFor(() => expect(watcher.state.players.has(sessionId)).toBe(false));
+
+    letGo();
+    expect(await refused).toBe(CloseCode.FAILED_TO_RECONNECT);
+  });
+
+  it("keeps the place of a dropped player in a full world until their grace runs out", async () => {
+    const { room, clients } = await crowd(MAX_PLAYERS);
+    (room as any).reconnectGraceMs = 1500;
+    const away = clients[MAX_PLAYERS - 1];
+    away.reconnection.enabled = false; // this player does not come back
+    cutConnection(room, away.sessionId);
+    await vi.waitFor(() => expect(room.state.players.get(away.sessionId)?.offline).toBe(true));
+    // Their place is still theirs.
+    await expect(colyseus.connectTo(room, { name: "Sixth" })).rejects.toThrow();
+
+    await vi.waitFor(() => expect(room.state.players.has(away.sessionId)).toBe(false), { timeout: 4000 });
+    await vi.waitFor(() => colyseus.connectTo(room, { name: "Sixth" }), { timeout: 4000 });
+    expect(room.state.players.size).toBe(MAX_PLAYERS);
+  });
+
+  it("a player who leaves on purpose is gone at once: no grace, no held place", async () => {
+    const { room, clients } = await crowd(MAX_PLAYERS);
+    const hold = vi.spyOn(room, "allowReconnection");
+    const leaving = clients[MAX_PLAYERS - 1];
+    await leaving.leave();
+    await vi.waitFor(() => expect(room.state.players.has(leaving.sessionId)).toBe(false));
+    expect(hold).not.toHaveBeenCalled();
+    expect(holdsOf(room).size).toBe(0);
+    // Their place is free right away (a held one would stay taken for the whole grace, 20 s).
+    await vi.waitFor(() => colyseus.connectTo(room, { name: "Newcomer" }), { timeout: 2000 });
+    expect(room.state.players.size).toBe(MAX_PLAYERS);
+  });
+
+  it("a reconnection token works once and only for its own session", async () => {
+    const { room, client, player } = await setup();
+    const sessionId = client.sessionId;
+    const letGo = holdReconnect(client);
+    const oldToken = client.reconnectionToken;
+    cutConnection(room, sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    // Not a token the server handed out.
+    await expect(colyseus.sdk.reconnect(`${room.roomId}:not-the-token`)).rejects.toThrow();
+
+    const back = reconnected(client);
+    letGo();
+    await back;
+    expect(client.reconnectionToken).not.toBe(oldToken);
+    expect(client.sessionId).toBe(sessionId);
+    // Used up: the server gave a new one on the way back.
+    await expect(colyseus.sdk.reconnect(oldToken)).rejects.toThrow();
+    expect(room.state.players.size).toBe(1);
+    expect(player.offline).toBe(false);
+  });
+
+  it("one device, one player: joining again from another tab ends the first session", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "device-token-0123456789a";
+    const first = await setup(token);
+    const { room } = first;
+    await capture(room, first.client, first.player);
+    const palId = first.player.pals[0].id;
+    const replaced = new Promise<number>((resolve) => first.client.onLeave.once(resolve));
+
+    const second = await colyseus.connectTo(room, { name: "Tester", token });
+    expect(await replaced).toBe(CLOSE_REPLACED);
+    expect(room.state.players.size).toBe(1);
+    expect(room.state.players.has(first.client.sessionId)).toBe(false);
+    // The catch is not in the batched save yet: only the old session being saved before the new one read the
+    // profile can have handed it over.
+    expect(room.state.players.get(second.sessionId)!.pals.map((p) => p.id)).toEqual([palId]);
+    expect(room.state.companions.size).toBe(1);
+    expect(room.state.companions.get(palId)?.ownerId).toBe(second.sessionId);
+    // The first tab's socket finishing closing runs onLeave for it once more: that must leave the new pal alone,
+    // which has the same id.
+    await vi.waitFor(() => expect(room.clients.length).toBe(1));
+    await ticks(room, 2);
+    expect(room.state.companions.get(palId)?.ownerId).toBe(second.sessionId);
+  });
+
+  it("one device, one player: a fresh join ends a session waiting to reconnect, in this world or another, so it cannot save over newer progress", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "twin-token-0123456789abc";
+
+    // The same world: a session is waiting to reconnect when its device joins again.
+    const a = await setup(token);
+    await capture(a.room, a.client, a.player);
+    a.client.reconnection.enabled = false; // this tab is gone for good
+    cutConnection(a.room, a.client.sessionId);
+    await vi.waitFor(() => expect(a.player.offline).toBe(true));
+    const b = await colyseus.connectTo(a.room, { name: "Tester", token });
+    expect(a.room.state.players.has(a.client.sessionId)).toBe(false);
+    expect(holdsOf(a.room).size).toBe(0);
+    expect(a.room.state.players.size).toBe(1);
+    const bPlayer = a.room.state.players.get(b.sessionId)!;
+    expect(bPlayer.pals.length).toBe(1);
+
+    // Another world: that session is waiting too when the device joins a different world. Its world is full, with
+    // its place held.
+    b.reconnection.enabled = false;
+    cutConnection(a.room, b.sessionId);
+    await vi.waitFor(() => expect(bPlayer.offline).toBe(true));
+    for (let i = 1; i < MAX_PLAYERS; i++) await colyseus.connectTo(a.room, { name: `Player ${i}` });
+    expect(a.room.hasReachedMaxClients()).toBe(true);
+    const other = await colyseus.createRoom<GameRoom>(ROOM_NAME);
+    const c = await colyseus.connectTo(other, { name: "Tester", token });
+    expect(a.room.state.players.has(b.sessionId)).toBe(false);
+    expect(holdsOf(a.room).size).toBe(0);
+    expect(a.room.hasReachedMaxClients()).toBe(false); // the place is free at once, not after the 20 s of grace
+
+    // Newer progress in the new world; the old session has nothing left to save over it.
+    other.state.players.get(c.sessionId)!.wood = 77;
+    await c.leave();
+    await vi.waitFor(() => expect(db.load(token)?.resources.wood).toBe(77));
+    (a.room as any).saveNow(b.sessionId);
+    expect(db.load(token)!.resources.wood).toBe(77);
+  });
+
+  it("the test hook that ends the wait lets a dropped player go at once", async () => {
+    process.env.PETGAME_DEBUG = "1"; // the hooks are registered when the room is created
+    try {
+      const { room, client, player } = await setup();
+      const watcher = await colyseus.connectTo(room, { name: "Watcher" });
+      const sessionId = client.sessionId;
+      client.reconnection.enabled = false;
+      cutConnection(room, sessionId);
+      await vi.waitFor(() => expect(player.offline).toBe(true));
+      watcher.send("debug:endGrace");
+      // Far short of the 20 s grace.
+      await vi.waitFor(() => expect(room.state.players.has(sessionId)).toBe(false), { timeout: 2000 });
+      expect(holdsOf(room).size).toBe(0);
+    } finally {
+      delete process.env.PETGAME_DEBUG;
+    }
+  });
+
+  it("a pal at work makes nothing while its owner is away, and carries on once they are back", async () => {
+    const { room, client, player } = await setup();
+    await capture(room, client, player);
+    player.x = WORLD_WIDTH / 2;
+    player.y = WORLD_HEIGHT / 2 + 150;
+    client.send(ClientMessage.PlaceBase);
+    await ticks(room, 2);
+    const pal = player.pals[0];
+    client.send(ClientMessage.Assign, { palId: pal.id, assignment: "work" });
+    await ticks(room, 30); // it walks to its spot at the camp
+    const worker = room.state.companions.get(pal.id)!;
+    expect(worker.mode).toBe("work");
+    const stock = () => player.wood + player.stone + player.berries;
+
+    const letGo = holdReconnect(client);
+    cutConnection(room, client.sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    const before = stock();
+    // An item is due this very moment: only time standing still keeps it from being made.
+    (room as any).companionTimers.get(pal.id).lastWorkAt = 0;
+    await ticks(room, 10);
+    expect(stock()).toBe(before);
+    expect(room.state.companions.get(pal.id)).toBe(worker); // still there, waiting with its owner
+
+    const back = reconnected(client);
+    letGo();
+    await back;
+    await ticks(room, 3);
+    expect(stock()).toBe(before + 1);
+  });
+
+  it("closing the world saves everyone, those connected and those waited for, and leaves nothing waiting", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const hereToken = "closing-here-0123456789abc";
+    const awayToken = "closing-away-0123456789abc";
+    // Closing a room refuses every new wait (and rejects the ones running): none of that may end as an unhandled rejection.
+    const stray: unknown[] = [];
+    const note = (reason: unknown) => void stray.push(reason);
+    process.on("unhandledRejection", note);
+    try {
+      const here = await setup(hereToken);
+      const away = await colyseus.connectTo(here.room, { name: "Away", token: awayToken });
+      const awayPlayer = here.room.state.players.get(away.sessionId)!;
+      away.reconnection.enabled = false; // this one does not come back
+      cutConnection(here.room, away.sessionId);
+      await vi.waitFor(() => expect(awayPlayer.offline).toBe(true));
+      // Progress made since each was last saved.
+      here.player.wood = 11;
+      awayPlayer.wood = 22;
+
+      await here.room.disconnect(CloseCode.SERVER_SHUTDOWN);
+      expect(db.load(hereToken)?.resources.wood).toBe(11);
+      expect(db.load(awayToken)?.resources.wood).toBe(22);
+      expect(here.room.state.players.size).toBe(0);
+      expect(holdsOf(here.room).size).toBe(0);
+      await new Promise((resolve) => setTimeout(resolve, 100)); // a stray rejection would have surfaced by now
+      expect(stray).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", note);
     }
   });
 });

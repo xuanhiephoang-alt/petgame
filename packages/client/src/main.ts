@@ -6,7 +6,9 @@ import { loadPalSprites } from "./game/palSprites.ts";
 import { loadPictures } from "./game/art/pictures.ts";
 import { loadDollArt } from "./game/art/doll.ts";
 import { DollPreview, LookPicker } from "./ui/wardrobe.ts";
-import { connect, type GameRoom } from "./net/connection.ts";
+import { ConnectionOverlay } from "./ui/connection.ts";
+import { connect, lobbyUrl, type GameRoom } from "./net/connection.ts";
+import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
 
 const lobby = document.getElementById("lobby")!;
 const form = document.getElementById("join-form") as HTMLFormElement;
@@ -56,9 +58,11 @@ form.addEventListener("submit", async (event) => {
   joinBtn.disabled = true;
   errorBox.textContent = "";
   try {
-    const [room, art] = await Promise.all([connect({ name, look }), assets]);
+    // The connection is watched from the moment the room is joined, so a drop while the pictures still load is not missed.
+    const joined = connect({ name, look }).then((room) => ({ room, watch: new ConnectionWatch(room) }));
+    const [{ room, watch }, art] = await Promise.all([joined, assets]);
     lobby.remove();
-    await startGame(room, art);
+    await startGame(room, watch, art);
   } catch (err) {
     console.error(err);
     errorBox.textContent = "Không vào được phòng (đầy 5 người hoặc server chưa chạy).";
@@ -72,10 +76,27 @@ nameInput.disabled = false;
 joinBtn.disabled = false;
 joinBtn.textContent = "Vào chơi";
 
-async function startGame(room: GameRoom, art: GameAssets) {
+async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets) {
+  const container = document.getElementById("game")!;
   // Expose for debugging and end-to-end tests (the room first: tests poll it).
   (window as any).__petgame = { room };
-  const game = await Game.create(document.getElementById("game")!, room, art, resolution);
+  // Closing the page is leaving on purpose: the server frees the place at once instead of holding it for a reconnection.
+  window.addEventListener("pagehide", () => watch.leave());
+
+  // Whether friends were in the world when the connection went (it stays open for them), for "Về sảnh".
+  let withFriends = false;
+  const overlay = new ConnectionOverlay(container, () => location.assign(lobbyUrl(room.roomId, withFriends)));
+  const react = (status: NetStatus, previous: NetStatus) => {
+    if (previous.state === "online") withFriends = room.state.players.size > 1;
+    // A server that went down took every world with it: there is nothing to rejoin.
+    if (status.state === "lost" && status.reason === "shutdown") withFriends = false;
+    overlay.show(status);
+  };
+  watch.onChange(react);
+  // It may have dropped while the pictures were still loading.
+  if (!watch.online) react(watch.status, { state: "online" });
+
+  const game = await Game.create(container, room, art, resolution, watch);
   (window as any).__petgame.game = game;
 }
 

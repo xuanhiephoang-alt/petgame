@@ -67,6 +67,7 @@ import {
   defaultWorld,
 } from "@petgame/shared";
 import { inviteLink, type GameRoom } from "../net/connection.ts";
+import type { ConnectionWatch } from "../net/reconnect.ts";
 import { Hud } from "../ui/hud.ts";
 import { PartyPanel, skillValue } from "../ui/party.ts";
 import { SkillBar } from "../ui/skillbar.ts";
@@ -138,6 +139,10 @@ const QUEST_DELAY_MS = 2100;
 const PAL_DRAW_DISTANCE = 1000;
 /** Above this distance (pixels) the predicted local player snaps to the server. */
 const SNAP_DISTANCE = 64;
+/** No walking: what the local player does while the connection is down (never changed, so it can be shared). */
+const STILL: Vec2 = { x: 0, y: 0 };
+/** How faint a player waiting to reconnect is drawn (0..1). */
+const AWAY_ALPHA = 0.45;
 
 /**
  * The game screen: connects the synced room state to the 2D world (PixiJS)
@@ -216,12 +221,17 @@ export class Game {
   private obstacles = defaultWorld().grid;
   private terrain = defaultWorld().layout.terrain;
 
-  private constructor(private container: HTMLElement, private room: GameRoom, private assets: GameAssets) {}
+  private constructor(private container: HTMLElement, private room: GameRoom, private assets: GameAssets, private watch: ConnectionWatch) {}
 
-  static async create(container: HTMLElement, room: GameRoom, assets: GameAssets, resolution: number): Promise<Game> {
-    const game = new Game(container, room, assets);
+  static async create(container: HTMLElement, room: GameRoom, assets: GameAssets, resolution: number, watch: ConnectionWatch): Promise<Game> {
+    const game = new Game(container, room, assets, watch);
     await game.init(resolution);
     return game;
+  }
+
+  /** Sends a message to the server, but only while the connection is up: nothing is kept to be sent when it comes back. */
+  private send(type: string, message?: unknown) {
+    if (this.watch.online) this.room.send(type, message);
   }
 
   private async init(resolution: number) {
@@ -245,9 +255,9 @@ export class Game {
       attack: () => this.attack(),
       dash: () => this.dash(),
       capture: () => this.throwBall(),
-      placeBase: () => this.room.send(ClientMessage.PlaceBase),
+      placeBase: () => this.send(ClientMessage.PlaceBase),
       toggleBall: () => this.toggleBall(),
-      eat: () => this.room.send(ClientMessage.Eat),
+      eat: () => this.send(ClientMessage.Eat),
       toggleSound: () => this.sound.toggleMute(),
     });
     this.hud.setMuted(this.sound.muted);
@@ -258,23 +268,23 @@ export class Game {
     window.addEventListener("keydown", unlock, { once: true });
     if (isTouch) this.joystick = new Joystick(this.hud.joystickZone);
     this.party = new PartyPanel(this.hud.root, {
-      summon: (palId) => this.room.send(ClientMessage.Summon, { palId }),
-      work: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "work" }),
-      rest: (palId) => this.room.send(ClientMessage.Assign, { palId, assignment: "" }),
-      feed: (palId) => this.room.send(ClientMessage.Feed, { palId }),
-      release: (palId) => this.room.send(ClientMessage.Release, { palId }),
+      summon: (palId) => this.send(ClientMessage.Summon, { palId }),
+      work: (palId) => this.send(ClientMessage.Assign, { palId, assignment: "work" }),
+      rest: (palId) => this.send(ClientMessage.Assign, { palId, assignment: "" }),
+      feed: (palId) => this.send(ClientMessage.Feed, { palId }),
+      release: (palId) => this.send(ClientMessage.Release, { palId }),
     }, (speciesId) => palPortrait(spriteFor(this.assets.pals, speciesId)));
     this.skillBar = new SkillBar(this.hud.root, isTouch, {
-      use: (skill) => this.room.send(ClientMessage.PalSkill, { skill }),
-      setAuto: (on) => this.room.send(ClientMessage.PalAuto, { on }),
+      use: (skill) => this.send(ClientMessage.PalSkill, { skill }),
+      setAuto: (on) => this.send(ClientMessage.PalAuto, { on }),
       hint: (text) => this.hud.showToast(text),
     });
     this.quests = new QuestTracker(this.hud.left);
     this.minimap = new Minimap(this.hud.root);
-    this.craft = new CraftPanel(this.hud.root, (recipeId) => this.room.send(ClientMessage.Craft, { recipeId }));
+    this.craft = new CraftPanel(this.hud.root, (recipeId) => this.send(ClientMessage.Craft, { recipeId }));
     this.wardrobe = new WardrobePanel(this.hud.root, {
-      setLook: (look) => this.room.send(ClientMessage.SetLook, look),
-      equip: (slot, id) => this.room.send(ClientMessage.Equip, { slot, id }),
+      setLook: (look) => this.send(ClientMessage.SetLook, look),
+      equip: (slot, id) => this.send(ClientMessage.Equip, { slot, id }),
     }, { look: DEFAULT_LOOKS[0], worn: DEFAULT_WORN, wardrobe: STARTER_WARDROBE });
     // Only one panel open at a time.
     const panels = [this.party, this.craft, this.wardrobe];
@@ -283,20 +293,41 @@ export class Game {
       " ": () => this.attack(),
       shift: () => this.dash(),
       e: () => this.throwBall(),
-      b: () => this.room.send(ClientMessage.PlaceBase),
+      b: () => this.send(ClientMessage.PlaceBase),
       r: () => this.toggleBall(),
-      h: () => this.room.send(ClientMessage.Eat),
+      h: () => this.send(ClientMessage.Eat),
       m: () => this.hud.setMuted(this.sound.toggleMute()),
       n: () => this.minimap.toggle(),
-      // Order the following pal's skills.
-      "1": () => this.skillBar.press(0),
-      "2": () => this.skillBar.press(1),
-      "3": () => this.skillBar.press(2),
+      // Order the following pal's skills (nothing is ordered while the connection is down).
+      "1": () => this.watch.online && this.skillBar.press(0),
+      "2": () => this.watch.online && this.skillBar.press(1),
+      "3": () => this.watch.online && this.skillBar.press(2),
     });
 
     this.stage.app.renderer.on("resize", () => this.stage.resize());
     this.bindRoom();
+    this.watchConnection();
     this.stage.app.ticker.add(() => this.frame());
+  }
+
+  /**
+   * What the game does as the connection goes and comes back. While it is down nothing is sent and the local player
+   * stands still (the server holds them where they stood); the connection screen itself is in main.ts.
+   */
+  private watchConnection() {
+    this.watch.onChange((status, previous) => {
+      if (previous.state === "online") this.dashing.leftMs = 0; // a dash does not carry on across the gap
+      if (status.state !== "online" || previous.state !== "reconnecting") return;
+      // The server cleared the walk when the connection dropped: the next frame says which way is held now.
+      this.lastSentInput = STILL;
+      this.hud.showToast("✅ Đã kết nối lại");
+    });
+    // A phone changing apps stops this loop, yet the server keeps the last walk: stop first.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden || !this.watch.online) return;
+      this.send(ClientMessage.Input, STILL);
+      this.lastSentInput = STILL;
+    });
   }
 
   private nameTag(text: string, className: string, at: () => Vec2 | undefined, lift: number): { tag: Tag; label: HTMLDivElement; text: HTMLSpanElement } {
@@ -316,13 +347,24 @@ export class Game {
       const actor = new PlayerActor({ x: player.x, y: player.y }, player.color, this.shadowTexture, lookOf(player), wornOf(player));
       let dressed = dressKey(player);
       this.addActor(actor);
-      const { tag, label } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + 6);
+      const { tag, label, text } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + 6);
       const hpFill = addHpBar(label);
       this.players.set(sessionId, { actor, tag, label });
+      // Waiting to reconnect: the figure and the name are dimmed and the name says so, until they are back.
+      let away = false;
+      const showAway = () => {
+        if (player.offline === away) return;
+        away = player.offline;
+        actor.root.alpha = actor.ground.alpha = away ? AWAY_ALPHA : 1;
+        label.classList.toggle("offline", away);
+        text.textContent = away ? `${player.name} (mất kết nối)` : player.name;
+      };
+      showAway(); // a player who joins after the drop still sees them dimmed
       $.onChange(player, () => {
         actor.server.x = player.x;
         actor.server.y = player.y;
         setHp(label, hpFill, player.hp, player.maxHp);
+        showAway();
         if (dressKey(player) !== dressed) {
           dressed = dressKey(player);
           actor.dress(lookOf(player), wornOf(player));
@@ -772,8 +814,6 @@ export class Game {
       const info = RESOURCE_INFO[msg.resource as Resource];
       if (info) this.labels.float(worker.actor.pos, worker.actor.height, `+${msg.amount} ${info.icon}`);
     });
-
-    this.room.onLeave(() => this.hud.showToast("Mất kết nối với server"));
   }
 
   private me(): PlayerActor | undefined {
@@ -787,9 +827,10 @@ export class Game {
     const dt = delta / 1000;
     const t = now / 1000;
 
-    const input = this.readInput();
-    if (input.x !== this.lastSentInput.x || input.y !== this.lastSentInput.y) {
-      this.room.send(ClientMessage.Input, input);
+    // With the connection down the player stands still, as the server holds them; the held keys count again once it is back.
+    const input = this.watch.online ? this.readInput() : STILL;
+    if (this.watch.online && (input.x !== this.lastSentInput.x || input.y !== this.lastSentInput.y)) {
+      this.send(ClientMessage.Input, input);
       this.lastSentInput = input;
     }
 
@@ -935,13 +976,13 @@ export class Game {
   /** Swings or shoots the weapon held (or punches), at the weapon's pace; the server decides the hit. */
   private attack() {
     const me = this.me();
-    if (!me) return;
+    if (!me || !this.watch.online) return;
     const weapon = weaponStats(me.weapon);
     const now = performance.now();
     // A little early is fine: the server keeps the real pace.
     if (now - this.lastAttackAt < weapon.cooldownMs - 60) return;
     this.lastAttackAt = now;
-    this.room.send(ClientMessage.Attack);
+    this.send(ClientMessage.Attack);
     const target = this.nearestPal(me.pos, weapon.range + (weapon.ranged ? 0 : 8), true);
     const spot = target?.[1].actor.pos ?? this.gatherSpot(me.pos);
     if (spot) me.faceToward(spot);
@@ -956,7 +997,7 @@ export class Game {
   private dash() {
     const me = this.me();
     const now = performance.now();
-    if (!me || now < this.nextDashAt) return;
+    if (!me || !this.watch.online || now < this.nextDashAt) return;
     const input = this.readInput();
     const ahead = { front: { x: 0, y: 1 }, back: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[me.facing];
     const dir = input.x !== 0 || input.y !== 0 ? input : ahead;
@@ -965,7 +1006,7 @@ export class Game {
     this.nextDashAt = now + DASH_COOLDOWN_MS;
     this.dashing = { dir: unit, leftMs: DASH_MS };
     this.knockedAt = now;
-    this.room.send(ClientMessage.Dash, unit);
+    this.send(ClientMessage.Dash, unit);
     me.face(unit.x, unit.y);
     me.play("dash");
     this.effects.dust(me.pos, 1.4, unit);
@@ -1029,7 +1070,7 @@ export class Game {
 
   private throwBall() {
     const me = this.me();
-    if (!me) return;
+    if (!me || !this.watch.online) return;
     const target = this.nearestPal(me.pos, THROW_RANGE);
     if (!target) {
       this.hud.showToast("Không có thú nào ở gần");
@@ -1045,7 +1086,7 @@ export class Game {
       return;
     }
     const great = this.useGreatBall && (state?.greatBalls ?? 0) > 0;
-    this.room.send(ClientMessage.Throw, { palId: targetId, ball: great ? "great" : "basic" });
+    this.send(ClientMessage.Throw, { palId: targetId, ball: great ? "great" : "basic" });
     me.play("throw");
     me.faceToward(pal.actor.pos);
   }

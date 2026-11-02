@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type WebSocketRoute } from "@playwright/test";
 import { Client, type Room } from "@colyseus/sdk";
 
 const SERVER = "http://localhost:2567";
@@ -6,11 +6,20 @@ const SERVER = "http://localhost:2567";
 // Pages render WebGL in software here; close them after each test so they
 // do not keep eating CPU and starve the next test.
 const contexts: BrowserContext[] = [];
+// Players that joined through the SDK without a page (see `observer`): they leave when the test ends, passed or not.
+const observers: Room[] = [];
 // What the pages did (navigations, errors, Vite messages): printed only when a test fails.
 const pageLog: string[] = [];
 test.afterEach(async ({}, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus && pageLog.length > 0) console.log(`Page log:\n${pageLog.join("\n")}`);
   pageLog.length = 0;
+  for (const other of observers.splice(0)) {
+    try {
+      void other.leave(); // not awaited: a room that has already left never answers again
+    } catch {
+      // Its socket was already closed.
+    }
+  }
   await Promise.all(contexts.splice(0).map((c) => c.close()));
 });
 
@@ -851,4 +860,383 @@ test("lobby: nothing is sent before the lobby script is ready; the invite and th
   expect(new URL(page.url()).searchParams.get("room")).toBe("no-such-room");
   expect(navigations).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem("petgame:name"))).toBe("Early");
+});
+
+/**
+ * Opens the game in a fresh browser context (a new device) with a switch on its connection to the server, to cut the
+ * network the way a phone losing its signal would. Playwright's `routeWebSocket` sits between the page and the real
+ * server (it has to be set up before the page loads: the SDK takes the WebSocket class when its module is loaded).
+ * - `cut()` closes the page's sockets with code 4010 (what the browser's own "offline" event makes the SDK do), so the
+ *   server learns of it at once, and from then on turns away every try to connect, until...
+ * - `restore()` lets the next try through.
+ * - `freeze()` is the other way a connection fails: the sockets open now stay open but nothing crosses them any more
+ *   (no close, no word either way), as on a dead mobile link. Tries made after it go through.
+ * Not `context.setOffline`: it leaves an open socket open and the server blind to the loss until its ping runs out 6-9 s
+ * later, and the Vite dev server may reload the page over its own socket. A message the page sends while it unloads
+ * (`pagehide`) does not pass through a route, so a test that closes pages must not use this.
+ */
+async function openWithSwitch(browser: Browser, name: string, path = "/", options: BrowserContextOptions = {}) {
+  const context = await browser.newContext(options);
+  contexts.push(context);
+  let down = false;
+  const sockets: { page: WebSocketRoute; server: WebSocketRoute }[] = [];
+  const frozen = new Set<WebSocketRoute>();
+  await context.routeWebSocket(/:2567\//, (ws) => {
+    if (down) return void ws.close({ code: 4010, reason: "test: network down" });
+    const server = ws.connectToServer();
+    sockets.push({ page: ws, server });
+    // Everything crosses both ways (and a close on one side closes the other), unless the socket was frozen.
+    ws.onMessage((message) => void (frozen.has(ws) || server.send(message)));
+    server.onMessage((message) => void (frozen.has(ws) || ws.send(message)));
+    ws.onClose((code, reason) => void server.close({ code, reason }).catch(() => {}));
+    server.onClose((code, reason) => void ws.close({ code, reason }).catch(() => {}));
+  });
+  // The SDK opens its socket with `new WebSocket(url, { headers, protocols })` and, because the browser's own class throws
+  // on that, falls back to `new WebSocket(url)`. Playwright's stand-in for the class does not throw, and then silently never
+  // connects to the server: this makes it throw like the real one. It must come after the route, to wrap the stand-in.
+  await context.addInitScript(() => {
+    const Standin = window.WebSocket;
+    window.WebSocket = class extends Standin {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        if (protocols !== undefined && typeof protocols === "object" && !Array.isArray(protocols)) throw new SyntaxError("The subprotocol is invalid.");
+        super(url, protocols);
+      }
+    };
+  });
+  const page = await context.newPage();
+  watch(page, name);
+  await page.goto(path + (path.includes("?") ? "&" : "?") + "quality=low");
+  return {
+    page,
+    cut: async () => {
+      down = true;
+      await Promise.all(sockets.splice(0).map(({ server }) => server.close({ code: 4010, reason: "test: network down" }).catch(() => {})));
+    },
+    restore: () => {
+      down = false;
+    },
+    freeze: () => sockets.forEach(({ page: socket }) => frozen.add(socket)),
+  };
+}
+
+/**
+ * Joins a world as one more player through the SDK, without a page (so without WebGL). What it sees is what the server
+ * shares with everyone, so it can tell what the other players' pages do to the world. It leaves when the test ends.
+ */
+async function observer(roomId: string, name: string): Promise<Room> {
+  const room = await new Client(SERVER).joinById(roomId, { name });
+  observers.push(room);
+  return room;
+}
+
+test("connection: a dropped player comes back as themselves, where they stood, with nothing doubled", async ({ browser }) => {
+  test.slow();
+  const { page, cut, restore } = await openWithSwitch(browser, "Drifter");
+  await enterLobby(page, "Drifter");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const { roomId, sessionId } = await page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return { roomId: room.roomId as string, sessionId: room.sessionId as string };
+  });
+  const friend = await observer(roomId, "Friend");
+  const companions = () => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number);
+  await sendFrom(page, "debug:givePal", { species: "leafkit", level: 3 });
+  await expect.poll(companions).toBe(1);
+
+  // What the friend sees of Drifter and of the pal that follows.
+  const seen = () => {
+    const player = friend.state.players.get(sessionId);
+    let pal: { x: number; y: number } | undefined;
+    friend.state.companions.forEach((c: any) => (pal = { x: c.x, y: c.y }));
+    return { offline: player?.offline as boolean | undefined, x: player?.x as number, y: player?.y as number, pal, pals: friend.state.companions.size as number };
+  };
+  // Where the page draws its own explorer.
+  const drawn = () => page.evaluate(() => {
+    const { game, room } = (window as any).__petgame;
+    const actor = game.players.get(room.sessionId).actor;
+    return { x: actor.pos.x as number, y: actor.pos.y as number };
+  });
+  // Marks the room object, to tell afterwards that it is the very same one (nothing was joined anew).
+  const activeBefore = (await partyOf(page)).active;
+  await page.evaluate(() => ((window as any).__petgame.room.__mark = "before-drop"));
+  const sent = await recordSends(page);
+  const sentBefore = (await sent()).length;
+
+  await cut();
+  await expect(page.locator(".net-overlay")).toBeVisible();
+  await expect(page.locator(".net-title")).toContainText("Đang kết nối lại");
+  // Nothing goes out while the connection is down: not a walk, not an attack, not a throw, a dash, a camp, a berry or a skill.
+  // And the explorer stands still on the screen too (looked at all along the walk, as the frame it is caught in decides much).
+  const drawnBefore = await drawn();
+  let strayed = 0;
+  await page.keyboard.down("d");
+  for (let i = 0; i < 6; i++) {
+    await page.waitForTimeout(100);
+    strayed = Math.max(strayed, Math.abs((await drawn()).x - drawnBefore.x));
+  }
+  await page.keyboard.up("d");
+  for (const key of [" ", "Shift", "e", "b", "h", "1"]) await page.keyboard.press(key);
+  expect((await sent()).slice(sentBefore)).toEqual([]);
+  expect(strayed).toBeLessThan(2);
+  // The server holds them where they stood, and their pal with them.
+  await expect.poll(() => seen().offline).toBe(true);
+  expect(seen().pals).toBe(1);
+  const still = seen();
+  await page.waitForTimeout(500);
+  expect(seen()).toEqual(still);
+
+  restore();
+  await expect(page.locator(".net-overlay")).toBeHidden({ timeout: 15_000 });
+  await expect(page.locator(".hud-toast")).toContainText("Đã kết nối lại");
+  const back = await page.evaluate(() => {
+    const { game, room } = (window as any).__petgame;
+    const me = room.state.players.get(room.sessionId);
+    return {
+      mark: room.__mark as string,
+      sessionId: room.sessionId as string,
+      x: me.x as number,
+      y: me.y as number,
+      active: me.activePalId as string,
+      players: room.state.players.size as number,
+      shown: game.players.size as number,
+      companions: game.companions.size as number,
+    };
+  });
+  expect(back.mark).toBe("before-drop");
+  expect(back.sessionId).toBe(sessionId);
+  expect(Math.abs(back.x - still.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(back.y - still.y)).toBeLessThanOrEqual(1);
+  expect(back.active).toBe(activeBefore);
+  // Two players in the world and on the screen, one pal at their side, one name tag marked as theirs.
+  expect(back).toMatchObject({ players: 2, shown: 2, companions: 1 });
+  await expect.poll(() => page.evaluate(() => {
+    const { game, room } = (window as any).__petgame;
+    return game.pals.size === room.state.pals.size;
+  })).toBe(true);
+  await expect(page.locator(".label.me")).toHaveCount(1);
+  await expect.poll(() => seen().offline).toBe(false);
+
+  // The page tells the server which way it walks again.
+  const x0 = seen().x;
+  await page.keyboard.down("d");
+  await page.waitForTimeout(600);
+  await page.keyboard.up("d");
+  await expect.poll(() => seen().x).toBeGreaterThan(x0 + 40);
+
+  // Walking when the signal goes: the key held through the whole outage sets them walking again once they are back, with no new press.
+  const x1 = seen().x;
+  await page.keyboard.down("a");
+  await expect.poll(() => seen().x).toBeLessThan(x1 - 20);
+  await cut();
+  await expect.poll(() => seen().offline).toBe(true);
+  const stopped = seen().x;
+  await page.waitForTimeout(500);
+  expect(seen().x).toBe(stopped);
+  restore();
+  await expect(page.locator(".net-overlay")).toBeHidden({ timeout: 15_000 });
+  await expect.poll(() => seen().x).toBeLessThan(stopped - 40);
+  await page.keyboard.up("a");
+});
+
+test("connection: when the world has let the player go, the screen says so and the lobby takes them back", async ({ browser }) => {
+  test.slow();
+  // A phone held upright.
+  const { page, cut, restore } = await openWithSwitch(browser, "Phone", "/", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  await enterLobby(page, "Phone");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const { roomId, sessionId } = await page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return { roomId: room.roomId as string, sessionId: room.sessionId as string };
+  });
+  const friend = await observer(roomId, "Friend");
+  await sendFrom(page, "debug:givePal", { species: "leafkit", level: 3 });
+  await expect.poll(async () => (await partyOf(page)).species).toEqual(["leafkit"]);
+
+  // The connection goes: the screen says it is trying, and "Về sảnh" is there but is the quiet choice.
+  await cut();
+  await expect(page.locator(".net-title")).toContainText("Đang kết nối lại");
+  await expect(page.locator(".net-overlay")).toHaveClass(/reconnecting/);
+  await expect.poll(() => friend.state.players.get(sessionId)?.offline).toBe(true);
+  const quiet = (await page.locator(".net-lobby").boundingBox())!;
+  expect(quiet.width).toBeGreaterThanOrEqual(44);
+  expect(quiet.height).toBeGreaterThanOrEqual(44);
+  // The dimmed layer takes every touch: the attack button under it is out of reach.
+  const covered = await page.evaluate(() => {
+    const attack = (document.querySelector(".btn-attack") as HTMLElement).getBoundingClientRect();
+    return (document.elementFromPoint(attack.x + attack.width / 2, attack.y + attack.height / 2) as HTMLElement).className;
+  });
+  expect(covered).toContain("net-overlay");
+
+  // The world lets them go (the wait ran out; a test-only hook ends it at once). The next try is refused.
+  friend.send("debug:endGrace");
+  await expect.poll(() => friend.state.players.has(sessionId)).toBe(false);
+  restore();
+  await expect(page.locator(".net-title")).toHaveText("Không kết nối lại được", { timeout: 15_000 });
+  await expect(page.locator(".net-detail")).toContainText("đã được lưu");
+  await expect(page.locator(".net-overlay")).toHaveClass(/lost/);
+  await expect(page.locator(".net-lobby")).toBeFocused();
+
+  // The button is big enough to touch, and the box fits the screen, on a phone upright, sideways and on a desktop.
+  for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size);
+    const button = (await page.locator(".net-lobby").boundingBox())!;
+    expect(button.width, `button width at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+    expect(button.height, `button height at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+    const box = (await page.locator(".net-box").boundingBox())!;
+    expect(box.x, `box left at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(0);
+    expect(box.y, `box top at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, `box right at ${size.width}x${size.height}`).toBeLessThanOrEqual(size.width);
+    expect(box.y + box.height, `box bottom at ${size.width}x${size.height}`).toBeLessThanOrEqual(size.height);
+  }
+
+  // A tap takes them to the lobby of the same world (a friend is still in it), and their pal is still theirs.
+  await page.locator(".net-lobby").tap();
+  await page.waitForURL(/[?&]room=/, { timeout: 15_000 });
+  const lobby = new URL(page.url());
+  expect(lobby.searchParams.get("room")).toBe(roomId);
+  expect(lobby.searchParams.get("quality")).toBe("low");
+  await enterLobby(page, "Phone");
+  await waitForWorld(page);
+  expect(await page.evaluate(() => (window as any).__petgame.room.roomId as string)).toBe(roomId);
+  expect((await partyOf(page)).species).toContain("leafkit");
+  expect(await playerCount(page)).toBe(2);
+});
+
+test("connection: one device, one player; closing the page frees the place at once", async ({ browser }) => {
+  test.slow();
+  const first = await join(browser, "Twin");
+  await waitForWorld(first);
+  await first.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const roomId = await first.evaluate(() => (window as any).__petgame.room.roomId as string);
+  const friend = await observer(roomId, "Friend");
+  await sendFrom(first, "debug:givePal", { species: "leafkit", level: 3 });
+  await expect.poll(async () => (await partyOf(first)).species).toEqual(["leafkit"]);
+
+  // The same device (the same context, so the same token) opens the world in a second tab: the first tab is told.
+  const second = await first.context().newPage();
+  watch(second, "Twin-2");
+  await second.goto(`/?room=${roomId}&quality=low`);
+  await enterLobby(second, "Twin");
+  await waitForWorld(second);
+  await expect(first.locator(".net-title")).toHaveText("Bạn đang chơi ở nơi khác");
+  await expect(first.locator(".net-lobby")).toBeFocused();
+  // One Twin in the world, not two, with the pal that was caught moments ago.
+  expect(await playerCount(second)).toBe(2);
+  expect(friend.state.players.size).toBe(2);
+  expect((await partyOf(second)).species).toEqual(["leafkit"]);
+  await expect.poll(() => second.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(1);
+
+  // Closing a page is leaving on purpose: the place is free at once, not after the wait for a reconnection.
+  const sessionId = await second.evaluate(() => (window as any).__petgame.room.sessionId as string);
+  await expect.poll(() => friend.state.players.has(sessionId)).toBe(true);
+  await second.goto("about:blank");
+  await expect.poll(() => friend.state.players.has(sessionId), { timeout: 5000 }).toBe(false);
+});
+
+test("connection: a friend sees who is waiting to reconnect, dimmed and marked, and who is back", async ({ browser }) => {
+  test.slow();
+  const away = await openWithSwitch(browser, "Drifter");
+  await enterLobby(away.page, "Drifter");
+  await waitForWorld(away.page);
+  const { roomId, sessionId } = await away.page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return { roomId: room.roomId as string, sessionId: room.sessionId as string };
+  });
+  const watcher = await join(browser, "Watcher", `/?room=${roomId}`);
+  await waitForWorld(watcher);
+  await watcher.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  // The figure's opacity as the watcher draws it, and its name tag.
+  const opacity = () => watcher.evaluate((id) => (window as any).__petgame.game.players.get(id).actor.root.alpha as number, sessionId);
+  const tag = watcher.locator(".label", { hasText: "Drifter" });
+  await expect(tag).toHaveText("Drifter");
+  expect(await opacity()).toBe(1);
+
+  await away.cut();
+  await expect(tag).toHaveClass(/offline/);
+  await expect(tag).toHaveText("Drifter (mất kết nối)");
+  expect(await opacity()).toBeLessThan(0.6);
+  expect(await playerCount(watcher)).toBe(2); // still in the world, only waited for
+
+  away.restore();
+  await expect(tag).not.toHaveClass(/offline/, { timeout: 15_000 });
+  await expect(tag).toHaveText("Drifter");
+  expect(await opacity()).toBe(1);
+});
+
+test("connection: a page that goes to the background stops walking at once, and walks again when it is back", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Walker");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const { roomId, sessionId } = await page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return { roomId: room.roomId as string, sessionId: room.sessionId as string };
+  });
+  const friend = await observer(roomId, "Friend");
+  const x = () => friend.state.players.get(sessionId).x as number;
+  // A phone changing apps hides the page and the browser stops its loop: both are done by hand here.
+  const background = (hidden: boolean) =>
+    page.evaluate((hide) => {
+      const ticker = (window as any).__petgame.game.stage.app.ticker;
+      if (hide) {
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+        document.dispatchEvent(new Event("visibilitychange"));
+        ticker.stop();
+      } else {
+        delete (document as any).hidden;
+        ticker.start();
+        document.dispatchEvent(new Event("visibilitychange"));
+      }
+    }, hidden);
+
+  await page.keyboard.down("d");
+  const start = x();
+  await expect.poll(x).toBeGreaterThan(start + 20);
+  await background(true);
+  // The server was told to stop (a few steps may still come before it arrives); then the key held down does nothing.
+  await page.waitForTimeout(400);
+  const stopped = x();
+  await page.waitForTimeout(600);
+  expect(x()).toBe(stopped);
+  await background(false);
+  await expect.poll(x).toBeGreaterThan(stopped + 20);
+  await page.keyboard.up("d");
+});
+
+test("connection: a connection that goes silent without closing is noticed, and the player comes back", async ({ browser }) => {
+  test.slow();
+  const { page, freeze } = await openWithSwitch(browser, "Muffled");
+  await enterLobby(page, "Muffled");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const sessionId = await page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    room.__mark = "before-silence";
+    return room.sessionId as string;
+  });
+
+  // The connection screen is up for well under a second here (the new try goes straight through), so a test that polls
+  // for it can look away at the wrong moment (it did, now and then). The page itself writes down what the screen shows.
+  await page.evaluate(() => {
+    const overlay = document.querySelector<HTMLElement>(".net-overlay")!;
+    const shown: string[] = ((window as any).__netScreen = []);
+    new MutationObserver(() => {
+      const now = overlay.hidden ? "hidden" : overlay.querySelector(".net-title")!.textContent!;
+      if (shown.at(-1) !== now) shown.push(now);
+    }).observe(overlay, { attributes: true, attributeFilter: ["hidden"] });
+  });
+
+  // No close, no word: the page pings, hears nothing, and within a few seconds takes the connection as lost...
+  freeze();
+  // ...then the new try goes through, to the same player in the same room: the screen came up and went away again.
+  await page.waitForFunction(() => (window as any).__netScreen.length >= 2, undefined, { timeout: 40_000 });
+  expect(await page.evaluate(() => (window as any).__netScreen as string[])).toEqual(["Đang kết nối lại…", "hidden"]);
+  await expect(page.locator(".hud-toast")).toContainText("Đã kết nối lại");
+  const back = await page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return { mark: room.__mark as string, sessionId: room.sessionId as string, players: room.state.players.size as number };
+  });
+  expect(back).toEqual({ mark: "before-silence", sessionId, players: 1 });
 });

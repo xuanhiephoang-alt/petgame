@@ -32,6 +32,23 @@ export const PLAYER_COLORS = [0x4fc3f7, 0xffb74d, 0xba68c8, 0x81c784, 0xe57373] 
 
 export const ROOM_NAME = "world";
 
+/**
+ * How long (ms) the server keeps a player, and their seat, after their connection drops, so a short outage
+ * (patchy mobile data, a Wi-Fi switch, a quick app change) does not throw them out. The seat is held for about
+ * 29 s in all: 6-9 s for the server to notice a dead socket, plus this.
+ */
+export const RECONNECT_GRACE_MS = 20_000;
+/**
+ * How long (ms) a client keeps trying to reconnect: the grace, plus the most the server may need to notice the
+ * dead socket (9 s), plus 1 s to spare. By then the server has certainly let the seat go.
+ */
+export const RECONNECT_TRY_MS = RECONNECT_GRACE_MS + 10_000;
+/**
+ * Close code of a session ended because the same device joined again. 4000-4999 is free for applications
+ * (Colyseus uses 4000-4003 and 4010), and the client does not try to reconnect after it.
+ */
+export const CLOSE_REPLACED = 4201;
+
 /** Most pals one player can carry. */
 export const MAX_PARTY = 30;
 

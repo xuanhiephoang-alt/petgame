@@ -56,6 +56,8 @@ export const Player = schema(
     questProgress: t.number(),
     /** Whether the following pal uses its skills on its own (else only when ordered, keys 1-3). */
     palAuto: t.boolean(),
+    /** Waiting to reconnect after the connection dropped (RECONNECT_GRACE_MS): frozen, and nothing targets or hurts them or their pals. */
+    offline: t.boolean(),
   },
   "Player",
 );

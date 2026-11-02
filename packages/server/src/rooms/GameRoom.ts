@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Room, type Client } from "colyseus";
+import { Deferred, Room, type Client } from "colyseus";
 import {
   BITE_KNOCKBACK,
   CRIT_CHANCE,
@@ -137,6 +137,7 @@ import {
   COMPANION_AGGRO_MS,
   COMPANION_ATTACK_COOLDOWN_MS,
   COMPANION_TELEPORT_DISTANCE,
+  CLOSE_REPLACED,
   ClientMessage,
   Companion,
   GameState,
@@ -146,6 +147,7 @@ import {
   PAL_RESPAWN_MS,
   PLAYER_COLORS,
   Player,
+  RECONNECT_GRACE_MS,
   RESOURCES,
   ServerMessage,
   THROW_COOLDOWN_MS,
@@ -260,11 +262,18 @@ export function useStore(next: ProfileStore) {
   sharedStore = next;
 }
 
+/** Device token -> its one live session, in whichever room (process-wide, like the store): one player per device. */
+const liveSessions = new Map<string, { room: GameRoom; sessionId: string }>();
+
 export class GameRoom extends Room<{ state: GameState }> {
   maxClients = MAX_PLAYERS;
   state = new GameState();
 
   private controls = new Map<string, PlayerControl>();
+  /** Session id -> the held place of a player whose connection dropped; `reject(false)` ends the wait at once. */
+  private holds = new Map<string, Deferred<Client>>();
+  /** How long (ms) a dropped player is waited for; tests shorten it. */
+  private reconnectGraceMs = RECONNECT_GRACE_MS;
   private brains = new Map<string, WanderBrain>();
   private companionTimers = new Map<string, CompanionTimers>();
   private nextPalId = 1;
@@ -440,6 +449,10 @@ export class GameRoom extends Room<{ state: GameState }> {
         player.pals.push(owned);
         this.summon(client.sessionId, owned.id);
       });
+      // Ends every wait to reconnect at once, as if the grace had run out.
+      this.onMessage("debug:endGrace", () => {
+        for (const hold of this.holds.values()) hold.reject(false);
+      });
     }
 
     this.setSimulationInterval((dt) => this.tick(dt), TICK_MS);
@@ -447,6 +460,10 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   onJoin(client: Client, options?: JoinOptions) {
     const token = isValidToken(options?.token) ? options.token : undefined;
+    // One live session per device: an older one (here or in another world) is saved and ended before the
+    // profile is read, so it cannot be doubled or overwrite what this one is about to do.
+    const older = token ? liveSessions.get(token) : undefined;
+    if (older) older.room.endSession(older.sessionId);
     const profile = (token && store().load(token)) || emptyProfile("");
 
     const player = new Player();
@@ -467,6 +484,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.maxHp = PLAYER_MAX_HP;
     player.hp = PLAYER_MAX_HP;
     player.activePalId = "";
+    player.offline = false;
     player.hasBase = !!profile.base;
     player.baseX = profile.base?.x ?? 0;
     player.baseY = profile.base?.y ?? 0;
@@ -490,6 +508,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       input: { x: 0, y: 0 }, lastAttackAt: 0, lastThrowAt: 0, aggroUntil: 0, token, saveScheduled: false,
       dashDir: { x: 0, y: 0 }, dashLeftMs: 0, nextDashAt: 0, invulnerableUntil: 0,
     });
+    if (token) liveSessions.set(token, { room: this, sessionId: client.sessionId });
     if (options?.look) this.scheduleSave(client.sessionId); // a look picked before joining
 
     // Bring back whoever was following or working last time.
@@ -513,15 +532,85 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
   }
 
-  onLeave(client: Client) {
-    this.saveNow(client.sessionId);
+  /**
+   * The connection dropped without a goodbye (bad signal, a Wi-Fi switch, a locked phone, a killed tab): the
+   * player stays where they stood, frozen and safe, for the grace, and the client's own retry brings them back
+   * (onReconnect). If it does not, Colyseus calls onLeave when the wait runs out.
+   */
+  onDrop(client: Client) {
+    const sessionId = client.sessionId;
+    const player = this.state.players.get(sessionId);
+    const control = this.controls.get(sessionId);
+    if (!player || !control) return; // the session was already ended (replaced by a newer one): onLeave follows
+    const hold = this.allowReconnection(client, this.reconnectGraceMs / 1000);
+    hold.catch(() => {}); // the wait ending (run out, or let go by us) rejects it and onLeave follows: nothing to handle
+    if (!(hold instanceof Deferred)) return; // never fully joined, or the room is closing: onLeave follows at once
+    this.holds.set(sessionId, hold);
+    player.offline = true;
+    // Whatever they were doing stops: no walking on, no dash, no skill order, no fight their pal would carry on.
+    control.input = { x: 0, y: 0 };
+    control.dashLeftMs = 0;
+    control.skillOrder = undefined;
+    control.aggroUntil = 0;
+    // Nobody keeps fighting them or their pals; a skill a pal was still winding up is dropped (ones already let go fly on).
+    this.calmPalsTargeting("player", sessionId);
     this.state.companions.forEach((c, id) => {
-      if (c.ownerId === client.sessionId) this.despawnCompanion(id);
+      if (c.ownerId !== sessionId) return;
+      this.cancelCasts("companion", id);
+      this.calmPalsTargeting("companion", id);
     });
-    this.state.players.delete(client.sessionId);
-    this.controls.delete(client.sessionId);
-    this.lastDamagedAt.delete(`p:${client.sessionId}`);
-    this.calmPalsTargeting("player", client.sessionId);
+    this.saveNow(sessionId); // in case the server goes down while they are away
+  }
+
+  /** The dropped player is back: the same session and the same player, nothing was created again. */
+  onReconnect(client: Client) {
+    this.holds.delete(client.sessionId);
+    const player = this.state.players.get(client.sessionId);
+    if (player) player.offline = false;
+  }
+
+  /** The player is gone for good: they left on purpose, their wait to reconnect ran out, or their device joined again. */
+  onLeave(client: Client) {
+    this.removePlayer(client.sessionId);
+  }
+
+  /** The room is closing: none of its sessions is anyone's live session any more. */
+  onDispose() {
+    for (const [token, live] of liveSessions) if (live.room === this) liveSessions.delete(token);
+  }
+
+  /**
+   * Takes a player out of the world: saves them first, then their pals, then everything the room keeps about
+   * them. Calling it again for a session already gone does nothing (onLeave follows a session ended by endSession).
+   */
+  private removePlayer(sessionId: string) {
+    this.saveNow(sessionId);
+    // By owner, never by pal id: a newer session of the same device uses the same pal ids.
+    this.state.companions.forEach((c, id) => {
+      if (c.ownerId === sessionId) this.despawnCompanion(id);
+    });
+    const token = this.controls.get(sessionId)?.token;
+    const live = token ? liveSessions.get(token) : undefined;
+    if (token && live?.room === this && live.sessionId === sessionId) liveSessions.delete(token);
+    this.state.players.delete(sessionId);
+    this.controls.delete(sessionId);
+    this.holds.delete(sessionId);
+    this.lastDamagedAt.delete(`p:${sessionId}`);
+    this.hazardWarned.delete(sessionId);
+    this.shieldUntil.delete(sessionId);
+    this.calmPalsTargeting("player", sessionId);
+  }
+
+  /**
+   * The same device joined again, here or in another world: this session ends now. It is saved and removed (so
+   * the newer one reads its latest progress), then its held place is let go, or its open connection is told why.
+   * Safe on a room that is closing.
+   */
+  private endSession(sessionId: string) {
+    const hold = this.holds.get(sessionId);
+    this.removePlayer(sessionId);
+    if (hold) hold.reject(false);
+    else this.clients.find((c) => c.sessionId === sessionId)?.leave(CLOSE_REPLACED);
   }
 
   // -------------------------------------------------------------------------
@@ -659,6 +748,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         this.despawnCompanion(id);
         return;
       }
+      if (owner.offline) return; // waiting for their owner to reconnect: standing still, fighting and working nothing
       const timers = this.timers(id);
       const radius = getSpecies(companion.speciesId).size;
 
@@ -1550,19 +1640,31 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (aggro) this.wildAggro.delete(id);
     if (species.temperament !== "aggressive" && !pal.alpha) return undefined;
     const candidates: CombatTarget[] = [];
-    this.state.players.forEach((p, sid) => candidates.push({ kind: "player", id: sid, pos: p }));
-    this.state.companions.forEach((c, cid) => candidates.push({ kind: "companion", id: cid, pos: c }));
+    const consider = (target: CombatTarget) => {
+      if (!this.sheltered(target)) candidates.push(target);
+    };
+    this.state.players.forEach((p, sid) => consider({ kind: "player", id: sid, pos: p }));
+    this.state.companions.forEach((c, cid) => consider({ kind: "companion", id: cid, pos: c }));
     const found = findNearestTarget(pal, pal.alpha ? ALPHA.sight : AGGRESSIVE_SIGHT, candidates);
     if (!found) return undefined;
     this.wildAggro.set(id, { target: { kind: found.kind, id: found.id }, until: now + WILD_AGGRO_MS, lastAttackAt: 0 });
     return found;
   }
 
+  /** Where a target is, or nothing when it is gone or out of the game (so whoever was after it lets go). */
   private targetPos(target: Pick<CombatTarget, "kind" | "id">): Vec2 | undefined {
+    if (this.sheltered(target)) return undefined;
     return target.kind === "player" ? this.state.players.get(target.id) : this.state.companions.get(target.id);
   }
 
+  /** A player waiting to reconnect, and their pals, are out of the game: nothing targets or hurts them. */
+  private sheltered(target: Pick<CombatTarget, "kind" | "id">): boolean {
+    const ownerId = target.kind === "player" ? target.id : this.state.companions.get(target.id)?.ownerId;
+    return ownerId !== undefined && !!this.state.players.get(ownerId)?.offline;
+  }
+
   private damage(target: CombatTarget, amount: number, attackerId: string, push = 0, opts: { skill?: string; pushFrom?: Vec2 } = {}) {
+    if (this.sheltered(target)) return;
     const now = this.clock.currentTime;
     const attacker = this.state.pals.get(attackerId);
     if (target.kind === "player" && (this.shieldUntil.get(target.id) ?? 0) > now) {
@@ -1666,8 +1768,13 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (entity.hp >= entity.maxHp || now - (this.lastDamagedAt.get(key) ?? 0) < REGEN_DELAY_MS) return;
       entity.hp = Math.min(entity.maxHp, Math.round((entity.hp + amount) * 10) / 10);
     };
-    this.state.players.forEach((p, id) => heal(`p:${id}`, p));
-    this.state.companions.forEach((c, id) => heal(`c:${id}`, c));
+    // Time stands still for a player waiting to reconnect, and for their pals.
+    this.state.players.forEach((p, id) => {
+      if (!p.offline) heal(`p:${id}`, p);
+    });
+    this.state.companions.forEach((c, id) => {
+      if (!this.sheltered({ kind: "companion", id })) heal(`c:${id}`, c);
+    });
   }
 
   /** Advances the clock; night pals fly off at dawn. */
@@ -1704,6 +1811,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   /** Opens chests players walk up to and notices when they reach the snowfield. */
   private tickExploration() {
     this.state.players.forEach((player, sessionId) => {
+      if (player.offline) return; // a player waiting to reconnect opens and discovers nothing
       this.state.chests.forEach((chest, chestId) => {
         if (distance(player, chest) <= CHEST_OPEN_RADIUS) this.openChest(sessionId, chestId, chest);
       });
@@ -1831,6 +1939,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.climateTimer = 0;
     const night = isNight(this.dayTime);
     this.state.players.forEach((player, sessionId) => {
+      if (player.offline) return; // a player waiting to reconnect feels neither cold nor heat
       const biome = biomeAt(defaultWorld().layout, player.x, player.y);
       const climate = climateHazard(biome, night);
       const follower = player.activePalId ? this.state.companions.get(player.activePalId) : undefined;
