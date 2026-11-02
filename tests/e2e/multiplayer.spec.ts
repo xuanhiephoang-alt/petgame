@@ -817,6 +817,28 @@ test("party: by touch alone a pal is let go; the dimmed layer takes the taps mea
   await expect(page.locator(".party-action.release")).toHaveCount(1); // still in release mode, to let more go
 });
 
+test("levels: a big XP gain over several levels still announces the skill learned on the way", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Leveler");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  // An Emberpup at level 6 learns Phun lửa at level 7. 450 XP is the 191 for level 7, the 241 for level 8 and 18 over:
+  // the pal climbs past level 7 within one gain, so the message only says it went from level 6 to 8.
+  await sendFrom(page, "debug:givePal", { species: "emberpup", level: 6 });
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(1);
+  await sendFrom(page, "debug:xp", { amount: 450 });
+
+  // The text stays in the toast after it fades, so reading it does not depend on when we look.
+  const toast = page.locator(".hud-toast");
+  await expect(toast).toContainText("Emberpup lên cấp 8!");
+  await expect(toast).toContainText("Học được chiêu mới: 🔥 Phun lửa");
+
+  // The party panel agrees: level 8, the second skill open.
+  await page.locator(".party-btn").click();
+  await expect(page.locator(".party-card.follow strong")).toContainText("Lv 8");
+  await expect(page.locator(".party-card.follow .skill-chip").nth(1)).not.toHaveClass(/locked/);
+});
+
 // No WebGL world is loaded here (the invited room does not exist), so this one is quick.
 test("lobby: nothing is sent before the lobby script is ready; the invite and the name are kept", async ({ browser }) => {
   const context = await browser.newContext();

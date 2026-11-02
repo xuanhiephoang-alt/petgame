@@ -18,6 +18,7 @@ import {
   WEARABLES,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  addXp,
   canWear,
   sanitizeLook,
   type Item,
@@ -150,13 +151,9 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
     if (assignment === "follow") following = true;
     if (assignment === "work") workers++;
     ids.add(p.id);
-    pals.push({
-      id: p.id,
-      speciesId: p.speciesId,
-      level: Math.round(num(p.level, 1, MAX_LEVEL, 1)),
-      xp: Math.round(num(p.xp, 0, 1e9, 0)),
-      assignment,
-    });
+    // A profile saved when levels cost more can hold XP that now pays for the next one: level up on reading, never down.
+    const { level, xp } = addXp({ level: Math.round(num(p.level, 1, MAX_LEVEL, 1)), xp: Math.round(num(p.xp, 0, 1e9, 0)) }, 0);
+    pals.push({ id: p.id, speciesId: p.speciesId, level, xp, assignment });
   }
 
   const base =

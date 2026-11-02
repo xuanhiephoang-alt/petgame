@@ -241,6 +241,8 @@ export interface LevelUpMessage {
   playerId: string;
   palId: string;
   speciesId: string;
+  /** The pal's level before this gain (it may have gone up several levels at once). */
+  fromLevel: number;
   level: number;
 }
 

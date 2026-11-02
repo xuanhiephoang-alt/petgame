@@ -8,10 +8,10 @@ import {
   isSupport,
   knownSkills,
   learnset,
-  newSkillAt,
   skillPower,
   skillReach,
   skillTravelMs,
+  skillsLearnedBetween,
 } from "./skills.ts";
 
 describe("skills", () => {
@@ -45,8 +45,22 @@ describe("skills", () => {
     expect(knownSkills(ember, 1).map((s) => s.id)).toEqual(["ember"]);
     expect(knownSkills(ember, 7).map((s) => s.id)).toEqual(["ember", "fire_breath"]);
     expect(knownSkills(ember, 30).map((s) => s.id)).toEqual(["ember", "fire_breath", "flame_ring"]);
-    expect(newSkillAt(ember, 7)?.id).toBe("fire_breath");
-    expect(newSkillAt(ember, 8)).toBeUndefined();
+  });
+
+  it("names the skills learned on the way up, however many levels it climbed at once", () => {
+    const ember = getSpecies("emberpup");
+    const learned = (from: number, to: number) => skillsLearnedBetween(ember, from, to).map((s) => s.id);
+    expect(learned(6, 7)).toEqual(["fire_breath"]);
+    expect(learned(6, 8)).toEqual(["fire_breath"]); // the gain climbed past the level that teaches it
+    expect(learned(7, 8)).toEqual([]);
+    expect(learned(1, 30)).toEqual(["fire_breath", "flame_ring"]); // in the order they are learned
+    expect(learned(0, 1)).toEqual(["ember"]);
+    expect(learned(6, 15)).toEqual(["fire_breath", "flame_ring"]);
+    expect(learned(7, 15)).toEqual(["flame_ring"]); // a skill is learned above the starting level, not at it
+    expect(learned(14, 15)).toEqual(["flame_ring"]);
+    expect(learned(8, 6)).toEqual([]);
+    expect(learned(7, 7)).toEqual([]);
+    expect(learned(Number.NaN, 30)).toEqual([]); // a message without its starting level announces nothing
   });
 
   it("hits harder at higher levels", () => {

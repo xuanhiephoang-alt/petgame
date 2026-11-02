@@ -19,7 +19,7 @@
     "icon": "🥧",
     "description": "Cho thú ăn để nhận 40 kinh nghiệm",
     "cost": {
-      "berries": 4
+      "berries": 8
     },
     "output": {
       "item": "snacks",

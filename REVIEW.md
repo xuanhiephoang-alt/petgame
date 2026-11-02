@@ -1,117 +1,51 @@
 PASS
-# REVIEW: T3 Kết nối lại sau khi rớt mạng (ân hạn 20 giây), vòng 1
+# REVIEW: T4 Lên cấp nhanh hơn, vòng 3
 
 ## Kết luận
 
-Thay đổi làm đủ Bước A và Bước B của PLAN.md và dùng đúng API Colyseus 0.18 (tôi đã đối chiếu với mã nguồn `@colyseus/core` 0.18.18 và `@colyseus/sdk` 0.18.5). Vòng đời phòng không rò `Map`, hẹn giờ, `Deferred` hay mục `liveSessions`; bản cũ không ghi đè được tiến trình mới; `sheltered()` phủ mọi đường gây sát thương và nhắm mục tiêu; client không nhân đôi listener hay sprite và không gửi gì khi mất kết nối. Không có lỗi phải sửa. Còn một kẽ hở thiết kế nhỏ (ngắt rồi nối lại liên tục để né đòn, chỉ làm được bằng devtools): nên đưa thành việc P3.
+Hai lỗi thứ tự tin đã hết: `feed` (vòng 1) và bắt thú đầu đàn (tester tìm ra ở vòng 2). Ngoài toast "Bắt được…" đã dành cho T6, không còn chỗ nào gửi tin báo sau tin `LevelUp` của cùng sự kiện. Phần còn lại của T4 không đổi kể từ vòng 1 và vẫn đạt. Không có hồi quy; tài liệu khớp code.
+
+Đính chính REVIEW vòng 1: mình đã viết "hai hẹn giờ cùng mốc, tin báo được hẹn trước nên chạy trước". Câu này **sai**. Đã xác minh trong `node_modules/@colyseus/timer/build/ClockTimer.mjs` (bản 2.0.3, chỉ có một bản trong `node_modules`): `tick()` duyệt `while (i--)` từ cuối mảng về đầu, nên trong cùng một tick, hẹn giờ đăng ký sau chạy trước. Tester vòng 2 bắt đúng lỗi này.
 
 ## Lỗi phải sửa (FAIL khi còn mục này)
 
 Không có.
 
-## Đã kiểm
-
-- **Server, vòng đời phòng** (`GameRoom.ts:540-614`):
-  - Hook được gọi theo đúng `_onLeave` và `#_onAfterLeave` của core:
-    - Mã 4000 → `onLeave` ngay.
-    - Mã khác → `onDrop`; nếu có giữ chỗ thì `onLeave` chỉ chạy khi hold bị reject.
-    - `allowReconnection` trả Promise bị reject (chưa JOINED, phòng DISPOSING); `.catch` và `instanceof Deferred` xử lý đúng trường hợp này.
-  - Tin từ client chỉ được nhận sau `onReconnect`: listener `message` chỉ được gắn sau khi `onReconnect` trả về (`core/src/Room.ts:1911-1919`). Vì vậy không có ý định nào lọt vào lúc `offline`.
-  - `holds`:
-    - Xoá ở `onReconnect` và `removePlayer`.
-    - Mọi đường reject (hết hạn, `endSession`, `debug:endGrace`, `disconnect`) đều dẫn tới `onLeave` → `removePlayer`.
-    - Phòng đóng giữa lúc chờ: `_rejectPendingReconnections` → `onLeave` lưu và xoá người đang chờ. Người đang nối thì `onDrop` gặp hold bị từ chối (DISPOSING) → `onLeave`. Test của tester kiểm cả hai, không có unhandled rejection.
-  - `liveSessions`:
-    - Chỉ `set` sau `controls.set`.
-    - `removePlayer` chỉ xoá mục đúng `{ room, sessionId }`, nên `onLeave` muộn của phiên đã bị thay không xoá mục của phiên mới. `onDispose` dọn thêm.
-    - `onJoin` ném lỗi sau khi `set` → `onDrop` (hold bị từ chối vì chưa JOINED) → `onLeave` → mục bị xoá. Không có đường nào để một mục sống lâu hơn phiên của nó.
-  - `removePlayer`:
-    - Gọi hai lần vẫn an toàn.
-    - Lọc thú theo `ownerId`; test 7 kiểm thú cùng id của phiên mới không bị đụng.
-    - Xoá thêm `hazardWarned` và `shieldUntil` (trước đây bị bỏ sót).
-- **Thứ tự lưu:**
-  - Phiên cũ được `saveNow` trước khi phiên mới `store().load`, đồng bộ ngay trong `onJoin`.
-  - Sau đó phiên cũ không còn player, nên mọi `saveNow` muộn (kể cả hẹn lưu theo lô 2 s đã đặt) đều không làm gì.
-  - Test 8 kiểm đúng điều này: gọi `saveNow(bSid)` sau khi thế giới mới đã ghi 77, hồ sơ vẫn là 77.
-  - Lưu ngay lúc rớt có test riêng (ân hạn 1000 ms, ngắn hơn lần lưu theo lô 2 s; đột biến bỏ lưu này bị bắt).
-- **`sheltered()`:**
-  - Máu của người chơi và thú đi theo chỉ bị trừ ở hai chỗ, và cả hai đều đã chặn:
-    - `damage()`: cắn qua `strike`, chiêu thú hoang qua `land`, dậm của trùm qua `bossStomp`, và cả đẩy lùi.
-    - `tickClimate`.
-  - Nhắm mục tiêu:
-    - `wildTarget` lọc ứng viên.
-    - `targetPos` trả `undefined`, nên mọi thứ còn trỏ tới họ tự bỏ ở tick sau: aggro, `fleeing`, `inBallThrower`/`breakOut`, `provoke` từ chiêu đã bay.
-    - Thú đầu đàn và trùm đi cùng đường này.
-  - Rương, nhiệm vụ đi thăm vùng, hồi máu, thú làm việc đều bị chặn.
-  - Chỉ còn hai đường hồi máu, đều từ chiêu đã bay ra trước lúc rớt: chiêu hồi máu, và lên cấp nhờ chiêu đó trúng. Đúng luật "chiêu đã bay ra vẫn rơi".
-- **Bảo mật:**
-  - Token kết nối lại do Colyseus cấp, dùng một lần, gắn với sessionId (test 6).
-  - `CLOSE_REPLACED` chỉ phát trong `endSession`, và `endSession` chỉ được gọi từ `onJoin` khi có cùng token thiết bị hợp lệ. Token chỉ nằm trong `PlayerControl`, không có trong schema. Vì vậy không đá được người khác.
-  - `debug:endGrace` nằm trong khối `PETGAME_DEBUG === "1"`; không cấu hình deploy nào đặt biến này.
-- **Client:**
-  - Mỗi thứ tạo hoặc đăng ký đúng một lần: `ConnectionWatch` (`main.ts:62`), `ConnectionOverlay`, `watchConnection`, `visibilitychange`, `pagehide`.
-  - SDK nối lại trên cùng `Room`: không dùng `client.reconnect`, chỉ có một `bindRoom`.
-  - SDK gọi `onReconnect` trước khi gửi xác nhận JOIN_ROOM, và các listener không gửi gì ngay, nên xác nhận luôn đi trước `Input`.
-  - Không gửi gì khi mất kết nối:
-    - `Game.ts` chỉ còn một `room.send`, nằm trong `send()`.
-    - Watch chỉ ping khi online.
-    - `maxEnqueuedMessages: 0` khiến `enqueueMessage` bỏ tin ngay.
-  - Khi `lost`:
-    - Interval và các hẹn giờ dừng; SDK tự gỡ listener.
-    - Signal duyệt mảng cũ, nên listener của watch vẫn chạy sau `removeAllListeners`.
-    - `room.state` còn giữ giá trị sau `teardown` (`clearRefs` không xoá nội dung), nên `withFriends` tính đúng.
-  - `.label.offline span` không đụng thanh máu (thanh máu là `div`). `frame()` không cấp phát thêm.
-- **Đồng bộ:**
-  - `Player.offline` ở cuối schema, được đặt `false` trong `onJoin`.
-  - Hai phía cùng import schema từ shared.
-  - `Profile` và `store.ts` không đổi.
-- **Test và tài liệu:**
-  - Test cũ chỉ đổi dòng import.
-  - Test mới kiểm hành vi thật; coder và tester đã kiểm đột biến.
-  - `docs/architecture.md` và `docs/choi-tren-iphone.md` khớp code.
-- **Tôi tự chạy:**
-  - `npm run typecheck`: sạch.
-  - `npx vitest run packages/client/src/net/`: 15/15.
-  - Nhóm "reconnecting after a dropped connection": 12/12.
-  - `npx playwright test -g "connection:" --workers=1`: 6/6 (1,3 phút).
-  - Cổng 2567, 2568, 5173 trống sau khi chạy.
-
 ## Góp ý không bắt buộc
 
-1. **Né đòn bằng cách ngắt rồi nối lại liên tục** (trả lời câu hỏi "có lách được không"):
-   - Cách làm: trong devtools gọi `__petgame.room.connection.close(4010)` (hoặc tự đóng WebSocket).
-   - Server biết ngay. `onDrop` xoá mọi aggro lên người chơi và thú của họ, kể cả cú cắn hay cú dậm đang gồng. `sheltered` chặn cả đòn đang bay.
-   - SDK nối lại sau khoảng 200-400 ms. Lặp lại được mãi, không có cooldown: một nút "bất tử" mạnh hơn lướt.
-   - Người chơi bình thường không làm được: bật chế độ máy bay thì server chỉ biết sau 6-9 s.
-   - Thiết kế đã chấp nhận "cắt mạng để thoát trận" với lý do "không làm gì được trong 20 s". Bật tắt nhanh vượt qua lý do đó, vì người chơi đánh được giữa các lần. Game hợp tác, không có PvP, nên không chặn T3.
-   - Đề xuất P3 cho game-designer: chỉ bảo vệ khi lần rớt kéo dài quá một ngưỡng ngắn, ví dụ khoảng 1,5 s. `onDrop` vẫn giữ chỗ, lưu và xoá ý định ngay. Riêng `offline` và `calmPalsTargeting` thì làm qua `this.clock.setTimeout`, có kiểm tra `holds.get(sid) === hold`. Cách khác: rớt lại trong N giây sau một lần nối lại thì không bảo vệ.
-2. **Giữ chỗ vô hạn:** không đáng lo.
-   - Mỗi lần giữ chỗ tối đa `RECONNECT_GRACE_MS`, và muốn gia hạn phải nối lại thật (vào hẳn rồi mới rớt lại).
-   - Một người treo máy mà vẫn kết nối cũng giữ chỗ y như vậy.
-3. **`onReconnect` phòng thủ:** nếu `this.state.players.get(sid)` không còn, gọi `client.leave(CLOSE_REPLACED)`, để không có client nào ở trong phòng mà không có nhân vật.
-   - Hiện gần như không xảy ra được: giữa `resolve(client)` và `onReconnect` chỉ có một microtask, còn `endSession` luôn reject hold trước.
-4. **e2e `freeze()` chưa chạy qua đường "đường truyền chết thật":**
-   - Route chuyển cả lệnh đóng của trang (`ws.onClose` → `server.close`), nên khi watchdog đóng socket thì server biết ngay.
-   - Đường thật thì khác: server chỉ biết qua ping sau 6-9 s, và lần nối lại phải chờ trong `_reconnectionAttempts` (`core/src/Room.ts:1736-1760`).
-   - Có thể bỏ chuyển lệnh đóng cho socket đã đóng băng. Hành vi của thư viện đã được kiểm ở mục chạy thử số 8 của PLAN.
-5. **`docs/design/multiplayer.md`, bảng "Rời chủ động":**
-   - Bảng ghi "bấm 'Về sảnh'" là rời chủ động, "chỗ trống ngay". Thực ra nút chỉ hiện khi đã mất kết nối, nên lúc đó không gửi được gì.
-   - Chỗ được trả khi thiết bị vào lại (`endSession`) hoặc khi hết ân hạn.
-   - Có thể thêm một dòng: trong 6-9 s trước khi server phát hiện, nhân vật vẫn đi theo hướng cuối và vẫn có thể bị đánh (có từ trước).
-6. **`pagehide` đăng ký trong `startGame`, tức sau khi tải xong hình.**
-   - Đóng trang trong lúc hình đang tải thì server giữ chỗ 20 s thay vì trả ngay. Lần vào sau của cùng thiết bị vẫn trả chỗ.
-   - Có thể đăng ký ngay sau khi tạo watch.
-7. **Khi `lost`, vòng vẽ PixiJS vẫn chạy dưới lớp phủ**, tốn pin điện thoại nếu người chơi để đó. Có thể `ticker.stop()` khi mất hẳn.
-8. **`lobbyUrl(roomId, true)` trùng với `inviteLink(roomId)`;** có thể dùng lại hàm này.
-9. **Lớp phủ không đặt `inert` cho HUD:** người dùng bàn phím vẫn Tab được tới nút bên dưới.
-   - Lệnh gửi đi đều bị chặn, nhưng giao diện cục bộ vẫn có thể đổi (ví dụ xem trước trong Tủ đồ).
-   - Có thể đặt `inert` cho HUD khi chưa online.
-10. **Việc cho agent chính:**
-    - Thêm `endGrace` vào danh sách hook `debug:*` trong `CLAUDE.md` (có thể thêm `docs/design/multiplayer.md` vào danh sách tài liệu thiết kế).
-    - Thêm vào `TASKS.md`:
-      - P2 vào lại đúng thế giới sau khi tải lại trang (PLAN).
-      - P3 Android ẩn trang mà socket vẫn sống (PLAN).
-      - P3 `calmPalsTargeting` không xoá `pal.windup` (PLAN).
-      - P3 tự vào lại khi nhận 4003 sớm lúc mạng chập chờn rất nhanh (tester).
-      - P3 lần nối thử bị treo (coder).
-      - P3 né đòn bằng ngắt/nối liên tục (mục 1).
+- **`GameRoom.ts:1601` `announce(text, delayMs = 0)`: tham số `delayMs` không còn ai dùng.** Hai chỗ gọi (`knockOut`, hẹn giờ bóng khép) đều gửi ngay. Nên bỏ tham số và phần trong JSDoc nói về nó, ví dụ khi dọn ở T20. Giữ lại thì dễ có người lặp lại đúng lỗi vừa sửa: hẹn `announce(…, d)` cạnh một hẹn giờ khác cùng mốc `d`.
+- **Câu mới trong `docs/architecture.md` nói "chỗ nào cộng kinh nghiệm cũng gửi tin báo của sự kiện trước"**, nhưng kinh nghiệm bắt thú thường được cộng lúc ném, và toast "Bắt được…" khi bóng khép vẫn đè sau đó. Nên thêm ngoại lệ này (việc của T6) để tài liệu không hứa quá.
+- **`PLAN.md` mục 4 vẫn ghi giả định sai** ("tin báo được hẹn trước nên đến trước"). Code và `docs/architecture.md` đã đúng. Đây là file của game-designer: nên sửa câu đó hoặc ghi chú trước khi commit, để lịch sử không giữ một khẳng định sai.
+- **Gom cho T6 (hàng đợi hoặc ưu tiên toast).** Đều có từ trước hoặc đã chấp nhận, không chặn T4:
+  1. "Bắt được…" đè toast lên cấp do kinh nghiệm bắt lúc ném.
+  2. Toast phần thưởng trùm (chỗ duy nhất báo tên món đồ hiếm của trùm) bị toast lên cấp đè: luôn luôn ở cấp ≤ 7, 85% ở cấp 8, 61% ở cấp 10.
+  3. Thú đi theo ra đòn kết liễu trùm: `grantXp(XP_PER_HIT)` (`GameRoom.ts:829`, `:1473`) chạy sau `defeatBoss` và có thể gây tin `LevelUp` thứ hai, đè chữ "Học được chiêu mới" của tin thứ nhất (khoảng 2%; chữ bay tên chiêu vẫn còn). Sửa rẻ: cộng `XP_PER_HIT` trước `hitWild` / trước vòng `hit.forEach`.
+  4. Bắt thú đầu đàn dựa vào khoảng đệm 300 ms giữa lúc client hiện kết quả bóng và hẹn giờ `reveal + 300` của server. Client kẹp mỗi khung hình tối đa 100 ms, nên máy dưới 10 khung hình mỗi giây hoặc mạng giật hơn 300 ms vẫn có thể cho "Bắt được…" đến sau toast lên cấp.
+  5. Toast "Xong nhiệm vụ" của nhiệm vụ cuối (bắt thú đầu đàn) chỉ hiện khoảng 0,1 giây trước khi tin "★ … đã bắt được …" đè; trước T4 cũng vậy.
+- **Còn từ vòng 1 (tuỳ chọn):**
+  - `CLAUDE.md` thiếu hook `xp` trong danh sách `debug:*` (việc của agent chính).
+  - Helper `followerOf(player)` thay 4 chỗ `player.pals.find(…activePalId)`.
+  - JSDoc riêng cho `XP_CURVE_POWER`.
+  - Tin "+XP" vẫn hiện khi thú đã cấp 30.
+  - Test và e2e hỏng nếu chỉnh `XP_CURVE` 14 (`PROGRESS.md` vòng 2 đã đính chính).
+
+## Đã kiểm (đạt)
+
+- **Lỗi vòng 1 (`feed`):**
+  - `notify` "ăn ngon lành" chạy trước, `grantXp` sau, kèm cùng chú thích như `knockOut`/`defeatBoss`; `scheduleSave` giữ nguyên.
+  - Test `feeding a snack tells of the meal first…` kiểm đúng mảng thứ tự `[ăn ngon lành, LevelUp 6 -> 7]`, cấp 7 xp 0, bánh về 0.
+- **Lỗi vòng 2 (bắt thú đầu đàn), `GameRoom.ts:931-941`:**
+  - Tin báo và `ALPHA.xp` chung **một** `clock.setTimeout(reveal + 300)`: `announce(news)` trước, rồi `grantXp` chỉ khi thú vẫn còn trong túi người ném. Thứ tự không còn phụ thuộc cách đồng hồ duyệt.
+  - Chữ tin báo tính lúc ném, nên người ném rời đi thì những người khác vẫn nghe tin và không ai nhận kinh nghiệm (có test). Người đang chờ nối lại vẫn nhận, vì T3 giữ nguyên `sessionId`. Phòng bị huỷ thì đồng hồ dừng nên hẹn giờ không chạy.
+  - Test thứ tự và test người ném rời đều tất định, số tính từ `addXp`, `finishXp`, `ALPHA.xp`. Tester kiểm: trả lại code cũ thì test hỏng đúng (`expected 1 to be greater than 2`).
+- **Rà mọi chỗ cộng kinh nghiệm ở hai phía:**
+  - 9 chỗ gọi `grantXp` và 9 hẹn giờ server (đã `grep` lại, khớp bảng của coder).
+  - Client chỉ hiện toast từ ba tin của server: `Notice` (riêng "Xong nhiệm vụ" trễ 2,1 giây), `LevelUp` và `CaptureResult`. `Defeated`, `BossDefeated`, `QuestDone`, `Produced` không hiện toast.
+  - `knockOut`, `defeatBoss` (với mọi người thắng), `feed` và bắt thú đầu đàn đều gửi tin báo trước, `grantXp` sau. Làm việc, đòn thường, chiêu và `debug:xp` không có toast nào sau `LevelUp`.
+- **Không hồi quy:**
+  - Từ vòng 1, code sản phẩm chỉ đổi ở `GameRoom.ts` (hai chỗ trên). Số dòng đổi của shared, client, store, e2e, dữ liệu và `docs/design/skills.md` giống hệt vòng 1, khớp với kiểm sha256 của tester.
+  - Tester: 242 test, e2e 23/23, build sạch.
+- **Tài liệu:**
+  - `docs/architecture.md` có thêm dòng "Thứ tự tin báo và `LevelUp`", nói đúng cách `ClockTimer` duyệt hẹn giờ (xem góp ý 2 về ngoại lệ bắt thú).
+  - `docs/design/pals.md` nêu đủ bốn sự kiện: hạ thú đầu đàn, hạ trùm, cho ăn bánh, bóng khép trên thú đầu đàn vừa bắt.
+- **Mình chạy lại:** `npm run typecheck` sạch; 19 test tích hợp liên quan trong `GameRoom.test.ts` qua 19/19 (gồm `pack leaders`, cho ăn, trùm, hook `debug:xp`, hồ sơ cũ, bắt giữ cấp, hạ gục theo cấp).

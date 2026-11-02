@@ -24,11 +24,11 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 | `movement.ts`, `collision.ts` | Bước đi, lướt, đẩy lùi, `CollisionGrid` |
 | `worldgen.ts`, `terrain.ts`, `noise.ts` | Thế giới sinh từ seed (`defaultWorld()`: bố cục + grid vật cản), vùng (`biomeAt`, `terrainAt`), độ nguy hiểm (`dangerAt`) |
 | `pals.ts` + `data/pals.json` | 13 loài: chỉ số, hệ, tính khí, nơi sinh, 3 chiêu (`skills`) |
-| `skills.ts` + `data/skills.json` | 30 chiêu: `skillPower`, `learnset`, `knownSkills`, `skillTravelMs`, `inSkillArea`, hằng số lệnh chiêu |
+| `skills.ts` + `data/skills.json` | 30 chiêu: `skillPower`, `learnset`, `knownSkills`, `skillsLearnedBetween` (chiêu học được trong một lần lên cấp, để báo), `skillTravelMs`, `inSkillArea`, hằng số lệnh chiêu |
 | `elements.ts` | Khắc hệ (×1,5 / ×0,75), màu hệ |
 | `capture.ts` | Tỉ lệ bắt, số lần lắc bóng, thời gian; `throwBlocker` (trùm, túi đầy; client và server dùng chung) |
 | `combat.ts`, `gathering.ts` | Sát thương, choáng, hạ gục, rơi đồ; chặt cây, đập đá |
-| `progression.ts`, `work.ts` | Kinh nghiệm, lên cấp, máu theo cấp; thú làm việc ở trại |
+| `progression.ts`, `work.ts` | Kinh nghiệm, lên cấp, máu theo cấp (đường cong `XP_CURVE`/`xpToNext`; `finishXp`: kinh nghiệm hạ gục và bắt tăng theo cấp thú bị hạ); thú làm việc ở trại |
 | `crafting.ts` + `data/recipes.json` | Chế tạo, nâng trại (`craftBlocker` dùng chung client/server) |
 | `wardrobe.ts` + `data/wearables.json` | Ngoại hình, quần áo, mũ, vũ khí (chống rét/nắng, giáp, sát thương, tầm) |
 | `daycycle.ts`, `climate.ts` | Ngày đêm, lạnh/nóng theo vùng |
@@ -41,6 +41,7 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 - `rooms/GameRoom.ts`: toàn bộ luật chơi, mỗi tick (`tick`): người chơi (input, lướt, đánh, ném bóng, chặt cây), thú hoang (lang thang, nổi giận, gồng rồi cắn, choáng, bỏ chạy), thú đi theo và thú làm việc (`tickCompanions`), chiêu (`startCast`, `tickCasts`, `land`, `support`, lệnh của người chơi `orderSkill`/`obey`), trùm (`spawnBoss`, `bossStomp`, `defeatBoss`), thú đầu đàn (`spawnAlpha`, `alphaHome`, `alphaReturning`), rương, quả mọng, khí hậu, ngày đêm, nhiệm vụ (`questEvent`), lưu game (`scheduleSave`, `saveNow`).
   - Dữ liệu chỉ server cần (input, cooldown, não AI, hồi chiêu) để trong `Map` riêng, không đưa vào schema.
   - Hẹn giờ bằng `this.clock.setTimeout`. Mọi sát thương lên thú hoang đi qua `hitWild` (thú thường giữ ≥ 1 máu rồi choáng, trùm có thể bị hạ).
+  - **Thứ tự tin báo và `LevelUp`:** toast của client chỉ có một ô (tin đến sau thay tin trước), nên chỗ nào cộng kinh nghiệm cũng gửi tin báo của sự kiện trước và gọi `grantXp` (tin `LevelUp`, có thể kèm chiêu mới) sau cùng: `knockOut`, `defeatBoss`, `feed`, bắt thú đầu đàn. Hai hẹn giờ `this.clock.setTimeout` cùng đáo hạn trong một tick thì cái đăng ký **sau** chạy **trước** (`ClockTimer` duyệt từ cuối về đầu), nên tin cần đi theo thứ tự phải chung một hẹn giờ (như tin báo và `ALPHA.xp` khi bóng khép), không hẹn hai cái cùng mốc.
   - Tin từ client luôn kiểm tra kiểu, khoảng cách, cooldown; không tin số từ client.
   - **Kết nối lại** (luật chơi ở `docs/design/multiplayer.md`; hằng số `RECONNECT_GRACE_MS`, `RECONNECT_TRY_MS`, `CLOSE_REPLACED` ở `constants.ts`):
     - Socket đóng mã khác 4000 (rớt mạng, đóng tab mà tin rời không kịp đi) thì Colyseus gọi `onDrop`: server giữ chỗ bằng `allowReconnection(client, reconnectGraceMs / 1000)` (kết quả phải `.catch`, và chỉ coi là đang giữ khi `instanceof Deferred`), đặt `Player.offline = true`, xoá ý định (đi, lướt, lệnh chiêu, aggro), huỷ chiêu chưa phát của thú đi theo và lưu ngay. Chỗ giữ nằm trong `holds` (sessionId → `Deferred`; `reject(false)` kết thúc sớm).
@@ -49,8 +50,8 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
     - `onLeave` (rời chủ động mã 4000, hết hạn chờ, hoặc bị thay) luôn đi qua `removePlayer(sessionId)`: lưu rồi xoá mọi thứ của phiên; gọi lần hai vẫn an toàn.
     - `liveSessions` (cấp module, token thiết bị → phiên đang sống, trong toàn process): mỗi thiết bị một phiên. `onJoin` gọi `endSession` cho phiên cũ **trước** khi đọc hồ sơ (đang chờ thì `reject`, đang mở thì `leave(CLOSE_REPLACED)`), nên không có hai bản của một người và bản cũ không ghi đè tiến trình mới. Chạy nhiều process thì phải chuyển sang Presence của Colyseus.
 - `ai/`: hàm thuần có test: `wander.ts` (lang thang, `randomPoint`), `wildCombat.ts` (chọn mục tiêu, đuổi, bỏ chạy), `companion.ts` (bám chủ, lao vào thú chủ đánh), `skillAi.ts` (chọn chiêu).
-- `persistence/store.ts`: hồ sơ người chơi trong SQLite (`node:sqlite`, file ở `PETGAME_DB`), theo token ngẫu nhiên của thiết bị; luôn qua `sanitizeProfile` khi đọc. Thêm dữ liệu cần lưu: cập nhật `Profile`, `emptyProfile`, `sanitizeProfile`, chỗ đọc/ghi trong `GameRoom` và test.
-- Hook thử nghiệm `debug:*` (spawnPal, give, givePal, gear, wardrobe, quest, setTime, teleport, endGrace: kết thúc ngay mọi lần chờ nối lại trong phòng của người gửi) chỉ đăng ký khi `PETGAME_DEBUG=1`. Không bao giờ bật trên server thật.
+- `persistence/store.ts`: hồ sơ người chơi trong SQLite (`node:sqlite`, file ở `PETGAME_DB`), theo token ngẫu nhiên của thiết bị; luôn qua `sanitizeProfile` khi đọc (thú có kinh nghiệm dư đủ cho cấp sau theo đường cong hiện tại thì lên cấp ngay lúc đọc, không bao giờ xuống). Thêm dữ liệu cần lưu: cập nhật `Profile`, `emptyProfile`, `sanitizeProfile`, chỗ đọc/ghi trong `GameRoom` và test.
+- Hook thử nghiệm `debug:*` (spawnPal, give, givePal, gear, wardrobe, quest, setTime, teleport, xp: cộng kinh nghiệm cho thú đang đi theo qua đúng đường lên cấp (`grantXp`: tin `LevelUp`, nhiệm vụ), endGrace: kết thúc ngay mọi lần chờ nối lại trong phòng của người gửi) chỉ đăng ký khi `PETGAME_DEBUG=1`. Không bao giờ bật trên server thật.
 
 ## packages/client
 

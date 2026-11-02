@@ -41,7 +41,7 @@ import {
   getSkill,
   isSupport,
   learnset,
-  newSkillAt,
+  skillsLearnedBetween,
   ELEMENT_COLOR,
   type HarvestedMessage,
   type GatheredMessage,
@@ -797,12 +797,17 @@ export class Game {
       if (companion) this.effects.sparkle(companion.actor.pos, 0xffd54f);
       if (msg.playerId === this.room.sessionId) {
         const species = getSpecies(msg.speciesId);
-        const learned = newSkillAt(species, msg.level);
-        this.hud.showToast(learned
-          ? `${species.name} lên cấp ${msg.level}! ⭐ Học được chiêu mới: ${learned.icon} ${learned.name}`
-          : `${species.name} lên cấp ${msg.level}! ⭐`, learned ? 3200 : undefined);
+        // Every skill learned on the way, even when the gain climbed past the level that teaches it.
+        const learned = skillsLearnedBetween(species, msg.fromLevel, msg.level);
+        this.hud.showToast(learned.length > 0
+          ? `${species.name} lên cấp ${msg.level}! ⭐ Học được chiêu mới: ${learned.map((s) => `${s.icon} ${s.name}`).join(", ")}`
+          : `${species.name} lên cấp ${msg.level}! ⭐`, learned.length > 0 ? 3200 : undefined);
         this.sound.play("levelup");
-        if (learned && companion) setTimeout(() => this.labels.float(companion.actor.pos, companion.actor.height + 10, `${learned.icon} ${learned.name}!`, "skill"), 400);
+        if (companion) {
+          learned.forEach((skill, i) => {
+            setTimeout(() => this.labels.float(companion.actor.pos, companion.actor.height + 10, `${skill.icon} ${skill.name}!`, "skill"), 400 + 700 * i);
+          });
+        }
       }
     });
 

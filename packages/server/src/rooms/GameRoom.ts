@@ -165,6 +165,7 @@ import {
   companionDamage,
   defaultWorld,
   distance,
+  finishXp,
   getSpecies,
   levelCatchRate,
   normalizeInput,
@@ -448,6 +449,14 @@ export class GameRoom extends Room<{ state: GameState }> {
         owned.assignment = "";
         player.pals.push(owned);
         this.summon(client.sessionId, owned.id);
+      });
+      // XP for the following pal through the real path (level-ups, LevelUp, quest).
+      this.onMessage("debug:xp", (client, message?: { amount?: number }) => {
+        const player = this.state.players.get(client.sessionId);
+        const follower = player?.pals.find((p) => p.id === player.activePalId);
+        const amount = Math.floor(Number(message?.amount));
+        if (!follower || !Number.isFinite(amount) || amount <= 0) return;
+        this.grantXp(client.sessionId, follower, Math.min(amount, 100_000));
       });
       // Ends every wait to reconnect at once, as if the grace had run out.
       this.onMessage("debug:endGrace", () => {
@@ -915,15 +924,17 @@ export class GameRoom extends Room<{ state: GameState }> {
       owned.assignment = "";
       player.pals.push(owned);
       const follower = player.pals.find((p) => p.id === player.activePalId);
-      if (follower) this.grantXp(client.sessionId, follower, XP_PER_CAPTURE);
+      if (follower) this.grantXp(client.sessionId, follower, finishXp(XP_PER_CAPTURE, pal.level));
       // The first catch starts following right away.
       else this.summon(client.sessionId, owned.id);
       this.questEvent(client.sessionId, "catch");
       if (alphaName) {
-        // Once the ball has clicked shut: the news, and a lot of XP for the pal that helped.
+        // Once the ball has clicked shut: the news, and a lot of XP for the pal that helped. One timer, news first:
+        // timers due in the same tick run last-registered first, so two would show the level-up before the news.
         const reveal = captureRevealMs(shakes);
-        this.announce(`★ ${player.name} đã bắt được ${alphaName}!`, reveal + 300);
+        const news = `★ ${player.name} đã bắt được ${alphaName}!`;
         this.clock.setTimeout(() => {
+          this.announce(news);
           if (follower && this.state.players.get(client.sessionId)?.pals.includes(follower)) this.grantXp(client.sessionId, follower, ALPHA.xp);
         }, reveal + 300);
         this.questEvent(client.sessionId, "alpha");
@@ -1093,8 +1104,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player || !owned) return;
     if (player.snacks <= 0) return this.notify(client, `Hết ${ITEM_INFO.snacks.icon} ${ITEM_INFO.snacks.name}`);
     player.snacks -= 1;
-    this.grantXp(client.sessionId, owned, SNACK_XP);
     this.notify(client, `${getSpecies(owned.speciesId).name} ăn ngon lành! +${SNACK_XP} XP`);
+    // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.
+    this.grantXp(client.sessionId, owned, SNACK_XP);
     this.scheduleSave(client.sessionId);
   }
 
@@ -1160,16 +1172,18 @@ export class GameRoom extends Room<{ state: GameState }> {
     // A pack leader leaves more, and its knocker's pal learns a lot.
     if (pal.alpha) for (const [item, n] of Object.entries(ALPHA.reward) as [keyof typeof ALPHA.reward, number][]) loot[item] = (loot[item] ?? 0) + n;
     const name = pal.alpha ? this.alphaName(pal) : "";
+    const xp = pal.alpha ? ALPHA.xp : finishXp(XP_PER_KNOCKOUT, pal.level);
     this.removePal(palId);
     const player = this.state.players.get(sessionId);
     if (player) {
       applyReward(player, loot);
-      const follower = player.pals.find((p) => p.id === player.activePalId);
-      if (follower) this.grantXp(sessionId, follower, name ? ALPHA.xp : XP_PER_KNOCKOUT);
       if (name) {
         this.questEvent(sessionId, "alpha");
         this.announce(`★ ${player.name} đã hạ ${name}!`);
       }
+      // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.
+      const follower = player.pals.find((p) => p.id === player.activePalId);
+      if (follower) this.grantXp(sessionId, follower, xp);
       this.scheduleSave(sessionId);
     }
     const message: DefeatedMessage = { palId, playerId: sessionId, loot: { ...loot } as Record<string, number> };
@@ -1601,13 +1615,17 @@ export class GameRoom extends Room<{ state: GameState }> {
       const prize = rollWearable(Math.random, "boss", [...player.wardrobe]);
       if (prize) this.giveWearable(sid, prize);
       this.scheduleSave(sid);
+      const follower = player.pals.find((p) => p.id === player.activePalId);
       const client = this.clients.find((c) => c.sessionId === sid);
       if (client) {
         const r = BOSS.reward;
         const won = prize ? ` +${getWearable(prize)!.icon} ${getWearable(prize)!.name}` : "";
-        this.notify(client, `Hạ được trùm! 🏆 +🪵${r.wood} +🪨${r.stone} +🫐${r.berries} +🔵${r.greatBalls}${won}`);
+        const xpText = follower ? ` · ${getSpecies(follower.speciesId).name} +${BOSS.xp} XP` : "";
+        this.notify(client, `Hạ được trùm! 🏆 +🪵${r.wood} +🪨${r.stone} +🫐${r.berries} +🔵${r.greatBalls}${won}${xpText}`);
       }
       this.questEvent(sid, "boss");
+      // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.
+      if (follower) this.grantXp(sid, follower, BOSS.xp);
     }
     const message: BossDefeatedMessage = { bossId, winners };
     this.broadcast(ServerMessage.BossDefeated, message);
@@ -1964,10 +1982,15 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Helpers
   // -------------------------------------------------------------------------
 
+  /**
+   * Gives a pal XP. Going up one level or several heals its companion, tells everyone once (with the level it
+   * started from) and moves the owner's pal-level quest.
+   */
   private grantXp(sessionId: string, owned: OwnedPal, amount: number) {
     const result = addXp({ level: owned.level, xp: owned.xp }, amount);
     owned.xp = result.xp;
     if (result.levelsGained === 0) return;
+    const fromLevel = owned.level;
     owned.level = result.level;
     const companion = this.state.companions.get(owned.id);
     if (companion) {
@@ -1975,7 +1998,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       companion.maxHp = companionMaxHp(getSpecies(owned.speciesId), owned.level);
       companion.hp = companion.maxHp; // levelling up heals
     }
-    const message: LevelUpMessage = { playerId: sessionId, palId: owned.id, speciesId: owned.speciesId, level: owned.level };
+    const message: LevelUpMessage = { playerId: sessionId, palId: owned.id, speciesId: owned.speciesId, fromLevel, level: owned.level };
     this.broadcast(ServerMessage.LevelUp, message);
     this.questEvent(sessionId, "palLevel", owned.level);
     this.scheduleSave(sessionId);

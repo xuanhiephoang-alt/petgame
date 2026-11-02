@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SqliteStore, emptyProfile, isValidToken, sanitizeProfile } from "./store.ts";
-import { DEFAULT_WORN, STARTER_WARDROBE, WORLD_HEIGHT, WORLD_WIDTH } from "@petgame/shared";
+import { DEFAULT_WORN, MAX_LEVEL, STARTER_WARDROBE, WORLD_HEIGHT, WORLD_WIDTH, xpToNext } from "@petgame/shared";
 
 describe("profile store", () => {
   it("saves and loads a profile", () => {
@@ -54,6 +54,46 @@ describe("profile store", () => {
     expect(p.look).toBeNull();
     expect(p.wardrobe).toEqual(STARTER_WARDROBE);
     expect(p.worn).toEqual(DEFAULT_WORN);
+  });
+
+  it("levels up pals saved under the old curve, never down, keeping their XP", () => {
+    const saved = (id: string, level: number, xp: number) => ({ id, speciesId: "leafkit", level, xp, assignment: "" });
+    const p = sanitizeProfile({
+      // The first two hold the most the old curve allowed (it asked 294 and 1,048 to go on), enough for a level now.
+      pals: [saved("a1", 6, 293), saved("a2", 14, 1047), saved("a3", 3, 10), saved("a4", 30, 500), saved("a5", 1, 1e9)],
+    })!;
+    expect(p.pals.map((x) => [x.level, x.xp])).toEqual([
+      [7, 293 - xpToNext(6)],
+      [15, 1047 - xpToNext(14)],
+      [3, 10], // nothing to add up: unchanged
+      [MAX_LEVEL, 0],
+      [MAX_LEVEL, 0],
+    ]);
+    for (const x of p.pals) if (x.level < MAX_LEVEL) expect(x.xp, x.id).toBeLessThan(xpToNext(x.level));
+    expect(sanitizeProfile(p)).toEqual(p); // reading what was read again changes nothing
+  });
+
+  it("at every level, whatever XP the old curve let a pal hold: never down, at most one up, not a point lost", () => {
+    const oldPrice = (level: number) => Math.round(20 * Math.pow(level, 1.5)); // xpToNext before levels got cheaper
+    const read = (level: number, xp: number) => sanitizeProfile({ pals: [{ id: "a", speciesId: "leafkit", level, xp, assignment: "" }] })!.pals[0];
+    let climbed = 0;
+    for (let level = 1; level < MAX_LEVEL; level++) {
+      // A pal could save anything below the old price of its level.
+      for (const xp of new Set([0, 1, xpToNext(level) - 1, xpToNext(level), Math.floor(oldPrice(level) / 2), oldPrice(level) - 1])) {
+        const where = `level ${level}, ${xp} XP`;
+        const pal = read(level, xp);
+        const gained = pal.level - level;
+        expect(gained, where).toBeGreaterThanOrEqual(0);
+        expect(gained, where).toBeLessThanOrEqual(1);
+        expect(gained === 1, where).toBe(xp >= xpToNext(level)); // it climbs exactly when the leftover pays the new price
+        // What is left over is kept (at the top level there is nothing left to earn, so it reads 0 as it always has).
+        expect(pal.xp, where).toBe(pal.level === MAX_LEVEL ? 0 : gained === 1 ? xp - xpToNext(level) : xp);
+        if (pal.level < MAX_LEVEL) expect(pal.xp, where).toBeLessThan(xpToNext(pal.level));
+        expect(read(pal.level, pal.xp), where).toEqual(pal); // reading it again moves nothing
+        climbed += gained;
+      }
+    }
+    expect(climbed).toBeGreaterThan(0); // the old saves really do have XP the new curve pays out
   });
 
   it("keeps at most one of each gear", () => {

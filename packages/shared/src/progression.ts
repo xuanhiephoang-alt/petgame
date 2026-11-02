@@ -3,16 +3,36 @@ import { COMPANION_DAMAGE } from "./constants.ts";
 export const MAX_LEVEL = 30;
 /** XP a companion earns for each hit it lands. */
 export const XP_PER_HIT = 4;
-/** XP the following companion earns when its owner captures a pal. */
+/** XP the following companion earns when its owner captures a level 1 pal (finishXp raises it with the pal's level). */
 export const XP_PER_CAPTURE = 25;
 /** XP a working pal earns per item it produces. */
 export const XP_PER_WORK = 2;
-/** XP the following companion earns when its owner knocks out a wild pal. */
+/** XP the following companion earns when its owner knocks out a level 1 wild pal (finishXp raises it with the pal's level). */
 export const XP_PER_KNOCKOUT = 12;
+
+/**
+ * XP from level L to L+1 = XP_CURVE × L^XP_CURVE_POWER, rounded: 13 at level 1, 191 at 6, 681 at 14.
+ * The power keeps the first levels quick (level 2 within the first fight) and level 20+ a long-term goal.
+ */
+export const XP_CURVE = 13;
+export const XP_CURVE_POWER = 1.5;
+/** Finishing XP grows this many percent for each level of the wild pal above 1. */
+export const XP_PERCENT_PER_WILD_LEVEL = 10;
 
 /** XP needed to go from `level` to `level + 1`. */
 export function xpToNext(level: number): number {
-  return Math.round(20 * Math.pow(level, 1.5));
+  return Math.round(XP_CURVE * Math.pow(level, XP_CURVE_POWER));
+}
+
+/**
+ * XP for finishing off (knocking out or catching) a wild pal of level `wildLevel`: `base` at level 1, and
+ * XP_PERCENT_PER_WILD_LEVEL percent of it more for each level above. Whole percents, multiplied before the
+ * division, so a half rounds up exactly (a level 14 catch: 57.5 -> 58). A level that is not a number, or
+ * is below 1, counts as 1.
+ */
+export function finishXp(base: number, wildLevel: number): number {
+  const level = Number.isFinite(wildLevel) ? Math.max(1, Math.floor(wildLevel)) : 1;
+  return Math.round((base * (100 + XP_PERCENT_PER_WILD_LEVEL * (level - 1))) / 100);
 }
 
 export interface LevelState {

@@ -17,16 +17,16 @@ export interface Quest {
 
 /** The guided quest chain for new players, in order. */
 export const QUESTS: readonly Quest[] = [
-  { id: "first_catch", title: "Bắt con thú đầu tiên", hint: "Đánh đến khi thú choáng 💫 rồi ném bóng", event: "catch", goal: 1, reward: { berries: 5 } },
+  { id: "first_catch", title: "Bắt con thú đầu tiên", hint: "Đánh đến khi thú choáng 💫 rồi ném bóng", event: "catch", goal: 1, reward: { berries: 5, snacks: 1 } },
   { id: "camp", title: "Dựng trại", hint: "Bấm 🏕️ ở chỗ trống (chặt cây, đập đá lấy gỗ, đá)", event: "camp", goal: 1, reward: { wood: 6, stone: 4 } },
   { id: "work", title: "Giao việc cho thú", hint: "Mở 🐾, chọn thú, bấm Làm việc", event: "work", goal: 1, reward: { snacks: 1 } },
   { id: "harvest", title: "Hái 3 bụi quả", hint: "Bụi quả đỏ ở đồng cỏ, đứng gần rồi bấm Đánh", event: "harvest", goal: 3, reward: { wood: 5 } },
   { id: "great_ball", title: "Chế tạo Bóng xịn", hint: "Đứng ở trại, mở 🔨", event: "craft", subject: "great_ball", goal: 1, reward: { stone: 6 } },
   { id: "coat", title: "May áo ấm", hint: "Núi tuyết rất lạnh, chế 🧥 ở trại", event: "craft", subject: "warm_coat", goal: 1, reward: { berries: 6 } },
-  { id: "snow", title: "Lên núi tuyết", hint: "Đi về phía bắc (xem bản đồ góc phải)", event: "visit", subject: "snow", goal: 1, reward: { greatBalls: 1 } },
+  { id: "snow", title: "Lên núi tuyết", hint: "Đi về phía bắc (xem bản đồ góc phải)", event: "visit", subject: "snow", goal: 1, reward: { greatBalls: 1, snacks: 1 } },
   { id: "chests", title: "Mở 3 rương báu", hint: "Rương hiện trên bản đồ", event: "chest", goal: 3, reward: { snacks: 2 } },
   { id: "desert", title: "Băng qua sa mạc", hint: "Phía nam, nhớ đội 👒 Nón lá", event: "visit", subject: "desert", goal: 1, reward: { wood: 10 } },
-  { id: "swamp", title: "Thám hiểm đầm lầy", hint: "Phía tây, nhiều ao và thú lạ", event: "visit", subject: "swamp", goal: 1, reward: { berries: 10 } },
+  { id: "swamp", title: "Thám hiểm đầm lầy", hint: "Phía tây, nhiều ao và thú lạ", event: "visit", subject: "swamp", goal: 1, reward: { berries: 10, snacks: 1 } },
   { id: "collector", title: "Bắt thêm 5 con thú", hint: "Mỗi vùng có loài riêng", event: "catch", goal: 5, reward: { greatBalls: 2 } },
   { id: "raft", title: "Đóng bè gỗ", hint: "Chế 🛶 ở trại để ra biển", event: "craft", subject: "raft", goal: 1, reward: { stone: 8 } },
   { id: "island", title: "Đặt chân lên đảo hoang", hint: "Các đảo ở bốn góc biển", event: "visit", subject: "island", goal: 1, reward: { greatBalls: 2, snacks: 2 } },

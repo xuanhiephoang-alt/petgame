@@ -101,9 +101,13 @@ export function knownSkills(species: PalSpecies, level: number): SkillDef[] {
   return learnset(species).filter((l) => level >= l.level).map((l) => l.skill);
 }
 
-/** The skill learned exactly at this level, if any (to announce it). */
-export function newSkillAt(species: PalSpecies, level: number): SkillDef | undefined {
-  return learnset(species).find((l) => l.level === level)?.skill;
+/**
+ * The skills a pal learns on the way from `fromLevel` up to `toLevel` (those learned above the first and up to
+ * the second), in the order they are learned: what to announce after a level-up, however many levels it climbed
+ * at once. Nothing when `fromLevel >= toLevel`.
+ */
+export function skillsLearnedBetween(species: PalSpecies, fromLevel: number, toLevel: number): SkillDef[] {
+  return learnset(species).filter((l) => l.level > fromLevel && l.level <= toLevel).map((l) => l.skill);
 }
 
 /** Skills that help instead of hurting. */

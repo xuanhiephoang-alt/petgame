@@ -3,13 +3,15 @@
 Mỗi loài thú học 3 chiêu khi chiến đấu, mỗi chiêu có hoạt ảnh riêng và sát thương (hoặc lượng máu hồi) tăng theo cấp của thú.
 
 - Dữ liệu: `packages/shared/src/data/skills.json` (30 chiêu), chiêu của từng loài ở trường `skills` trong `pals.json`.
-- Logic dùng chung (có test): `packages/shared/src/skills.ts`: `skillPower`, `learnset`, `knownSkills`, `skillTravelMs`, `inSkillArea`.
+- Logic dùng chung (có test): `packages/shared/src/skills.ts`: `skillPower`, `learnset`, `knownSkills`, `skillsLearnedBetween` (chiêu học được trong một lần lên cấp, để báo), `skillTravelMs`, `inSkillArea`.
 - Server quyết định mọi thứ: `GameRoom` (`startCast`, `tickCasts`, `land`), thú chọn chiêu ở `packages/server/src/ai/skillAi.ts`.
 - Hoạt ảnh: `packages/client/src/game/skillfx.ts` (`SKILL_SHOWS`, mỗi chiêu một hàm). Xem tất cả chiêu chạy lặp ở http://localhost:5173/sprites.html?show=skills, một chiêu phóng to: `?show=skills&skill=meteor`, kiểu thú hoang tung chiêu (có vùng đỏ): thêm `&wild=1`.
 
 ## Học chiêu
 
-Chiêu thứ nhất có từ cấp 1, chiêu thứ hai ở cấp 7, chiêu thứ ba ở cấp 15 (`SKILL_LEVELS`). Chiêu đầu tiên luôn là chiêu đánh (để có cái đánh ngay). Khi thú lên đúng cấp học chiêu, người chơi thấy thông báo "Học được chiêu mới". Bảng **Thú** (phím Q) hiện 3 chiêu của mỗi con: chiêu đã học kèm sát thương ở cấp hiện tại (⚔), máu hồi (+) hoặc thời gian khiên; chiêu chưa học có khoá 🔒 và cấp sẽ học.
+Chiêu thứ nhất có từ cấp 1, chiêu thứ hai ở cấp 7, chiêu thứ ba ở cấp 15 (`SKILL_LEVELS`). Chiêu đầu tiên luôn là chiêu đánh (để có cái đánh ngay). Khi thú đạt cấp học chiêu, người chơi thấy thông báo "Học được chiêu mới", kể cả khi một lần nhận nhiều kinh nghiệm (hạ thú đầu đàn, hạ trùm) đưa thú vượt qua cấp đó (ví dụ cấp 6 lên thẳng cấp 8). Bảng **Thú** (phím Q) hiện 3 chiêu của mỗi con: chiêu đã học kèm sát thương ở cấp hiện tại (⚔), máu hồi (+) hoặc thời gian khiên; chiêu chưa học có khoá 🔒 và cấp sẽ học.
+
+Nhịp lên cấp (mục "Kinh nghiệm và lên cấp" trong `docs/design/pals.md`): chiêu thứ hai sau khoảng 15 trận (trong buổi chơi đầu), chiêu thứ ba sau khoảng 116 trận (khoảng 4 buổi 40 phút ở nhịp bình thường).
 
 | Thú | Hệ | Lv 1 | Lv 7 | Lv 15 |
 |---|---|---|---|---|

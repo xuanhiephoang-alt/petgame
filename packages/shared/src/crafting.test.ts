@@ -3,6 +3,7 @@ import {
   OFFLINE_CAP_MS,
   OFFLINE_MAX_PER_RESOURCE,
   RECIPES,
+  SNACK_XP,
   campSpeed,
   canAfford,
   craftBlocker,
@@ -32,6 +33,12 @@ describe("recipes", () => {
     expect(craftBlocker(ball, { ...ready, hasBase: false })).toContain("trại");
     expect(craftBlocker(ball, { ...ready, nearBase: false })).toContain("gần");
     expect(craftBlocker(ball, { ...ready, resources: { wood: 0, stone: 0, berries: 0 } })).toContain("nguyên liệu");
+  });
+
+  it("makes a snack from 8 berries (5 XP a berry), and says what it is worth", () => {
+    const snack = getRecipe("berry_snack")!;
+    expect(snack.cost).toEqual({ berries: 8 });
+    expect(snack.description).toContain(`${SNACK_XP} kinh nghiệm`);
   });
 
   it("upgrades the camp one level at a time", () => {

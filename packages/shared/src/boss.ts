@@ -28,4 +28,6 @@ export const BOSS = {
   respawnMs: 4 * 60 * 1000,
   /** Every player who helped gets this. */
   reward: { wood: 15, stone: 25, berries: 10, greatBalls: 2 },
+  /** XP for the following pal of everyone who helped (on top of `reward`). */
+  xp: 250,
 } as const;

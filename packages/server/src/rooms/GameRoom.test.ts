@@ -9,10 +9,17 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
   XP_PER_CAPTURE,
+  XP_PER_KNOCKOUT,
+  addXp,
+  captureRevealMs,
+  companionMaxHp,
   distance,
+  finishXp,
   scaledMaxHp,
+  xpToNext,
   getSpecies,
   type HitMessage,
+  type LevelUpMessage,
   type NoticeMessage,
   type ProducedMessage,
   defaultWorld,
@@ -66,7 +73,7 @@ import {
   type Vec2,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
-import { SqliteStore } from "../persistence/store.ts";
+import { SqliteStore, emptyProfile } from "../persistence/store.ts";
 
 // Profiles go to an in-memory database for tests (opened lazily on first join).
 process.env.PETGAME_DB = ":memory:";
@@ -195,17 +202,103 @@ describe("wild pal levels", () => {
 });
 
 describe("progression", () => {
-  it("captured pals keep the wild level and the follower earns capture XP", async () => {
+  it("captured pals keep the wild level and the follower earns capture XP by that level", async () => {
     const { room, client, player } = await setup();
     await capture(room, client, player);
     const follower = player.pals[0];
     expect(follower.level).toBeGreaterThanOrEqual(1);
-    const xpBefore = follower.xp;
-    const levelBefore = follower.level;
+    // A follower far from the next level (a catch pays 78 at most), so the whole gain shows in its XP.
+    follower.level = 10;
+    follower.xp = 0;
     await ticks(room, 20); // wait out the throw cooldown
+    // The pal the next catch takes is the first one in the world (what `capture` throws at); make it level 8.
+    [...room.state.pals.values()][0].level = 8;
     await capture(room, client, player);
     expect(player.pals.length).toBe(2);
-    expect(follower.level > levelBefore || follower.xp === xpBefore + XP_PER_CAPTURE).toBe(true);
+    expect(player.pals[1].level).toBe(8);
+    expect(follower.level).toBe(10);
+    expect(follower.xp).toBe(finishXp(XP_PER_CAPTURE, 8));
+    expect(follower.xp).toBeGreaterThan(XP_PER_CAPTURE);
+  });
+
+  it("knocking out a wild pal pays more XP the higher its level", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 10);
+    owned.xp = 0;
+    room.state.pals.clear();
+    const id = placeWild(room, "leafkit", player);
+    const pal = room.state.pals.get(id)!;
+    pal.level = 10;
+    pal.hp = 1;
+    (room as any).daze(id, pal);
+    (room as any).knockOut(id, pal, client.sessionId);
+    expect(owned.level).toBe(10);
+    expect(owned.xp).toBe(finishXp(XP_PER_KNOCKOUT, 10));
+    expect(owned.xp).toBeGreaterThan(XP_PER_KNOCKOUT);
+  });
+
+  it("feeding a snack tells of the meal first, so a level-up (and its new skill) is the last thing read", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
+    owned.xp = xpToNext(6) - SNACK_XP; // one snack short of level 7, where Phun lửa is learned
+    player.snacks = 1;
+    player.palAuto = false;
+    // What this client reads, in the order it arrives.
+    const order: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => order.push(m.text));
+    client.onMessage(ServerMessage.LevelUp, (m: LevelUpMessage) => order.push(`LevelUp ${m.fromLevel} -> ${m.level}`));
+    client.send(ClientMessage.Feed, { palId: owned.id });
+    await client.waitForMessage(ServerMessage.LevelUp);
+    await ticks(room, 2);
+    expect(player.snacks).toBe(0);
+    expect([owned.level, owned.xp]).toEqual([7, 0]);
+    expect(order).toEqual([`Emberpup ăn ngon lành! +${SNACK_XP} XP`, "LevelUp 6 -> 7"]); // one LevelUp, and it comes last
+  });
+
+  it("the test hook that gives XP goes through the real level-up path", async () => {
+    vi.stubEnv("PETGAME_DEBUG", "1"); // the hooks are registered when the room is created
+    try {
+      const { room, client, player } = await setup();
+      const { owned, companion } = await giveCompanion(room, client, player, "emberpup", 6);
+      owned.xp = 0;
+      const levelUps = collect<LevelUpMessage>(client, ServerMessage.LevelUp);
+
+      // Not an amount, not above zero, not an amount at all: nothing happens.
+      for (const message of [{ amount: "lots" }, { amount: -5 }, { amount: 0 }, { amount: Number.POSITIVE_INFINITY }, {}]) client.send("debug:xp", message);
+      await ticks(room, 3);
+      expect([owned.level, owned.xp]).toEqual([6, 0]);
+      expect(levelUps).toHaveLength(0);
+
+      // 450 XP is the 191 for level 7, the 241 for level 8 and 18 over: one gain, two levels, one message.
+      client.send("debug:xp", { amount: 450 });
+      await client.waitForMessage(ServerMessage.LevelUp);
+      await ticks(room, 2);
+      expect([owned.level, owned.xp]).toEqual([8, 450 - xpToNext(6) - xpToNext(7)]);
+      expect(levelUps).toHaveLength(1);
+      expect(levelUps[0]).toMatchObject({ playerId: client.sessionId, palId: owned.id, speciesId: "emberpup", fromLevel: 6, level: 8 });
+      expect(companion.level).toBe(8);
+      expect(companion.maxHp).toBe(companionMaxHp(getSpecies("emberpup"), 8));
+      expect(companion.hp).toBe(companion.maxHp); // levelling up heals
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("the test hook that gives XP is not there on a real server (PETGAME_DEBUG not 1)", async () => {
+    vi.stubEnv("PETGAME_DEBUG", undefined); // unset, as in production; the hooks are registered when the room is created
+    try {
+      const { room, client, player } = await setup();
+      const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
+      owned.xp = 0;
+      player.palAuto = false; // no hits of its own to count
+      const levelUps = collect<LevelUpMessage>(client, ServerMessage.LevelUp);
+      client.send("debug:xp", { amount: 450 });
+      await ticks(room, 5);
+      expect([owned.level, owned.xp]).toEqual([6, 0]);
+      expect(levelUps).toHaveLength(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -233,6 +326,26 @@ describe("saving", () => {
     await colyseus.cleanup();
     const second = await setup();
     expect(second.player.pals.length).toBe(0);
+  });
+
+  it("an old save with more XP than the cheaper curve needs comes back a level up, and its quest counts it", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "old-xp-token-0123456789";
+    const trainer = QUESTS.findIndex((q) => q.id === "trainer"); // "raise a pal to level 5"
+    // Saved before the curve got cheaper: level 4 with 159 XP over (the old curve asked 160 for level 5, the new one 104).
+    db.save(token, {
+      ...emptyProfile("Old"),
+      pals: [{ id: "old-leafkit", speciesId: "leafkit", level: 4, xp: 159, assignment: "follow" }],
+      quest: { index: trainer, progress: 0 },
+    });
+    const { room, player } = await setup(token);
+    const pal = player.pals[0];
+    expect([pal.level, pal.xp]).toEqual([5, 159 - xpToNext(4)]);
+    const companion = room.state.companions.get(pal.id)!;
+    expect(companion.level).toBe(5);
+    expect(companion.maxHp).toBe(companionMaxHp(getSpecies("leafkit"), 5));
+    expect(player.questIndex).toBe(trainer + 1);
   });
 });
 
@@ -859,6 +972,119 @@ describe("pack leaders", () => {
     expect(back.hp).toBe(back.maxHp);
     expect(distance(back, alphaLairs().get("desert")!)).toBeLessThan(1);
   });
+
+  it("caught, it pays the catch XP for its level at once, and ALPHA.xp once the ball has clicked shut", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 10);
+    owned.xp = 0;
+    player.palAuto = false; // no hits of its own to count
+    const [id, pal] = alphaOf(room, "cactoad");
+    const level = pal.level;
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    await ticks(room, 20); // wait out the throw cooldown of the first catch
+    player.x = pal.x + 40;
+    player.y = pal.y;
+    vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    expect(result.success).toBe(true);
+
+    // The throw itself pays by the leader's level, like any catch; the 300 wait for the ball.
+    const atThrow = addXp({ level: 10, xp: 0 }, finishXp(XP_PER_CAPTURE, level));
+    expect(finishXp(XP_PER_CAPTURE, level)).toBeGreaterThan(XP_PER_CAPTURE);
+    expect([owned.level, owned.xp]).toEqual([atThrow.level, atThrow.xp]);
+    await ticks(room, 5);
+    expect([owned.level, owned.xp]).toEqual([atThrow.level, atThrow.xp]);
+
+    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + 300) / 50) + 3);
+    const afterBall = addXp(atThrow, ALPHA.xp);
+    expect([owned.level, owned.xp]).toEqual([afterBall.level, afterBall.xp]);
+  });
+
+  it("caught, the news of the catch comes before the level-up that the ball's click pays for", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
+    owned.xp = 0;
+    player.palAuto = false; // no hits of its own to count
+    const [id, pal] = alphaOf(room, "cactoad");
+    const level = pal.level;
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    await ticks(room, 20); // wait out the throw cooldown of the first catch
+    player.x = pal.x + 40;
+    player.y = pal.y;
+    // What this client reads, in the order it arrives. The news and the XP wait for the same moment (the ball
+    // clicking shut), and timers due in the same tick run last-registered first: so the order is not a given.
+    const order: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => order.push(m.text));
+    client.onMessage(ServerMessage.LevelUp, (m: LevelUpMessage) => order.push(`LevelUp ${m.fromLevel} -> ${m.level}`));
+    vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    expect(result.success).toBe(true);
+    // The throw's own XP is far from level 7; only the 300 of the click carries it over (and teaches Phun lửa).
+    expect(order.filter((m) => m.startsWith("LevelUp"))).toEqual([]);
+    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + 300) / 50) + 3);
+    const expected = addXp(addXp({ level: 6, xp: 0 }, finishXp(XP_PER_CAPTURE, level)), ALPHA.xp);
+    expect(expected.level).toBe(7);
+    expect([owned.level, owned.xp]).toEqual([expected.level, expected.xp]);
+    const news = order.indexOf(`★ ${player.name} đã bắt được Cactoad đầu đàn!`);
+    expect(news).toBeGreaterThanOrEqual(0);
+    expect(order.filter((m) => m.startsWith("LevelUp"))).toEqual(["LevelUp 6 -> 7"]); // one, from the old level
+    expect(order.indexOf("LevelUp 6 -> 7")).toBeGreaterThan(news); // the level-up is the last thing read
+  });
+
+  it("caught, if the thrower leaves before the ball clicks shut, the others still hear the news and no XP is paid", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
+    owned.xp = 0;
+    player.palAuto = false; // no hits of its own to count
+    const watcher = await colyseus.connectTo(room, { name: "Watcher" });
+    const heard = collect<NoticeMessage>(watcher, ServerMessage.Notice);
+    const levelUps = collect<LevelUpMessage>(watcher, ServerMessage.LevelUp);
+    const [id, pal] = alphaOf(room, "cactoad");
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    await ticks(room, 20); // wait out the throw cooldown of the first catch
+    player.x = pal.x + 40;
+    player.y = pal.y;
+    vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    expect(result.success).toBe(true);
+
+    // The news and the XP share one timer: it must not lose the news because the pal that was to learn is gone.
+    const news = `★ ${player.name} đã bắt được Cactoad đầu đàn!`;
+    const sessionId = client.sessionId;
+    await client.leave();
+    await vi.waitFor(() => expect(room.state.players.has(sessionId)).toBe(false));
+    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + 300) / 50) + 3);
+    expect(heard.map((n) => n.text)).toContain(news);
+    expect(levelUps).toHaveLength(0); // nobody to pay: no level-up is told for a pal that has gone with its owner
+  });
+
+  it("a big gain skips levels: one LevelUp from the old level, after the news", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
+    owned.xp = 190;
+    player.palAuto = false;
+    // What this client reads, in the order it arrives.
+    const order: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => order.push(m.text));
+    client.onMessage(ServerMessage.LevelUp, (m: LevelUpMessage) => order.push(`LevelUp ${m.fromLevel} -> ${m.level}`));
+    const [id, pal] = alphaOf(room, "cactoad");
+    pal.hp = 1;
+    (room as any).daze(id, pal);
+    (room as any).knockOut(id, pal, client.sessionId);
+    await ticks(room, 2);
+    // 190 + 300 is the 191 for level 7, the 241 for level 8 and 58 over: past the level that teaches the second skill.
+    expect([owned.level, owned.xp]).toEqual([8, 190 + ALPHA.xp - xpToNext(6) - xpToNext(7)]);
+    const news = order.indexOf(`★ ${player.name} đã hạ Cactoad đầu đàn!`);
+    expect(news).toBeGreaterThanOrEqual(0);
+    expect(order.filter((m) => m.startsWith("LevelUp"))).toEqual(["LevelUp 6 -> 8"]);
+    expect(order.indexOf("LevelUp 6 -> 8")).toBeGreaterThan(news); // the level-up is the last thing read
+  });
 });
 
 describe("boss", () => {
@@ -905,6 +1131,46 @@ describe("boss", () => {
     expect(player.stone).toBe(before.stone + BOSS.reward.stone);
     expect(player.greatBalls).toBe(before.greatBalls + BOSS.reward.greatBalls);
   });
+
+  it("the pal of everyone who helped learns BOSS.xp, after the reward notice", async () => {
+    const { room, client, player } = await setup();
+    player.hat = "nonla"; // the volcano is hot
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
+    owned.xp = 190;
+    player.palAuto = false;
+    // A second helper with no pal: the reward still reaches them, without the XP line.
+    const friend = await colyseus.connectTo(room, { name: "Helper" });
+    const other = room.state.players.get(friend.sessionId)!;
+    (room as any).bossHelpers.add(friend.sessionId);
+    const stoneBefore = other.stone;
+    const friendNotices = collect<NoticeMessage>(friend, ServerMessage.Notice);
+    const friendLevelUps = collect<LevelUpMessage>(friend, ServerMessage.LevelUp);
+
+    const [bossId, boss] = bossOf(room)!;
+    for (const id of [...room.state.pals.keys()]) if (id !== bossId) room.state.pals.delete(id);
+    player.x = boss.x - 50;
+    player.y = boss.y;
+    boss.hp = 5;
+    // What the first player reads, in the order it arrives.
+    const order: string[] = [];
+    client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => order.push(m.text));
+    client.onMessage(ServerMessage.LevelUp, (m: LevelUpMessage) => order.push(`LevelUp ${m.fromLevel} -> ${m.level}`));
+    client.send(ClientMessage.Attack);
+    await client.waitForMessage(ServerMessage.BossDefeated);
+    await ticks(room, 2);
+
+    // 190 + 250 is the 191 for level 7, the 241 for level 8 and 8 over.
+    expect([owned.level, owned.xp]).toEqual([8, 190 + BOSS.xp - xpToNext(6) - xpToNext(7)]);
+    expect(order.filter((m) => m.startsWith("LevelUp"))).toEqual(["LevelUp 6 -> 8"]);
+    const won = order.findIndex((m) => m.startsWith("Hạ được trùm"));
+    expect(won).toBeGreaterThanOrEqual(0);
+    expect(order[won]).toContain(`Emberpup +${BOSS.xp} XP`);
+    expect(order.indexOf("LevelUp 6 -> 8")).toBeGreaterThan(won); // the level-up is the last thing read
+
+    expect(other.stone).toBe(stoneBefore + BOSS.reward.stone);
+    expect(friendNotices.find((n) => n.text.startsWith("Hạ được trùm"))?.text).not.toContain("XP");
+    expect(friendLevelUps.filter((m) => m.playerId === friend.sessionId)).toHaveLength(0);
+  });
 });
 
 describe("exploration", () => {
@@ -937,11 +1203,14 @@ describe("exploration", () => {
     expect(player.questIndex).toBe(0);
     const done = client.waitForMessage(ServerMessage.QuestDone);
     const berries = player.berries;
+    const snacks = player.snacks;
     await capture(room, client, player);
     const message: QuestDoneMessage = await done;
     expect(message.questId).toBe("first_catch");
     expect(player.questIndex).toBe(1);
     expect(player.berries).toBe(berries + (QUESTS[0].reward.berries ?? 0));
+    expect(player.snacks).toBe(snacks + (QUESTS[0].reward.snacks ?? 0));
+    expect(QUESTS[0].reward.snacks).toBeGreaterThan(0); // the snack teaches the feed button from the first pal on
   });
 
   it("counts reaching the snow mountains", async () => {
