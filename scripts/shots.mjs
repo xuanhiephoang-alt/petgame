@@ -2,6 +2,9 @@
 // close-up, a phone screen) so visual changes can be compared before/after,
 // with how many sprites were drawn in each.
 // Usage: npm run shots -- --name before   → shots/before/*.png + report.json
+//        --only world|labels   → just that group (default: both); "labels" is the crowded name-tag scenes
+//        --no-build            → skip the client build
+import { createRequire } from "node:module";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,6 +12,13 @@ import { chromium, devices } from "@playwright/test";
 
 const args = process.argv.slice(2);
 const name = args.includes("--name") ? args[args.indexOf("--name") + 1] : "latest";
+const only = new Set((args.includes("--only") ? args[args.indexOf("--only") + 1] ?? "" : "world,labels").split(","));
+for (const group of only) {
+  if (group !== "world" && group !== "labels") {
+    console.error(`--only needs "world", "labels" or both separated by a comma (got "${group}")`);
+    process.exit(1);
+  }
+}
 const port = 2599;
 const out = join("shots", name);
 mkdirSync(out, { recursive: true });
@@ -62,8 +72,9 @@ const SPOTS = [
 ];
 
 const report = [];
-const browser = await chromium.launch();
-try {
+
+/** The regions, a pal close-up and the phone screens. */
+async function worldShots(browser) {
   const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
   await page.goto(url);
   await page.fill("#name", "Shots");
@@ -100,6 +111,7 @@ try {
   // pages at once starve each other and drop the phone's connection.
   await page.context().close();
   const phone = await (await browser.newContext({ ...devices["iPhone 13"] })).newPage();
+  try {
   await phone.goto(url);
   await phone.fill("#name", "Phone");
   await phone.click("#join-btn");
@@ -117,6 +129,165 @@ try {
     await settle(phone);
     await phoneShot(file);
   }
+  } finally {
+    // Left open it would keep drawing WebGL in software during the next group and skew it.
+    await phone.context().close();
+  }
+}
+
+// ---- Crowded name-tag scenes (T5) ----
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const send = (page, type, msg = {}) => page.evaluate(([t, m]) => window.__petgame.room.send(t, m), [type, msg]);
+
+const LABEL_VIEWS = {
+  desktop: { viewport: { width: 1280, height: 720 } },
+  portrait: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 },
+  landscape: { viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 },
+};
+const PEOPLE = { x: 3200, y: 2400 }; // the spawn clearing (open ground)
+const CROWD = { x: 4000, y: 2000 }; // an open meadow spot
+
+/** Visible parts (text, hp bar with opacity > 0.5) of every name tag on screen, and the pairs of tags whose parts intersect. */
+function measureLabels(page) {
+  return page.evaluate(() => {
+    const boxes = [];
+    let hidden = 0;
+    for (const el of document.querySelectorAll(".labels > .label")) {
+      if (el.style.display === "none") continue;
+      const r0 = el.getBoundingClientRect();
+      if (r0.right < 0 || r0.left > innerWidth || r0.bottom < 0 || r0.top > innerHeight) continue;
+      if (Number(getComputedStyle(el).opacity) < 0.5) { hidden++; continue; }
+      const parts = [];
+      const span = el.querySelector("span");
+      const named = !!span && Number(getComputedStyle(span).opacity) > 0.5;
+      if (named) parts.push(span.getBoundingClientRect());
+      const bar = el.querySelector(".hp-bar");
+      if (bar && getComputedStyle(bar).display !== "none") parts.push(bar.getBoundingClientRect());
+      if (parts.length === 0) continue;
+      boxes.push({ text: el.textContent, named, parts: parts.map((p) => ({ l: p.left, t: p.top, r: p.right, b: p.bottom })) });
+    }
+    const pairs = [];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        let area = 0;
+        for (const a of boxes[i].parts) for (const b of boxes[j].parts) {
+          const w = Math.min(a.r, b.r) - Math.max(a.l, b.l), h = Math.min(a.b, b.b) - Math.max(a.t, b.t);
+          if (w > 0 && h > 0) area += w * h;
+        }
+        if (area > 0) pairs.push({ a: boxes[i].text, b: boxes[j].text, area: Math.round(area) });
+      }
+    }
+    return { shown: boxes.length, names: boxes.filter((b) => b.named).length, hidden, overlapping: pairs.length, area: pairs.reduce((s, p) => s + p.area, 0), pairs };
+  });
+}
+
+/** Mean time of game.labels.update over 60 frames (works on code with or without the layout). */
+function labelUpdateMs(page) {
+  return page.evaluate(async () => {
+    const { game } = window.__petgame;
+    const inner = game.labels.update;
+    let total = 0, calls = 0;
+    game.labels.update = function (...a) {
+      const t = performance.now();
+      const v = inner.apply(this, a);
+      total += performance.now() - t;
+      calls++;
+      return v;
+    };
+    const start = game.frames;
+    await new Promise((res) => { const check = () => (game.frames - start >= 60 ? res() : setTimeout(check, 50)); check(); });
+    game.labels.update = inner;
+    return calls ? +(total / calls).toFixed(4) : null;
+  });
+}
+
+async function labelShots(browser) {
+  const { Client } = createRequire(import.meta.url)("@colyseus/sdk");
+  for (const [view, options] of Object.entries(LABEL_VIEWS)) {
+    const context = await browser.newContext(options);
+    const page = await context.newPage();
+    const guests = [];
+    try {
+      await page.goto(url);
+      await page.locator("#join-btn:enabled").waitFor({ timeout: 120000 });
+      await page.fill("#name", "Hiệp");
+      await page.click("#join-btn");
+      await page.waitForFunction(() => window.__petgame?.room?.state?.players?.size > 0, null, { timeout: 180000 });
+      await page.waitForFunction(() => window.__petgame?.game?.frames > 3, null, { timeout: 180000 });
+      const shoot = async (scene, extra = {}) => {
+        const file = `labels-${view}-${scene}`;
+        await page.screenshot({ path: join(out, `${file}.png`) });
+        const info = await page.evaluate(() => ({ sprites: window.__petgame.game.debugInfo().objects, counts: window.__petgame.game.debugInfo().labels ?? null }));
+        const labels = await measureLabels(page);
+        report.push({ file, sprites: info.sprites, counts: info.counts, labels, ...extra });
+        console.log(file.padEnd(26), `tags ${labels.shown} (names ${labels.names}, hidden ${labels.hidden})`, `overlap pairs ${labels.overlapping}`, `area ${labels.area}px²`, `${info.sprites} sprites`, extra.labelMs != null ? `update ${extra.labelMs} ms` : "");
+        for (const p of labels.pairs) console.log("     ", JSON.stringify(p));
+      };
+      const roomId = await page.evaluate(() => window.__petgame.room.roomId);
+      await send(page, "debug:gear");
+      await send(page, "debug:setTime", { t: 0.3 });
+      await send(page, "debug:givePal", { species: "emberpup", level: 8 });
+      const names = ["Minh", "Lan Anh", "Tuấn", "Bảo Ngọc"];
+      const offsets = [[-60, 12], [50, -14], [-18, -52], [92, 24]];
+      const species = ["leafkit", "bubbloon", "pebblet", "voltmouse"];
+      for (let i = 0; i < names.length; i++) {
+        const guest = await new Client(url).joinById(roomId, { name: names[i] });
+        guest.onMessage("*", () => {});
+        guests.push(guest);
+        guest.send("debug:teleport", { x: PEOPLE.x + offsets[i][0], y: PEOPLE.y + offsets[i][1] });
+        guest.send("debug:givePal", { species: species[i], level: 3 + i * 4 });
+      }
+
+      // 1) Five explorers in the spawn clearing, each with a follower; "Tuấn" really drops and waits to reconnect.
+      await send(page, "debug:teleport", { x: PEOPLE.x + 10, y: PEOPLE.y + 4 });
+      await settle(page);
+      await sleep(3000);
+      Object.assign(guests[2].reconnection, { enabled: false });
+      guests[2].connection.close(4010);
+      await sleep(1000);
+      await shoot("players");
+
+      // 2) Seven wounded wild pals huddled around the player and its follower.
+      const spots = [[-70, -40, "leafkit"], [-25, -78, "bubbloon"], [22, -46, "pebblet"], [66, -82, "voltmouse"], [-48, 8, "leafkit"], [40, 4, "emberpup"], [96, -26, "bubbloon"]];
+      for (const [dx, dy, kind] of spots) {
+        await send(page, "debug:teleport", { x: CROWD.x + dx - 40, y: CROWD.y + dy });
+        await sleep(120);
+        await send(page, "debug:spawnPal", { species: kind });
+        await sleep(120);
+      }
+      await send(page, "debug:teleport", { x: CROWD.x, y: CROWD.y + 60 });
+      await settle(page);
+      await sleep(1500);
+      const labelMs = await labelUpdateMs(page);
+      await shoot("wild", { labelMs });
+
+      // 3) The follower next to the meadow pack leader: wait out of its sight, then step in and shoot at once (it hits hard).
+      const leader = await page.evaluate(() => {
+        let found;
+        window.__petgame.room.state.pals.forEach((p) => { if (p.alpha && p.speciesId === "voltmouse") found = { x: p.x, y: p.y }; });
+        return found;
+      });
+      await send(page, "debug:give");
+      for (let i = 0; i < 12; i++) { await send(page, "eat"); await sleep(80); }
+      await send(page, "debug:teleport", { x: leader.x + 300, y: leader.y + 20 });
+      await settle(page);
+      await sleep(1500);
+      await send(page, "debug:teleport", { x: leader.x + 105, y: leader.y + 20 });
+      await sleep(1100);
+      await shoot("alpha");
+    } finally {
+      // Not awaited: the one that dropped never answers a leave.
+      for (const g of guests) { try { void g.leave(); } catch {} }
+      await context.close();
+    }
+  }
+}
+
+const browser = await chromium.launch();
+try {
+  if (only.has("world")) await worldShots(browser);
+  if (only.has("labels")) await labelShots(browser);
 } finally {
   await browser.close();
   server.kill();

@@ -52,7 +52,7 @@ Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) ca
 | 🌋 Núi lửa (phía bắc núi, xa trùm) | Scorchtail (Thiên thạch) | 20 |
 | 🏝️ Đảo hoang (cần bè) | Coralcrab (Sóng thần) | 22 |
 
-- To gấp 1,6 lần, có quầng vàng dưới chân, nhãn "★ Đầu đàn" màu vàng (đỏ khi đang đánh) và thanh máu luôn hiện. Máu gấp 3 lần thú cùng loài cùng cấp.
+- To gấp 1,6 lần, có quầng vàng dưới chân, nhãn "★ Đầu đàn" màu vàng (đỏ khi đang đánh) và thanh máu luôn hiện. Máu gấp 3 lần thú cùng loài cùng cấp. Khi nhiều nhãn chen nhau, nhãn đầu đàn không bao giờ bị ẩn (mục "Nhãn tên và thanh máu").
 - Thuộc đủ 3 chiêu và dùng thường hơn thú hoang khác (8% mỗi lượt, nghỉ 2,2 giây, không bị kéo dài thời gian hồi); sức mạnh chiêu tính tối đa ở cấp 8 để một người chơi biết né vẫn đánh được.
 - Canh lãnh địa: tấn công ai lại gần (170 px), kể cả loài vốn hiền, không bỏ chạy. Bị kéo xa hơn 12 m khỏi chỗ ở thì bỏ trận, đi về, và hồi máu (4% mỗi giây) khi không ai làm phiền.
 - Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm (`ALPHA.xp`, thay cho kinh nghiệm hạ gục thường), cả thế giới được báo tin. Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; thú đi theo nhận kinh nghiệm bắt theo cấp như mọi lần bắt (60-78) rồi thêm 300 khi bóng khép; túi đầy thì không ném được.
@@ -113,6 +113,33 @@ Bánh có từ: chế ở trại (8 quả mọng, tức 5 kinh nghiệm mỗi qu
 **Hồ sơ lưu trước T4:** thú giữ nguyên cấp và kinh nghiệm dư. Nếu kinh nghiệm dư đã đủ cho cấp sau theo đường cong mới thì thú lên cấp ngay khi nạp (tối đa thêm 1 cấp với mọi hồ sơ hợp lệ). Không thú nào tụt cấp hay mất kinh nghiệm. Lên cấp lúc nạp không có thông báo; bảng Thú hiện cấp và chiêu mới.
 
 **Nút chỉnh nếu chơi thử thấy lệch:** `XP_CURVE` 12 (nhanh hơn khoảng 8%) hoặc 14 (chậm hơn khoảng 8%); bánh 12 quả nếu bánh vẫn lấn át săn thú; `ALPHA.xp` 200 nếu người chơi cày thú đầu đàn; `XP_PER_WORK` 1 nếu thú làm việc lên quá nhanh khi treo máy. Nếu có người cày thú yếu ở cấp cao: giảm kinh nghiệm kết liễu 10% cho mỗi cấp thú đi theo cao hơn thú bị hạ quá 3 cấp, thấp nhất còn một nửa (chưa làm).
+
+## Nhãn tên và thanh máu
+
+Trên đầu mỗi người chơi, thú và trại có một nhãn: tên (thú thì "Lv N Loài"), bên dưới là thanh máu khi bị thương. Chữ của thú hoang chỉ hiện khi nó bị thương, nổi giận hoặc choáng. Thanh máu của thú đầu đàn luôn hiện. Đặt ra ở nhiệm vụ T5; code ở `packages/client/src/game/labels.ts` và `labelLayout.ts`.
+
+**Khi nhiều nhãn chen nhau** (hay gặp trên điện thoại: hình thú nhỏ đi còn chữ giữ nguyên cỡ), không nhãn nào được che nhãn khác. Nhãn quan trọng hơn giữ chỗ, theo thứ tự:
+
+1. Nhãn của chính mình.
+2. Thú đang nhắm: thú hoang gần nhất trong tầm ném bóng, tức con mà bóng sẽ bay tới khi bấm E hoặc Bắt.
+3. Thú đi theo của mình.
+4. Thú đầu đàn, trùm.
+5. Người chơi khác.
+6. Thú của người khác, thú đang làm việc ở trại.
+7. Thú hoang khác.
+8. Trại.
+
+Nhãn bị vướng lần lượt thử ba cách, dừng ở cách đầu tiên được:
+- **nâng lên** vừa đủ để thoát, tối đa 22 px;
+- **thu gọn**: ẩn chữ, chỉ giữ thanh máu;
+- **tạm ẩn**.
+
+Bốn loại đầu (mình, thú đang nhắm, thú đi theo, đầu đàn và trùm) là **nhãn ghim**:
+- không bao giờ bị ẩn, được nâng tới 48 px;
+- con đứng trước giữ chỗ, con phía sau nâng lên;
+- nên thanh máu của chúng luôn hiện.
+
+Nhãn đã thu gọn hoặc ẩn phải có chỗ liên tục 1/4 giây mới hiện lại, để nhãn không nhấp nháy khi mọi người chen qua lại. Nhãn đổi độ cao mượt chứ không nhảy. Chữ bay (sát thương, tên chiêu, đồ nhặt) không tham gia và luôn nằm trên mọi nhãn.
 
 ## Tính khí
 

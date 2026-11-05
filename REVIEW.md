@@ -1,51 +1,42 @@
 PASS
-# REVIEW: T4 Lên cấp nhanh hơn, vòng 3
+# REVIEW: T5 Nhãn tên không đè nhau, vòng 2
 
 ## Kết luận
 
-Hai lỗi thứ tự tin đã hết: `feed` (vòng 1) và bắt thú đầu đàn (tester tìm ra ở vòng 2). Ngoài toast "Bắt được…" đã dành cho T6, không còn chỗ nào gửi tin báo sau tin `LevelUp` của cùng sự kiện. Phần còn lại của T4 không đổi kể từ vòng 1 và vẫn đạt. Không có hồi quy; tài liệu khớp code.
+Lỗi vòng 1 đã được sửa: `worldShots` đóng context iPhone 13 trong `try/finally`, nên khi `npm run shots` chạy chế độ mặc định, nhóm `labels` không còn chạy chung với một trang WebGL khác. Coder và tester mỗi người chạy một lần chế độ mặc định, cả hai lần đủ 24 ảnh. 9 ảnh nhãn đều 0 cặp chồng, ảnh `portrait-alpha` đủ 3 nhãn.
 
-Đính chính REVIEW vòng 1: mình đã viết "hai hẹn giờ cùng mốc, tin báo được hẹn trước nên chạy trước". Câu này **sai**. Đã xác minh trong `node_modules/@colyseus/timer/build/ClockTimer.mjs` (bản 2.0.3, chỉ có một bản trong `node_modules`): `tick()` duyệt `while (i--)` từ cuối mảng về đầu, nên trong cùng một tick, hẹn giờ đăng ký sau chạy trước. Tester vòng 2 bắt đúng lỗi này.
+Vòng 2 chỉ sửa `scripts/shots.mjs` và một dòng chú thích trong `Game.ts`. Các file khác giữ nguyên như lúc tôi rà vòng 1: `labelLayout.ts`, test của nó, `labels.ts`, CSS, e2e, tài liệu. Không có hồi quy: tôi đã chạy lại `npm run typecheck`, 12 unit test và `node --check` cho script, đều sạch.
 
 ## Lỗi phải sửa (FAIL khi còn mục này)
 
-Không có.
+Không còn.
+
+## Kiểm lại các góp ý vòng 1
+
+- **Hàm `frames()` thừa:** đã xoá, không còn chỗ nào gọi.
+- **Cờ `--only`:** đã kiểm giá trị. Tôi thử ba trường hợp: `--only bogus`, `--only` không có giá trị, và `--only world,`. Cả ba đều báo lỗi rõ và thoát mã 1 trước bước build, không tạo thư mục ảnh.
+- **Chú thích `Game.ts`:883:** đã sửa đúng. Giờ ghi rõ đây là luật của server, còn `throwBall` ở client vẫn tính cả thú đang trong bóng. Hành vi không đổi.
+- **Chưa làm:** ba góp ý không bắt buộc vẫn còn (mục dưới). Không cái nào chặn commit.
 
 ## Góp ý không bắt buộc
 
-- **`GameRoom.ts:1601` `announce(text, delayMs = 0)`: tham số `delayMs` không còn ai dùng.** Hai chỗ gọi (`knockOut`, hẹn giờ bóng khép) đều gửi ngay. Nên bỏ tham số và phần trong JSDoc nói về nó, ví dụ khi dọn ở T20. Giữ lại thì dễ có người lặp lại đúng lỗi vừa sửa: hẹn `announce(…, d)` cạnh một hẹn giờ khác cùng mốc `d`.
-- **Câu mới trong `docs/architecture.md` nói "chỗ nào cộng kinh nghiệm cũng gửi tin báo của sự kiện trước"**, nhưng kinh nghiệm bắt thú thường được cộng lúc ném, và toast "Bắt được…" khi bóng khép vẫn đè sau đó. Nên thêm ngoại lệ này (việc của T6) để tài liệu không hứa quá.
-- **`PLAN.md` mục 4 vẫn ghi giả định sai** ("tin báo được hẹn trước nên đến trước"). Code và `docs/architecture.md` đã đúng. Đây là file của game-designer: nên sửa câu đó hoặc ghi chú trước khi commit, để lịch sử không giữ một khẳng định sai.
-- **Gom cho T6 (hàng đợi hoặc ưu tiên toast).** Đều có từ trước hoặc đã chấp nhận, không chặn T4:
-  1. "Bắt được…" đè toast lên cấp do kinh nghiệm bắt lúc ném.
-  2. Toast phần thưởng trùm (chỗ duy nhất báo tên món đồ hiếm của trùm) bị toast lên cấp đè: luôn luôn ở cấp ≤ 7, 85% ở cấp 8, 61% ở cấp 10.
-  3. Thú đi theo ra đòn kết liễu trùm: `grantXp(XP_PER_HIT)` (`GameRoom.ts:829`, `:1473`) chạy sau `defeatBoss` và có thể gây tin `LevelUp` thứ hai, đè chữ "Học được chiêu mới" của tin thứ nhất (khoảng 2%; chữ bay tên chiêu vẫn còn). Sửa rẻ: cộng `XP_PER_HIT` trước `hitWild` / trước vòng `hit.forEach`.
-  4. Bắt thú đầu đàn dựa vào khoảng đệm 300 ms giữa lúc client hiện kết quả bóng và hẹn giờ `reveal + 300` của server. Client kẹp mỗi khung hình tối đa 100 ms, nên máy dưới 10 khung hình mỗi giây hoặc mạng giật hơn 300 ms vẫn có thể cho "Bắt được…" đến sau toast lên cấp.
-  5. Toast "Xong nhiệm vụ" của nhiệm vụ cuối (bắt thú đầu đàn) chỉ hiện khoảng 0,1 giây trước khi tin "★ … đã bắt được …" đè; trước T4 cũng vậy.
-- **Còn từ vòng 1 (tuỳ chọn):**
-  - `CLAUDE.md` thiếu hook `xp` trong danh sách `debug:*` (việc của agent chính).
-  - Helper `followerOf(player)` thay 4 chỗ `player.pals.find(…activePalId)`.
-  - JSDoc riêng cho `XP_CURVE_POWER`.
-  - Tin "+XP" vẫn hiện khi thú đã cấp 30.
-  - Test và e2e hỏng nếu chỉnh `XP_CURVE` 14 (`PROGRESS.md` vòng 2 đã đính chính).
+- **`scripts/shots.mjs`:114-135:** thân khối `try` chưa được thụt lề thêm một bậc. Các dòng 115-131 đang thẳng hàng với chữ `try {`, khác code xung quanh. Thụt vào 2 dấu cách.
+- **`labelLayout.ts`:114:** chú thích "nearly sorted from the previous frame" không đúng. `Labels.update` nạp lại `order` theo thứ tự `Set` mỗi khung. Với 30 nhãn trở xuống thì vẫn rẻ, chỉ cần sửa chú thích.
+- **`Game.ts`:907:** `const d` trong khối của trùm che biến `d` ở :892 và tính lại đúng giá trị đó. Dùng lại `d`.
 
-## Đã kiểm (đạt)
+## Việc mới nên đưa vào TASKS.md
 
-- **Lỗi vòng 1 (`feed`):**
-  - `notify` "ăn ngon lành" chạy trước, `grantXp` sau, kèm cùng chú thích như `knockOut`/`defeatBoss`; `scheduleSave` giữ nguyên.
-  - Test `feeding a snack tells of the meal first…` kiểm đúng mảng thứ tự `[ăn ngon lành, LevelUp 6 -> 7]`, cấp 7 xp 0, bánh về 0.
-- **Lỗi vòng 2 (bắt thú đầu đàn), `GameRoom.ts:931-941`:**
-  - Tin báo và `ALPHA.xp` chung **một** `clock.setTimeout(reveal + 300)`: `announce(news)` trước, rồi `grantXp` chỉ khi thú vẫn còn trong túi người ném. Thứ tự không còn phụ thuộc cách đồng hồ duyệt.
-  - Chữ tin báo tính lúc ném, nên người ném rời đi thì những người khác vẫn nghe tin và không ai nhận kinh nghiệm (có test). Người đang chờ nối lại vẫn nhận, vì T3 giữ nguyên `sessionId`. Phòng bị huỷ thì đồng hồ dừng nên hẹn giờ không chạy.
-  - Test thứ tự và test người ném rời đều tất định, số tính từ `addXp`, `finishXp`, `ALPHA.xp`. Tester kiểm: trả lại code cũ thì test hỏng đúng (`expected 1 to be greater than 2`).
-- **Rà mọi chỗ cộng kinh nghiệm ở hai phía:**
-  - 9 chỗ gọi `grantXp` và 9 hẹn giờ server (đã `grep` lại, khớp bảng của coder).
-  - Client chỉ hiện toast từ ba tin của server: `Notice` (riêng "Xong nhiệm vụ" trễ 2,1 giây), `LevelUp` và `CaptureResult`. `Defeated`, `BossDefeated`, `QuestDone`, `Produced` không hiện toast.
-  - `knockOut`, `defeatBoss` (với mọi người thắng), `feed` và bắt thú đầu đàn đều gửi tin báo trước, `grantXp` sau. Làm việc, đòn thường, chiêu và `debug:xp` không có toast nào sau `LevelUp`.
-- **Không hồi quy:**
-  - Từ vòng 1, code sản phẩm chỉ đổi ở `GameRoom.ts` (hai chỗ trên). Số dòng đổi của shared, client, store, e2e, dữ liệu và `docs/design/skills.md` giống hệt vòng 1, khớp với kiểm sha256 của tester.
-  - Tester: 242 test, e2e 23/23, build sạch.
-- **Tài liệu:**
-  - `docs/architecture.md` có thêm dòng "Thứ tự tin báo và `LevelUp`", nói đúng cách `ClockTimer` duyệt hẹn giờ (xem góp ý 2 về ngoại lệ bắt thú).
-  - `docs/design/pals.md` nêu đủ bốn sự kiện: hạ thú đầu đàn, hạ trùm, cho ăn bánh, bóng khép trên thú đầu đàn vừa bắt.
-- **Mình chạy lại:** `npm run typecheck` sạch; 19 test tích hợp liên quan trong `GameRoom.test.ts` qua 19/19 (gồm `pack leaders`, cho ăn, trùm, hook `debug:xp`, hồ sơ cũ, bắt giữ cấp, hạ gục theo cấp).
+- **P2: Đánh dấu thú đang nhắm.** Đề xuất này có sẵn ở cuối PLAN T5.
+  - Vấn đề: giữa đám đông, người chơi không biết bóng (phím E hoặc nút Bắt) sẽ bay vào con nào. T5 đã tính sẵn con đó mỗi khung hình trong `Game.frame()`.
+  - Việc cần làm:
+    - Thêm một dấu nhỏ, ví dụ vòng mảnh dưới chân hoặc viền sáng cho nhãn.
+    - Cho `Game.throwBall()` bỏ qua thú đang trong bóng (`inBall`), giống `nearestPal` của server (`GameRoom.ts`:2097) và `handleThrow` (:891). Có vậy dấu nhắm và cú ném mới luôn trùng nhau. Hiện khi con gần nhất đang lắc trong bóng, nhãn ghim đã sang con thứ hai mà phím E vẫn nhắm con trong bóng (server từ chối).
+    - Nếu thấy dấu nhảy qua lại giữa hai con cách đều mình, thêm độ trễ cho cả dấu lẫn cú ném. Hiện nay nhãn của hai con đó cũng có thể đổi hiện/ẩn theo từng khung, vì độ trễ 250 ms không áp dụng khi đổi ghim.
+- **Ghi chú cho T14 (ảnh và hình ảnh):** đã có trong PLAN T5. `scripts/shots.mjs` giờ có cờ `--only world|labels`, và nhóm `labels` chụp đám đông ở 3 khung hình, kèm số cặp nhãn chồng và `labelMs`. Ảnh mới của T14 nên vào nhóm `world` hoặc một nhóm riêng. Cảnh `alpha` của nhóm `labels` phụ thuộc thời điểm, vì chụp cố định 1,1 giây sau khi dịch chuyển. Nên poll có giới hạn: chờ thú đi theo ở gần và camera đã tới rồi mới chụp.
+- **P3: Nhãn tên bị HUD che ở điện thoại ngang.** Ví dụ trong ảnh `labels-landscape-*`: nhãn "Tuấn (mất kết nối)" và nhãn đầu đàn nằm dưới bảng trạng thái. T5 để việc này ngoài phạm vi. Có thể gộp với T6 (bố cục HUD điện thoại): thu gọn bảng trạng thái ở màn ngang, hoặc dời camera để vùng nhân vật không nằm dưới HUD.
+- **P3: Thêm test ngẫu nhiên nhiều khung cho `layoutTags`.** Ca 9 hiện chỉ kiểm một khung, mọi nhãn đều `fresh`. Nên thêm vài trăm khung, nhãn di chuyển và đổi con đang nhắm, kiểm ba điều:
+  - không chồng trừ khi bị ép;
+  - nhãn ghim không ẩn;
+  - nhãn hiện lại sau ít nhất `LABEL_REVEAL_MS` kể từ lần bị thu hoặc ẩn gần nhất.
+
+  Lần rà vòng 1, tôi đã chạy một mô phỏng như vậy (200 cảnh × 600 khung) và cả ba điều đều đúng. Làm kèm việc chạm tới `labels.ts` sau này, cùng hai góp ý chú thích ở trên.

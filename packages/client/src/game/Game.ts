@@ -86,6 +86,7 @@ import { Effects } from "./effects.ts";
 import { Lighting, type Light } from "./lighting.ts";
 import { Weather } from "./weather.ts";
 import { Labels, type Tag } from "./labels.ts";
+import { LABEL_RANK } from "./labelLayout.ts";
 import { Actor, PalActor, PlayerActor } from "./entities.ts";
 import { chainBolt, chargeUp, danger, playSkill, skillPrelude } from "./skillfx.ts";
 import { palPortrait, spriteFor, type PalSprite } from "./palSprites.ts";
@@ -330,13 +331,13 @@ export class Game {
     });
   }
 
-  private nameTag(text: string, className: string, at: () => Vec2 | undefined, lift: number): { tag: Tag; label: HTMLDivElement; text: HTMLSpanElement } {
+  private nameTag(text: string, className: string, at: () => Vec2 | undefined, lift: number, rank: number): { tag: Tag; label: HTMLDivElement; text: HTMLSpanElement } {
     const label = document.createElement("div");
     label.className = className;
     const span = document.createElement("span");
     span.textContent = text;
     label.append(span);
-    return { tag: this.labels.add(label, at, lift), label, text: span };
+    return { tag: this.labels.add(label, at, lift, rank), label, text: span };
   }
 
   private bindRoom() {
@@ -347,7 +348,7 @@ export class Game {
       const actor = new PlayerActor({ x: player.x, y: player.y }, player.color, this.shadowTexture, lookOf(player), wornOf(player));
       let dressed = dressKey(player);
       this.addActor(actor);
-      const { tag, label, text } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + 6);
+      const { tag, label, text } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + 6, isMe ? LABEL_RANK.me : LABEL_RANK.player);
       const hpFill = addHpBar(label);
       this.players.set(sessionId, { actor, tag, label });
       // Waiting to reconnect: the figure and the name are dimmed and the name says so, until they are back.
@@ -402,10 +403,10 @@ export class Game {
       if (pal.alpha) actor.aura(0xffc107);
       this.addActor(actor);
       const { tag, label } = pal.boss
-        ? this.nameTag(`👑 ${BOSS.name}`, "label pal boss", () => actor.pos, actor.height + 8)
+        ? this.nameTag(`👑 ${BOSS.name}`, "label pal boss", () => actor.pos, actor.height + 8, LABEL_RANK.leader)
         : pal.alpha
-          ? this.nameTag(`★ Đầu đàn · Lv ${pal.level} ${species.name}`, "label pal alpha", () => actor.pos, actor.height + 6)
-          : this.nameTag(`Lv ${pal.level} ${species.name}`, "label pal", () => actor.pos, actor.height + 4);
+          ? this.nameTag(`★ Đầu đàn · Lv ${pal.level} ${species.name}`, "label pal alpha", () => actor.pos, actor.height + 6, LABEL_RANK.leader)
+          : this.nameTag(`Lv ${pal.level} ${species.name}`, "label pal", () => actor.pos, actor.height + 4, LABEL_RANK.wild);
       const hpFill = addHpBar(label);
       const entity: PalEntity = { actor, tag, label, hpFill, hp: pal.hp, maxHp: pal.maxHp };
       this.pals.set(id, entity);
@@ -473,7 +474,9 @@ export class Game {
       // A ring in the owner's color marks whose pal this is.
       actor.ring(this.room.state.players.get(companion.ownerId)?.color ?? 0xffffff, 2.5);
       this.addActor(actor);
-      const { tag, label, text } = this.nameTag(`Lv ${companion.level} ${species.name}`, "label companion", () => actor.pos, actor.height + 4);
+      // `mode` is set once by the server when the companion is created, so the rank holds for its whole life.
+      const rank = companion.ownerId === this.room.sessionId && companion.mode === "follow" ? LABEL_RANK.follower : LABEL_RANK.companion;
+      const { tag, label, text } = this.nameTag(`Lv ${companion.level} ${species.name}`, "label companion", () => actor.pos, actor.height + 4, rank);
       const hpFill = addHpBar(label);
       this.companions.set(id, { actor, tag, label });
       // Just caught: it stays in the ball until it clicks shut, then hops out and runs to its owner.
@@ -493,7 +496,9 @@ export class Game {
       $.onChange(companion, () => {
         actor.server.x = companion.x;
         actor.server.y = companion.y;
-        text.textContent = `Lv ${companion.level} ${species.name}`;
+        // Writing the same text again makes the tag be measured again, and this runs about 20 times a second.
+        const shown = `Lv ${companion.level} ${species.name}`;
+        if (text.textContent !== shown) text.textContent = shown;
         setHp(label, hpFill, companion.hp, companion.maxHp);
       });
     });
@@ -875,13 +880,21 @@ export class Game {
     });
     const focus = this.me()?.pos;
 
+    // The wild pal a thrown ball would hit now: nearest within THROW_RANGE and not in a ball (the server's rule; the client's throwBall also counts pals in a ball).
+    let aimed: Tag | undefined;
+    let aimedDist = THROW_RANGE;
     this.pals.forEach((pal) => {
       const { actor } = pal;
       const prev = { x: actor.pos.x, y: actor.pos.y };
       actor.pos.x += (actor.server.x - actor.pos.x) * lerp;
       actor.pos.y += (actor.server.y - actor.pos.y) * lerp;
       // Far-away pals are hidden and not animated (the world is big).
-      const near = !focus || distance(focus, actor.pos) < PAL_DRAW_DISTANCE;
+      const d = focus ? distance(focus, actor.pos) : Infinity;
+      const near = !focus || d < PAL_DRAW_DISTANCE;
+      if (near && !pal.inBall && d <= aimedDist) {
+        aimedDist = d;
+        aimed = pal.tag;
+      }
       actor.root.visible = near && !pal.inBall;
       actor.ground.visible = near && !pal.inBall;
       pal.tag.visible = near && !pal.inBall;
@@ -946,7 +959,7 @@ export class Game {
     this.sound.setNight(phase === "night");
     this.updateBossBar();
     this.updateHud();
-    this.labels.update();
+    this.labels.update(now, aimed);
     this.frames++;
   }
 
@@ -1332,7 +1345,7 @@ export class Game {
       const span = document.createElement("span");
       span.textContent = `🏕️ Trại của ${owner} · Cấp ${level}`;
       label.append(span);
-      const tag = this.labels.add(label, () => at, 96);
+      const tag = this.labels.add(label, () => at, 96, LABEL_RANK.camp);
       camp = { root, floor, flag, level, color, tag, at };
       this.camps.set(sessionId, camp);
     }
@@ -1362,6 +1375,7 @@ export class Game {
       me: me ? { ...me.pos } : undefined,
       server: me ? { ...me.server } : undefined,
       objects: this.stage.objects.children.filter((c) => c.visible).length,
+      labels: { ...this.labels.counts },
     };
   }
 }

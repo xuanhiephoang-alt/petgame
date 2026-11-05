@@ -489,6 +489,107 @@ test("pack leaders: a gold-tagged leader guards its lair, warns you and attacks"
   await expect.poll(() => page.evaluate(() => (window as any).__hurt as number), { timeout: 20_000 }).toBeGreaterThan(0);
 });
 
+/**
+ * The pairs of name tags whose visible parts (the name text, the HP bar) overlap on screen, as "<text A> | <text B>".
+ * A tag hidden by opacity, or a part with no opacity or display, does not count; floating texts are not name tags.
+ * Parts must overlap by more than 1 px both ways (sizes are rounded and tags keep a 2 px gap).
+ */
+const labelOverlaps = (page: Page) =>
+  page.evaluate(() => {
+    const boxes: { text: string; parts: DOMRect[] }[] = [];
+    for (const el of document.querySelectorAll<HTMLElement>(".labels > .label")) {
+      if (el.style.display === "none" || Number(getComputedStyle(el).opacity) < 0.5) continue;
+      const parts: DOMRect[] = [];
+      const span = el.querySelector("span");
+      if (span && Number(getComputedStyle(span).opacity) > 0.5) parts.push(span.getBoundingClientRect());
+      const bar = el.querySelector(".hp-bar");
+      if (bar && getComputedStyle(bar).display !== "none") parts.push(bar.getBoundingClientRect());
+      if (parts.length > 0) boxes.push({ text: el.textContent ?? "", parts });
+    }
+    const pairs: string[] = [];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const hit = boxes[i].parts.some((a) => boxes[j].parts.some((b) =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1));
+        if (hit) pairs.push(`${boxes[i].text} | ${boxes[j].text}`);
+      }
+    }
+    return pairs;
+  });
+
+test("labels: in a crowd on a phone, no name tag covers another, and mine, my pal's and the aimed pal's stay shown", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Hiệp", "/", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
+  await sendFrom(page, "debug:givePal", { species: "emberpup", level: 8 });
+  // Four more explorers with a pal each, crowded around the spawn clearing.
+  const crowd = [
+    ["Minh", -60, 12, "leafkit", 3],
+    ["Lan Anh", 50, -14, "bubbloon", 7],
+    ["Tuấn", -18, -52, "pebblet", 11],
+    ["Bảo Ngọc", 92, 24, "voltmouse", 15],
+  ] as const;
+  for (const [name, dx, dy, species, level] of crowd) {
+    const other = await observer(roomId, name);
+    other.send("debug:teleport", { x: 3200 + dx, y: 2400 + dy });
+    other.send("debug:givePal", { species, level });
+  }
+  // Two wounded wild pals right next to us (a spawned pal appears 40 px to the right of the player).
+  for (const [x, y] of [[3180, 2380], [3245, 2368]]) {
+    await sendFrom(page, "debug:teleport", { x: x - 40, y });
+    await sendFrom(page, "debug:spawnPal", { species: "leafkit" });
+  }
+  await sendFrom(page, "debug:teleport", { x: 3210, y: 2404 });
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size), { timeout: 30_000 }).toBeGreaterThanOrEqual(5);
+
+  await expect.poll(() => labelOverlaps(page), { timeout: 20_000 }).toEqual([]);
+  // Stable, not just one lucky moment.
+  const frames = await page.evaluate(() => (window as any).__petgame.game.frames as number);
+  await page.waitForFunction((start) => (window as any).__petgame.game.frames - start >= 30, frames);
+  expect(await labelOverlaps(page)).toEqual([]);
+
+  // Mine and my pal's tags are fully shown.
+  const opacities = (selector: string, text?: string) =>
+    page.evaluate(([selector, text]) => {
+      const el = [...document.querySelectorAll<HTMLElement>(selector)].find((e) => !text || e.textContent === text);
+      const span = el?.querySelector("span");
+      return el && span ? [getComputedStyle(el).opacity, getComputedStyle(span).opacity] : null;
+    }, [selector, text] as const);
+  expect(await opacities(".labels > .label.me")).toEqual(["1", "1"]);
+  expect(await opacities(".labels > .label.companion", "Lv 8 Emberpup")).toEqual(["1", "1"]);
+
+  // The aimed pal (nearest within the throwing range, not in a ball) is shown, with its bar when hurt.
+  const aimed = await page.evaluate(() => {
+    const game = (window as any).__petgame.game;
+    const me = game.me().pos;
+    let best: any;
+    let bestDist = 180;
+    game.pals.forEach((pal: any) => {
+      const d = Math.hypot(pal.actor.pos.x - me.x, pal.actor.pos.y - me.y);
+      if (!pal.inBall && d <= bestDist) {
+        bestDist = d;
+        best = pal;
+      }
+    });
+    if (!best) return null;
+    const el = best.tag.element as HTMLElement;
+    const bar = el.querySelector(".hp-bar");
+    return { opacity: getComputedStyle(el).opacity, hurt: el.classList.contains("hurt"), bar: bar ? getComputedStyle(bar).display : "none" };
+  });
+  expect(aimed).not.toBeNull();
+  expect(aimed!.opacity).toBe("1");
+  if (aimed!.hurt) expect(aimed!.bar).not.toBe("none");
+
+  // A still scene reads no layout: tags are measured only when they change.
+  const measured = () => page.evaluate(() => (window as any).__petgame.game.debugInfo().labels.measured as number);
+  const before = await measured();
+  const start = await page.evaluate(() => (window as any).__petgame.game.frames as number);
+  await page.waitForFunction((start) => (window as any).__petgame.game.frames - start >= 60, start);
+  expect((await measured()) - before).toBeLessThanOrEqual(10);
+});
+
 test("party: let a pal go after confirming; a full party cannot throw", async ({ browser }) => {
   // Many panel and viewport changes on software-rendered WebGL: allow extra time.
   test.slow();
