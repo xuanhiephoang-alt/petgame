@@ -106,9 +106,16 @@
       .minimap.big { top: 50%; left: 50%; right: auto; transform: translate(-50%, -50%); width: min(92vw, 120vh); z-index: 4; }
       .invite-btn { border: none; border-radius: 8px; padding: 3px 8px; margin-left: 4px; font-weight: 600; background: #29b6f6; color: #fff; }
       .hud-status a { color: #b3e5fc; }
-      .hud-toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.65);
-        padding: 8px 14px; border-radius: 8px; font-size: 18px; opacity: 0; transition: opacity 0.2s; }
-      .hud-toast.visible { opacity: 1; }
+      /* Toasts (ui/toastQueue.ts): at most two, under the quest tracker in the HUD column, above the panels (3). */
+      .hud-toasts { order: 10; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: min(100%, 420px);
+        position: relative; z-index: 4; pointer-events: none; }
+      .hud-toasts:empty { display: none; }
+      .toast { box-sizing: border-box; max-width: 100%; padding: 6px 12px; border-radius: 8px; background: rgba(0,0,0,0.72); color: #fff;
+        font-size: 15px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; animation: toast-in 0.15s ease-out; transition: opacity 0.2s; }
+      .toast.high { border-left: 4px solid #ffca28; padding-left: 10px; }
+      .toast.out { opacity: 0; }
+      @keyframes toast-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+      @media (prefers-reduced-motion: reduce) { .toast { animation: none; transition: none; } }
       .joystick-zone { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; pointer-events: auto; touch-action: none; }
       .joystick-base { display: none; position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px;
         border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3); }
@@ -322,9 +329,24 @@
         .wardrobe-btn { top: max(132px, calc(env(safe-area-inset-top) + 120px)); }
         .minimap { width: 112px; top: max(174px, calc(env(safe-area-inset-top) + 162px)); }
         .party-panel { top: 172px; max-height: calc(100% - 184px); }
+        .toast { font-size: 13px; padding: 5px 10px; }
+        .toast.high { padding-left: 8px; }
       }
       /* Short screens (phones held sideways). */
       @media (max-height: 520px) and (min-width: 601px) {
+        /* The HUD column stays left of the name tags around the player (T6). */
+        .hud-left { max-width: 300px; gap: 4px; }
+        .hud-health { font-size: 12px; gap: 5px; padding: 4px 8px; }
+        .hud-hp { width: 64px; }
+        .hud-hp-text { font-size: 11px; }
+        .hud-region { display: none; }
+        .hud-status { font-size: 12px; padding: 4px 8px; line-height: 1.6; }
+        .hud-quest { font-size: 12px; padding: 4px 8px; }
+        .hud-quest small { font-size: 11px; }
+        .hud-quest .quest-reward { display: none; }
+        .toast { font-size: 13px; padding: 5px 10px; }
+        .toast.high { padding-left: 8px; }
+        .boss-bar { width: 200px; font-size: 12px; }
         /* The skills left of the attack button, in the right half (the joystick has the left). */
         .skill-bar.touch { right: max(196px, calc(env(safe-area-inset-right) + 196px)); bottom: 18px; width: auto; flex-wrap: nowrap; align-items: center; }
         .skill-bar.touch .skill-auto { order: -1; }

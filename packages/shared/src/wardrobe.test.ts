@@ -88,6 +88,6 @@ describe("wardrobe", () => {
   });
 
   it("names clothes in reward texts", () => {
-    expect(rewardText({ wood: 2, wear: "aodai" })).toBe("🪵 2  👘 Áo dài");
+    expect(rewardText({ wood: 2, wear: "aodai" })).toBe("🪵\xa02  👘\xa0Áo dài");
   });
 });

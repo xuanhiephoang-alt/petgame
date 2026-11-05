@@ -11,6 +11,7 @@ import {
   XP_PER_CAPTURE,
   XP_PER_KNOCKOUT,
   addXp,
+  CAPTURE_NEWS_DELAY_MS,
   captureRevealMs,
   companionMaxHp,
   distance,
@@ -216,6 +217,8 @@ describe("progression", () => {
     await capture(room, client, player);
     expect(player.pals.length).toBe(2);
     expect(player.pals[1].level).toBe(8);
+    expect(follower.xp).toBe(0); // the throw pays nothing: the XP comes once the ball has clicked shut
+    await ticks(room, Math.ceil((captureRevealMs(3) + CAPTURE_NEWS_DELAY_MS) / 50) + 3);
     expect(follower.level).toBe(10);
     expect(follower.xp).toBe(finishXp(XP_PER_CAPTURE, 8));
     expect(follower.xp).toBeGreaterThan(XP_PER_CAPTURE);
@@ -973,7 +976,7 @@ describe("pack leaders", () => {
     expect(distance(back, alphaLairs().get("desert")!)).toBeLessThan(1);
   });
 
-  it("caught, it pays the catch XP for its level at once, and ALPHA.xp once the ball has clicked shut", async () => {
+  it("caught, a pack leader pays the catch XP and ALPHA.xp together once the ball has clicked shut", async () => {
     const { room, client, player } = await setup();
     const { owned } = await giveCompanion(room, client, player, "emberpup", 10);
     owned.xp = 0;
@@ -984,22 +987,23 @@ describe("pack leaders", () => {
     await ticks(room, 20); // wait out the throw cooldown of the first catch
     player.x = pal.x + 40;
     player.y = pal.y;
+    const levelUps = collect<LevelUpMessage>(client, ServerMessage.LevelUp);
     vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
     client.send(ClientMessage.Throw, { palId: id });
     const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
     vi.restoreAllMocks();
     expect(result.success).toBe(true);
 
-    // The throw itself pays by the leader's level, like any catch; the 300 wait for the ball.
-    const atThrow = addXp({ level: 10, xp: 0 }, finishXp(XP_PER_CAPTURE, level));
+    // The throw pays nothing yet: a level-up now would give the catch away.
     expect(finishXp(XP_PER_CAPTURE, level)).toBeGreaterThan(XP_PER_CAPTURE);
-    expect([owned.level, owned.xp]).toEqual([atThrow.level, atThrow.xp]);
+    expect([owned.level, owned.xp]).toEqual([10, 0]);
+    expect(levelUps).toHaveLength(0);
     await ticks(room, 5);
-    expect([owned.level, owned.xp]).toEqual([atThrow.level, atThrow.xp]);
+    expect([owned.level, owned.xp]).toEqual([10, 0]);
 
-    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + 300) / 50) + 3);
-    const afterBall = addXp(atThrow, ALPHA.xp);
-    expect([owned.level, owned.xp]).toEqual([afterBall.level, afterBall.xp]);
+    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + CAPTURE_NEWS_DELAY_MS) / 50) + 3);
+    const total = addXp({ level: 10, xp: 0 }, finishXp(XP_PER_CAPTURE, level) + ALPHA.xp);
+    expect([owned.level, owned.xp]).toEqual([total.level, total.xp]);
   });
 
   it("caught, the news of the catch comes before the level-up that the ball's click pays for", async () => {
@@ -1023,10 +1027,10 @@ describe("pack leaders", () => {
     const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
     vi.restoreAllMocks();
     expect(result.success).toBe(true);
-    // The throw's own XP is far from level 7; only the 300 of the click carries it over (and teaches Phun lửa).
+    // Nothing is paid at the throw; the XP of the click carries the pal over (and teaches Phun lửa).
     expect(order.filter((m) => m.startsWith("LevelUp"))).toEqual([]);
-    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + 300) / 50) + 3);
-    const expected = addXp(addXp({ level: 6, xp: 0 }, finishXp(XP_PER_CAPTURE, level)), ALPHA.xp);
+    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + CAPTURE_NEWS_DELAY_MS) / 50) + 3);
+    const expected = addXp({ level: 6, xp: 0 }, finishXp(XP_PER_CAPTURE, level) + ALPHA.xp);
     expect(expected.level).toBe(7);
     expect([owned.level, owned.xp]).toEqual([expected.level, expected.xp]);
     const news = order.indexOf(`★ ${player.name} đã bắt được Cactoad đầu đàn!`);
@@ -1059,9 +1063,92 @@ describe("pack leaders", () => {
     const sessionId = client.sessionId;
     await client.leave();
     await vi.waitFor(() => expect(room.state.players.has(sessionId)).toBe(false));
-    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + 300) / 50) + 3);
+    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + CAPTURE_NEWS_DELAY_MS) / 50) + 3);
     expect(heard.map((n) => n.text)).toContain(news);
     expect(levelUps).toHaveLength(0); // nobody to pay: no level-up is told for a pal that has gone with its owner
+  });
+
+  /** A level-6 emberpup one point short of level 7, following; returns it with a plain wild pal placed to throw at. */
+  async function readyToCatch(room: GameRoom, client: any, player: Player) {
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
+    owned.xp = xpToNext(6) - 1;
+    player.palAuto = false; // no hits of its own to count
+    await ticks(room, 20); // wait out the throw cooldown of the first catch
+    room.state.pals.clear();
+    const id = placeWild(room, "leafkit", player, 60);
+    return { owned, id };
+  }
+
+  it("a catch pays its XP once the ball has clicked shut, never before (a level-up must not give the catch away)", async () => {
+    const { room, client, player } = await setup();
+    const { owned, id } = await readyToCatch(room, client, player);
+    const levelUps = collect<LevelUpMessage>(client, ServerMessage.LevelUp);
+    vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    expect(result.success).toBe(true);
+
+    await ticks(room, Math.ceil(captureRevealMs(result.shakes) / 50));
+    expect(levelUps).toHaveLength(0);
+    expect([owned.level, owned.xp]).toEqual([6, xpToNext(6) - 1]);
+
+    await ticks(room, Math.ceil(CAPTURE_NEWS_DELAY_MS / 50) + 5);
+    expect(levelUps.map((m) => [m.fromLevel, m.level])).toEqual([[6, 7]]);
+  });
+
+  it("a pal let go before the ball clicks shut learns nothing from that catch", async () => {
+    const { room, client, player } = await setup();
+    const { owned, id } = await readyToCatch(room, client, player);
+    const levelUps = collect<LevelUpMessage>(client, ServerMessage.LevelUp);
+    vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    client.send(ClientMessage.Release, { palId: owned.id });
+    await ticks(room, Math.ceil((captureRevealMs(result.shakes) + CAPTURE_NEWS_DELAY_MS) / 50) + 5);
+    expect(player.pals.includes(owned)).toBe(false);
+    expect(levelUps).toHaveLength(0);
+  });
+
+  it("every notice says what it is about", async () => {
+    const { room, client, player } = await setup();
+    const watcher = await colyseus.connectTo(room, { name: "Watcher" });
+    const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+    const heard = collect<NoticeMessage>(watcher, ServerMessage.Notice);
+    const kindOf = (start: string) => notices.find((n) => n.text.startsWith(start))?.kind;
+
+    // refused: a berry with full health
+    player.berries = 1;
+    client.send(ClientMessage.Eat);
+    await ticks(room, 3);
+    expect(kindOf("Máu đang đầy")).toBe("refused");
+
+    // quest + (after releasing it) done: the first catch finishes a quest
+    await capture(room, client, player);
+    await ticks(room, 3);
+    expect(kindOf("Xong nhiệm vụ")).toBe("quest");
+    client.send(ClientMessage.Release, { palId: player.pals[0].id });
+    await ticks(room, 3);
+    expect(kindOf("Đã thả")).toBe("done");
+
+    // reward: a chest
+    const chest = new Chest();
+    chest.x = player.x;
+    chest.y = player.y;
+    room.state.chests.set("chest-kind", chest);
+    (room as any).openChest(client.sessionId, "chest-kind", chest);
+    await ticks(room, 3);
+    expect(kindOf("Rương báu!")).toBe("reward");
+
+    // news: a pack leader beaten, heard by everyone
+    const [id, pal] = alphaOf(room, "cactoad");
+    pal.hp = 1;
+    (room as any).daze(id, pal);
+    (room as any).knockOut(id, pal, client.sessionId);
+    await ticks(room, 3);
+    expect(kindOf("★")).toBe("news");
+    expect(heard.find((n) => n.text.startsWith("★"))?.kind).toBe("news");
   });
 
   it("a big gain skips levels: one LevelUp from the old level, after the news", async () => {
@@ -1153,6 +1240,7 @@ describe("boss", () => {
     boss.hp = 5;
     // What the first player reads, in the order it arrives.
     const order: string[] = [];
+    const rewardKinds = collect<NoticeMessage>(client, ServerMessage.Notice);
     client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => order.push(m.text));
     client.onMessage(ServerMessage.LevelUp, (m: LevelUpMessage) => order.push(`LevelUp ${m.fromLevel} -> ${m.level}`));
     client.send(ClientMessage.Attack);
@@ -1165,6 +1253,7 @@ describe("boss", () => {
     const won = order.findIndex((m) => m.startsWith("Hạ được trùm"));
     expect(won).toBeGreaterThanOrEqual(0);
     expect(order[won]).toContain(`Emberpup +${BOSS.xp} XP`);
+    expect(rewardKinds.find((n) => n.text.startsWith("Hạ được trùm"))?.kind).toBe("reward");
     expect(order.indexOf("LevelUp 6 -> 8")).toBeGreaterThan(won); // the level-up is the last thing read
 
     expect(other.stone).toBe(stoneBefore + BOSS.reward.stone);
@@ -1299,6 +1388,7 @@ describe("regions and climate", () => {
     const { room, client, player } = await setup();
     room.state.pals.clear(); // the snow's pack leader lives right there
     const notices: string[] = [];
+    const noticeKinds = collect<NoticeMessage>(client, ServerMessage.Notice);
     client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => notices.push(m.text));
     const { snow } = defaultWorld().layout.regions;
     const spot = (room as any).obstacles.resolve(snow, 14);
@@ -1308,6 +1398,7 @@ describe("regions and climate", () => {
     expect(damage.cause).toBe("cold");
     expect(player.hp).toBeLessThan(PLAYER_MAX_HP);
     expect(notices.some((n) => n.includes("lạnh"))).toBe(true);
+    expect(noticeKinds.find((n) => n.text.includes("lạnh"))?.kind).toBe("warning");
 
     player.outfit = "coat";
     player.hp = PLAYER_MAX_HP;

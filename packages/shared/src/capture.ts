@@ -33,6 +33,12 @@ export function captureRevealMs(shakes: number): number {
 }
 
 /**
+ * How long after the ball clicks shut (captureRevealMs) the server tells a catch's news and pays its XP: the client
+ * shows the catch first, with this much to spare for a slow frame or network.
+ */
+export const CAPTURE_NEWS_DELAY_MS = 300;
+
+/**
  * Probability (0..1) that a capture attempt succeeds.
  *
  * Lower remaining HP makes capture easier: at full HP the chance is

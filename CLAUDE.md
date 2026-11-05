@@ -3,7 +3,7 @@
 Game 2D nhìn từ trên xuống kiểu bắt thú (bắt thú, chiến đấu, xây trại, chế tạo, khám phá) cho web và điện thoại, tối đa 5 người chơi một thế giới. Project chạy ở **chế độ đội agent tự động**: người dùng giao việc một lần (qua `TASKS.md`), các agent tự làm đến khi xong, chỉ hỏi lại theo đúng mục "Khi nào dừng lại hỏi".
 
 - Bản đồ hệ thống (file nào làm gì): `docs/architecture.md`
-- Thiết kế: `docs/design/pals.md` (thú, vùng, thú đầu đàn), `docs/design/skills.md` (chiêu), `docs/design/multiplayer.md` (nhiều người chơi, kết nối lại), `docs/art-style.md` (phong cách hình); kế hoạch tổng thể: `GAME_PLAN.md`
+- Thiết kế: `docs/design/pals.md` (thú, vùng, thú đầu đàn), `docs/design/skills.md` (chiêu), `docs/design/multiplayer.md` (nhiều người chơi, kết nối lại), `docs/design/hud.md` (HUD, thông báo và mức ưu tiên), `docs/art-style.md` (phong cách hình); kế hoạch tổng thể: `GAME_PLAN.md`
 
 ## Công nghệ và cấu trúc
 

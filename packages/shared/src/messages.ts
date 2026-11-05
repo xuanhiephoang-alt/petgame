@@ -254,8 +254,21 @@ export interface ProducedMessage {
   amount: number;
 }
 
+/**
+ * What a notice is about:
+ * - refused: a request that did not work (full bag, missing item, bad spot);
+ * - done: a confirmation of something the player did (released a pal, built, crafted, fed);
+ * - warning: a danger or a setback (fainted, exhausted pal, cold, heat);
+ * - reward: loot or a prize (boss reward, chest, camp level-up, work done while away);
+ * - quest: a finished quest (the client shows it a little late, after the catch or fight that finished it);
+ * - news: an announcement for the whole world (pack leader caught or beaten).
+ */
+export type NoticeKind = "refused" | "done" | "warning" | "reward" | "quest" | "news";
+
 export interface NoticeMessage {
   text: string;
+  /** What the notice is about: the client shows it by how much it matters (how long, what may replace it). */
+  kind: NoticeKind;
 }
 
 export interface CaptureResultMessage {

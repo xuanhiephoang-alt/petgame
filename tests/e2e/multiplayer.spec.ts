@@ -236,7 +236,7 @@ test("HUD shows health, time of day and lets you eat berries", async ({ browser 
   await expect(page.locator(".hud-time")).toHaveText(/Ngày|Hoàng hôn|Đêm|Bình minh/);
   // Full health: eating is refused with a notice.
   await page.locator(".eat-btn").click();
-  await expect(page.locator(".hud-toast")).toContainText(/quả mọng|Máu đang đầy/);
+  await expect(page.locator(".hud-toasts")).toContainText(/quả mọng|Máu đang đầy/);
 });
 
 test("exploring: quest tracker, minimap and opening a treasure chest", async ({ browser }) => {
@@ -257,7 +257,7 @@ test("exploring: quest tracker, minimap and opening a treasure chest", async ({ 
     room.send("debug:teleport", { x: c.x, y: c.y + 8 });
     return id;
   });
-  await expect(page.locator(".hud-toast")).toContainText("Rương báu");
+  await expect(page.locator(".hud-toasts")).toContainText("Rương báu");
   const state = await page.evaluate((id) => {
     const room = (window as any).__petgame.room;
     const me = room.state.players.get(room.sessionId);
@@ -484,7 +484,7 @@ test("pack leaders: a gold-tagged leader guards its lair, warns you and attacks"
   });
   await page.evaluate((l) => (window as any).__petgame.room.send("debug:teleport", { x: l.x + 110, y: l.y }), meadow);
   await expect(page.locator(".label.pal.alpha").filter({ hasText: "Đầu đàn" }).first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(".hud-toast")).toContainText("Lãnh địa của Voltmouse đầu đàn");
+  await expect(page.locator(".hud-toasts")).toContainText("Lãnh địa của Voltmouse đầu đàn");
   // It comes for us.
   await expect.poll(() => page.evaluate(() => (window as any).__hurt as number), { timeout: 20_000 }).toBeGreaterThan(0);
 });
@@ -716,7 +716,7 @@ test("party: let a pal go after confirming; a full party cannot throw", async ({
   await expect(page.locator(".confirm-release")).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(dialog).toBeHidden();
-  await expect(page.locator(".hud-toast")).toContainText("Đã thả Pebblet");
+  await expect(page.locator(".hud-toasts")).toContainText("Đã thả Pebblet");
   await expect.poll(async () => (await party()).species).toEqual(["leafkit"]);
   await expect.poll(companions).toBe(0);
   expect((await party()).active).toBe("");
@@ -769,7 +769,7 @@ test("party: let a pal go after confirming; a full party cannot throw", async ({
 
   // E: the player is told at once, no ball is thrown (nothing is sent) and nothing is lost.
   await page.keyboard.press("e");
-  await expect(page.locator(".hud-toast")).toContainText("Túi thú đầy");
+  await expect(page.locator(".hud-toasts")).toContainText("Túi thú đầy");
   expect(await sent()).not.toContain("throw");
   expect((await party()).ids).toHaveLength(30);
   expect(await page.evaluate((id) => (window as any).__petgame.room.state.pals.has(id), wildId)).toBe(true);
@@ -911,7 +911,7 @@ test("party: by touch alone a pal is let go; the dimmed layer takes the taps mea
   await expect(dialog).toBeVisible();
   await page.locator(".confirm-release").tap();
   await expect(dialog).toBeHidden();
-  await expect(page.locator(".hud-toast")).toContainText("Đã thả Pebblet");
+  await expect(page.locator(".hud-toasts")).toContainText("Đã thả Pebblet");
   await expect.poll(async () => (await partyOf(page)).species).toEqual(["leafkit"]);
   expect(await sent()).toContain("release");
   expect(await sent()).not.toContain("attack");
@@ -929,8 +929,8 @@ test("levels: a big XP gain over several levels still announces the skill learne
   await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(1);
   await sendFrom(page, "debug:xp", { amount: 450 });
 
-  // The text stays in the toast after it fades, so reading it does not depend on when we look.
-  const toast = page.locator(".hud-toast");
+  // A level-up with a new skill is a high toast: it shows for at least 3 s and nothing replaces it.
+  const toast = page.locator(".hud-toasts");
   await expect(toast).toContainText("Emberpup lên cấp 8!");
   await expect(toast).toContainText("Học được chiêu mới: 🔥 Phun lửa");
 
@@ -1111,7 +1111,7 @@ test("connection: a dropped player comes back as themselves, where they stood, w
 
   restore();
   await expect(page.locator(".net-overlay")).toBeHidden({ timeout: 15_000 });
-  await expect(page.locator(".hud-toast")).toContainText("Đã kết nối lại");
+  await expect(page.locator(".hud-toasts")).toContainText("Đã kết nối lại");
   const back = await page.evaluate(() => {
     const { game, room } = (window as any).__petgame;
     const me = room.state.players.get(room.sessionId);
@@ -1356,10 +1356,129 @@ test("connection: a connection that goes silent without closing is noticed, and 
   // ...then the new try goes through, to the same player in the same room: the screen came up and went away again.
   await page.waitForFunction(() => (window as any).__netScreen.length >= 2, undefined, { timeout: 40_000 });
   expect(await page.evaluate(() => (window as any).__netScreen as string[])).toEqual(["Đang kết nối lại…", "hidden"]);
-  await expect(page.locator(".hud-toast")).toContainText("Đã kết nối lại");
+  await expect(page.locator(".hud-toasts")).toContainText("Đã kết nối lại");
   const back = await page.evaluate(() => {
     const { room } = (window as any).__petgame;
     return { mark: room.__mark as string, sessionId: room.sessionId as string, players: room.state.players.size as number };
   });
   expect(back).toEqual({ mark: "before-silence", sessionId, players: 1 });
+});
+
+/** The texts of the toasts being shown (not fading out), in the order shown. */
+const shownToasts = (page: Page) =>
+  page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".hud-toasts > .toast:not(.out)")].map((el) => el.textContent ?? ""));
+
+/**
+ * The boxes of the toasts, of the HUD parts shown and of my name tag, the right edge of the HUD column and the screen size,
+ * to check that the toasts lie on nothing.
+ */
+const toastLayout = (page: Page) =>
+  page.evaluate(() => {
+    const box = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    };
+    const toasts = [...document.querySelectorAll(".hud-toasts > .toast:not(.out)")].map((el) => ({ text: el.textContent ?? "", ...box(el) }));
+    const hud = [...document.querySelectorAll<HTMLElement>(
+      ".hud-health, .hud-status, .hud-quest, .party-btn, .base-btn, .craft-btn, .wardrobe-btn, .minimap, .skill-btn, .skill-auto, .ball-btn, .action-btn, .boss-bar")]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        return getComputedStyle(el).display !== "none" && !el.hidden && r.width > 0 && r.height > 0;
+      })
+      .map((el) => ({ name: el.className, ...box(el) }));
+    const mine = [...document.querySelectorAll(".labels > .label.me span")].map((el) => ({ name: "my name", ...box(el) }));
+    const columnRight = Math.max(...[...document.querySelectorAll(".hud-health, .hud-status, .hud-quest")].map((el) => el.getBoundingClientRect().right));
+    return { toasts, hud: [...hud, ...mine], columnRight, width: innerWidth, height: innerHeight };
+  });
+
+/** True when two boxes overlap by more than 1 px both ways (like `labelOverlaps`). */
+const boxesOverlap = (a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) =>
+  Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+
+const TOAST_SCREENS = [
+  { name: "desktop", options: { viewport: { width: 1280, height: 720 } }, room: 2 },
+  { name: "phone upright", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, room: 2 },
+  { name: "phone sideways", options: { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true }, room: 1 },
+] as const;
+
+for (const screen of TOAST_SCREENS) {
+  test(`toasts (${screen.name}): under the quest tracker, clear of the HUD and of my name; ${screen.room} at a time`, async ({ browser }) => {
+    test.slow();
+    const page = await join(browser, "Hiệp", "/", { ...screen.options });
+    await waitForWorld(page);
+    await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+    await sendFrom(page, "debug:givePal", { species: "emberpup", level: 8 });
+    await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(1);
+    await expect(page.locator(".skill-bar")).toBeVisible();
+    await expect(page.locator(".hud-quest")).toContainText(/\S/);
+    await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
+
+    // The two longest high toasts there are (the boss reward as the server words it, and a level-up with two new skills).
+    await page.evaluate(() => {
+      const { hud } = (window as any).__petgame.game;
+      hud.showToast("Hạ được trùm! 🏆 🪵\xa015  🪨\xa025  🫐\xa010  🔵\xa02  🛡️\xa0Giáp hiệp sĩ · Emberpup +250 XP", "high");
+      hud.showToast("Frostfang lên cấp 15! ⭐ Học được chiêu mới: ❄️ Hơi thở băng giá, 🌨️ Bão tuyết", "high");
+    });
+    await expect(page.locator(".hud-toasts > .toast:not(.out)")).toHaveCount(screen.room);
+    const layout = await toastLayout(page);
+    expect(layout.toasts).toHaveLength(screen.room);
+    for (const toast of layout.toasts) {
+      expect(toast.left, toast.text).toBeGreaterThanOrEqual(0);
+      expect(toast.top, toast.text).toBeGreaterThanOrEqual(0);
+      expect(toast.right, toast.text).toBeLessThanOrEqual(layout.width);
+      expect(toast.bottom, toast.text).toBeLessThanOrEqual(layout.height);
+      expect(layout.hud.filter((part) => boxesOverlap(toast, part)).map((part) => part.name), toast.text).toEqual([]);
+    }
+    if (screen.name === "phone sideways") {
+      // The thumb corner stays free, and the HUD column stays left of the name tags around the player.
+      for (const toast of layout.toasts) expect(toast.bottom).toBeLessThanOrEqual(layout.height - 140);
+      expect(layout.columnRight).toBeLessThanOrEqual(layout.width / 2 - 100);
+      // Only one fits: the second shows once the first is gone.
+      await expect(page.locator(".hud-toasts")).toContainText("Hơi thở băng giá", { timeout: 10_000 });
+    }
+  });
+}
+
+test("toasts: the catch and the quest it finishes show together; small notices do not push out a level-up", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Hiệp");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+
+  // The first catch: "Bắt được" and "Xong nhiệm vụ" are both high, so both are on screen at the same time.
+  await sendFrom(page, "debug:spawnPal");
+  const throwAtNearest = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const me = room.state.players.get(room.sessionId);
+    let nearest = "", best = Infinity;
+    room.state.pals.forEach((p: any, id: string) => {
+      const d = Math.hypot(p.x - me.x, p.y - me.y);
+      if (d < best) { best = d; nearest = id; }
+    });
+    if (nearest) room.send("throw", { palId: nearest });
+  });
+  const thrower = setInterval(() => void throwAtNearest().catch(() => {}), 900);
+  try {
+    await expect.poll(async () => {
+      const shown = await shownToasts(page);
+      return shown.some((t) => t.startsWith("Bắt được")) && shown.some((t) => t.startsWith("Xong nhiệm vụ"));
+    }, { timeout: 15_000 }).toBe(true);
+  } finally {
+    clearInterval(thrower);
+  }
+
+  // A level-up with a new skill, then three keys that are refused: the level-up stays, the newest feedback takes the other place.
+  await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
+  await sendFrom(page, "debug:givePal", { species: "emberpup", level: 6 });
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBeGreaterThanOrEqual(1);
+  await sendFrom(page, "debug:xp", { amount: 450 });
+  await expect(page.locator(".toast.high", { hasText: "Học được chiêu mới: 🔥 Phun lửa" })).toBeVisible();
+  for (const key of ["r", "3", "h"]) await page.keyboard.press(key);
+
+  await expect(page.locator(".hud-toasts")).toContainText(/Máu đang đầy|Hết 🫐 quả mọng/);
+  const shown = await shownToasts(page);
+  expect(shown).toHaveLength(2);
+  expect(shown.some((t) => t.includes("Học được chiêu mới: 🔥 Phun lửa"))).toBe(true);
+  expect(shown.join("|")).not.toContain("Chưa có 🔵 Bóng xịn");
+  expect(shown.join("|")).not.toContain("🔒");
 });

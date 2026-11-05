@@ -1,42 +1,65 @@
 PASS
-# REVIEW: T5 Nhãn tên không đè nhau, vòng 2
+# REVIEW: T6 Thông báo không che HUD (chỗ đặt, hàng đợi, mức ưu tiên), vòng 3
 
 ## Kết luận
 
-Lỗi vòng 1 đã được sửa: `worldShots` đóng context iPhone 13 trong `try/finally`, nên khi `npm run shots` chạy chế độ mặc định, nhóm `labels` không còn chạy chung với một trang WebGL khác. Coder và tester mỗi người chạy một lần chế độ mặc định, cả hai lần đủ 24 ảnh. 9 ảnh nhãn đều 0 cặp chồng, ảnh `portrait-alpha` đủ 3 nhãn.
+Lỗi vòng 2 đã hết. `playOut` giờ ghi `to` theo những bước thông báo còn trong `visible`, nên một thông báo bị gỡ sớm sẽ có `to - from` ngắn hơn và test hỏng. Tình huống điện thoại ngang (1 chỗ) mới cho tin mức cao chờ 6 s rồi vẫn hiện đủ thời gian.
 
-Vòng 2 chỉ sửa `scripts/shots.mjs` và một dòng chú thích trong `Game.ts`. Các file khác giữ nguyên như lúc tôi rà vòng 1: `labelLayout.ts`, test của nó, `labels.ts`, CSS, e2e, tài liệu. Không có hồi quy: tôi đã chạy lại `npm run typecheck`, 12 unit test và `node --check` cho script, đều sạch.
+Code sản phẩm trùng bản đã rà ở vòng 1-2, không hồi quy:
+- `toastQueue.ts` trùng từng byte với bản sao vòng 2 (cùng sha256; mtime đổi chỉ do coder thử đột biến rồi trả lại).
+- Các file sản phẩm khác giữ nguyên mtime và số dòng diff.
+
+Các tiêu chí của PLAN đều đạt:
+- giao thức `kind` gắn đúng loại cho cả 31 tin;
+- kinh nghiệm bắt thú trả lúc bóng khép;
+- hàng đợi 3 mức;
+- bố cục không che HUD ở 3 khung hình;
+- tài liệu khớp code.
 
 ## Lỗi phải sửa (FAIL khi còn mục này)
 
 Không còn.
 
-## Kiểm lại các góp ý vòng 1
-
-- **Hàm `frames()` thừa:** đã xoá, không còn chỗ nào gọi.
-- **Cờ `--only`:** đã kiểm giá trị. Tôi thử ba trường hợp: `--only bogus`, `--only` không có giá trị, và `--only world,`. Cả ba đều báo lỗi rõ và thoát mã 1 trước bước build, không tạo thư mục ảnh.
-- **Chú thích `Game.ts`:883:** đã sửa đúng. Giờ ghi rõ đây là luật của server, còn `throwBall` ở client vẫn tính cả thú đang trong bóng. Hành vi không đổi.
-- **Chưa làm:** ba góp ý không bắt buộc vẫn còn (mục dưới). Không cái nào chặn commit.
+Mình đã tự kiểm, chạy trên bản sao ở `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t6r2mut/`, không đụng repo:
+- `toastQueue.test.ts` qua 19/19, typecheck sạch.
+- Bốn đột biến đều bị bắt:
+  - m1: cái chờ sau vào trước (`a.at > b.at`) → test hạ trùm hỏng;
+  - m2: hoà `at` thì cái sau thắng, tin lên cấp chen trước tin ★ → test bắt thú đầu đàn và test một chỗ hỏng;
+  - m3: `maxWaitMs.high: 5000` → test một chỗ hỏng;
+  - m4: cắt mọi thông báo sau 2 s khi hàng chờ trống → cả ba test tình huống hỏng.
 
 ## Góp ý không bắt buộc
 
-- **`scripts/shots.mjs`:114-135:** thân khối `try` chưa được thụt lề thêm một bậc. Các dòng 115-131 đang thẳng hàng với chữ `try {`, khác code xung quanh. Thụt vào 2 dấu cách.
-- **`labelLayout.ts`:114:** chú thích "nearly sorted from the previous frame" không đúng. `Labels.update` nạp lại `order` theo thứ tự `Set` mỗi khung. Với 30 nhãn trở xuống thì vẫn rẻ, chỉ cần sửa chú thích.
-- **`Game.ts`:907:** `const d` trong khối của trùm che biến `d` ở :892 và tính lại đúng giá trị đó. Dùng lại `d`.
+- **Test:** `to = now + 10` làm tròn theo bước 10 ms. Test nào sau này dùng chữ có thời lượng không chia hết cho 10 (ví dụ 3.860 ms) phải so lệch tối đa 10 ms, hoặc chọn chữ có thời lượng tròn.
+- **Thông báo nhảy chỗ khi bị thay** (`hud.ts:157-162`): cái đang mờ đi vẫn chiếm chỗ 200 ms, nên cái mới hiện thấp hơn một ô rồi nhảy lên. Cách sửa: gán `top` theo `offsetTop` và cho `.toast.out { position: absolute; left: 0; }`.
+- **Xoay từ dọc sang ngang khi đang có 2 thông báo:** cả hai ở lại tới khi hết giờ (tối đa 7 s). Có thể cho ra ngay cái không phải mức cao vượt chỗ, hoặc ghi rõ hành vi này vào `docs/design/hud.md`.
+- **Đọc kích thước màn hình mỗi khung hình:** `toastRoom(window.innerWidth, window.innerHeight)` chạy mỗi khung hình khi có thông báo đang chờ. Nên lưu lại, chỉ cập nhật khi có sự kiện `resize`.
+- **E2E:**
+  - thanh máu trùm đang ẩn trong 3 test bố cục nên phép kiểm `.boss-bar` không kiểm gì; nên gọi `hud.setBoss(...)` trước khi đo;
+  - test hàng đợi "chờ nó đi theo" bằng `companions.size >= 1`, điều kiện đã đúng sẵn; nên chờ `activePalId` trỏ tới con emberpup.
+- **Test server:** chưa có test khẳng định thông báo trùm chứa `rewardText(BOSS.reward)` và tên món đồ hiếm.
+- **Lặt vặt:**
+  - thứ tự chữ cái của import `CAPTURE_NEWS_DELAY_MS` (`GameRoom.ts:23`, `GameRoom.test.ts:14`);
+  - JSDoc cho `ToastQueue.waiting`;
+  - `hud.md:16`: màn mất kết nối không nằm trong `.hud`;
+  - `hud.md:61`: mẹo chỉ bị thay khi cả hai chỗ đã đầy.
 
-## Việc mới nên đưa vào TASKS.md
+## Việc mới nên đưa vào `TASKS.md`
 
-- **P2: Đánh dấu thú đang nhắm.** Đề xuất này có sẵn ở cuối PLAN T5.
-  - Vấn đề: giữa đám đông, người chơi không biết bóng (phím E hoặc nút Bắt) sẽ bay vào con nào. T5 đã tính sẵn con đó mỗi khung hình trong `Game.frame()`.
-  - Việc cần làm:
-    - Thêm một dấu nhỏ, ví dụ vòng mảnh dưới chân hoặc viền sáng cho nhãn.
-    - Cho `Game.throwBall()` bỏ qua thú đang trong bóng (`inBall`), giống `nearestPal` của server (`GameRoom.ts`:2097) và `handleThrow` (:891). Có vậy dấu nhắm và cú ném mới luôn trùng nhau. Hiện khi con gần nhất đang lắc trong bóng, nhãn ghim đã sang con thứ hai mà phím E vẫn nhắm con trong bóng (server từ chối).
-    - Nếu thấy dấu nhảy qua lại giữa hai con cách đều mình, thêm độ trễ cho cả dấu lẫn cú ném. Hiện nay nhãn của hai con đó cũng có thể đổi hiện/ẩn theo từng khung, vì độ trễ 250 ms không áp dụng khi đổi ghim.
-- **Ghi chú cho T14 (ảnh và hình ảnh):** đã có trong PLAN T5. `scripts/shots.mjs` giờ có cờ `--only world|labels`, và nhóm `labels` chụp đám đông ở 3 khung hình, kèm số cặp nhãn chồng và `labelMs`. Ảnh mới của T14 nên vào nhóm `world` hoặc một nhóm riêng. Cảnh `alpha` của nhóm `labels` phụ thuộc thời điểm, vì chụp cố định 1,1 giây sau khi dịch chuyển. Nên poll có giới hạn: chờ thú đi theo ở gần và camera đã tới rồi mới chụp.
-- **P3: Nhãn tên bị HUD che ở điện thoại ngang.** Ví dụ trong ảnh `labels-landscape-*`: nhãn "Tuấn (mất kết nối)" và nhãn đầu đàn nằm dưới bảng trạng thái. T5 để việc này ngoài phạm vi. Có thể gộp với T6 (bố cục HUD điện thoại): thu gọn bảng trạng thái ở màn ngang, hoặc dời camera để vùng nhân vật không nằm dưới HUD.
-- **P3: Thêm test ngẫu nhiên nhiều khung cho `layoutTags`.** Ca 9 hiện chỉ kiểm một khung, mọi nhãn đều `fresh`. Nên thêm vài trăm khung, nhãn di chuyển và đổi con đang nhắm, kiểm ba điều:
-  - không chồng trừ khi bị ép;
-  - nhãn ghim không ẩn;
-  - nhãn hiện lại sau ít nhất `LABEL_REVEAL_MS` kể từ lần bị thu hoặc ẩn gần nhất.
-
-  Lần rà vòng 1, tôi đã chạy một mô phỏng như vậy (200 cảnh × 600 khung) và cả ba điều đều đúng. Làm kèm việc chạm tới `labels.ts` sau này, cùng hai góp ý chú thích ở trên.
+- **T30 (P2). Thanh máu trùm che HUD.**
+  - Thanh máu trùm đè hàng máu trên điện thoại dọc (184×35 px, che thanh máu của mình) và desktop (42×35 px).
+  - Gợi ý: đưa vào `.hud-left` khi cầm dọc; desktop giới hạn bề rộng trong phần trống bên phải cột trái.
+  - Kèm: cột trái khi cầm ngang trên iPhone có tai thỏ (`viewport-fit=cover`, `env(safe-area-inset-left)` khoảng 44-59 px) vượt mốc giữa màn hình − 100 px và có thể chạm thanh máu trùm. Gợi ý `max-width: min(300px, calc(50vw - 110px - env(safe-area-inset-left)))`.
+  - E2E đo như `toastLayout`, có hiện thanh máu trùm.
+- **T14:** thêm nhóm ảnh `toasts` vào `npm run shots`, lấy `toast-shots-after.mjs` của T6 làm gốc.
+- **T20:** bỏ mục "bỏ tham số `delayMs` của `announce`" (T6 đã làm).
+- **T18:** sau khi nâng nút "Ăn", 🔊 lên 44 px, chạy lại e2e `toasts (phone sideways)`. Nếu đáy thông báo vượt `innerHeight − 140` thì thu gọn cột khi cầm ngang, không nới giới hạn.
+- **T12:** bảng chữ thông báo server giữ `kind` cạnh mỗi câu.
+- **(P3) Tin ★ khi bắt thú đầu đàn:** người ném đang thấy hai tin cho một lần bắt. Gửi tin ★ cho mọi người trừ người ném, và thêm cờ `alpha` vào `CaptureResultMessage` để chữ "Bắt được …" ghi "đầu đàn".
+- **(P3) Hoàn thiện thông báo:**
+  - sửa thông báo nhảy chỗ khi bị thay;
+  - xử lý khi số chỗ giảm lúc xoay màn hình;
+  - lưu `toastRoom` theo `resize`;
+  - e2e bố cục hiện thanh máu trùm;
+  - test server cho chữ phần thưởng trùm.
+- **Ghi chú cho agent chính:** thêm `docs/design/hud.md` vào danh sách tài liệu thiết kế trong `CLAUDE.md`.

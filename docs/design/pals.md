@@ -55,7 +55,7 @@ Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) ca
 - To gấp 1,6 lần, có quầng vàng dưới chân, nhãn "★ Đầu đàn" màu vàng (đỏ khi đang đánh) và thanh máu luôn hiện. Máu gấp 3 lần thú cùng loài cùng cấp. Khi nhiều nhãn chen nhau, nhãn đầu đàn không bao giờ bị ẩn (mục "Nhãn tên và thanh máu").
 - Thuộc đủ 3 chiêu và dùng thường hơn thú hoang khác (8% mỗi lượt, nghỉ 2,2 giây, không bị kéo dài thời gian hồi); sức mạnh chiêu tính tối đa ở cấp 8 để một người chơi biết né vẫn đánh được.
 - Canh lãnh địa: tấn công ai lại gần (170 px), kể cả loài vốn hiền, không bỏ chạy. Bị kéo xa hơn 12 m khỏi chỗ ở thì bỏ trận, đi về, và hồi máu (4% mỗi giây) khi không ai làm phiền.
-- Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm (`ALPHA.xp`, thay cho kinh nghiệm hạ gục thường), cả thế giới được báo tin. Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; thú đi theo nhận kinh nghiệm bắt theo cấp như mọi lần bắt (60-78) rồi thêm 300 khi bóng khép; túi đầy thì không ném được.
+- Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm (`ALPHA.xp`, thay cho kinh nghiệm hạ gục thường), cả thế giới được báo tin. Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; khi bóng khép, thú đi theo nhận một lần kinh nghiệm bắt theo cấp như mọi lần bắt (60-78) cộng 300; túi đầy thì không ném được.
 - Quay lại chỗ ở sau 6 phút. Nhiệm vụ cuối chuỗi: "Hạ hoặc bắt một thú đầu đàn".
 
 ## Túi thú và thả thú
@@ -85,8 +85,8 @@ Cộng dồn: cấp 3 = 50, cấp 5 = 222, cấp 7 = 558, cấp 10 = 1.444, cấ
 | Đòn thường của thú trúng thú hoang | 4 mỗi đòn (`XP_PER_HIT`) | thú ra đòn |
 | Chiêu trúng ít nhất một thú hoang | 4 mỗi lần tung, không nhân theo số con trúng | thú tung chiêu |
 | Hạ gục thú hoang | 12 ở cấp 1, thêm 10% mỗi cấp của thú bị hạ (`finishXp`): cấp 3 / 5 / 8 / 10 / 14 cho 14 / 17 / 20 / 23 / 28 | thú đi theo của người kết liễu |
-| Bắt thú hoang | 25 ở cấp 1, cùng cách tính: 30 / 35 / 43 / 48 / 58 | thú đi theo của người ném (con bắt đầu tiên tự đi theo nên không nhận) |
-| Thú đầu đàn | hạ gục: 300 thay cho phần hạ gục; bắt: phần bắt theo cấp (60-78), thêm 300 khi bóng khép | thú đi theo |
+| Bắt thú hoang | 25 ở cấp 1, cùng cách tính: 30 / 35 / 43 / 48 / 58; trả khi bóng khép, không phải lúc ném | thú đi theo của người ném lúc ném, nếu vẫn còn trong túi (con bắt đầu tiên tự đi theo nên không nhận) |
+| Thú đầu đàn | hạ gục: 300 thay cho phần hạ gục; bắt: phần bắt theo cấp (60-78) cộng 300, trả một lần khi bóng khép | thú đi theo |
 | Hạ trùm Vua Đá | 250 (`BOSS.xp`), cùng lúc với phần thưởng đồ | thú đi theo của mỗi người đã đánh trúng trùm |
 | Làm việc ở trại | 2 mỗi món, chỉ khi chủ đang trong game | thú làm việc |
 | Bánh quả mọng 🥧 | 40 mỗi cái, cho bất kỳ thú nào trong túi (nút "Cho ăn 🥧" ở bảng Thú) | thú được chọn |
@@ -108,7 +108,7 @@ Bánh có từ: chế ở trại (8 quả mọng, tức 5 kinh nghiệm mỗi qu
 - Không chia kinh nghiệm cho thú đang nghỉ trong túi: muốn nuôi con khác thì cho ăn bánh, cho làm việc hoặc cho đi theo. Chiêu trúng nhiều con không cho thêm, vì thú hoang đứng thưa và phần thêm chỉ khoảng 1%.
 - Bắt rồi thả (từ khi có nút thả thú) không phải cách cày nhanh nhất: khoảng 0,7 lần so với hạ gục liên tục, vì kinh nghiệm bắt chỉ gấp khoảng 2 lần kinh nghiệm hạ gục. Giữ quy tắc này khi đổi số.
 
-**Thông báo lên cấp.** Mỗi lần nhận kinh nghiệm làm thú lên cấp, server gửi một tin `LevelUp` kèm cấp trước đó (`fromLevel`) và cấp mới. Người chơi thấy "<Thú> lên cấp N! ⭐". Nếu thú vừa vượt qua cấp học chiêu (7 hoặc 15), thông báo thêm "Học được chiêu mới: ..." cho mọi chiêu học được trên đường, kể cả khi một lần nhảy nhiều cấp (ví dụ cấp 6 nhận 300 kinh nghiệm từ thú đầu đàn lên thẳng cấp 8 vẫn báo chiêu cấp 7). Khi hạ thú đầu đàn hoặc trùm, cho thú ăn bánh, hay khi bóng khép trên thú đầu đàn vừa bắt, tin lên cấp đến sau tin báo của sự kiện đó, để thông báo chiêu mới là thứ người chơi đọc cuối cùng.
+**Thông báo lên cấp.** Mỗi lần nhận kinh nghiệm làm thú lên cấp, server gửi một tin `LevelUp` kèm cấp trước đó (`fromLevel`) và cấp mới. Người chơi thấy "<Thú> lên cấp N! ⭐". Nếu thú vừa vượt qua cấp học chiêu (7 hoặc 15), thông báo thêm "Học được chiêu mới: ..." cho mọi chiêu học được trên đường, kể cả khi một lần nhảy nhiều cấp (ví dụ cấp 6 nhận 300 kinh nghiệm từ thú đầu đàn lên thẳng cấp 8 vẫn báo chiêu cấp 7). Khi hạ thú đầu đàn hoặc trùm, cho thú ăn bánh, hay khi bóng khép trên thú đầu đàn vừa bắt, tin lên cấp đến sau tin báo của sự kiện đó. Kinh nghiệm bắt thú trả khi bóng khép (thêm 0,3 giây, `CAPTURE_NEWS_DELAY_MS`), không phải lúc ném: tin lên cấp lúc ném sẽ lộ là đã bắt được khi bóng còn đang lắc. Trên màn hình, tin lên cấp là thông báo mức cao: không bị thông báo nào khác thay, hiện cùng lúc với tin báo của sự kiện hoặc chờ đến lượt (`docs/design/hud.md`, mục "Thông báo").
 
 **Hồ sơ lưu trước T4:** thú giữ nguyên cấp và kinh nghiệm dư. Nếu kinh nghiệm dư đã đủ cho cấp sau theo đường cong mới thì thú lên cấp ngay khi nạp (tối đa thêm 1 cấp với mọi hồ sơ hợp lệ). Không thú nào tụt cấp hay mất kinh nghiệm. Lên cấp lúc nạp không có thông báo; bảng Thú hiện cấp và chiêu mới.
 

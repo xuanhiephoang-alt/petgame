@@ -1,14 +1,19 @@
 import { MAX_PLAYERS, RESOURCES, RESOURCE_INFO, type Resource } from "@petgame/shared";
+import { ToastQueue, toastRoom, type ToastLevel } from "./toastQueue.ts";
 
-/** DOM overlay: status panel, toast, and touch action buttons. */
+/** How long (ms) a toast fades out before its element is removed; matches the CSS transition on `.toast`. */
+const TOAST_FADE_MS = 200;
+
+/** DOM overlay: status panel, toasts (see toastQueue.ts), touch action buttons. */
 export class Hud {
   readonly root: HTMLDivElement;
   readonly joystickZone: HTMLDivElement;
   /** Left column under the health bar (status, quest tracker). */
   readonly left: HTMLDivElement;
   private status: HTMLDivElement;
-  private toast: HTMLDivElement;
-  private toastTimer = 0;
+  private toasts: HTMLDivElement;
+  private toastQueue = new ToastQueue(() => toastRoom(window.innerWidth, window.innerHeight));
+  private toastElements = new Map<number, HTMLDivElement>();
   private lastStatus = "";
   private ballButton: HTMLButtonElement;
   private health: HTMLDivElement;
@@ -24,7 +29,9 @@ export class Hud {
   ) {
     this.root = div("hud");
     this.status = div("hud-status");
-    this.toast = div("hud-toast");
+    this.toasts = div("hud-toasts");
+    this.toasts.setAttribute("role", "status");
+    this.toasts.setAttribute("aria-live", "polite");
     this.joystickZone = div("joystick-zone");
     this.health = div("hud-health");
     this.health.innerHTML = `<span class="hud-time"></span><span class="hud-region"></span><span class="hud-heart">❤️</span><div class="hud-hp"><div></div></div><span class="hud-hp-text"></span>`;
@@ -44,15 +51,16 @@ export class Hud {
     this.bossBar.hidden = true;
     this.root.append(this.bossBar);
     this.left = div("hud-left");
-    this.left.append(this.health, this.status);
-    this.root.append(this.left, this.toast);
+    // The toasts sit last in the column (CSS order), under the quest tracker that is added to it later.
+    this.left.append(this.health, this.status, this.toasts);
+    this.root.append(this.left);
     // Invite button (phones): share sheet if available, else copy the link.
     this.status.addEventListener("click", (e) => {
       const button = (e.target as HTMLElement).closest<HTMLButtonElement>(".invite-btn");
       if (!button) return;
       const link = button.dataset.link ?? "";
       if (navigator.share) navigator.share({ title: "PetGame", text: "Vào chơi cùng mình!", url: link }).catch(() => {});
-      else navigator.clipboard?.writeText(link).then(() => this.showToast("Đã chép link mời 🔗"), () => this.showToast(link));
+      else navigator.clipboard?.writeText(link).then(() => this.showToast("Đã chép link mời 🔗", "low"), () => this.showToast(link, "low"));
     });
     const base = document.createElement("button");
     base.className = "base-btn";
@@ -133,11 +141,32 @@ export class Hud {
     this.status.innerHTML = html;
   }
 
-  showToast(text: string, ms = 2000) {
-    this.toast.textContent = text;
-    this.toast.classList.add("visible");
-    clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toast.classList.remove("visible"), ms);
+  /** Queues a toast; its level decides how long it stays and what may replace it. */
+  showToast(text: string, level: ToastLevel) {
+    if (this.toastQueue.push(text, level, performance.now())) this.renderToasts();
+  }
+
+  /** Call every frame: expires toasts and shows waiting ones (does nothing when idle). */
+  tickToasts(now: number) {
+    if (this.toastQueue.update(now)) this.renderToasts();
+  }
+
+  /** Brings the toast elements in line with the queue: fade out the gone ones, add the new ones last (DOM order = show order). */
+  private renderToasts() {
+    const shown = this.toastQueue.visible;
+    for (const [id, el] of this.toastElements) {
+      if (shown.some((t) => t.id === id)) continue;
+      el.classList.add("out");
+      this.toastElements.delete(id);
+      window.setTimeout(() => el.remove(), TOAST_FADE_MS);
+    }
+    for (const toast of shown) {
+      if (this.toastElements.has(toast.id)) continue;
+      const el = div(`toast ${toast.level}`);
+      el.textContent = toast.text;
+      this.toasts.append(el);
+      this.toastElements.set(toast.id, el);
+    }
   }
 
   /** Dims a touch button while its action recharges (e.g. the dash). */

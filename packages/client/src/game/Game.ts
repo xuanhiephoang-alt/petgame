@@ -58,6 +58,7 @@ import {
   type CaptureResultMessage,
   type HitMessage,
   type LevelUpMessage,
+  type NoticeKind,
   type NoticeMessage,
   type ProducedMessage,
   type Resource,
@@ -69,6 +70,7 @@ import {
 import { inviteLink, type GameRoom } from "../net/connection.ts";
 import type { ConnectionWatch } from "../net/reconnect.ts";
 import { Hud } from "../ui/hud.ts";
+import type { ToastLevel } from "../ui/toastQueue.ts";
 import { PartyPanel, skillValue } from "../ui/party.ts";
 import { SkillBar } from "../ui/skillbar.ts";
 import { CraftPanel } from "../ui/crafting.ts";
@@ -136,6 +138,8 @@ interface Camp {
 
 /** A finished quest is celebrated this long (ms) after the news, once what finished it has played out. */
 const QUEST_DELAY_MS = 2100;
+/** How much each kind of server notice matters as a toast (see docs/design/hud.md). */
+const NOTICE_LEVEL: Record<NoticeKind, ToastLevel> = { refused: "low", done: "normal", warning: "normal", reward: "high", quest: "high", news: "high" };
 /** Wild pals farther than this (pixels) from the player are not drawn or animated. */
 const PAL_DRAW_DISTANCE = 1000;
 /** Above this distance (pixels) the predicted local player snaps to the server. */
@@ -189,6 +193,8 @@ export class Game {
   private leaving = new Map<string, { entity: PalEntity; since: number; fate?: "ko" | "caught" }>();
   /** One-time tips already shown this session. */
   private tips = new Set<string>();
+  /** Whether the controls are touch (the tips name the buttons or the keys). */
+  private touch = false;
   /** How wild pals left the world, when the news came before the state did. */
   private fates = new Map<string, "ko" | "caught">();
   /** When the local player was last knocked back or dashed (ms): its position may run ahead of the server's for a moment. */
@@ -238,6 +244,7 @@ export class Game {
   private async init(resolution: number) {
     const container = this.container;
     const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+    this.touch = isTouch;
     await this.stage.init(container, resolution);
     const { layout } = defaultWorld();
     this.shadowTexture = shadowBlob();
@@ -278,7 +285,7 @@ export class Game {
     this.skillBar = new SkillBar(this.hud.root, isTouch, {
       use: (skill) => this.send(ClientMessage.PalSkill, { skill }),
       setAuto: (on) => this.send(ClientMessage.PalAuto, { on }),
-      hint: (text) => this.hud.showToast(text),
+      hint: (text) => this.hud.showToast(text, "low"),
     });
     this.quests = new QuestTracker(this.hud.left);
     this.minimap = new Minimap(this.hud.root);
@@ -321,7 +328,7 @@ export class Game {
       if (status.state !== "online" || previous.state !== "reconnecting") return;
       // The server cleared the walk when the connection dropped: the next frame says which way is held now.
       this.lastSentInput = STILL;
-      this.hud.showToast("✅ Đã kết nối lại");
+      this.hud.showToast("✅ Đã kết nối lại", "normal");
     });
     // A phone changing apps stops this loop, yet the server keeps the last walk: stop first.
     document.addEventListener("visibilitychange", () => {
@@ -436,7 +443,9 @@ export class Game {
           label.classList.toggle("dizzy", dizzy);
           if (dizzy && near) {
             this.labels.float(actor.pos, actor.height + 4, "💫 Choáng!", "dizzy");
-            if (this.nearMe(actor.pos, 260)) this.tip("dizzy", "💫 Thú đang choáng: ném bóng (E) để dễ bắt, hoặc đánh thêm để hạ gục lấy đồ");
+            if (this.nearMe(actor.pos, 260)) this.tip("dizzy", this.touch
+              ? "💫 Thú choáng: bấm Bắt để dễ bắt, hoặc Đánh tiếp để hạ gục lấy đồ"
+              : "💫 Thú choáng: ném bóng (E) để dễ bắt, hoặc đánh tiếp (Space) để hạ gục lấy đồ");
           }
         }
         if (pal.angry !== angry) {
@@ -685,7 +694,7 @@ export class Game {
       const verdict = () => {
         if (!mine) return;
         this.sound.play(msg.success ? "capture" : "escape");
-        this.hud.showToast(msg.success ? `Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${Math.round(msg.chance * 100)}%)`);
+        this.hud.showToast(msg.success ? `Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${Math.round(msg.chance * 100)}%)`, msg.success ? "high" : "normal");
       };
       if (msg.success) this.setFate(msg.palId, "caught");
       if (mine) this.sound.play("throw");
@@ -792,8 +801,8 @@ export class Game {
     });
 
     this.room.onMessage(ServerMessage.Notice, (msg: NoticeMessage) => {
-      if (msg.text.startsWith("Xong nhiệm vụ")) return void setTimeout(() => this.hud.showToast(msg.text, 3000), QUEST_DELAY_MS);
-      this.hud.showToast(msg.text);
+      if (msg.kind === "quest") return void setTimeout(() => this.hud.showToast(msg.text, "high"), QUEST_DELAY_MS);
+      this.hud.showToast(msg.text, NOTICE_LEVEL[msg.kind] ?? "low");
       if (msg.text.startsWith("Đã làm") || msg.text.startsWith("Trại đã lên cấp")) this.sound.play("craft");
     });
 
@@ -806,7 +815,7 @@ export class Game {
         const learned = skillsLearnedBetween(species, msg.fromLevel, msg.level);
         this.hud.showToast(learned.length > 0
           ? `${species.name} lên cấp ${msg.level}! ⭐ Học được chiêu mới: ${learned.map((s) => `${s.icon} ${s.name}`).join(", ")}`
-          : `${species.name} lên cấp ${msg.level}! ⭐`, learned.length > 0 ? 3200 : undefined);
+          : `${species.name} lên cấp ${msg.level}! ⭐`, "high");
         this.sound.play("levelup");
         if (companion) {
           learned.forEach((skill, i) => {
@@ -952,6 +961,7 @@ export class Game {
     });
     this.effects.update(dt);
     this.skillBar.tick(now);
+    this.hud.tickToasts(now);
     this.weather.update(t, dt, { x: this.camera.x, y: this.camera.y }, day);
     this.lighting.update(dayTime, this.lights(t));
     const phase = phaseAt(dayTime);
@@ -1054,7 +1064,7 @@ export class Game {
   private tip(key: string, text: string) {
     if (this.tips.has(key)) return;
     this.tips.add(key);
-    setTimeout(() => this.hud.showToast(text, 4500), 600);
+    setTimeout(() => this.hud.showToast(text, "normal"), 600);
   }
 
   /** How a wild pal left the world (it may still be in the state, or already leaving). */
@@ -1091,7 +1101,7 @@ export class Game {
     if (!me || !this.watch.online) return;
     const target = this.nearestPal(me.pos, THROW_RANGE);
     if (!target) {
-      this.hud.showToast("Không có thú nào ở gần");
+      this.hud.showToast("Không có thú nào ở gần", "low");
       return;
     }
     const [targetId, pal] = target;
@@ -1100,7 +1110,7 @@ export class Game {
     const wild = this.room.state.pals.get(targetId);
     const blocker = wild ? throwBlocker(state?.pals.length ?? 0, wild) : undefined;
     if (blocker) {
-      this.hud.showToast(blocker, 3000);
+      this.hud.showToast(blocker, "low");
       return;
     }
     const great = this.useGreatBall && (state?.greatBalls ?? 0) > 0;
@@ -1166,7 +1176,7 @@ export class Game {
     if (region === this.region) return;
     const first = this.region === "";
     this.region = region;
-    if (!first) this.hud.showToast(`Đến ${info.icon} ${REGION_INFO[region].name} (${REGION_INFO[region].climate})`);
+    if (!first) this.hud.showToast(`Đến ${info.icon} ${REGION_INFO[region].name} (${REGION_INFO[region].climate})`, "low");
   }
 
   private updateMinimap(base: Vec2 | undefined) {
@@ -1184,7 +1194,7 @@ export class Game {
       // Walking into a pack leader's lair: a warning, once per leader each session.
       if (self && distance(self.pos, p) < ALPHA.sight + 150 && !this.alphasMet.has(p.speciesId)) {
         this.alphasMet.add(p.speciesId);
-        this.hud.showToast(`★ Lãnh địa của ${getSpecies(p.speciesId).name} đầu đàn (Lv ${p.level}): nó tấn công ai lại gần!`, 3500);
+        this.hud.showToast(`★ Lãnh địa của ${getSpecies(p.speciesId).name} đầu đàn (Lv ${p.level}): nó tấn công ai lại gần!`, "normal");
       }
     });
     const chests: Vec2[] = [];
@@ -1303,7 +1313,7 @@ export class Game {
     if (!me) return;
     if (me.greatBalls <= 0) {
       this.useGreatBall = false;
-      this.hud.showToast("Chưa có 🔵 Bóng xịn. Chế tạo ở trại (phím C)");
+      this.hud.showToast("Chưa có 🔵 Bóng xịn. Chế tạo ở trại (phím C)", "low");
       return;
     }
     this.useGreatBall = !this.useGreatBall;

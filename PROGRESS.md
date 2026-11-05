@@ -1,64 +1,64 @@
-# PROGRESS: T5 Nhãn tên không đè nhau
+# PROGRESS: T6 Thông báo không che HUD
 
-## Vòng 1: coder
-- [x] Bước 1: `scripts/shots.mjs`: cờ `--only world|labels` (mặc định cả hai), nhóm `labels` (3 khung hình x 3 cảnh `players`/`wild`/`alpha`, 4 người chơi phụ qua SDK, "Tuấn" rớt mạng thật, `report.json` có `labels`, `counts`, `labelMs`). Đã chụp "trước" (`npm run shots -- --name t5-before --only labels`) trên code chưa sửa.
-- [x] Bước 2: `packages/client/src/game/labelLayout.ts` (mới, thuần) + `labelLayout.test.ts` (12 test: 11 ca của kế hoạch, ca 2 tách 2a/2b).
-- [x] Bước 3: `packages/client/src/game/labels.ts`: hạng, đo khi đổi (`MutationObserver`), đổi độ cao mượt, thu gọn/ẩn bằng `opacity`, z-index theo hạng, `counts`, `update(now, aimed)` bốn pha. Thanh máu được tra lại mỗi lần đo (không lưu trong `Tag`).
-- [x] Bước 4: `Game.ts`: `LABEL_RANK` cho mọi nhãn, thú đang nhắm tính trong vòng `pals.forEach` của `frame()`, companion không gán lại chữ không đổi, `debugInfo().labels`.
-- [x] Bước 5: `packages/client/index.html`: transition opacity 0,15 s cho `.label` và `.label span`, `.labels > .float { z-index: 20 }`.
-- [x] Bước 6: e2e `labels: in a crowd on a phone, ...` + helper `labelOverlaps` trong `tests/e2e/multiplayer.spec.ts`.
-- [x] Bước 7: `docs/architecture.md` (labels, labelLayout, `labelOverlaps`, `--only`). `docs/design/pals.md` khớp, không sửa thêm.
-- [x] Bước 8: bảng trước/sau dưới đây.
+## Vòng 1: coder (Phần A: shared + server)
+- [x] Bước 1: `NoticeKind` (`"refused" | "done" | "warning" | "reward" | "quest" | "news"`) và `NoticeMessage.kind` (bắt buộc) (`packages/shared/src/messages.ts`)
+- [x] Bước 2: `CAPTURE_NEWS_DELAY_MS = 300` (`packages/shared/src/capture.ts`, xuất qua `@petgame/shared`)
+- [x] Bước 3: `rewardText` dùng `\xa0` giữa biểu tượng và số/tên (`packages/shared/src/rewards.ts`, `wardrobe.test.ts`)
+- [x] Bước 4: `GameRoom.ts`
+  - `notify(client, text, kind)` bắt buộc `kind`; `announce(text)` luôn `kind: "news"`, bỏ `delayMs`.
+  - 29 lời gọi `notify` đã gắn loại theo bảng Thiết kế 4.
+  - `handleThrow`: kinh nghiệm bắt (cộng `ALPHA.xp` nếu thú đầu đàn) trả trong một hẹn giờ `captureRevealMs(shakes) + CAPTURE_NEWS_DELAY_MS`, tin ★ trước; không đặt hẹn giờ khi không có thú đi theo và không phải thú đầu đàn.
+  - `defeatBoss`: `Hạ được trùm! 🏆 ${rewardText({ ...BOSS.reward, wear: prize })}${xpText}`, `kind: "reward"`.
+  - Chữ lạnh/nóng đã rút gọn ("hoặc dắt thú hệ lửa/nước").
+- [x] Bước 5: `GameRoom.test.ts`: sửa 3 test (kinh nghiệm bắt trả khi bóng khép), thêm 3 test mới (trả sau khi bóng khép không sớm hơn; thả thú trước khi bóng khép thì không học; `every notice says what it is about`), thêm kiểm `kind` ở test lạnh và test trùm.
 
-### Ảnh trước/sau (`shots/t5-before/`, `shots/t5-after/`, ảnh `labels-<khung>-<cảnh>.png`, `report.json`)
+### Cho phần B/C cần biết
+- Giá trị `kind` theo tin: `refused` (từ chối, hết đồ, túi đầy, chỗ dựng trại sai, "Máu đang đầy", "đang nghỉ"...), `done` ("Đã thả", "Đã dựng trại", "Đã làm", "ăn ngon lành"), `warning` (bị ngất, kiệt sức, lạnh, nóng), `reward` ("Trong lúc bạn đi vắng", "Trại đã lên cấp", "Hạ được trùm", "Rương báu"), `quest` ("Xong nhiệm vụ"), `news` (tin ★, qua `announce`).
+- Kinh nghiệm bắt thú giờ đến (và tin `LevelUp` nếu có) ở `captureRevealMs + 300 ms` sau khi ném, không còn lúc ném. Bắt thú đầu đàn chỉ còn một `LevelUp` (gộp hai khoản).
+- Chữ thưởng trùm mới: `"Hạ được trùm! 🏆 🪵\xa015  🪨\xa025  🫐\xa010  🔵\xa02  🛡️\xa0Giáp hiệp sĩ · Emberpup +250 XP"` (mọi món do `rewardText`, khoảng trắng không ngắt `\xa0`); chữ rương/nhiệm vụ cũng có `\xa0` (e2e nào so chuỗi có "🪵 N" phải đổi).
+- Client hiện tại vẫn chạy được (chỉ đọc `text`); `Game.ts` chưa dùng `kind`.
+- Lệch kế hoạch: không có.
+- Lệnh đã chạy: typecheck ✓, test ✓ (257 test, 23 file; các test bắt thú/tin chạy riêng 3 lần ✓), chưa build (không đụng client).
 
-Cặp chồng (diện tích px²) / nhãn ẩn / số nhãn có chữ hiện / `labelMs` (ms mỗi khung của `labels.update`, trung bình 60 khung):
-
-| Ảnh | Trước | Sau |
-|---|---|---|
-| desktop players | 2 (405) / 0 / 10 | 0 / 1 / 9 |
-| desktop wild | 3 (326) / 0 / 9 / 0,175 | 0 / 0 / 7 / 0,100 |
-| desktop alpha | 0 / 0 / 3 | 0 / 0 / 2 (xem ghi chú) |
-| portrait players | 7 (1321) / 0 / 10 | 0 / 1 / 9 |
-| portrait wild | 6 (1824) / 0 / 9 / 0,205 | 0 / 1 / 6 / 0,068 |
-| portrait alpha | 1 (808) / 0 / 3 | 1 (59) / 0 / 3 |
-| landscape players | 7 (1295) / 0 / 10 | 0 / 1 / 9 |
-| landscape wild | 5 (1855) / 0 / 9 / 0,213 | 0 / 1 / 7 / 0,086 |
-| landscape alpha | 1 (214) / 0 / 3 | 0 / 0 / 3 |
-
-- Tổng cặp chồng: trước 32, sau 1. `labelMs` sau thấp hơn trước (nhãn chỉ ghi DOM khi đổi). "Hiệp" hiện đủ chữ ở mọi ảnh; tối đa 1 nhãn ẩn mỗi ảnh; 2 nhãn thu gọn ở các cảnh `wild`.
-- Cặp còn lại: portrait alpha, "★ Đầu đàn · Lv 15 Voltmouse" với "Lv 8 Emberpup", 59 px² (lớp chồng khoảng 1 px): cả hai là nhãn ghim và thú đi theo đang chạy nên nhãn đang đổi độ cao mượt (đo DOM lúc ngay sau khi chụp), kích thước đo làm tròn. E2E dùng ngưỡng 1 px. Không phải trường hợp bị ép (`forced`).
-- Cảnh `alpha` ở desktop: lần chụp này người chơi bị đầu đàn hạ rồi hồi sinh ở chỗ khác nên khung chỉ có 2 nhãn; do cảnh phụ thuộc thời điểm, không phải lỗi nhãn. Cảnh này không ổn định giữa các lần chụp (cả bản "trước" cũng chỉ có 0 cặp).
-- Chưa xem kỹ từng ảnh bằng mắt; tester nên xem ảnh dọc và ngang.
-
-### Lệch kế hoạch
-- Unit test ca 5: kế hoạch ghi "wild full, rise 29", nhưng theo luật xếp ghim từ trước ra sau (y lớn trước) thì con thú (y 110) giữ chỗ trước, rise 0, còn "me" (y 100) nâng 9. Test kiểm: thú hiện `full` ngay dù trước đó `hidden`, và "me" vẫn `full` (rise 9). Luật giữ nguyên như kế hoạch.
-- `scripts/shots.mjs`: không `await g.leave()` cho người chơi phụ ở cuối mỗi khung hình (người đã rớt mạng không bao giờ trả lời, làm script treo). Kế hoạch ghi chú điều này cho e2e nhưng không cho shots.
-- Chỉ chạy e2e có chọn lọc (labels, gameplay, skills, pack leaders, connection: 10 test, đều qua); chưa chạy toàn bộ `npm run test:e2e` (để tester).
-
-### Lệnh đã chạy
-- `npm run typecheck` ✓, `npm test` ✓ (254 test, 23 file; gồm 12 test mới của `labelLayout`), `npm run build` ✓.
-- `npx playwright test -g "labels:"` ✓; `-g "pack leaders|connection:|gameplay:|skills:"` ✓ (9 test).
-- Cổng 2567/5173/2599 đã trống, không còn tiến trình nền.
+## Vòng 1: coder (Phần B + C: client, e2e, tài liệu)
+- [x] Bước 6: `packages/client/src/ui/toastQueue.ts` (`ToastLevel`, `TOAST`, `toastDuration`, `toastRoom`, `ToastQueue`) + `toastQueue.test.ts` (vòng 1 ghi 17 test; sau vòng 2 là 18: thời gian, `toastRoom`, thay thế, `high` không bị thay, trùng chữ, `maxWaiting`, `maxVisible` là hàm, 4 tình huống thật: hạ trùm, bắt thú đầu đàn, thú đầu tiên khi mẹo hiện, lên cấp + 3 phím; hai tình huống đầu kiểm thứ tự và thời gian từ vòng 2).
+- [x] Bước 7: `ui/hud.ts`: `.hud-toasts` (role=status, aria-live) cuối `.hud-left`, `showToast(text, level)` (mức bắt buộc), `tickToasts(now)`, `renderToasts()` (làm mờ `.out` 200 ms rồi xoá).
+- [x] Bước 8: `game/Game.ts`: `NOTICE_LEVEL`, trường `touch`, mức cho mọi chỗ gọi, mẹo choáng riêng cho cảm ứng, `Notice` theo `kind` (`quest` trễ `QUEST_DELAY_MS`, `?? "low"`), `tickToasts` trong `frame()`.
+- [x] Bước 9: `packages/client/index.html`: CSS toast, điện thoại dọc (13 px), điện thoại ngang (cột 300 px, ẩn vùng và dòng Thưởng, thanh trùm 200 px).
+- [x] Bước 10: `tests/e2e/multiplayer.spec.ts`: 9 chỗ `.hud-toast` -> `.hud-toasts`, helper `shownToasts`, `toastLayout`, 3 test bố cục (desktop, dọc, ngang), 1 test hàng đợi (bắt + xong nhiệm vụ cùng hiện; lên cấp không bị đẩy).
+- [x] Bước 11: `docs/architecture.md` (messages, capture, đoạn "Thông báo và thứ tự tin", ui/, helper e2e).
+- [x] Bước 12: ảnh "sau" bằng `toast-shots-after.mjs`, thư mục `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t6/after/` (không commit). Giao nhau thông báo với HUD = 0 và nhãn dưới HUD = 0 ở cả 3 khung hình, cả ba cảnh (single, bossPair, catchPair). Dọc: thông báo y 185-311, nhãn mình y 362. Ngang: cột HUD x 12-312, thông báo y 186-230, thanh trùm x 322-522. Desktop: thông báo x 12-432, y 277-383.
+- Lệch kế hoạch: không có. Phần A không sửa.
+- Lệnh đã chạy: typecheck ✓, test ✓ (274 test, 24 file), build ✓, e2e đủ bộ ✓ (28 test, 3,0 phút); server/Vite đã tắt.
 
 ## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (254, 23 file)   build ✓   e2e ✓ (24, `--workers=1`, không có test chập chờn)   photo3d (không chạy)
-- Ảnh đã xem (Read), `shots/t5-after-check/labels-{desktop,portrait,landscape}-{players,wild,alpha}.png` (9 ảnh) và `report.json`: cả 9 ảnh 0 cặp chồng (cặp 59 px² của portrait-alpha ở lần coder chụp không còn, chụp lại 0). Hiệp, thú đi theo, thú đang nhắm, đầu đàn đều có nhãn; thanh máu hiện ở thú bị thương và đầu đàn; tối đa 1 nhãn ẩn mỗi ảnh (ẩn là nhãn thú hoang xa), 2 nhãn thu gọn ở cảnh `wild`. Nhãn nâng lên vẫn nằm sát chủ (ở đám đông đứng cạnh nhau, đọc được chủ nhờ vòng màu dưới chân). `labelMs` 0,078 / 0,080 / 0,080 ms (coder đo trước 0,175-0,213).
-- desktop-alpha chụp lại đúng thời điểm: người chơi còn sống (58/100), 3 nhãn (Hiệp, đầu đàn, Lv 8 Emberpup), 0 chồng.
-- Ghi chú nhỏ (không phải lỗi): ở portrait-alpha, nhãn "Hiệp" bị chữ bay "Set Chuối" che (chữ bay nằm trên mọi nhãn theo đúng kế hoạch); nhãn vẫn hiện trong DOM, 0 chồng giữa các nhãn.
-- Tiêu chí hoàn thành: [x] labelLayout thuần + 12 unit test  [x] nhãn ghim không ẩn (e2e kiểm me, companion, thú đang nhắm)  [x] chờ 250 ms, mượt  [x] thú đang nhắm trong vòng thú hoang  [x] đo khi đổi (e2e `measured` tăng ≤ 10 trong 60 khung yên qua)  [x] không cấp phát mỗi khung (đọc code, labelMs thấp hơn trước)  [x] chữ bay nằm trên  [x] server/schema không đổi  [x] 9 ảnh, 0 cặp chồng, ≤ 1 ẩn, labelMs < 1,5x trước  [x] toàn bộ lệnh sạch  [x] docs cập nhật
-- Test đã thêm: không (coder đã có đủ unit + e2e theo PLAN.md).
+- typecheck ✓   test ✓ (274, 24 file; chạy 2 lần đều qua)   build ✓   e2e ✓ (28, `--workers=1`, 3,0 phút, không chập chờn)   photo3d (không chạy)
+- Tiêu chí hoàn thành: [x] typecheck/test/build/e2e  [x] `.hud-toasts > .toast` dưới ô nhiệm vụ ở 3 khung hình (e2e 25-27)  [x] không giao HUD, tối đa 2 (dọc, desktop) / 1 (ngang)  [x] ngang: cột x 12-312 (<= 322), đáy thông báo 230 (<= 250), thanh trùm x 322-522  [x] mức high/low/trùng chữ (unit 3-12)  [x] hạ trùm/bắt đầu đàn/con thú đầu tiên (unit 11, e2e hàng đợi)  [x] kinh nghiệm bắt trả lúc bóng khép, thả sớm thì không học (GameRoom.test.ts)  [x] `kind` đúng bảng (test "every notice says what it is about")  [x] chữ thưởng trùm dùng U+00A0, không ngắt giữa biểu tượng và số (ảnh)  [x] docs/architecture.md
+- Ảnh đã xem (chạy lại `toast-shots-after.mjs` trên code thật): `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t6v1/{portrait-bossPair,landscape-bossPair,desktop-catchPair}-after.png`. Giao với HUD = 0, nhãn dưới HUD = 0; dọc: thông báo y 185-311, nhãn mình y 362; ngang 1 thông báo y 186-230; desktop 2 thông báo y 277-383. Chữ đọc được, tin high không bị cắt, viền vàng có.
+- Lưu ý (không phải lỗi của T6): thanh máu trùm vẫn đè hàng máu ở điện thoại dọc (x 78-312, y 12-47) và desktop; đã ghi là T30.
+- Test đã thêm: không (coder đã thêm đủ test theo PLAN).
 
 ## Vòng 2: coder
-- [x] Lỗi 1: `scripts/shots.mjs` `worldShots` đóng context điện thoại (`phone.context().close()` trong `finally`), nên nhóm `labels` không còn bị trang điện thoại tranh CPU.
-- [x] `Game.ts`: chú thích thú đang nhắm nói đúng (luật của server; `throwBall` ở client vẫn tính cả thú trong bóng). Không đổi hành vi.
-- [x] `shots.mjs`: xoá hàm `frames()` không dùng; `--only` kiểm giá trị (thiếu hoặc tên lạ thì báo lỗi, thoát mã 1, trước cả bước build).
-- Kiểm: `npm run shots -- --name t5-r2-all` (mặc định, 24 ảnh): 0 cặp chồng ở cả 9 ảnh nhãn, `labelMs` 0,107 / 0,140 / 0,082 (desktop / dọc / ngang, cảnh `wild`), portrait-alpha đủ 3 nhãn. `--only labels` (`t5-r2-labels`): 0 cặp chồng, `labelMs` 0,112 / 0,098 / 0,090.
-- Lệnh đã chạy: typecheck ✓, test ✓ (254 test), build ✓. Không còn tiến trình nền.
+- [x] Lỗi 1: `toastQueue.test.ts`: helper `playOut` (chạy các lần đẩy theo bước 10 ms, ghi lúc hiện đầu và lúc hết). Test hạ trùm khẳng định thứ tự `reward, level 8, level 9, quest`, lúc hiện `0, 0, 3000, 3000` và mỗi tin hiện đủ `toastDuration`. Thêm test bắt thú đầu đàn: `caught` 1900, `quest` 2100, tin ★ và lên cấp 2200; thứ tự `caught, quest, news, level`, lúc hiện `1900, 2100, 4900, 5100`, đủ thời gian.
+- Kiểm bằng đột biến: đổi `a.at < b.at` thành `a.at > b.at` ở luật chọn cái chờ mạnh nhất thì test hạ trùm hỏng (1 fail / 18); đã trả lại.
+- Code sản phẩm không đổi.
+- Lệnh đã chạy: typecheck ✓, test ✓.
 
 ## Kiểm thử vòng 2: PASS
-- typecheck ✓   test ✓ (254, 23 file)   build ✓   e2e ✓ (24, --workers=1)   photo3d (không chạy)
-- Tiêu chí hoàn thành: [x] nhãn không đè nhau ở desktop/dọc/ngang (9 ảnh labels: overlap pairs 0, area 0) [x] không hồi quy so với vòng 1 [x] shots mặc định đủ 24 ảnh, nhóm world không hỏng
-- `npm run shots -- --name t5-r2-default`: labels-portrait-alpha đúng (3 nhãn, không đè); labelMs 0.09/0.21/0.11 ms (wild), `--only labels` 0.08/0.12/0.135 ms: cùng cỡ.
-- `--only` thiếu giá trị hoặc `bogus`: báo "--only needs "world", "labels" or both ...", thoát mã 1, không tạo thư mục ảnh.
-- Test đã thêm: không (không cần thêm).
+- typecheck ✓   test ✓ (275, 24 file; chạy 2 lần đều qua; `toastQueue.test.ts` 18 test, 2 lần ✓)   build (không chạy, code sản phẩm không đổi)   e2e (không chạy, đã qua ở vòng 1)   photo3d (không chạy)
+- Tiêu chí hoàn thành: [x] typecheck/test  [x] Test 11 (hạ trùm và bắt đầu đàn kiểm thứ tự + thời gian; luật "chờ lâu nhất vào trước" được giữ)  [x] các tiêu chí còn lại như vòng 1 (code sản phẩm không đổi)
+- Đột biến (bản sao tạm ngoài repo, `toastQueue.ts`): đảo `a.at < b.at` ở chọn tin chờ (M1) -> 1 hỏng; đảo ở chọn tin bị bỏ khi quá `maxWaiting` (M8) -> 1 hỏng; tin thường thay được tin cao (bỏ `level !== "high"`) -> 6 hỏng; `<` thành `<=` ở luật thay -> 6 hỏng; cắt `maxMs` thêm 3000 -> 2 hỏng; `maxWaiting + 3` -> 1 hỏng; chọn mức thấp nhất vào trước -> 1 hỏng. Sống sót: `maxWaitMs.high: Infinity` đổi thành 5000 (không test nào kiểm tin cao chờ lâu quá 5 giây vẫn hiện); mức độ thấp, chỉ ghi nhận.
+- Test đã thêm: không.
+
+## Vòng 3: coder
+- [x] Lỗi 1: `toastQueue.test.ts`, helper `playOut`: `to` giờ theo thông báo mỗi bước còn trong `visible` (`now + 10`), nên thông báo bị gỡ sớm thì `to - from` ngắn lại. Có thêm tham số `room` (số chỗ).
+- [x] Thêm tình huống điện thoại ngang (1 chỗ): ba tin `high` cùng lúc 0, hiện lúc 0, 3000, 6000 (tin cuối chờ 6 s), mỗi tin đủ `toastDuration`.
+- Kiểm bằng đột biến (đã trả lại sau mỗi lần; code sản phẩm không đổi): (a) cắt thông báo sau 2 s khi hàng chờ trống: 3 test hỏng; (b) `maxWaitMs.high: 5000`: 1 test hỏng; (c) đảo `a.at < b.at`: 1 test hỏng.
+- Lệnh đã chạy: typecheck ✓, test ✓.
+
+## Kiểm thử vòng 3: PASS
+- typecheck ✓   test ✓ (276, 24 file; chạy 2 lần đều qua; `toastQueue.test.ts` 19 test)   build/e2e (không chạy, code sản phẩm không đổi)   photo3d (không chạy)
+- Tiêu chí hoàn thành: [x] typecheck/test  [x] Test 11: kiểm thứ tự, lúc hiện và đủ thời gian (`to` nay theo `visible`), có tình huống điện thoại ngang 1 chỗ  [x] các tiêu chí còn lại như vòng 1
+- Code sản phẩm: `toastQueue.ts` 146 dòng, các dòng 17/109/134 trùng bản đã đọc ở vòng 2 (cây chưa commit nên không có mốc git để so; mtime file mới hơn nhưng nội dung khớp).
+- Đột biến (bản sao tạm): (a) cắt mọi tin sau 2 s khi hàng chờ trống -> 3 hỏng; (b) `maxWaitMs.high: 5000` -> 1 hỏng (vòng 2 còn sống sót, nay bị bắt); (c) đảo `a.at < b.at` chọn tin chờ -> 1 hỏng, ở chọn tin bị bỏ -> 1 hỏng; thay tin cao bằng tin thường -> 7; `<=` ở luật thay -> 7; cắt `maxMs` -> 2; `maxWaiting + 3` -> 1; đảo mức khi chọn -> 1. Không đột biến nào sống sót.
+- Test đã thêm: không.

@@ -20,6 +20,7 @@ import {
   WILD_BITE_REACH,
   WILD_WINDUP_MS,
   XP_PER_KNOCKOUT,
+  CAPTURE_NEWS_DELAY_MS,
   captureRevealMs,
   captureShakes,
   gatherAmount,
@@ -181,6 +182,7 @@ import {
   type InputMessage,
   type JoinOptions,
   type LevelUpMessage,
+  type NoticeKind,
   type NoticeMessage,
   type ProducedMessage,
   type ReleaseMessage,
@@ -434,7 +436,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.onMessage("debug:givePal", (client, message?: { species?: string; level?: number }) => {
         const player = this.state.players.get(client.sessionId);
         if (!player) return;
-        if (player.pals.length >= MAX_PARTY) return this.notify(client, PARTY_FULL_TEXT);
+        if (player.pals.length >= MAX_PARTY) return this.notify(client, PARTY_FULL_TEXT, "refused");
         let species: PalSpecies;
         try {
           species = getSpecies(String(message?.species));
@@ -536,7 +538,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         for (const r of RESOURCES) player[r] += made[r];
         this.scheduleSave(client.sessionId);
         // Give the client a moment to register its message handlers.
-        this.clock.setTimeout(() => this.notify(client, `Trong lúc bạn đi vắng, thú đã làm được: ${parts.join("  ")}`), 1500);
+        this.clock.setTimeout(() => this.notify(client, `Trong lúc bạn đi vắng, thú đã làm được: ${parts.join("  ")}`, "reward"), 1500);
       }
     }
   }
@@ -892,7 +894,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     control.lastThrowAt = now; // a refused throw waits out the cooldown too: refusals cannot flood notices
     // The boss is never caught and a full party has no room: refuse before any roll is made or great ball used.
     const blocker = throwBlocker(player.pals.length, pal);
-    if (blocker) return this.notify(client, blocker);
+    if (blocker) return this.notify(client, blocker, "refused");
 
     const species = getSpecies(pal.speciesId);
     const useGreat = greatBall && player.greatBalls > 0;
@@ -924,20 +926,22 @@ export class GameRoom extends Room<{ state: GameState }> {
       owned.assignment = "";
       player.pals.push(owned);
       const follower = player.pals.find((p) => p.id === player.activePalId);
-      if (follower) this.grantXp(client.sessionId, follower, finishXp(XP_PER_CAPTURE, pal.level));
       // The first catch starts following right away.
-      else this.summon(client.sessionId, owned.id);
+      if (!follower) this.summon(client.sessionId, owned.id);
       this.questEvent(client.sessionId, "catch");
-      if (alphaName) {
-        // Once the ball has clicked shut: the news, and a lot of XP for the pal that helped. One timer, news first:
-        // timers due in the same tick run last-registered first, so two would show the level-up before the news.
-        const reveal = captureRevealMs(shakes);
-        const news = `★ ${player.name} đã bắt được ${alphaName}!`;
+      if (alphaName) this.questEvent(client.sessionId, "alpha");
+      // Once the ball has clicked shut (as the thrower sees it): a pack leader's news, then the XP for the pal that
+      // helped, in one timer (timers due in the same tick run last-registered first). Not at the throw: a level-up
+      // then would give the catch away while the ball still wobbles.
+      const xp = follower ? finishXp(XP_PER_CAPTURE, pal.level) + (alphaName ? ALPHA.xp : 0) : 0;
+      const news = alphaName ? `★ ${player.name} đã bắt được ${alphaName}!` : "";
+      if (xp > 0 || news) {
         this.clock.setTimeout(() => {
-          this.announce(news);
-          if (follower && this.state.players.get(client.sessionId)?.pals.includes(follower)) this.grantXp(client.sessionId, follower, ALPHA.xp);
-        }, reveal + 300);
-        this.questEvent(client.sessionId, "alpha");
+          if (news) this.announce(news);
+          if (!follower || !this.state.players.get(client.sessionId)?.pals.includes(follower)) return;
+          this.grantXp(client.sessionId, follower, xp);
+          this.scheduleSave(client.sessionId);
+        }, captureRevealMs(shakes) + CAPTURE_NEWS_DELAY_MS);
       }
       this.scheduleSave(client.sessionId);
     }
@@ -967,10 +971,10 @@ export class GameRoom extends Room<{ state: GameState }> {
     const owned = player?.pals.find((p) => p.id === ownedId);
     if (!player || !owned || owned.assignment === "work") return;
     if (this.tooTired(client.sessionId, owned)) return;
-    if (!player.hasBase) return this.notify(client, "Hãy đặt trại trước (nút 🏕️ hoặc phím B)");
+    if (!player.hasBase) return this.notify(client, "Hãy đặt trại trước (nút 🏕️ hoặc phím B)", "refused");
     const workers = player.pals.filter((p) => p.assignment === "work").length;
     const cap = workerCap(player.baseLevel);
-    if (workers >= cap) return this.notify(client, `Trại cấp ${player.baseLevel} chỉ chứa ${cap} thú làm việc`);
+    if (workers >= cap) return this.notify(client, `Trại cấp ${player.baseLevel} chỉ chứa ${cap} thú làm việc`, "refused");
     this.startWork(client.sessionId, ownedId);
   }
 
@@ -1016,7 +1020,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (control?.skillOrder?.companionId === ownedId) control.skillOrder = undefined;
     this.faintedUntil.delete(ownedId);
     player.pals.splice(index, 1);
-    this.notify(client, `Đã thả ${name}. Tạm biệt! 👋`);
+    this.notify(client, `Đã thả ${name}. Tạm biệt! 👋`, "done");
     this.scheduleSave(client.sessionId);
   }
 
@@ -1025,19 +1029,19 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player) return;
     const spot = { x: player.x, y: player.y };
     const { campfire } = defaultWorld().layout;
-    if (distance(spot, campfire) < BASE_MIN_CAMPFIRE_DISTANCE) return this.notify(client, "Quá gần lửa trại chung");
-    if (this.obstacles.blocked(spot, BASE_CLEARANCE)) return this.notify(client, "Chỗ này vướng cây hoặc đá");
-    if (isSea(this.terrain, spot.x, spot.y)) return this.notify(client, "Không dựng trại trên biển được");
+    if (distance(spot, campfire) < BASE_MIN_CAMPFIRE_DISTANCE) return this.notify(client, "Quá gần lửa trại chung", "refused");
+    if (this.obstacles.blocked(spot, BASE_CLEARANCE)) return this.notify(client, "Chỗ này vướng cây hoặc đá", "refused");
+    if (isSea(this.terrain, spot.x, spot.y)) return this.notify(client, "Không dựng trại trên biển được", "refused");
     let tooClose = false;
     this.state.players.forEach((other, id) => {
       if (id !== client.sessionId && other.hasBase && distance(spot, { x: other.baseX, y: other.baseY }) < BASE_SPACING) tooClose = true;
     });
-    if (tooClose) return this.notify(client, "Quá gần trại của người khác");
+    if (tooClose) return this.notify(client, "Quá gần trại của người khác", "refused");
     if (!player.hasBase) player.baseLevel = 1;
     player.hasBase = true;
     player.baseX = spot.x;
     player.baseY = spot.y;
-    this.notify(client, "Đã dựng trại 🏕️");
+    this.notify(client, "Đã dựng trại 🏕️", "done");
     this.questEvent(client.sessionId, "camp");
     this.scheduleSave(client.sessionId);
   }
@@ -1051,18 +1055,18 @@ export class GameRoom extends Room<{ state: GameState }> {
     const items = Object.fromEntries(ITEMS.map((item) => [item, player[item]]));
     const wardrobe = [...player.wardrobe];
     const blocker = craftBlocker(recipe, { resources, hasBase: player.hasBase, baseLevel: player.baseLevel, nearBase, items, wardrobe });
-    if (blocker) return this.notify(client, blocker);
+    if (blocker) return this.notify(client, blocker, "refused");
     for (const r of RESOURCES) player[r] -= recipe.cost[r] ?? 0;
     if ("baseLevel" in recipe.output) {
       player.baseLevel = recipe.output.baseLevel;
-      this.notify(client, `Trại đã lên cấp ${player.baseLevel}! ${recipe.icon}`);
+      this.notify(client, `Trại đã lên cấp ${player.baseLevel}! ${recipe.icon}`, "reward");
     } else if ("wear" in recipe.output) {
       // Put on right away: the player sees it, and the coat warms at once.
       this.giveWearable(client.sessionId, recipe.output.wear, true);
-      this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`);
+      this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`, "done");
     } else {
       player[recipe.output.item] += recipe.output.amount;
-      this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`);
+      this.notify(client, `Đã làm ${recipe.icon} ${recipe.name}`, "done");
     }
     this.questEvent(client.sessionId, "craft", 1, recipe.id);
     this.scheduleSave(client.sessionId);
@@ -1083,7 +1087,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   private equip(client: Client, slot: WearSlot, id: string) {
     const player = this.state.players.get(client.sessionId);
     if (!player || !["outfit", "hat", "weapon"].includes(slot)) return;
-    if (!canWear([...player.wardrobe], slot, id)) return this.notify(client, "Bạn chưa có món này");
+    if (!canWear([...player.wardrobe], slot, id)) return this.notify(client, "Bạn chưa có món này", "refused");
     player[slot] = id;
     this.scheduleSave(client.sessionId);
   }
@@ -1102,9 +1106,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     const player = this.state.players.get(client.sessionId);
     const owned = player?.pals.find((p) => p.id === ownedId);
     if (!player || !owned) return;
-    if (player.snacks <= 0) return this.notify(client, `Hết ${ITEM_INFO.snacks.icon} ${ITEM_INFO.snacks.name}`);
+    if (player.snacks <= 0) return this.notify(client, `Hết ${ITEM_INFO.snacks.icon} ${ITEM_INFO.snacks.name}`, "refused");
     player.snacks -= 1;
-    this.notify(client, `${getSpecies(owned.speciesId).name} ăn ngon lành! +${SNACK_XP} XP`);
+    this.notify(client, `${getSpecies(owned.speciesId).name} ăn ngon lành! +${SNACK_XP} XP`, "done");
     // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.
     this.grantXp(client.sessionId, owned, SNACK_XP);
     this.scheduleSave(client.sessionId);
@@ -1113,8 +1117,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private eat(client: Client) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
-    if (player.berries <= 0) return this.notify(client, "Hết 🫐 quả mọng");
-    if (player.hp >= player.maxHp) return this.notify(client, "Máu đang đầy");
+    if (player.berries <= 0) return this.notify(client, "Hết 🫐 quả mọng", "refused");
+    if (player.hp >= player.maxHp) return this.notify(client, "Máu đang đầy", "refused");
     player.berries -= 1;
     player.hp = Math.min(player.maxHp, player.hp + BERRY_HEAL);
     this.scheduleSave(client.sessionId);
@@ -1379,7 +1383,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (!target || !targetId) {
         control.skillOrder = undefined;
         const client = this.clients.find((c) => c.sessionId === companion.ownerId);
-        if (client) this.notify(client, "Không có thú hoang nào ở gần để đánh");
+        if (client) this.notify(client, "Không có thú hoang nào ở gần để đánh", "refused");
         return false;
       }
       // It becomes the fight: the pal runs at it (and joins in after the skill).
@@ -1597,11 +1601,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     return `${getSpecies(pal.speciesId).name} đầu đàn`;
   }
 
-  /** Tells everyone (after `delayMs`, once what did it has played out). */
-  private announce(text: string, delayMs = 0) {
-    const send = () => this.broadcast(ServerMessage.Notice, { text } satisfies NoticeMessage);
-    if (delayMs > 0) this.clock.setTimeout(send, delayMs);
-    else send();
+  /** Tells everyone (a "news" notice). */
+  private announce(text: string) {
+    this.broadcast(ServerMessage.Notice, { text, kind: "news" } satisfies NoticeMessage);
   }
 
   private defeatBoss(bossId: string) {
@@ -1618,10 +1620,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       const follower = player.pals.find((p) => p.id === player.activePalId);
       const client = this.clients.find((c) => c.sessionId === sid);
       if (client) {
-        const r = BOSS.reward;
-        const won = prize ? ` +${getWearable(prize)!.icon} ${getWearable(prize)!.name}` : "";
         const xpText = follower ? ` · ${getSpecies(follower.speciesId).name} +${BOSS.xp} XP` : "";
-        this.notify(client, `Hạ được trùm! 🏆 +🪵${r.wood} +🪨${r.stone} +🫐${r.berries} +🔵${r.greatBalls}${won}${xpText}`);
+        this.notify(client, `Hạ được trùm! 🏆 ${rewardText({ ...BOSS.reward, wear: prize })}${xpText}`, "reward");
       }
       this.questEvent(sid, "boss");
       // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.
@@ -1746,7 +1746,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const message: FaintedMessage = { targetType: "player", targetId: sessionId };
     this.broadcast(ServerMessage.Fainted, message);
     const client = this.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.notify(client, player.hasBase ? "Bạn bị ngất và tỉnh dậy ở trại 💫" : "Bạn bị ngất và tỉnh dậy bên lửa trại 💫");
+    if (client) this.notify(client, player.hasBase ? "Bạn bị ngất và tỉnh dậy ở trại 💫" : "Bạn bị ngất và tỉnh dậy bên lửa trại 💫", "warning");
   }
 
   /** A knocked-out companion goes back into the party and must rest. */
@@ -1761,7 +1761,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.faintedUntil.set(ownedId, this.clock.currentTime + FAINT_REST_MS);
     const owned = this.state.players.get(ownerId)?.pals.find((p) => p.id === ownedId);
     const client = this.clients.find((c) => c.sessionId === ownerId);
-    if (client && owned) this.notify(client, `${getSpecies(owned.speciesId).name} kiệt sức, cần nghỉ ${FAINT_REST_MS / 1000} giây`);
+    if (client && owned) this.notify(client, `${getSpecies(owned.speciesId).name} kiệt sức, cần nghỉ ${FAINT_REST_MS / 1000} giây`, "warning");
   }
 
   private calmPalsTargeting(kind: CombatTarget["kind"], id: string) {
@@ -1775,7 +1775,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const left = (this.faintedUntil.get(owned.id) ?? 0) - this.clock.currentTime;
     if (left <= 0) return false;
     const client = this.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.notify(client, `${getSpecies(owned.speciesId).name} đang nghỉ, còn ${Math.ceil(left / 1000)} giây`);
+    if (client) this.notify(client, `${getSpecies(owned.speciesId).name} đang nghỉ, còn ${Math.ceil(left / 1000)} giây`, "refused");
     return true;
   }
 
@@ -1852,7 +1852,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const message: ChestOpenedMessage = { chestId, playerId: sessionId, loot: { ...loot } as Record<string, number>, wear };
     this.broadcast(ServerMessage.ChestOpened, message);
     const client = this.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.notify(client, `Rương báu! ${rewardText({ ...loot, wear })}${wear ? " (mở 👕 Tủ đồ)" : ""}`);
+    if (client) this.notify(client, `Rương báu! ${rewardText({ ...loot, wear })}${wear ? " (mở 👕 Tủ đồ)" : ""}`, "reward");
     this.questEvent(sessionId, "chest");
     this.scheduleSave(sessionId);
   }
@@ -1871,7 +1871,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const message: QuestDoneMessage = { playerId: sessionId, questId: completed.id };
     this.broadcast(ServerMessage.QuestDone, message);
     const client = this.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.notify(client, `Xong nhiệm vụ "${completed.title}"! ${rewardText(completed.reward)}`);
+    if (client) this.notify(client, `Xong nhiệm vụ "${completed.title}"! ${rewardText(completed.reward)}`, "quest");
     this.catchUpQuest(sessionId);
   }
 
@@ -1966,8 +1966,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (hurt !== (this.hazardWarned.get(sessionId) ?? "")) {
         this.hazardWarned.set(sessionId, hurt);
         const client = this.clients.find((c) => c.sessionId === sessionId);
-        if (client && hurt === "cold") this.notify(client, `${REGION_INFO[biome].name}: lạnh quá! 🥶 Mặc 🧥 Áo ấm (👕 Tủ đồ) hoặc cho thú hệ lửa đi theo`);
-        if (client && hurt === "heat") this.notify(client, `${REGION_INFO[biome].name}: nóng quá! 🥵 Đội 👒 Nón lá (👕 Tủ đồ) hoặc cho thú hệ nước đi theo`);
+        if (client && hurt === "cold") this.notify(client, `${REGION_INFO[biome].name}: lạnh quá! 🥶 Mặc 🧥 Áo ấm (👕 Tủ đồ) hoặc dắt thú hệ lửa`, "warning");
+        if (client && hurt === "heat") this.notify(client, `${REGION_INFO[biome].name}: nóng quá! 🥵 Đội 👒 Nón lá (👕 Tủ đồ) hoặc dắt thú hệ nước`, "warning");
       }
       if (!climate || !hurt) return;
       player.hp = Math.max(0, player.hp - climate.damage);
@@ -2044,8 +2044,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     return this.obstacles.resolve(spot, getSpecies(workers[index]?.speciesId ?? "leafkit").size);
   }
 
-  private notify(client: Client, text: string) {
-    const message: NoticeMessage = { text };
+  /** Tells one player; `kind` says how much it matters to them (see NoticeKind). */
+  private notify(client: Client, text: string, kind: NoticeKind) {
+    const message: NoticeMessage = { text, kind };
     client.send(ServerMessage.Notice, message);
   }
 
