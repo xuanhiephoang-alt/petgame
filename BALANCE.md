@@ -1,239 +1,104 @@
-# BALANCE: T4 — Lên cấp có quá chậm so với hệ thống chiêu? (chiêu 2 ở cấp 7, chiêu 3 ở cấp 15)
+# BALANCE: T7 - chiêu (và đòn) của thú hoang cấp cao có quá nặng với người chơi không?
 
-Tóm tắt:
-- "Hơn 200 đòn trúng" trong T4 là con số lệch: mỗi trận (hạ gục hoặc bắt một thú hoang) cho thú đi theo 16-53 XP (trung bình 31, đo trên `GameRoom` thật), nên cấp 7 (859 XP) cần khoảng 27 trận, không phải 215 đòn.
-- Chiêu 2 gần đạt mục tiêu (cuối buổi đầu với người chơi 30 trận/buổi, sang buổi 2 với người chơi 20 trận). Chiêu 3 mới là vấn đề thật: cấp 15 cần khoảng 210 trận, tức 7 buổi 40 phút ở nhịp 30 trận/buổi.
-- Hai chỗ lệch thiết kế quan trọng hơn con số: XP hạ gục/bắt không tính theo cấp thú bị hạ, và bánh quả mọng cho 10 XP mỗi quả, nhanh gấp 2,5-7,5 lần săn thú đối với ai có trại.
-- Đề xuất: `xpToNext` hệ số 20 -> 13, XP hạ gục/bắt tăng 10% mỗi cấp thú bị hạ, bánh tốn 8 quả thay vì 4, thêm 3 bánh thưởng nhiệm vụ và 250 XP khi hạ trùm. Cấp 7 còn 15 trận (20 phút ở nhịp bình thường), cấp 15 còn 116 trận (3,9 buổi).
-- Không chia XP cho thú không đi theo; không đổi cách tính XP theo từng mục tiêu trúng chiêu. Hồ sơ cũ đọc được, không ai tụt cấp (tối đa +1 cấp khi nạp).
+Phương pháp: script mô phỏng ngoài repo (thư mục tạm), import thẳng logic dùng chung; bước 50 ms; 400-1500 lần mỗi ô. Mô hình bám server: `GameRoom.ts` dòng 686-712 (cú cắn: gồng 450 ms, chu kỳ 1200 ms, tầm 50 px), `wildSkill` dòng 1527 (6% mỗi tick = 20 tick/giây, nghỉ `WILD_SKILL_GAP_MS` 2500 + `castMs`, hồi chiêu ×1,3, chọn chiêu mạnh nhất sẵn sàng), `damage` dòng 1684 (giáp = `defenseOf`, tối thiểu 1). Người chơi đứng yên ("đứng yên" = không né) là cận xấu nhất; có cột né 50% làm mốc thực tế (lướt `DASH_MS` 170 + `DASH_GRACE_MS` 90 = 260 ms bất tử, hồi 900 ms nên về lý thuyết né được mọi cú cắn chu kỳ 1200 ms). Hạn chế mô hình: thú đi theo coi như emberpup đánh 900 ms/đòn + chiêu, "thú chịu 30% đòn" là giả định (server thật: thú hoang đánh người đã đánh nó, hoặc kẻ gần nhất trong 120 px); chiêu của thú hoang luôn trúng người đứng yên; bỏ qua hồi máu 4/giây (sau 5 giây không bị đánh) và quả mọng +20.
 
 ## Hiện trạng
 
-### Cách đo và giả định
+**Công thức và hằng số (file nguồn)**
+- Cú cắn: `wildDamage = round(attack × (1 + 0.15 × (cấp-1)))` (`combat.ts`), không có giới hạn cấp. Chiêu: `skillPower = round(power × (1 + 0.12 × (cấp-1)))` (`skills.ts`), thú hoang thường dùng cấp thật của nó (`GameRoom.ts:695`), thú đầu đàn `min(cấp, ALPHA.skillLevel=8)`, trùm `BOSS.skillLevel=4`.
+- Chiêu thứ 2 học ở cấp 7, thứ 3 ở cấp 15 (`SKILL_LEVELS`): thú hoang thường (tối đa cấp 14) chỉ có chiêu 1-2; chiêu 3 chỉ thú đầu đàn.
+- Người chơi: `PLAYER_MAX_HP` 100, không tăng theo cấp; hồi 4/giây sau 5 giây; giáp da 20% + nón sắt 10% = 30% (chế tạo); giáp hiệp sĩ 35% (+10% = 45%, rơi từ trùm); trần 50%.
+- Cấp thú hoang: `wildMaxLevel = 6 + round(8 × danger)`, `rollWildLevel = 1 + floor(roll² × max)`. Đo trên lưới 40 px của thế giới thật: vùng cỏ max 6-8, sa mạc 7-10, tuyết 7-11, đầm lầy 8-11, núi lửa 7-11, đảo 10-13. Cấp 14 cần danger ≥ 0,94 nhưng đất xa nhất chỉ có danger 0,91 (đảo, quét lưới 8 px), nên hiện không có thú hoang thường cấp 14; boulderhorn chỉ sống ở núi lửa (tối đa cấp 11). Các dòng cấp 14 trong các bảng dưới là cận trên giả định; cấp tối đa thường gặp là 10-13. Cấp trung bình thấp (2,9 ở cỏ; 3,6 ở vùng giữa; 4,6 ở đảo); P(cấp ≥ 8) = 0% (cỏ), 12% (vùng giữa max 9), 24% (đảo max 12); P(cấp ≥ 11) = 9% (đảo).
+- Kẻ thù chủ động: chỉ `boulderhorn` (núi lửa) và `scorchtail` (sa mạc, núi lửa) và thú đầu đàn (tầm thấy 170 px). Thú phòng thủ chỉ đánh trả kẻ đã đánh nó (`provoke` chỉ đặt cho chính con bị đánh), thú thụ động bỏ chạy. Nên trận 2-3 thú cùng đánh người chơi chủ yếu ở núi lửa/sa mạc, hoặc khi người chơi đánh nhiều con liền nhau.
 
-- Công thức đọc từ code: `progression.ts`, `combat.ts`, `skills.ts`, `capture.ts`, `elements.ts`, `work.ts`, `crafting.ts`, `quests.ts`, `alphas.ts`, `boss.ts`, `treasure.ts`, `worldgen.ts` (`dangerAt`) và `GameRoom.ts` (`tickCompanions`, `handleThrow`, `knockOut`, `land`, `feed`, `grantXp`, `defeatBoss`).
-- Mô hình một trận (người chơi + thú đi theo đánh 1 thú hoang) chạy từng tick 50 ms, dùng đúng hàm shared (`companionDamage`, `skillPower`, `hitWildPal`, `captureChance`, `chooseSkill` của server...) và hằng số server (đòn thú đi theo 900 ms, nghỉ giữa chiêu 1,5 s, choáng 6 s, bóng 1,9 s...). Hình học (đi lại, thú bỏ chạy) được gộp vào một hệ số "tỉ lệ đánh thực tế" = 0,7 của nhịp vũ khí.
-- Kiểm chứng: bot chơi trên `GameRoom` thật (192 lần = 48 ô × 4: thú đi theo cấp 1/7/15 vs 8 loại-cấp thú hoang, hạ gục và bắt). XP mỗi trận: bot 31,0 so với mô hình 30,4 (lệch trung bình 1,1 XP). Thời gian làm choáng: lệch 0,2 s, trừ Voltmouse (xem Ghi chú cuối). Script chạy từ thư mục tạm, không thêm vào repo.
-- "Trận" = một thú hoang bị hạ gục hoặc bắt khi thú đi theo có mặt, 50/50 hạ gục và bắt. Nhịp chơi tính theo trận mỗi phút của cả buổi (gồm đi lại, dựng trại, chế tạo): thong thả 0,5 (20 trận/buổi 40 phút), bình thường 0,75 (30 trận), tích cực 1,5 (60 trận), cày 6 (cực đoan, thú nằm ngay cạnh). Đây là giả định, chưa có số liệu người chơi thật; bảng có ghi cả số trận để thay nhịp khác.
-- "Đường chuẩn": cấp 1-4 đồng cỏ 70% + vùng ngoài 30%; cấp 5-9 vùng ngoài (tuyết, sa mạc, đầm lầy, núi lửa); cấp 10-14 vùng ngoài 60% + đảo 40%; cấp 15+ vùng ngoài 50% + đảo 50%. Chưa tính 3-5 phút đầu để bắt con thú đầu tiên (chưa có thú đi theo thì chưa có XP).
+**Sát thương mỗi lần, hiện tại (chưa giáp) và đóng góp vào DPS**
 
-### 1. Đường cong (`progression.ts`)
-
-`xpToNext(L) = round(20 · L^1,5)`; `addXp` cộng dồn, có thể lên nhiều cấp một lần, cấp 30 thì xp về 0. `xp` lưu trong hồ sơ là phần dư trong cấp hiện tại.
-
-| Cấp L -> L+1 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 10 | 14 | 15 | 20 | 29 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `xpToNext` | 20 | 57 | 104 | 160 | 224 | 294 | 370 | 632 | 1048 | 1162 | 1789 | 3123 |
-
-XP cộng dồn để tới cấp: 3 = 77, 5 = 341, 7 = 859, 10 = 2.222, 15 = 6.400, 20 = 13.427, 30 = 37.806.
-
-### 2. Nguồn kinh nghiệm và ai nhận
-
-Chỉ thú trong túi người chơi có XP; người chơi không có cấp. Không có chia sẻ XP cho thú không đi theo.
-
-| Nguồn | Hằng số | Giá trị | Chỗ cộng (`GameRoom.ts`) | Ai nhận |
-|---|---|---|---|---|
-| Đòn thường của thú đi theo trúng | `XP_PER_HIT` | 4 mỗi 900 ms (khi mục tiêu chưa choáng) | `tickCompanions` :820 | chính thú đang đánh |
-| Chiêu trúng | `XP_PER_HIT` | 4 mỗi lần tung có ít nhất 1 mục tiêu trúng (không nhân theo số mục tiêu) | `land` :1459 | thú tung chiêu |
-| Hạ gục thú hoang | `XP_PER_KNOCKOUT` | 12, không phụ thuộc cấp thú bị hạ | `knockOut` :1168 | thú đi theo của người ra đòn kết liễu (không có thú đi theo thì mất) |
-| Bắt thú | `XP_PER_CAPTURE` | 25, không phụ thuộc cấp | `handleThrow` :918 | thú đi theo của người ném (con bắt đầu tiên tự đi theo nên không nhận) |
-| Thú đầu đàn | `ALPHA.xp` | 300 (hạ gục thay cho 12; bắt: cộng thêm sau khi bóng khép, :927) | :1168, :927 | thú đi theo |
-| Thú làm việc | `XP_PER_WORK` | 2 mỗi món, chỉ khi người chơi online (sản xuất lúc vắng mặt không có XP, :522-531) | `tickCompanions` :774 | chính thú làm việc |
-| Bánh quả mọng | `SNACK_XP` | 40, bất kỳ thú nào trong túi, không giới hạn số lần | `feed` :1096 | thú người chơi chọn |
-| Nhiệm vụ | không có | chỉ cho vật phẩm; cả chuỗi có 8 bánh = 320 XP (8 nhiệm vụ đầu: 3 bánh = 120 XP) | `quests.ts` | - |
-| Hạ trùm | không có | chỉ cho đồ (`defeatBoss` :1593); XP duy nhất là các đòn trúng trong trận | - | - |
-| Rơi đồ | - | thú bị hạ rơi bánh 10% (`combat.ts:94`), rương 15% (`treasure.ts:33`), đầu đàn +2 bánh | - | - |
-
-### 3. Một trận kéo dài bao lâu, cho bao nhiêu XP (cơ chế hiện tại)
-
-Thú hoang cấp 1 + `floor(roll² · M)`, M = `wildMaxLevel`: đồng cỏ 6-8, vùng ngoài 7-11, đảo 10-13. Cấp trung bình của thú hoang: đồng cỏ 2,8; vùng ngoài 3,5-3,7; đảo 4,7.
-
-| Vùng | Cấp thú đi theo | XP/trận hạ gục | XP/trận bắt | Làm choáng (s) |
-|---|---|---|---|---|
-| Đồng cỏ | 1 / 7 / 15 | 24 / 22 / 19 | 37 / 35 / 32 | 2,1 / 1,7 / 1,4 |
-| Vùng ngoài | 1 / 7 / 15 | 29 / 25 / 21 | 42 / 38 / 34 | 3,1 / 2,4 / 1,7 |
-| Đảo | 1 / 7 / 15 | 29 / 25 / 21 | 42 / 38 / 34 | 3,0 / 2,3 / 1,7 |
-
-- Nhịp: người chơi 1 đòn mỗi 0,4 s (tay không 10 sát thương, kiếm 16 mỗi 0,42 s); thú đi theo 1 đòn mỗi 0,9 s và 1 chiêu mỗi 5-12 s tùy chiêu (gồng 0,25-0,7 s đứng yên, nghỉ 1,5 s sau mỗi chiêu); thú hoang choáng 6 s ở 1 HP.
-- Hạ gục thêm khoảng 0,5 s sau khi choáng; bắt thêm khoảng 2 s (bóng 1,9 s). Khoảng 40-50% XP mỗi trận là từ đòn của thú (khoảng 1-4 đòn thường + 1 chiêu), phần còn lại là XP kết liễu 12/25.
-- XP mỗi trận gần như phẳng theo cấp thú đi theo (31 -> 25 từ cấp 1 đến 20): thú đi theo mạnh hơn thì trận ngắn hơn, ít đòn hơn.
-- Bot trên server thật: 16-53 XP mỗi trận (hạ gục thú cấp 1 = 16; bắt Frostfang cấp 8 = 52).
-- Vì vậy cấp 7 = 859 XP khoảng 27 trận, và số trận cho mỗi cấp tăng từ 0,6 (cấp 1) lên 36 (cấp 14) và 67 (cấp 20).
-
-### 4. Cần bao nhiêu trận, mất bao lâu (hiện tại, đường chuẩn)
-
-| Cấp | XP cộng dồn | Trận | Thong thả 0,5/ph | Bình thường 0,75/ph | Tích cực 1,5/ph | Cày 6/ph |
-|---|---|---|---|---|---|---|
-| 5 | 341 | 11 | 22 ph | 15 ph | 7 ph | 2 ph |
-| 7 | 859 | 27 | 54 ph | 36 ph | 18 ph | 4 ph |
-| 10 | 2.222 | 70 | 2,3 giờ | 93 ph | 47 ph | 12 ph |
-| 15 | 6.400 | 210 | 7,0 giờ | 4,7 giờ | 2,3 giờ | 35 ph |
-| 20 | 13.427 | 470 | 15,7 giờ | 10,4 giờ | 5,2 giờ | 78 ph |
-
-Theo buổi 40 phút (20 / 30 / 60 trận mỗi buổi): cấp 7 sau 1,3 / 0,9 / 0,4 buổi; cấp 10 sau 3,5 / 2,3 / 1,2 buổi; cấp 15 sau 10,5 / 7,0 / 3,5 buổi; cấp 20 sau 23,5 / 15,7 / 7,8 buổi.
-Đường chỉ ở đồng cỏ: 11 / 29 / 78 / 233 / 513 trận tới cấp 5 / 7 / 10 / 15 / 20 (chậm hơn 7-11%).
-
-### 5. Các kênh ngoài chiến đấu và đường tắt
-
-Làm việc (`XP_PER_WORK` = 2, hiện tại):
-
-| Trại | Cấp thú | Món/phút | XP/phút mỗi thú | Phút tới cấp 5 / 7 / 10 / 15 / 20 (chỉ khi online) |
-|---|---|---|---|---|
-| 1 (3 chỗ) | 1 / 7 / 15 | 6,0 / 8,2 / 12,3 | 12 / 16 / 25 | 25 / 60 / 138 / 334 / 591 |
-| 3 (5 chỗ) | 1 / 7 / 15 | 8,6 / 11,7 / 17,6 | 17 / 23 / 35 | 18 / 42 / 97 / 234 / 413 |
-
-Bánh quả mọng (`SNACK_XP` 40, công thức `berry_snack`: 4 quả mọng, `recipes.json`) = 10 XP mỗi quả:
-- Loài làm ra quả mọng: Leafkit, Bubbloon, Ripplefin, Cactoad, Bogbloom (`workOutput`). Một thú làm quả ở trại 1 = 6 quả/phút = 60 XP/phút nếu đổi hết; 3 thú = 180 XP/phút; 5 thú ở trại 3 = 429 XP/phút.
-- Để so sánh, săn thú ở nhịp thong thả / bình thường / tích cực / cày cho khoảng 16 / 24 / 48 / 190 XP/phút (nhân 32 XP/trận). Vậy với một trại có 1-3 thú làm quả, bánh nhanh hơn săn thú bình thường 2,5-7,5 lần.
-- 30 bụi quả ở đồng cỏ mọc lại sau 90 s, mỗi bụi 2-4 quả: một bụi = 30 XP (bằng một trận), quét hết 30 bụi = 90 quả = 900 XP > toàn bộ cấp 7 (859). Tối đa lý thuyết 600 XP/phút.
-- Để lên cấp 7 cần 21 bánh (86 quả); cấp 15 cần 160 bánh (640 quả). Vắng mặt tối đa 300 quả mỗi loại (`OFFLINE_MAX_PER_RESOURCE`) = 75 bánh = 3.000 XP.
-- Chặn duy nhất là thao tác: mỗi bánh cần 1 lần chế + 1 lần cho ăn (không có nút làm hàng loạt).
-
-Đường tắt "bắt thú cấp cao" (bắt giữ nguyên cấp thú hoang, `handleThrow`):
-
-| Vùng | Thú cấp >= 7 | Thú cấp >= 10 | Tỉ lệ bắt khi đã choáng (bóng thường) |
+| Thú, cấp | Cú cắn | Chiêu mạnh nhất (cấp thật) | DPS cắn / chiêu (người đứng yên) |
 |---|---|---|---|
-| Đồng cỏ | 5% | 0% | 88% |
-| Vùng ngoài | 17-20% | 1-3% | 86% |
-| Đảo | 30% | 15% (cấp >= 13: 1,6%) | 84-86% |
+| emberpup cấp 6 (cỏ) | 12 | ember 13 | 9,9 / 1,7 |
+| boulderhorn 8 | 21 | quake 33 | 17,1 / 4,3 |
+| boulderhorn 11 | 25 | quake 40 | 20,3 / 5,1 |
+| scorchtail 10 | 21 | lava_lash 27 | 17,2 / 4,9 |
+| frostfang 11 | 23 | frost_breath 29 | 18,8 / 4,5 |
+| coralcrab 13 | 28 | pincer 27 | 23,0 / 5,6 |
+| coralcrab 14 (góc xa) | 30 | pincer 28 | 24,6 / 5,9 |
+| voltmouse 14 (thụ động) | 15 | thunder 41 | 12,3 / 5,4 |
+| boulderhorn 14 | 30 | quake 46 | 24,4 / 5,8 |
 
-Cấp 15 thì không có thú thường nào (tối đa 14); chỉ thú đầu đàn (cấp 15-22, đủ 3 chiêu), tỉ lệ bắt khi choáng khoảng 33% mỗi lần ném. Như vậy chiêu 2 đạt được bằng cách bắt sau khoảng 5-6 thú ở vùng ngoài; chiêu 3 chỉ qua lên cấp hoặc qua thú đầu đàn.
+Điểm mấu chốt: **chiêu chỉ chiếm khoảng 20% sát thương mỗi giây** (khoảng 1 chiêu mỗi 6-7 giây vì nghỉ 2,5 giây + cast + hồi ×1,3 + mỗi chiêu mạnh hồi 9-14 giây), **cú cắn chiếm ~80%**. Chiêu đau ở chỗ nổ lớn một lần: quake 46 (nova bán kính 92 px, né khó khi ở sát) = 46% máu, thunder 41 = 41% (cả hai là cận trên: boulderhorn tối đa cấp 11 nên quake thật tối đa 40; thunder chỉ voltmouse và mothlume có, đều là thú thụ động nên thú hoang thường không bao giờ dùng lên người, chỉ voltmouse đầu đàn dùng ở sức mạnh cấp 8 = 29). Cú cắn cấp 14 gấp ×2,95 cấp 1, chiêu chỉ ×2,56.
 
-### 6. Sức mạnh theo cấp: lên nhanh có làm thú hoang quá dễ không?
+**Thời gian người chơi trụ được, tình trạng hiện tại** (giây, từ 100 máu đến 0, đứng yên, không hạ được thú, không hồi máu)
 
-Cấp thú đi theo (đòn thường +15%/cấp, chiêu +12%/cấp, máu +20%/cấp), so với người chơi tay không 26,8 DPS, kiếm 40,8 DPS (cả hai gồm bạo kích):
-
-| Cấp | Máu | Đòn thường (DPS) | Chiêu | Số chiêu | Làm choáng thú hoang: đồng cỏ / ngoài / đảo (s) |
+| Vùng, thú, cấp | 1 thú, không giáp | 1 thú, giáp 30% | 1 thú, giáp 45% | 2 thú, giáp 30% | 3 thú, không giáp |
 |---|---|---|---|---|---|
-| 1 | x1,0 | 6 (6,7) | x1,00 | 1 | 2,1 / 3,1 / 3,0 |
-| 7 | x2,2 | 11 (12,2) | x1,72 | 2 | 1,7 / 2,4 / 2,3 |
-| 15 | x3,8 | 19 (21,1) | x2,68 | 3 | 1,4 / 1,7 / 1,7 |
-| 30 | x6,8 | 32 (35,6) | x4,48 | 3 | 1,3 / 1,4 / 1,4 |
+| cỏ, emberpup 6 | 8,8 | 12,7 | 15,0 | 6,5 | 2,5 |
+| núi lửa, boulderhorn 8 | 4,4 | 6,1 | 7,3 | 2,7 | 1,6 |
+| núi lửa, boulderhorn 11 | 3,3 | 4,4 | 6,3 | 2,1 | 1,5 |
+| sa mạc, scorchtail 10 | 4,2 | 6,1 | 7,1 | 2,9 | 1,4 |
+| tuyết, frostfang 11 | 4,3 | 5,5 | 7,0 | 2,5 | 1,6 |
+| đầm lầy, cactoad 11 | 5,2 | 7,0 | 9,2 | 3,3 | 1,7 |
+| đảo, coralcrab 13 | 3,1 | 5,1 | 5,9 | 2,4 | 1,3 |
+| góc xa, coralcrab 14 | 3,1 | 4,3 | 6,0 | 1,9 | 1,3 |
 
-Thời gian đưa thú đầu đàn tới 1 HP và hạ trùm (người chơi cầm kiếm; trong ngoặc: tay không), thú đi theo cấp 1 / 7 / 15 / 30:
-- Đầu đàn đồng cỏ (Voltmouse cấp 15, 399 HP): 10 / 9 / 6 / 5 s (15 / 11 / 8 / 5 s).
-- Đầu đàn tuyết (Frostfang cấp 19, 966 HP): 26 / 21 / 16 / 12 s (37 / 28 / 20 / 14 s).
-- Đầu đàn đảo (Coralcrab cấp 22, 1.170 HP): 31 / 26 / 20 / 14 s (44 / 34 / 24 / 17 s).
-- Trùm (Boulderhorn cấp 12, 1.152 HP, không choáng): 30 / 25 / 18 / 14 s (43 / 32 / 22 / 16 s).
+So sánh: thú đầu đàn (hạ người chơi đứng yên trong 2,2-5,0 giây không giáp, 3,2-7,0 giây giáp 30%: voltmouse cấp 15 là 5,0/7,0, coralcrab cấp 22 là 2,2/3,2); trùm Boulderhorn: cắn 14/1,8 s + dậm 18/6 s + chiêu cấp 4 (19 và 33), khoảng 7 giây với người đứng yên. Thú đầu đàn cắn mạnh hơn trùm (cấp 20-22: cắn 35-42 vì `damageMultiplier` 1 và đường cấp +15%); cùng gốc với vấn đề này (xem Rủi ro).
 
-Kết luận: với thú thường, cấp thú đi theo gần như không đổi độ khó (người chơi tự đánh 27-41 DPS, thú đi theo thêm 7-36 DPS; thú thường choáng trong 1,3-3,1 s ở mọi cấp). Với đầu đàn và trùm, cấp 7 -> 15 rút ngắn trận khoảng 25-30%, cấp 30 còn 1/3-1/2 so với cấp 1. Mốc "vài chục giây" của đầu đàn/trùm giữ được tới khoảng cấp 15-20; ở cấp 30 đầu đàn đồng cỏ chỉ còn 5 s. Vì vậy không nên đưa số đông người chơi tới cấp 20+ trong vài buổi.
+**Có thú đi theo / vũ khí** (kiếm 40 sát thương/giây kể cả chí mạng; quyền 27; thú 130/190 máu ở cấp 9/15 với emberpup, 182/266 pebblet; đòn thú 13 / 19): trận 1 thú hoang cùng cấp chỉ kéo dài 3-5 giây, người chơi có kiếm, giáp 30% và thú đi theo không chết (0%). Người chơi chỉ có quyền không giáp đứng yên chết 100% mọi trận từ cấp 8 trở lên, hiện tại không trừ trận nào; chỉ sau khi đổi mới có trận thắng được (scorchtail 10 còn chết khoảng 44%, cactoad 11 khoảng 66%, các trận khác vẫn gần 100%). Trận 2 thú (sau khi cho thú đi theo chịu 30% đòn, né 0%): chết 100% ở núi lửa cấp 8-11, đảo cấp 13, góc xa cấp 14 (thú đi theo cấp 9) và 78-100% ở núi lửa/tuyết/đảo (thú đi theo cấp 15); khi né được một nửa: 3% (núi lửa 8), 39% (núi lửa 11), 29% (đảo 13), 62% (góc xa 14).
 
 ## Vấn đề
 
-1. **Con số trong T4 lệch.** XP mỗi trận 25-35 chứ không phải 4 XP mỗi đòn; cấp 7 = khoảng 27 trận. Với người chơi bình thường (30 trận/buổi) chiêu 2 xuất hiện ở cuối buổi đầu; với người thong thả (20 trận/buổi) phải sang buổi 2 (cấp 6,2 sau buổi 1). Mục tiêu "cấp 7 trong buổi đầu" hụt chủ yếu với người chơi ít đánh.
-2. **Chiêu 3 thực sự xa.** Cấp 15 = 210 trận = 7 buổi (bình thường), 10,5 buổi (thong thả), gấp đôi mục tiêu "vài buổi" (3-5). Nguyên nhân: đường cong L^1,5 tăng nhanh trong khi XP/trận phẳng, nên trận/cấp tăng từ 0,6 lên 36 ở cấp 14.
-3. **XP không thưởng độ khó.** Hạ gục thú cấp 14 (máu x3,6, cắn x2,95) cũng 12 XP như thú cấp 1; thú cấp cao chỉ hơn nhờ trận dài hơn (thêm đòn). Không có lý do để tìm thú mạnh.
-4. **Bánh quả mọng lấn át mọi chỉnh sửa khác.** 10 XP/quả: ai có trại và 1-3 thú làm quả có 60-180 XP/phút, gấp 2,5-7,5 lần săn thú bình thường; một lượt quét bụi quả đủ lên cấp 7. Nếu chỉ đổi đường cong, kênh này nhanh thêm 1,5 lần và T4 vẫn "chậm" với người không dùng bánh nhưng "quá nhanh" với người dùng.
-5. **Trùm và nhiệm vụ không cho XP.** Trùm là trận lớn duy nhất không có thưởng XP (đầu đàn có 300). Nhiệm vụ cho bánh nhưng người chơi phải tự nhận ra nút "Cho ăn"; chuỗi 11 nhiệm vụ đầu chỉ có 3 bánh.
-6. **Vòng bắt - thả (T2) không phải cách cày vượt trội**, nhưng cần giữ điều kiện (xem Đề xuất mục 5): người cày hạ gục liên tục (tìm thú 3 s) nhận 257 XP/phút; bắt khi túi chưa đầy 298 (1,16x); bắt rồi thả (thêm khoảng 5 s bấm bảng Thú) 179 (0,70x).
-7. **Thông báo "Học được chiêu mới" mất khi lên nhiều cấp một lần.** `Game.ts:800` chỉ so `newSkillAt(species, cấp cuối)`. Với đường cong rẻ hơn, một cú 300 XP (đầu đàn) từ cấp 6 có thể nhảy qua cấp 7 (cần >= 432 XP; đường cong cũ cần 664 nên không xảy ra).
+1. **Cú cắn mới là thủ phạm chính, không phải chiêu**: ở cấp 11-14 cú cắn thú thường (23-30) bằng hoặc hơn chiêu 1-2 (20-33), tần suất 1 lần/1,2 giây so với 1 chiêu/6-7 giây. Chỉ giới hạn chiêu cho thú hoang thường (kiểu `ALPHA.skillLevel`) kéo thời gian trụ lên rất ít (ví dụ boulderhorn 11 có giáp 4,4 -> 5,5 giây; không giáp không đổi), nhưng **hạ đỉnh sát thương một lần** (quake 46 -> 33, thunder 41 -> 29) đủ để thoả mốc "thú thường không hạ người trong 1-2 chiêu" (hiện boulderhorn cấp 11: quake 40 + horn_charge 31 = 71% máu chỉ trong 2 chiêu, thêm 2 cú cắn 25 là hạ người không giáp; sau khi đổi 33 + 26 = 59%, cắn 18).
+2. **Sức mạnh thú hoang tăng nhanh hơn người chơi**: người chơi cố định 100 máu, thú hoang +20% máu và +15% cắn mỗi cấp. Người chơi đứng yên với 1 thú cấp 13-14 trụ 3 giây không giáp, 4-5 giây giáp 30% (mốc cảm nhận: người biết né phải sống, người đứng yên cũng không nên chết trong vài đòn).
+3. Né thật sự quyết định (né một nửa: 2 thú cấp 11 từ 100% chết xuống 39%); nhưng cú cắn chu kỳ 1,2 s với gồng 450 ms đòi hỏi lướt đúng nhịp, còn nova (quake bán kính 92 px) gần như phải lướt.
+4. Giáp mua được ít: giáp da + nón (30%) chỉ kéo từ 3,3 lên 4,4 giây ở núi lửa 11 (1 thú); 3 thú cấp cao giết người có giáp trong khoảng 2 giây (1,7-2,1).
+5. Phụ: thú đầu đàn cắn nặng hơn trùm (xem trên) và thời gian trụ trước thú đầu đàn cấp 20+ chỉ 2,2-3,3 giây (đã biết, ngoài phạm vi T7, ghi cho designer).
 
 ## Đề xuất
 
-### 1. Thay đổi cụ thể (cũ -> mới)
+**Giữ nguyên mọi thứ về thú đi theo**: `skillPower`, `SKILL_LEVEL_SCALING`, `companionDamage` không đổi; mọi thay đổi chỉ nằm ở đường của thú hoang.
 
-| # | File | Khoá | Cũ | Mới |
-|---|---|---|---|---|
-| 1 | `packages/shared/src/progression.ts` | hệ số của `xpToNext` (đang viết cứng trong hàm) | `Math.round(20 * Math.pow(level, 1.5))` | thêm `export const XP_CURVE = 13;` và `Math.round(XP_CURVE * Math.pow(level, 1.5))` |
-| 2 | `packages/shared/src/progression.ts` | (mới) XP kết liễu theo cấp thú bị hạ | - | `export const XP_PER_WILD_LEVEL = 0.1;` và `finishXp(base, wildLevel) = Math.round(base * (1 + XP_PER_WILD_LEVEL * (Math.max(1, wildLevel) - 1)))` |
-| 3 | `packages/server/src/rooms/GameRoom.ts` `knockOut` (~:1168) | XP hạ gục thú thường | `XP_PER_KNOCKOUT` | `finishXp(XP_PER_KNOCKOUT, pal.level)`; thú đầu đàn vẫn `ALPHA.xp` |
-| 4 | `GameRoom.ts` `handleThrow` (~:918) | XP bắt thú thường | `XP_PER_CAPTURE` | `finishXp(XP_PER_CAPTURE, pal.level)`; thú đầu đàn giữ như cũ (`XP_PER_CAPTURE` + `ALPHA.xp` sau khi bóng khép) |
-| 5 | `packages/shared/src/boss.ts` + `GameRoom.ts` `defeatBoss` (~:1593) | (mới) `BOSS.xp` | không có | `xp: 250`; trong vòng lặp `winners`, cộng cho thú đi theo của từng người (nếu có) bằng `grantXp` |
-| 6 | `packages/shared/src/data/recipes.json` | `berry_snack.cost.berries` | 4 | 8 |
-| 7 | `packages/shared/src/quests.ts` | `first_catch.reward` | `{ berries: 5 }` | `{ berries: 5, snacks: 1 }` |
-| 8 | `quests.ts` | `snow.reward` | `{ greatBalls: 1 }` | `{ greatBalls: 1, snacks: 1 }` |
-| 9 | `quests.ts` | `swamp.reward` | `{ berries: 10 }` | `{ berries: 10, snacks: 1 }` |
-| 10 | `packages/server/src/persistence/store.ts` `sanitizeProfile` | xp/cấp sau khi đọc | giữ nguyên số đọc được | gọi `addXp({ level, xp }, 0)` để lên cấp nốt phần XP vượt ngưỡng mới, lưu `level`/`xp` kết quả |
-| 11 | `packages/shared/src/messages.ts` `LevelUpMessage` + `Game.ts:795-805` | báo chiêu mới | `newSkillAt(species, msg.level)` | thêm `fromLevel`; báo mọi chiêu học được trong (fromLevel, level] (hiện chiêu cuối cùng trong toast) |
-
-Không đổi: `XP_PER_HIT` 4, `XP_PER_KNOCKOUT` 12 và `XP_PER_CAPTURE` 25 (làm gốc cho thú cấp 1), `XP_PER_WORK` 2, `SNACK_XP` 40 (giữ để chữ "40 kinh nghiệm" trong mô tả công thức còn đúng), `ALPHA.xp` 300, `MAX_LEVEL`, mũ 1,5 của đường cong.
-
-Giá trị kết liễu sau đổi (`finishXp`): hạ gục cấp 1 / 3 / 5 / 8 / 10 / 14 = 12 / 14 / 17 / 20 / 23 / 28; bắt = 25 / 30 / 35 / 43 / 48 / 58.
-
-### 2. Đường cong mới
-
-| Cấp L -> L+1 | `xpToNext` cũ | mới | Cộng dồn cũ | mới | XP/trận cũ | mới | Trận/cấp cũ | mới |
-|---|---|---|---|---|---|---|---|---|
-| 1 -> 2 | 20 | 13 | 20 | 13 | 32 | 36 | 0,6 | 0,4 |
-| 2 -> 3 | 57 | 37 | 77 | 50 | 32 | 35 | 1,8 | 1,0 |
-| 4 -> 5 | 160 | 104 | 341 | 222 | 31 | 35 | 5,2 | 3,0 |
-| 6 -> 7 | 294 | 191 | 859 | 558 | 33 | 37 | 9,0 | 5,1 |
-| 8 -> 9 | 453 | 294 | 1.682 | 1.093 | 32 | 36 | 14,4 | 8,1 |
-| 10 -> 11 | 632 | 411 | 2.854 | 1.855 | 31 | 36 | 20,7 | 11,3 |
-| 14 -> 15 | 1.048 | 681 | 6.400 | 4.159 | 29 | 35 | 35,7 | 19,4 |
-| 20 -> 21 | 1.789 | 1.163 | 15.216 | 9.890 | 27 | 32 | 67,3 | 35,9 |
-| 29 -> 30 | 3.123 | 2.030 | 37.806 | 24.572 | 26 | 32 | 121,8 | 64,4 |
-
-### 3. Thời gian tới cấp 5 / 7 / 10 / 15 / 20 sau khi đổi (đường chuẩn)
-
-| Cấp | Trận cũ -> mới | Thong thả 0,5/ph | Bình thường 0,75/ph | Tích cực 1,5/ph | Cày 6/ph |
-|---|---|---|---|---|---|
-| 5 | 11 -> 6 | 22 -> 13 ph | 15 -> 8 ph | 7 -> 4 ph | 2 -> 1 ph |
-| 7 | 27 -> 15 | 54 -> 31 ph | 36 -> 20 ph | 18 -> 10 ph | 4 -> 3 ph |
-| 10 | 70 -> 40 | 2,3 giờ -> 79 ph | 93 -> 53 ph | 47 -> 26 ph | 12 -> 7 ph |
-| 15 | 210 -> 116 | 7,0 -> 3,9 giờ | 4,7 -> 2,6 giờ | 2,3 giờ -> 77 ph | 35 -> 19 ph |
-| 20 | 470 -> 255 | 15,7 -> 8,5 giờ | 10,4 -> 5,7 giờ | 5,2 -> 2,8 giờ | 78 -> 43 ph |
-
-Số buổi 40 phút (20 / 30 / 60 trận mỗi buổi): cấp 7 sau 0,8 / 0,5 / 0,3 buổi (cũ 1,3 / 0,9 / 0,4); cấp 15 sau 5,8 / 3,9 / 1,9 buổi (cũ 10,5 / 7,0 / 3,5); cấp 20 sau 12,8 / 8,5 / 4,3 buổi (cũ 23,5 / 15,7 / 7,8).
-
-Cấp trung bình sau từng buổi (không tính bánh):
-
-| Trận mỗi buổi | Phiên bản | Sau 1 | 2 | 3 | 4 | 6 | 10 buổi |
-|---|---|---|---|---|---|---|---|
-| 20 | cũ | 6,2 | 8,1 | 9,4 | 10,5 | 12,2 | 14,7 |
-| 20 | mới | 7,7 | 10,0 | 11,7 | 13,0 | 15,2 | 18,3 |
-| 30 | cũ | 7,3 | 9,4 | 11,0 | 12,2 | 14,2 | 17,0 |
-| 30 | mới | 9,0 | 11,7 | 13,6 | 15,2 | 17,6 | 21,2 |
-| 60 | cũ | 9,4 | 12,2 | 14,2 | 15,7 | 18,2 | 21,9 |
-| 60 | mới | 11,7 | 15,2 | 17,6 | 19,5 | 22,7 | 27,5 |
-
-Đánh giá theo mục tiêu: cấp 7 trong buổi đầu đạt cả nhịp thong thả (0,8 buổi); cấp 15 sau 3,9 buổi ở nhịp bình thường (khoảng 2,6 giờ chơi), 5,8 buổi ở nhịp thong thả, 1,9 buổi ở nhịp tích cực. Với bánh nhiệm vụ (dòng 7-9 của bảng mục 1: 6 bánh tới hết nhiệm vụ 10, tức 240 XP, cho thú đi theo ăn hết) người chỉ đánh 10 trận vẫn tới cấp 7,2; 20 trận tới cấp 8,6.
-
-### 4. Vì sao các con số này
-
-- **Hệ số 13** (không phải 12 hay 14): chọn sao cho người thong thả (20 trận/buổi) có cấp 7 trong buổi đầu với dư khoảng 25% và cấp 15 trong 3-6 buổi. Mỗi 1 đơn vị của `XP_CURVE` đổi XP cộng dồn khoảng 7,7%: k = 12 cho cấp 7 / 15 / 20 ở trận 14 / 107 / 235; k = 14 cho 17 / 125 / 275; k = 16 cho 19 / 143 / 314. Giữ mũ 1,5 để cấp thấp vẫn nhanh (cấp 2 ngay trận đầu, cấp 3 sau 2 trận, cấp 5 sau 6 trận) và cấp 20+ vẫn là đích dài hạn (255 trận tới cấp 20, khoảng 750 trận tới cấp 30).
-- **Nhân XP kết liễu theo cấp thú bị hạ (+10%/cấp)**: thú cấp 10 cho 23/48 XP thay vì 12/25, cho người chơi lý do sang vùng ngoài/đảo. Bù lại không phạt khi thú đi theo cao cấp hơn thú bị hạ (không chống cày; xem phương án C). Hiệu quả: bớt 12-17% số trận tới cấp 7-20 so với chỉ đổi hệ số (15 so với 17; 116 so với 136; 255 so với 306 trận).
-- **Không nhân XP đòn thường (4) theo cấp**: trận dài hơn đã tự cho nhiều đòn hơn (thú đi theo cấp 1 nhận trung bình 12 XP từ đòn mỗi trận ở đồng cỏ, 13-19 XP ở vùng ngoài và đảo, nơi thú cấp cao hơn).
-- **Bánh 4 -> 8 quả**: đưa bánh từ 10 xuống 5 XP/quả. Trại 1 với 1 thú làm quả cho 30 XP/phút (1,1x người chơi bình thường), 3 thú 90 XP/phút (3,3x; trước đây 7,5x), một bụi quả (3 quả) = 15 XP. Bánh nhận từ nhiệm vụ/rương/rơi đồ vẫn 40 XP. Nếu playtest vẫn thấy bánh lấn át: nâng lên 12 quả (3,3 XP/quả).
-- **Bánh thưởng nhiệm vụ (+1 ở `first_catch`, `snow`, `swamp`)**: là cách "nhiệm vụ cho XP" không cần đổi kiểu `Reward`, `rewardText`, giao thức hay test (`quests.test.ts` chỉ cần phần thưởng không rỗng). Dạy người chơi nút "Cho ăn" ngay sau lần bắt đầu tiên (40 XP = cấp 2 gần đầy). Tổng chuỗi 8 -> 11 bánh; 11 nhiệm vụ đầu 3 -> 6 bánh. Phương án thay thế nếu muốn XP trực tiếp: thêm trường `xp` vào `Reward`, cộng cho thú đi theo trong `questEvent`, sửa `rewardText` và test; không cần cho con số này.
-- **Trùm 250 XP** cho thú đi theo của mọi người giúp: cùng bậc với thú đầu đàn (300), cộng 90-220 XP từ các đòn trong trận (14-43 s tùy vũ khí và cấp thú đi theo). Mỗi lần hạ trùm khoảng 340-470 XP, tức khoảng 1 cấp ở cấp 10-12.
-- **Làm việc giữ 2 XP/món**: thú làm việc lên nhanh hơn 1,5 lần chỉ nhờ đường cong (cấp 7 sau 27-39 phút online, cấp 15 sau 152-217 phút; cũ 42-60 và 234-334), là kênh nền hợp lý vì không có XP lúc vắng mặt.
-
-### 5. Các quyết định được hỏi
-
-- **Chia XP cho thú không đi theo: không.** Chia 20% cho mỗi thú nghỉ (túi 10 thú) tạo ra 2,8 lần tổng XP mỗi trận nhưng không làm con thú người chơi quan tâm lên nhanh hơn; mỗi trận sinh tới 29 lần `addXp`, thêm thông báo lên cấp và lần lưu cho thú ở xa. Người muốn đổi thú đi theo đã có bánh (đưa cho bất kỳ thú nào) và thú làm việc có XP riêng.
-- **XP theo từng mục tiêu trúng chiêu: không đổi.** Thú hoang đứng thưa (80 con trên khoảng 12 triệu px² đất trống): số thú khác nằm trong vùng chiêu rộng nhất (Vòng lửa bán kính 95 px) trung bình 0,19, Bão lá 0,09, Sét chuỗi 0,21. Tính XP cho từng mục tiêu chỉ thêm khoảng 1% tổng XP. Nếu designer muốn thưởng chiêu vùng: 4 XP mỗi mục tiêu, tối đa 3 mục tiêu mỗi lần tung (đổi vòng lặp trong `land`), không ảnh hưởng bảng trên.
-- **XP nhiệm vụ**: dùng bánh (mục 7-9). Trùm: `BOSS.xp`.
-- **Vòng bắt - thả (T2):** sau đổi, người cày hạ gục liên tục 279 XP/phút (đồng cỏ, cấp 1); bắt khi túi chưa đầy 336 (1,20x); bắt rồi thả 201 (0,72x). Ở vùng ngoài cấp 15: 277 / 338 (1,22x) / 199 (0,72x). Vòng bắt - thả chỉ vượt hạ gục liên tục khi XP bắt thật sự lớn hơn khoảng 3,5 lần XP hạ gục (hoà vốn ở khoảng 42 XP kết liễu cho thú cấp 1); mức sau đổi chỉ gấp 2,1 lần. Giữ quy tắc: XP bắt cơ sở không quá 2 lần XP hạ gục cơ sở.
-
-### 6. Phương án khác
-
-| Phương án | Mô tả | Trận tới cấp 5 / 7 / 10 / 15 / 20 | Khi nào chọn |
+| Việc | File, khoá | Cũ -> Mới | Vì sao |
 |---|---|---|---|
-| Hiện tại | k = 20, XP phẳng | 11 / 27 / 70 / 210 / 470 | - |
-| A (tối giản) | chỉ mục 1 (k = 13) | 7 / 17 / 46 / 136 / 306 | muốn đổi đúng 1 hằng số |
-| **B (khuyến nghị)** | A + mục 2-4 | **6 / 15 / 40 / 116 / 255** | - |
-| B, k = 14 | chậm hơn | 7 / 17 / 43 / 125 / 275 | thấy B nhanh quá |
-| B, k = 12 | nhanh hơn | 6 / 14 / 37 / 107 / 235 | thấy B vẫn chậm |
-| C (dự phòng chống cày) | B + XP kết liễu x `clamp(1 - 0,1 * max(0, cấp thú đi theo - cấp thú bị hạ - 3), 0,5, 1)` | 6 / 16 / 43 / 143 / 356 | nếu có người cày thú yếu ở cấp cao |
+| 1. Giới hạn cấp sức mạnh chiêu của thú hoang thường | `packages/shared/src/skills.ts`: thêm `WILD_SKILL_MAX_LEVEL`; `GameRoom.ts:695` thay `pal.level` bằng `Math.min(pal.level, WILD_SKILL_MAX_LEVEL)` | không giới hạn -> 8 (bằng `ALPHA.skillLevel`) | Chiêu thú hoang cấp 8 trở lên không tăng nữa (×1,84 thay vì ×2,56 ở cấp 14). Đỉnh sát thương: quake 46 -> 33, thunder 41 -> 29, lava_lash 33 -> 24, frost_breath 33 -> 24, cactoad needle_spray 23 -> 17. Không đụng cấp 1-8 (người mới và vùng cỏ không đổi). |
+| 2. Đường tăng cú cắn riêng, chậm hơn | `packages/shared/src/combat.ts`: `wildDamage` hệ số 0,15 -> hằng số mới `WILD_DAMAGE_PER_LEVEL = 0.08` (không sửa `companionDamage` ở `progression.ts`, dùng hệ số riêng) | +15%/cấp -> +8%/cấp | Cú cắn là 80% sát thương. Cấp 14: ×2,04 (cũ ×2,95); cấp 8 và cấp 11: ×1,56 và ×1,8 (cũ ×2,05 và ×2,5). Cấp 1 giữ nguyên, cấp 6 ở cỏ chỉ giảm 1. |
+| 3. (Không đổi) tần suất | `WILD_SKILL_GAP_MS`, 0,06, `WILD_COOLDOWN_FACTOR`, `WILD_ATTACK_COOLDOWN_MS` | giữ nguyên | Chiêu đã hiếm (1 chiêu mỗi 6-7 s); đổi tần suất kéo theo sửa test/giao thức nhịp mà ít tác dụng hơn đổi hai hằng số trên. |
 
-Phương án C chỉ cắt XP kết liễu (không cắt XP đòn): gần như không đổi tới cấp 7 (16 so với 15 trận), chậm hơn 7% ở cấp 10, 23% ở cấp 15 và 40% ở cấp 20. Người cày hạ gục ở vùng ngoài cấp 15 giảm từ 277 xuống 195 XP/phút. Chưa cần, vì cấp thú đi theo ít ảnh hưởng độ khó thú thường (mục 6 Hiện trạng) và 6 trận/phút liên tục là cực đoan: ở mật độ 80 thú trên đất liền và đẻ lại 1 thú mỗi 5 s, người cày thực tế thấp hơn.
+Với 1 và 2, đỉnh sát thương một lần của mọi thú hoang thường <= 33 (cắn <= 20 ở cấp 14, <= 18 ở cấp 11), tức cần ít nhất 4 đòn (5 đòn nếu có giáp 30%: 33 × 0,7 = 23) mới hạ được người chơi 100 máu.
+
+**Bảng thời gian trụ sau khi đổi (cấp 8 + hệ số cắn 0,08), cùng điều kiện bảng hiện trạng**
+
+| Vùng, thú, cấp | 1 thú, không giáp (cũ -> mới) | 1 thú, giáp 30% | 2 thú, giáp 30% | 3 thú, không giáp |
+|---|---|---|---|---|
+| cỏ, emberpup 6 | 8,8 -> 9,6 | 12,7 -> 13,9 | 6,5 -> 6,7 | 2,5 -> 2,9 |
+| núi lửa, boulderhorn 8 | 4,4 -> 5,5 | 6,1 -> 7,2 | 2,7 -> 3,4 | 1,6 -> 1,7 |
+| núi lửa, boulderhorn 11 | 3,3 -> 4,4 | 4,4 -> 6,3 | 2,1 -> 3,1 | 1,5 -> 1,7 |
+| sa mạc, scorchtail 10 | 4,2 -> 5,8 | 6,1 -> 8,0 | 2,9 -> 3,2 | 1,4 -> 1,6 |
+| tuyết, frostfang 11 | 4,3 -> 5,3 | 5,5 -> 8,1 | 2,5 -> 3,4 | 1,6 -> 1,8 |
+| đầm lầy, cactoad 11 | 5,2 -> 6,4 | 7,0 -> 9,2 | 3,3 -> 4,4 | 1,7 -> 2,1 |
+| đảo, coralcrab 13 | 3,1 -> 5,1 | 5,1 -> 6,9 | 2,4 -> 3,3 | 1,3 -> 1,7 |
+| góc xa, coralcrab 14 | 3,1 -> 5,1 | 4,3 -> 6,9 | 1,9 -> 3,3 | 1,3 -> 1,7 |
+
+Thời gian kéo dài +20% đến +65% (đáng kể nhất ở đảo và góc xa, đúng chỗ cấp cao). Hai phương án phụ đã thử: chỉ giới hạn chiêu (1): +0 đến +1,1 giây; giới hạn chiêu + hệ số 0,10: giữa hai mức trên (đảo 13: 4,2; góc xa 14: 4,2/5,9). Hệ số 0,08 chọn vì đạt mục tiêu "người đứng yên trụ >= 5 giây trước 1 thú ở cấp tối đa thường gặp" cho hầu hết vùng.
+
+**Xác suất chết khi đánh thú có kiếm + giáp da/nón 30% + thú đi theo cấp 9, thú chịu 30% đòn** (cũ -> mới)
+
+| Trận | né 0% | né 50% |
+|---|---|---|
+| 2 thú, núi lửa 11 | 100% -> 100% | 39% -> 7% |
+| 2 thú, tuyết 11 | 100% -> 55% | 5% -> 0% |
+| 2 thú, đảo 13 | 100% -> 100% | 29% -> 2% |
+| 2 thú, góc xa 14 | 100% -> 100% | 62% -> 7% |
+| 3 thú, sa mạc 10 | 100% -> 100% | 33% -> 4% |
+| 3 thú, núi lửa 11 | 100% -> 100% | 99% -> 91% |
+
+Thú đi theo cấp 15 + giáp hiệp sĩ (45%) + né 50%: 2 thú ở núi lửa 11 chết 4% -> 0%; 3 thú ở núi lửa 11 chết 81% -> 36%, 3 thú đảo 13 từ 79% -> 38%. Kết luận: 1 thú hoang thường không còn đe doạ người có kiếm và thú đi theo (đã ổn từ trước); 2 thú vẫn đáng sợ khi đứng yên (đúng ý đồ: phải lướt); 3 thú cấp cao cùng lúc vẫn là ác mộng (hiếm: chỉ boulderhorn/scorchtail chủ động, mật độ khoảng 80 thú trên cả bản đồ), không cần nới thêm.
 
 ## Rủi ro
 
-- **Hồ sơ đã lưu:** thú giữ `level` và `xp` (phần dư trong cấp). Đường cong mới thấp hơn nên không ai tụt cấp. Thú có `xp` lớn hơn ngưỡng mới lên tối đa +1 cấp (đã tính cho mọi cấp 1-29, ví dụ cấp 6 xp 293/294 -> cấp 7 xp 102/241; cấp 14 xp 1.047 -> cấp 15 xp 366/755), nên không bị nhảy hai cấp. Nếu không "lên nốt" lúc nạp (mục 10), thanh XP kẹt ở 100% (client kẹp `min(100, ...)`) và nhiệm vụ "nuôi thú lên cấp 5" chỉ được tính ở lần lên cấp kế tiếp. Thanh XP của thú đang dở sẽ nhảy (ví dụ 50% thanh cũ ở cấp 5 thành 77%): chỉ hiển thị. Thú làm việc +1 cấp làm sản xuất nhanh hơn khoảng 5%.
-- **Test phải sửa/thêm:**
-  - `packages/server/src/rooms/GameRoom.test.ts:198-209` ("captured pals keep the wild level and the follower earns capture XP") so `follower.xp === xpBefore + XP_PER_CAPTURE`; sau đổi XP bắt phụ thuộc cấp thú bị bắt: dùng `finishXp(XP_PER_CAPTURE, player.pals[1].level)` (cấp thú ngẫu nhiên nên bắt buộc đọc cấp từ thú vừa bắt).
-  - `progression.test.ts`: thêm test `finishXp` (cấp 1 = base, +10%/cấp, cấp 0/âm coi như 1), mốc đường cong (cộng dồn tới cấp 7 = 558, cấp 15 = 4.159), mọi cấp 1-29 `xpToNext` tăng.
-  - `store.test.ts`: thêm test thú có `xp` vượt ngưỡng mới được lên cấp khi nạp (và cấp 30 thì `xp` = 0); các test hiện có (cấp 3 xp 10; cấp 999 -> 30, xp -5 -> 0) không đổi.
-  - `GameRoom.test.ts`: thêm test trùm cho thú đi theo của người giúp `BOSS.xp`.
-  - `quests.test.ts` không đổi (chỉ kiểm phần thưởng không rỗng). E2E không phụ thuộc số XP.
-  - Tài liệu: `docs/design/pals.md` nên có mục "Kinh nghiệm và lên cấp" (bảng nguồn, đường cong mới); mô tả công thức `berry_snack` ("40 kinh nghiệm") giữ nguyên.
-- **Bánh tốn 8 quả:** không mất gì của hồ sơ cũ (quả và bánh đang có giữ nguyên). Người đang tích quả thấy "đắt gấp đôi". Nút "Chế" của bánh không có hàng loạt nên thao tác không đổi.
-- **Thú làm việc AFK:** thú làm việc ở trại 3 (5 chỗ) lên cấp 15 sau khoảng 2,5 giờ có mặt trong game, trại 1 (3 chỗ) sau 3,6 giờ (cũ 3,9 và 5,6 giờ). Chấp nhận; nếu muốn chậm lại thì đặt `XP_PER_WORK` = 1 (chậm 2 lần).
-- **Thú đầu đàn và trùm là nguồn XP nhanh nhất ở cấp 7-15:** một lần hạ đầu đàn cho 350-440 XP, bằng 1,4-1,8 cấp ở cấp 7 (cũ 0,9-1,2) và 0,45-0,54 cấp ở cấp 15; hồi sinh sau 6 phút (trùm 4 phút). Đầu đàn đồng cỏ (Voltmouse cấp 15) nằm cách chỗ xuất phát khoảng 850 px và hạ trong 9 s với kiếm. Nếu playtest thấy cày đầu đàn: đặt `ALPHA.xp` = 200.
-- **Lên nhiều cấp một lần:** với đường cong mới, thú cấp 6 có từ 132 XP dư nhận thêm 300 (đầu đàn) sẽ nhảy qua cấp 7 và mất thông báo chiêu 2 (mục 11 sửa). Mục 11 đổi tin `LevelUp` (giao thức): server và client phải sửa trong cùng nhiệm vụ; muốn tránh đổi giao thức thì client tự nhớ cấp trước đó của từng thú trong `party`. Bánh 40 XP ở cấp 1 nhảy 1 cấp rưỡi, không sao.
-- **Người chơi cấp cao ngoài đường chuẩn:** thú bắt được ở cấp 7-13 (vùng ngoài và đảo) bỏ qua phần đầu của đường cong; chúng tiến tiếp với XP kết liễu cao hơn nhờ mục 2.
-- **Độ nhạy của giả định:** toàn bộ bảng thời gian phụ thuộc nhịp trận mỗi phút, chưa có số liệu thật; các bảng ghi cả số trận để đổi nhịp. Hệ số tính XP/trận bền: đổi tỉ lệ đánh thực tế 0,5-1,0 chỉ làm XP/trận dao động 26-33 ở đồng cỏ và 31-42 ở vùng ngoài (cấp 1-7); thay hỗn hợp thú đi theo bằng 5 loài khởi đầu lệch dưới 1 XP.
-- **Liên quan T7:** cấp thú đi theo điển hình sau đổi là cấp 8-9 cuối buổi đầu (nhịp bình thường) và cấp 15 sau khoảng 4 buổi; dùng các cấp này khi đo thời gian người chơi trụ được trước thú hoang cấp cao.
-- **Ghi chú ngoài phạm vi T4:** thú hiền chạy khi bị đánh với tốc độ x1,8 (`WILD_CHASE_SPEED_FACTOR`); Voltmouse (95 x 1,8 = 171 px/s) chạy nhanh hơn người chơi (160 px/s) nên hạ một con cấp 3 mất 6-8 s, gấp 3-5 lần thú khác (bot đo). Không đổi XP/phút đáng kể (Voltmouse chiếm 11% thú đồng cỏ) nhưng là trải nghiệm tệ cho người mới; nên cân nhắc một việc nhỏ riêng.
+- **Thú đi theo không bị ảnh hưởng**: `skillPower`/`SKILL_LEVEL_SCALING` giữ nguyên, đường cấp của thú đi theo (cấp 8-9 sau buổi đầu, cấp 15 sau ~4 buổi) không đổi. Chỉ chiêu thú hoang từ cấp 8 trở lên yếu đi; chiêu của chính thú người chơi bắt được cấp 15 (kể cả cấp 15 học chiêu 3) vẫn ×2,68. Đường cắn của thú hoang (`wildDamage`) tách khỏi `companionDamage`, nên thú đi theo không bị nhẹ đi.
+- **Thú đầu đàn**: dùng chung `wildDamage`, nên cắn nhẹ đi khoảng một phần ba (31-36%: voltmouse cấp 15: 16 -> 11, bogbloom cấp 17: 17 -> 11, cactoad cấp 18: 28 -> 19, frostfang cấp 19: 33 -> 22, scorchtail cấp 20: 35 -> 23, coralcrab cấp 22: 42 -> 27). Thời gian trụ của người đứng yên (không giáp / giáp 30%): voltmouse 5,0/7,0 -> 6,1/8,7; bogbloom 4,4/7,0 -> 6,1/10,5; cactoad 3,2/4,4 -> 4,3/5,9; frostfang 2,6/4,4 -> 3,3/5,3; scorchtail 2,3/3,3 -> 3,3/5,1; coralcrab 2,2/3,2 -> 3,2/4,5. Không giáp vẫn chỉ 3,2-6,1 giây, gắt hơn trùm (khoảng 7 giây). Muốn giữ thú đầu đàn y nguyên: `ALPHA.damageMultiplier` 1 -> 1,5 (hệ số bù đúng 1,45-1,56 tuỳ con; với 1,5 cắn thành 17/17/29/33/35/41 so với cũ 16/17/28/33/35/42 và thời gian trụ về mức cũ, lệch tối đa 0,1 giây). Đề xuất của mình: **không bù**, vì thú đầu đàn cấp 19-22 hạ người chơi không giáp trong 2,2-2,6 giây là quá gắt so với trùm (khoảng 7 giây); nếu designer muốn đầu đàn khó như cũ thì bù bằng 1,5. Chiêu của đầu đàn (đã giới hạn cấp 8) không đổi. Trùm không đổi (cắn cố định 14, chiêu cấp 4).
+- **Test có thể phải sửa**: `daycycle.test.ts:51` chỉ kiểm `wildDamage(boulder, 5) > wildDamage(boulder, 1)` (vẫn đúng với 0,08: 13 > 10). Không thấy test nào khoá giá trị `skillPower` của thú hoang hay cú cắn cụ thể; cần thêm test cho `WILD_SKILL_MAX_LEVEL` (thú hoang cấp 14 dùng cấp 8, thú đi theo cấp 14 vẫn dùng cấp 14) và `wildDamage` cấp 14. Test e2e/tích hợp dựa vào lượng máu mất sau cú cắn của thú ở cấp cao cần kiểm lại (chưa tìm thấy qua grep trong `packages` và `tests`).
+- **Tài liệu**: `docs/design/skills.md:69` nhắc `ALPHA.skillLevel`; thêm dòng cho giới hạn thú hoang thường.
+- **Thú hoang quá dễ ở vùng xa**: không. Người đứng yên không giáp trước một thú cấp 13-14 vẫn chỉ trụ được 5,1 giây, và máu của thú hoang vẫn +20%/cấp (270 máu cấp 14) nên trận kéo dài hơn; 2 thú vẫn hạ người đứng yên có giáp 30% ở mọi vùng cấp 11+ trong 3,1-4,4 giây, 3 thú vẫn hạ người không giáp trong khoảng 2 giây (1,6-2,1). Nếu sau này thấy quá dễ: nâng `WILD_SKILL_MAX_LEVEL` lên 10 hoặc hệ số cắn lên 0,10 (số liệu kèm trong mục phụ trên).
+- **Không đổi**: nhịp tung chiêu/cắn (hiện 1 chiêu mỗi 6-7 giây, cắn mỗi 1,2 giây), giáp, máu người chơi (không thay mô hình chịu đòn); đổi những cái này ảnh hưởng tới thú đầu đàn, trùm, và test nhịp.
+
+**Đã sửa sau khi rà lại:** (1) bảng sát thương mỗi lần: cú cắn scorchtail cấp 10 là 21 (bản trước ghi 24), coralcrab cấp 13 là 28 (ghi 29); chiêu mạnh nhất của coralcrab là pincer 27/28 (ghi water_jet 22/23, chiêu AI ưu tiên dùng); DPS dòng boulderhorn 8 đo lại đúng cấp 8 là 17,1 / 4,3 (ghi 17,9 / 4,5 là số của cấp 9). (2) Câu "trừ scorchtail 10, cactoad 11": hiện tại chết 100%, không trừ trận nào; con số cũ 3-8% là của phương án hệ số 0,10, nay tính lại với 0,08 (chết khoảng 44% và 66%). (3) Mục Rủi ro, thú đầu đàn: tính lại với hệ số cắn 0,08 (bản trước dùng 0,10): cắn giảm 31-36%, thời gian trụ mới, hệ số bù 1,45-1,56, tức khoảng 1,5 chứ không phải 1,3. (4) Hiện trạng: cấp 14 không xuất hiện (đất xa nhất danger 0,91), boulderhorn tối đa cấp 11, thú hoang thường không bao giờ dùng thunder lên người (voltmouse, mothlume là thú thụ động). (5) Phép tính "1-2 chiêu" ở Vấn đề 1; "dưới 2 giây" ở Vấn đề 4 (đúng là 1,7-2,1) và Rủi ro (1,6-2,1); "3 chiêu lớn có giáp 30%" ở Đề xuất (đúng là 5 đòn); ví dụ cactoad trong bảng Đề xuất (needle_spray 23 -> 17, không phải vine_bind 20 -> 15); câu "Một thú cấp 13-14 vẫn trụ được" ở Rủi ro viết lại cho đúng chủ ngữ. Đề xuất chính không đổi (`WILD_SKILL_MAX_LEVEL` = 8, `WILD_DAMAGE_PER_LEVEL` = 0.08, không bù `ALPHA.damageMultiplier`).
