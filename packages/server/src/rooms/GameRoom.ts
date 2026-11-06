@@ -85,6 +85,7 @@ import {
   isSupport,
   knownSkills,
   skillPower,
+  wildSkillLevel,
   skillReach,
   skillTravelMs,
   SKILL_ORDER_MS,
@@ -692,7 +693,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         const skill = this.wildSkill(id, pal, species, target, now);
         if (skill) {
           pal.angry = true;
-          this.startCast("wild", id, pal, pal.boss ? BOSS.skillLevel : pal.alpha ? Math.min(pal.level, ALPHA.skillLevel) : pal.level, skill, target);
+          this.startCast("wild", id, pal, pal.boss ? BOSS.skillLevel : pal.alpha ? Math.min(pal.level, ALPHA.skillLevel) : wildSkillLevel(pal.level), skill, target);
           return;
         }
         const reach = pal.boss ? BOSS.radius + 24 : undefined;

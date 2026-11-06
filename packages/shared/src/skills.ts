@@ -67,6 +67,12 @@ export function getSkill(id: string): SkillDef {
 export const SKILL_LEVELS = [1, 7, 15] as const;
 /** Each level above 1 makes a skill this much stronger (+12%). */
 export const SKILL_LEVEL_SCALING = 0.12;
+/**
+ * A common wild pal's skills (damage and healing) are as strong as a level 8 pal's at most, however high its
+ * level: one blast from far away takes a third of a player's health, not half. Pack leaders have their own cap
+ * (ALPHA.skillLevel) and the boss a level of its own (BOSS.skillLevel); companions always use their level.
+ */
+export const WILD_SKILL_MAX_LEVEL = 8;
 /** A chained hit does this much of the one before. */
 export const CHAIN_FALLOFF = 0.7;
 /** How far (pixels) a chain can jump from one enemy to the next. */
@@ -89,6 +95,11 @@ export const SKILL_ORDER_RANGE = 260;
 /** Damage (or healing) of a skill used by a pal of this level. */
 export function skillPower(skill: SkillDef, level: number): number {
   return Math.round(skill.power * (1 + SKILL_LEVEL_SCALING * (Math.max(1, level) - 1)));
+}
+
+/** The level a common wild pal's skills are worked out at: its own, up to WILD_SKILL_MAX_LEVEL. */
+export function wildSkillLevel(level: number): number {
+  return Math.min(level, WILD_SKILL_MAX_LEVEL);
 }
 
 /** A species' skills with the level each is learned at. */

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { CollisionGrid } from "./collision.ts";
-import { BITE_KNOCKBACK, hitWildPal, knockback, palDrops } from "./combat.ts";
-import { getSpecies } from "./pals.ts";
+import { BITE_KNOCKBACK, PLAYER_MAX_HP, hitWildPal, knockback, palDrops, wildDamage } from "./combat.ts";
+import { PAL_SPECIES, getSpecies } from "./pals.ts";
+import { companionDamage, wildMaxLevel } from "./progression.ts";
+import { isSupport, knownSkills, skillPower, wildSkillLevel } from "./skills.ts";
 
 describe("hitting wild pals", () => {
   it("never drops below 1 HP, and 1 HP makes it dizzy", () => {
@@ -47,5 +49,37 @@ describe("loot of knocked-out pals", () => {
 
   it("sometimes adds a snack", () => {
     expect(palDrops(getSpecies("emberpup"), 1, seq(0, 0.9, 0.05)).snacks).toBe(1);
+  });
+});
+
+describe("wild pals' bites", () => {
+  it("bite as hard as their kind's attack at level 1, a little harder each level, never less at a higher level", () => {
+    for (const s of PAL_SPECIES) {
+      expect(wildDamage(s, 1), s.id).toBe(s.attack);
+      for (let level = 2; level <= 30; level++) expect(wildDamage(s, level), `${s.id} Lv ${level}`).toBeGreaterThanOrEqual(wildDamage(s, level - 1));
+    }
+  });
+
+  it("a level 14 bite is about twice a level 1 bite (Coralcrab 10 -> 20), not three times", () => {
+    expect(wildDamage(getSpecies("coralcrab"), 14)).toBe(20);
+    expect(wildDamage(getSpecies("boulderhorn"), 11)).toBe(18);
+    expect(wildDamage(getSpecies("emberpup"), 6)).toBe(10);
+  });
+
+  it("companions keep their +15% a level", () => {
+    expect(companionDamage(9)).toBe(13);
+    expect(companionDamage(15)).toBe(19);
+  });
+
+  it("no common wild pal knocks out a full-health player in three hits", () => {
+    for (const s of PAL_SPECIES) {
+      for (let level = 1; level <= wildMaxLevel(1); level++) {
+        expect(3 * wildDamage(s, level), `${s.id} Lv ${level} bite`).toBeLessThan(PLAYER_MAX_HP);
+        for (const k of knownSkills(s, level)) {
+          if (isSupport(k)) continue;
+          expect(3 * skillPower(k, wildSkillLevel(level)), `${s.id} Lv ${level} ${k.id}`).toBeLessThan(PLAYER_MAX_HP);
+        }
+      }
+    }
   });
 });

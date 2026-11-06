@@ -186,7 +186,7 @@ export interface SkillCastMessage {
   caster: "wild" | "companion";
   /** SKILL_DEFS id. */
   skill: string;
-  /** The caster's level (the skill's strength). */
+  /** The level the skill is as strong as: the caster's, capped for wild pals (WILD_SKILL_MAX_LEVEL, ALPHA.skillLevel; the boss BOSS.skillLevel). */
   level: number;
   /** Where it is cast from and where it is aimed (pixels). */
   from: { x: number; y: number };

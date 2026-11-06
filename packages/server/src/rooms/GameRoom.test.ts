@@ -40,6 +40,7 @@ import {
   type HealedMessage,
   getSkill,
   skillPower,
+  WILD_SKILL_MAX_LEVEL,
   knownSkills,
   captureChance,
   levelCatchRate,
@@ -703,19 +704,23 @@ describe("elements and skills", () => {
     expect(companion.level).toBe(1);
   });
 
-  it("knows more skills and hits harder at higher levels", async () => {
+  it("knows more skills and hits harder at higher levels, with no cap (unlike wild pals)", async () => {
     const { room, client, player } = await setup();
-    await giveCompanion(room, client, player, "emberpup", 10);
+    await giveCompanion(room, client, player, "emberpup", 14);
     room.state.pals.clear();
     const target = placeWild(room, "pebblet", player, 60);
     room.state.pals.get(target)!.maxHp = room.state.pals.get(target)!.hp = 999;
     (room as any).controls.get(client.sessionId).targetPalId = target;
     (room as any).controls.get(client.sessionId).aggroUntil = Infinity;
     const hits = collect<HitMessage>(client, ServerMessage.Hit);
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
     for (let i = 0; i < 80 && !hits.some((h) => h.skill === "fire_breath"); i++) await ticks(room, 1);
     const breath = hits.find((h) => h.skill === "fire_breath")!;
-    expect(breath.damage).toBe(skillPower(getSkill("fire_breath"), 10));
+    expect(breath.damage).toBe(skillPower(getSkill("fire_breath"), 14));
     expect(breath.damage).toBeGreaterThan(skillPower(getSkill("fire_breath"), 1));
+    // a companion is never capped like a wild pal
+    expect(breath.damage).toBeGreaterThan(skillPower(getSkill("fire_breath"), WILD_SKILL_MAX_LEVEL));
+    expect(casts.find((c) => c.skill === "fire_breath")?.level).toBe(14);
     expect(hits.some((h) => h.skill === "flame_ring")).toBe(false); // learned at level 15
   });
 
@@ -798,6 +803,31 @@ describe("elements and skills", () => {
     player.x -= 200;
     await ticks(room, Math.ceil((cast.castMs + cast.travelMs) / 50) + 3);
     expect(damage.filter((d) => d.skill === cast.skill)).toHaveLength(0);
+  });
+
+  it("a common wild pal's skill is no stronger than at WILD_SKILL_MAX_LEVEL, however high its level", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    // At 120 px only its Ember (range 150) reaches; Fire Breath (range 85) does not.
+    const id = placeWild(room, "emberpup", player, 120);
+    const pal = room.state.pals.get(id)!;
+    pal.level = 14;
+    pal.maxHp = pal.hp = 999;
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    const damage = collect<DamageMessage>(client, ServerMessage.Damage);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    for (let i = 0; i < 40 && casts.length === 0; i++) await ticks(room, 1);
+    vi.restoreAllMocks();
+    const cast = casts[0];
+    expect(cast).toMatchObject({ caster: "wild", casterId: id, skill: "ember", level: WILD_SKILL_MAX_LEVEL });
+    // Stop chasing so no bite pushes the player out from under the skill; it is already in flight.
+    (room as any).wildAggro.delete(id);
+    await ticks(room, Math.ceil((cast.castMs + cast.travelMs) / 50) + 3);
+    const hit = damage.find((d) => d.skill === "ember");
+    expect(hit).toMatchObject({ targetType: "player", targetId: client.sessionId, amount: skillPower(getSkill("ember"), WILD_SKILL_MAX_LEVEL) });
+    expect(hit!.amount).toBeLessThan(skillPower(getSkill("ember"), 14));
+    expect(player.hp).toBe(PLAYER_MAX_HP - hit!.amount);
   });
 
   it("a pal dazed while it winds up a skill never lets it go", async () => {

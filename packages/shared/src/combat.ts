@@ -10,6 +10,12 @@ export const PLAYER_MAX_HP = 100;
 /** Wild pals hit from this close (pixels, edge to edge-ish). */
 export const WILD_ATTACK_RANGE = 40;
 export const WILD_ATTACK_COOLDOWN_MS = 1200;
+/**
+ * A wild pal's bite grows this much per level above 1 (+8%), slower than its health (+20%, scaledMaxHp) and a
+ * companion's hits (+15%, companionDamage): a player's health never grows, so far-off pals should take longer
+ * to beat, not knock players out much faster. Pack leaders bite like this too (times ALPHA.damageMultiplier).
+ */
+export const WILD_DAMAGE_PER_LEVEL = 0.08;
 /** How long a provoked wild pal keeps chasing its attacker. */
 export const WILD_AGGRO_MS = 8000;
 /** Aggressive wild pals notice players and companions this close. */
@@ -95,9 +101,9 @@ export function palDrops(species: PalSpecies, level: number, rand: () => number)
   return reward;
 }
 
-/** Damage a wild pal deals per hit: +15% per level above 1. */
+/** Damage a wild pal deals per bite: its kind's attack at level 1, WILD_DAMAGE_PER_LEVEL more per level above. */
 export function wildDamage(species: PalSpecies, level: number): number {
-  return Math.round(species.attack * (1 + 0.15 * (level - 1)));
+  return Math.round(species.attack * (1 + WILD_DAMAGE_PER_LEVEL * (level - 1)));
 }
 
 /** A captured pal's health when out in the world. */

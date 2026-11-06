@@ -33,7 +33,7 @@ export const ALPHAS: readonly AlphaDef[] = [
 export const ALPHA = {
   /** Max HP: the species' HP at its level, times this. */
   hpMultiplier: 3,
-  /** Its bites hit this much harder than a pal's of its level. */
+  /** Its bites hit this much harder than a common wild pal's of its level (wildDamage); 1 lets a lone player who dodges half the bites beat most pack leaders (docs/design/pals.md). */
   damageMultiplier: 1,
   /** Its skills hit as hard as a pal's of this level at most (fair to a lone player who dodges). */
   skillLevel: 8,

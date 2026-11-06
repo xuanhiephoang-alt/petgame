@@ -24,10 +24,10 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 | `movement.ts`, `collision.ts` | Bước đi, lướt, đẩy lùi, `CollisionGrid` |
 | `worldgen.ts`, `terrain.ts`, `noise.ts` | Thế giới sinh từ seed (`defaultWorld()`: bố cục + grid vật cản), vùng (`biomeAt`, `terrainAt`), độ nguy hiểm (`dangerAt`) |
 | `pals.ts` + `data/pals.json` | 13 loài: chỉ số, hệ, tính khí, nơi sinh, 3 chiêu (`skills`) |
-| `skills.ts` + `data/skills.json` | 30 chiêu: `skillPower`, `learnset`, `knownSkills`, `skillsLearnedBetween` (chiêu học được trong một lần lên cấp, để báo), `skillTravelMs`, `inSkillArea`, hằng số lệnh chiêu |
+| `skills.ts` + `data/skills.json` | 30 chiêu: `skillPower`, `wildSkillLevel` (cấp sức mạnh chiêu của thú hoang thường, tối đa `WILD_SKILL_MAX_LEVEL` = 8), `learnset`, `knownSkills`, `skillsLearnedBetween` (chiêu học được trong một lần lên cấp, để báo), `skillTravelMs`, `inSkillArea`, hằng số lệnh chiêu |
 | `elements.ts` | Khắc hệ (×1,5 / ×0,75), màu hệ |
 | `capture.ts` | Tỉ lệ bắt, số lần lắc bóng, thời gian; `throwBlocker` (trùm, túi đầy; client và server dùng chung); `CAPTURE_NEWS_DELAY_MS` (độ trễ sau khi bóng khép để gửi tin và kinh nghiệm của lần bắt) |
-| `combat.ts`, `gathering.ts` | Sát thương, choáng, hạ gục, rơi đồ; chặt cây, đập đá |
+| `combat.ts`, `gathering.ts` | Sát thương (cú cắn thú hoang `wildDamage`, +8% mỗi cấp: `WILD_DAMAGE_PER_LEVEL`), choáng, hạ gục, rơi đồ; chặt cây, đập đá |
 | `progression.ts`, `work.ts` | Kinh nghiệm, lên cấp, máu theo cấp (đường cong `XP_CURVE`/`xpToNext`; `finishXp`: kinh nghiệm hạ gục và bắt tăng theo cấp thú bị hạ); thú làm việc ở trại |
 | `crafting.ts` + `data/recipes.json` | Chế tạo, nâng trại (`craftBlocker` dùng chung client/server) |
 | `wardrobe.ts` + `data/wearables.json` | Ngoại hình, quần áo, mũ, vũ khí (chống rét/nắng, giáp, sát thương, tầm) |

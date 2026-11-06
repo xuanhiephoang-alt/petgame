@@ -3,6 +3,7 @@ import { PAL_SPECIES, getSpecies } from "./pals.ts";
 import {
   SKILL_DEFS,
   SKILL_LEVELS,
+  WILD_SKILL_MAX_LEVEL,
   getSkill,
   inSkillArea,
   isSupport,
@@ -12,6 +13,7 @@ import {
   skillReach,
   skillTravelMs,
   skillsLearnedBetween,
+  wildSkillLevel,
 } from "./skills.ts";
 
 describe("skills", () => {
@@ -69,6 +71,16 @@ describe("skills", () => {
     expect(skillPower(ember, 10)).toBe(Math.round(ember.power * (1 + 0.12 * 9)));
     for (let level = 2; level <= 30; level++) expect(skillPower(ember, level)).toBeGreaterThanOrEqual(skillPower(ember, level - 1));
     expect(skillPower(getSkill("meteor"), 15)).toBeGreaterThan(skillPower(getSkill("ember"), 15));
+  });
+
+  it("works out a common wild pal's skills at its level up to WILD_SKILL_MAX_LEVEL; a companion's at its own level", () => {
+    expect([1, 7, 8, 14, 30].map(wildSkillLevel)).toEqual([1, 7, 8, 8, 8]);
+    expect(wildSkillLevel(14)).toBe(WILD_SKILL_MAX_LEVEL);
+    expect(skillPower(getSkill("quake"), wildSkillLevel(14))).toBe(33);
+    expect(skillPower(getSkill("quake"), 14)).toBe(46); // a level 14 companion
+    expect(skillPower(getSkill("frost_breath"), wildSkillLevel(14))).toBe(24);
+    expect(skillPower(getSkill("frost_breath"), 14)).toBe(33);
+    expect(skillPower(getSkill("healing_rain"), wildSkillLevel(14))).toBe(33); // heals are capped too
   });
 
   it("travels at its speed, or takes its own time", () => {
