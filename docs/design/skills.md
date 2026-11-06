@@ -1,9 +1,9 @@
 # Kỹ năng (chiêu) của thú
 
-Mỗi loài thú học 3 chiêu khi chiến đấu, mỗi chiêu có hoạt ảnh riêng và sát thương (hoặc lượng máu hồi) tăng theo cấp của thú.
+Mỗi loài thú học 3 chiêu khi chiến đấu, mỗi chiêu có hoạt ảnh riêng và sát thương (hoặc lượng máu hồi) tăng theo cấp của thú (thú hoang chỉ tăng tới cấp 8, xem mục "Sát thương").
 
 - Dữ liệu: `packages/shared/src/data/skills.json` (30 chiêu), chiêu của từng loài ở trường `skills` trong `pals.json`.
-- Logic dùng chung (có test): `packages/shared/src/skills.ts`: `skillPower`, `learnset`, `knownSkills`, `skillsLearnedBetween` (chiêu học được trong một lần lên cấp, để báo), `skillTravelMs`, `inSkillArea`.
+- Logic dùng chung (có test): `packages/shared/src/skills.ts`: `skillPower`, `wildSkillLevel` (cấp sức mạnh chiêu của thú hoang thường), `learnset`, `knownSkills`, `skillsLearnedBetween` (chiêu học được trong một lần lên cấp, để báo), `skillTravelMs`, `inSkillArea`.
 - Server quyết định mọi thứ: `GameRoom` (`startCast`, `tickCasts`, `land`), thú chọn chiêu ở `packages/server/src/ai/skillAi.ts`.
 - Hoạt ảnh: `packages/client/src/game/skillfx.ts` (`SKILL_SHOWS`, mỗi chiêu một hàm). Xem tất cả chiêu chạy lặp ở http://localhost:5173/sprites.html?show=skills, một chiêu phóng to: `?show=skills&skill=meteor`, kiểu thú hoang tung chiêu (có vùng đỏ): thêm `&wild=1`.
 
@@ -40,6 +40,10 @@ sát thương = làm tròn(power × (1 + 0,12 × (cấp − 1))) × khắc hệ 
 - Khiên đá: người (hoặc thú hoang) đang có khiên chỉ nhận ½ sát thương (`SHIELD_DAMAGE_TAKEN`).
 - Sét chuỗi: mỗi lần nhảy sang con kế bên (trong 100 px) còn ×0,7 so với lần trước.
 - Chiêu hồi máu dùng cùng công thức cho lượng máu hồi.
+- **Thú hoang tính tối đa ở cấp 8** (`WILD_SKILL_MAX_LEVEL`, `wildSkillLevel`; đặt ra ở nhiệm vụ T7). Thú hoang thường (không phải thú đầu đàn hay trùm) cấp 9-14 dùng chiêu mạnh như cấp 8 (×1,84), kể cả chiêu hồi máu. Ví dụ ở cấp 14: Động đất của Boulderhorn 33 thay vì 46, Hơi thở băng giá của Frostfang 24 thay vì 33, Mưa hồi máu của Ripplefin +33 thay vì +46. Thú hiền (Leafkit, Bubbloon, Voltmouse, Mothlume, Bogbloom) khi là thú hoang thường không bao giờ tung chiêu (bị đánh thì bỏ chạy), chỉ khi là thú đầu đàn.
+- Thú đầu đàn cũng tối đa cấp 8 (`ALPHA.skillLevel`), trùm dùng cấp 4 (`BOSS.skillLevel`).
+- **Thú đi theo luôn dùng đúng cấp của nó** (cấp 15 là ×2,68).
+- Lý do giới hạn và luật "đòn mạnh nhất nhỏ hơn 1/3 máu người chơi": `docs/design/pals.md`, mục "Sức mạnh thú hoang theo cấp".
 
 ## Một lần tung chiêu
 
@@ -70,7 +74,7 @@ Nút **Tự động ✓ / Theo lệnh** (`ClientMessage.PalAuto`, lưu theo ngư
 
 ## 30 chiêu
 
-Số sát thương ở cấp 1, 7 và 15, chưa tính khắc hệ. Kiểu chiêu (`shape`): bay thẳng (`projectile`), ném vòng cầu (`lob`), tia (`beam`), từ trời (`strike`), vùng (`zone`), quanh mình (`nova`), hình quạt (`cone`), sóng (`wave`), cận chiến (`melee`), hồi máu (`heal`), khiên (`shield`).
+Số sát thương ở cấp 1, 7 và 15, chưa tính khắc hệ. Cột Lv 15 chỉ thú đi theo đạt được; thú hoang và thú đầu đàn dừng ở mức cấp 8 (×1,84). Kiểu chiêu (`shape`): bay thẳng (`projectile`), ném vòng cầu (`lob`), tia (`beam`), từ trời (`strike`), vùng (`zone`), quanh mình (`nova`), hình quạt (`cone`), sóng (`wave`), cận chiến (`melee`), hồi máu (`heal`), khiên (`shield`).
 
 ### 🔥 Lửa
 
