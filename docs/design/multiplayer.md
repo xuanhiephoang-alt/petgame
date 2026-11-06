@@ -32,6 +32,9 @@ Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server
 - Game thử tối đa 30 giây (`RECONNECT_TRY_MS`: 20 giây chờ cộng thời gian server có thể cần để phát hiện mất mạng). Quá hạn, hoặc server đã thôi giữ chỗ: "Không kết nối lại được" kèm nút **Về sảnh**. Nút này đưa về đúng thế giới cũ nếu lúc mất mạng còn người khác trong đó, không thì về sảnh thường (thế giới mới cùng bản đồ). Thú, đồ và trại luôn còn.
 - Server khởi động lại: "Server đang khởi động lại", cũng có nút Về sảnh.
 - Trang bị ẩn (chuyển app): nhân vật dừng đi ngay. Nếu trình duyệt vẫn giữ kết nối khi ẩn trang (có trên Android), nhân vật vẫn ở trong thế giới như người đứng yên, chưa được bảo vệ.
+- Hồi chiêu của nút 🫐 Ăn (4 giây, từ T32) vẫn đếm trong lúc chờ và không bị xoá khi nối lại: nối lại sớm thì chờ nốt phần còn lại.
+  - Vào lại từ sảnh là một phiên mới, nên không còn hồi chiêu.
+  - Điều này không thành mẹo được, vì máu không được lưu: vào lại vốn đã đầy máu, và lại bắt đầu ở giữa bản đồ.
 
 ## Mã kết nối lại
 

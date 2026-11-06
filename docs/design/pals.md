@@ -212,3 +212,23 @@ Thú đi theo không đổi: đòn thường +15% mỗi cấp (`companionDamage`
 **Nút chỉnh** nếu chơi thử thấy vùng xa quá dễ:
 - `WILD_DAMAGE_PER_LEVEL` 0,10: đảo hoang cấp 13 còn 4,2 giây thay vì 5,1 (1 thú, không giáp);
 - `WILD_SKILL_MAX_LEVEL` 10: Động đất thành 37, phải bỏ luật 1/3.
+
+## Hồi máu của người chơi
+
+Đặt ra ở nhiệm vụ T32. Số liệu từ `BALANCE.md` của T32 (mô phỏng lại khi lập kế hoạch, khớp). Hằng số ở `combat.ts`.
+
+- **Tự hồi:** 4 máu mỗi giây, chỉ khi đã 5 giây không bị đánh (`REGEN_PER_SECOND`, `REGEN_DELAY_MS`). Giữa trận coi như không có.
+- **🫐 Quả mọng** (nút 🫐 Ăn hoặc phím H, giao diện ở `docs/design/hud.md`):
+  - mỗi quả hồi ngay 20 máu (`BERRY_HEAL`), tức 1/5 thanh máu;
+  - ăn xong phải chờ **4 giây** mới ăn quả tiếp (`EAT_COOLDOWN_MS`);
+  - không ăn được khi hết quả hay đầy máu; những lần bị từ chối không tính là đã ăn.
+- **Vì sao 4 giây:** ăn liên tục hồi tối đa 5 máu mỗi giây. Con số này thấp hơn sức đánh của thú ở cấp cao nhất thường gặp của mọi vùng: 10 đến 23 máu mỗi giây, gồm cả chiêu, chưa tính giáp. Mặc giáp hiệp sĩ (chặn 45%), thú yếu nhất trong số đó vẫn đánh 5,7 máu mỗi giây.
+  - Vì vậy ăn để cứu nguy và kéo dài trận, không thay được lướt né. Người đứng yên vẫn bị hạ.
+  - 3 giây (6,7 máu mỗi giây): người né được một nửa số đòn trụ được 51 giây trước Voltmouse đầu đàn (với 4 giây: 29 giây).
+  - 5 giây (4 máu mỗi giây, bằng tự hồi): ăn giữa trận gần như vô nghĩa.
+- **Thời gian sống** của người đứng yên, không giáp, ăn ngay khi được, trước 1 thú ở cấp cao nhất thường gặp:
+  - đồng cỏ khoảng 17 giây (không ăn: 9,6), tốn 4 quả;
+  - các vùng giữa và đảo 6-9 giây (không ăn: 4,5-6,4), tốn 2 quả mỗi trận;
+  - trùm khoảng 11 giây (không ăn: 7), tốn 3 quả.
+- **Trước T32** chưa có hồi chiêu: bấm liên tục hồi 80-100 máu mỗi giây, nên đứng yên chịu đòn được ở mọi trận chừng nào còn quả.
+- **Nút chỉnh:** nếu chơi thử thấy trận trùm hay thú đầu đàn quá khắc nghiệt, hạ `EAT_COOLDOWN_MS` xuống 3000 trước khi đổi `BERRY_HEAL`. Không đổi giá quả mọng (bánh 8 quả, giáp da 12 quả).

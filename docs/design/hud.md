@@ -6,15 +6,31 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 
 | Vùng | Desktop | Điện thoại dọc | Điện thoại ngang |
 |---|---|---|---|
-| Cột trái trên (`.hud-left`), từ trên xuống: hàng máu và giờ, trạng thái, nhiệm vụ, rồi **thông báo** | rộng tối đa 460 px | rộng 100vw − 140 px | rộng tối đa 300 px, chữ 12 px, ẩn tên vùng và dòng "Thưởng" của nhiệm vụ |
+| Cột trái trên (`.hud-left`), từ trên xuống: hàng máu và giờ (kèm nút 🫐 Ăn, 🔊), trạng thái, nhiệm vụ, rồi **thông báo** | rộng tối đa 460 px | rộng 100vw − 140 px | rộng tối đa 300 px, chữ 12 px, ẩn tên vùng và dòng "Thưởng" của nhiệm vụ |
 | Cột phải trên: 🐾 Thú, 🏕️ Đặt trại, 🔨 Chế tạo, 👕 Tủ đồ, bản đồ nhỏ | bản đồ dưới các nút | bản đồ dưới các nút | bản đồ bên trái các nút |
 | Giữa trên: thanh máu trùm (khi ở gần trùm) | rộng 420 px | rộng 60vw | rộng 200 px, nằm giữa cột trái và bản đồ |
 | Dưới: thanh chiêu, nút bóng, nút cảm ứng (Đánh, Bắt, 💨) | thanh chiêu ở giữa | bên phải | bên phải |
 | Cần điều khiển (chỉ cảm ứng) | không có | hiện ở chỗ ngón trái chạm, trong nửa trái màn hình | như dọc |
 
 - Nhân vật luôn ở giữa màn hình. Ở điện thoại ngang, cột trái phải kết thúc trước giữa màn hình ít nhất 100 px (844×390: cột đến x = 312, giữa là 422), để không che nhãn tên của người và thú quanh nhân vật.
-- Lớp vẽ, từ dưới lên: nhãn tên (z 1), HUD (z 2). Trong HUD: bảng Thú, Chế tạo, Tủ đồ (3), **thông báo (4)**, bản đồ phóng to (4, vẽ sau thông báo), hộp xác nhận thả thú (5), màn mất kết nối (6). Thông báo không nhận chạm; chạm xuyên qua nó.
-- Còn tồn tại, làm ở việc riêng: trên điện thoại dọc, thanh máu trùm đè lên hàng máu của người chơi.
+- Lớp vẽ, từ dưới lên: nhãn tên (z 1), HUD (z 2). Trong HUD: nút 🫐 Ăn (1, để nằm trên vùng cần điều khiển), bảng Thú, Chế tạo, Tủ đồ (3), **thông báo (4)**, bản đồ phóng to (4, vẽ sau thông báo), hộp xác nhận thả thú (5), màn mất kết nối (6). Thông báo không nhận chạm; chạm xuyên qua nó.
+- Còn tồn tại, làm ở việc riêng:
+  - trên điện thoại dọc, thanh máu trùm đè lên hàng máu của người chơi;
+  - trên điện thoại, vùng cần điều khiển (nửa trái màn hình) được vẽ sau cột trái nên nằm đè lên cột: chạm vào 🔊 hay 🔗 Mời bạn là bật cần điều khiển chứ không bấm nút (đo ở T32 bằng `elementFromPoint`, cả dọc lẫn ngang). Riêng nút 🫐 Ăn đã được nâng lên trên từ T32.
+
+## Nút 🫐 Ăn
+
+Đặt ra ở nhiệm vụ T32. Nút nằm trong hàng máu, phím **H**. Luật hồi máu và lý do của các con số ở `docs/design/pals.md`, mục "Hồi máu của người chơi".
+
+- **Bấm khi ăn được:** ăn 1 quả mọng, hồi 20 máu ngay. "+20 ❤" bay lên trên đầu (người ở gần cũng thấy), kèm tiếng hồi máu. Rồi nút **hồi 4 giây** mới ăn tiếp được.
+- **Lúc nút đang hồi:** giống ô chiêu của thú. Một lớp tối phủ nút và thu dần từ trên xuống; số giây còn lại (4, 3, 2, 1) hiện ở giữa; chữ "🫐 Ăn" mờ đi.
+  - Bấm lúc này (chạm hay H): nút lắc nhẹ, không gửi gì và **không có thông báo**.
+  - Lý do: số giây trên nút đã nói vì sao. Lúc nguy cấp người chơi hay bấm liên tục; nếu mỗi lần bấm ra một thông báo thì ô thông báo sẽ ngập, đẩy mất tin quan trọng.
+- **Không ăn được vì lý do khác:** vẫn là thông báo mức thấp như trước: "Hết 🫐 quả mọng", "Máu đang đầy".
+  - Server kiểm theo thứ tự: hết quả, rồi máu đầy, rồi mới đến hồi chiêu. Lý do nào nói được bằng thông báo thì được nói trước.
+  - Lần bị từ chối không làm nút hồi lại: bấm lúc đầy máu rồi bị cắn ngay thì vẫn ăn được liền.
+- **Nút hồi tính từ lúc tin của server tới máy** (không đoán trước). Vì vậy nút không bao giờ sẵn sàng sớm hơn server. Mạng chậm thì lớp tối hiện trễ một nhịp; lần bấm thứ hai trong lúc đó bị server bỏ qua, không mất quả.
+- **Cỡ:** cao và rộng ít nhất 44 px ở cả ba khung hình. Trên điện thoại, nút nằm trên vùng cần điều khiển: chạm đúng nút là ăn, không bật cần điều khiển.
 
 ## Thông báo (toast)
 
@@ -60,5 +76,6 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 - Bắt thú đầu đàn: "Bắt được Voltmouse! 🎉" (1,9 giây) và "Xong nhiệm vụ" (2,1 giây) hiện cùng lúc. Tin ★ và tin lên cấp (2,2 giây) chờ rồi lần lượt hiện. Cả cảnh kéo dài khoảng 10 giây.
 - Con thú đầu tiên: "Bắt được Leafkit! 🎉" và "Xong nhiệm vụ "Bắt con thú đầu tiên"" hiện cùng lúc. Mẹo "Thú choáng" đang hiện thì bị thay (đã hiện hơn 3 giây).
 - Đang có tin lên cấp, bấm liên tục những phím không làm được: tin lên cấp vẫn ở nguyên; ô thứ hai chỉ hiện phản hồi mới nhất.
+- Vừa ăn quả mọng, bấm Ăn liên tục trong 4 giây hồi: không thông báo nào hiện thêm, chỉ nút lắc.
 
 **Chữ.** Ngắn, đủ một ý. Nhắc phím hay nút thì theo thiết bị: desktop "ném bóng (E)", cảm ứng "bấm Bắt". Một món kèm số lượng (`rewardText`: "🫐 10") không bị xuống dòng giữa biểu tượng và số.
