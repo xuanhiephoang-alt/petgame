@@ -27,6 +27,12 @@ export const REGEN_DELAY_MS = 5000;
 export const REGEN_PER_SECOND = 4;
 /** Eating one berry heals this much. */
 export const BERRY_HEAL = 20;
+/**
+ * After a berry is eaten, the next one waits this long (ms). Eating then heals 5 a second at most, less than
+ * any region's strongest common wild pal deals (10-23 a second), so it saves a fight but never replaces
+ * dodging (BALANCE.md of T32, docs/design/pals.md).
+ */
+export const EAT_COOLDOWN_MS = 4000;
 /** A knocked-out companion must rest this long before it can come out again. */
 export const FAINT_REST_MS = 30_000;
 

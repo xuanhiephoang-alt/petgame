@@ -106,6 +106,7 @@ import {
   type BossStompMessage,
   AGGRESSIVE_SIGHT,
   BERRY_HEAL,
+  EAT_COOLDOWN_MS,
   DAY_LENGTH_MS,
   DAY_START,
   FAINT_REST_MS,
@@ -213,6 +214,8 @@ interface PlayerControl {
   dashLeftMs: number;
   nextDashAt: number;
   invulnerableUntil: number;
+  /** When the next berry may be eaten (clock ms): EAT_COOLDOWN_MS after the last one eaten; a refused try leaves it. */
+  nextEatAt: number;
   /** A skill its owner ordered the following pal to use, until it can (or gives up at `until`). */
   skillOrder?: { companionId: string; skill: string; until: number };
 }
@@ -518,7 +521,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.players.set(client.sessionId, player);
     this.controls.set(client.sessionId, {
       input: { x: 0, y: 0 }, lastAttackAt: 0, lastThrowAt: 0, aggroUntil: 0, token, saveScheduled: false,
-      dashDir: { x: 0, y: 0 }, dashLeftMs: 0, nextDashAt: 0, invulnerableUntil: 0,
+      dashDir: { x: 0, y: 0 }, dashLeftMs: 0, nextDashAt: 0, invulnerableUntil: 0, nextEatAt: 0,
     });
     if (token) liveSessions.set(token, { room: this, sessionId: client.sessionId });
     if (options?.look) this.scheduleSave(client.sessionId); // a look picked before joining
@@ -1115,13 +1118,26 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.scheduleSave(client.sessionId);
   }
 
+  /**
+   * Eats one berry: BERRY_HEAL health at once, then EAT_COOLDOWN_MS before the next, so eating cannot outheal a
+   * fight. What a notice can explain is refused first (no berries, full health); a try while the last berry still
+   * recharges is dropped without a word (the Ăn button shows the countdown). Only a berry eaten starts the wait.
+   */
   private eat(client: Client) {
     const player = this.state.players.get(client.sessionId);
-    if (!player) return;
+    const control = this.controls.get(client.sessionId);
+    if (!player || !control) return;
     if (player.berries <= 0) return this.notify(client, "Hết 🫐 quả mọng", "refused");
     if (player.hp >= player.maxHp) return this.notify(client, "Máu đang đầy", "refused");
+    const now = this.clock.currentTime;
+    // One tick early is let through: the clock only moves once a tick, and a client that waited out its countdown must not be refused.
+    if (now < control.nextEatAt - TICK_MS) return;
+    control.nextEatAt = now + EAT_COOLDOWN_MS;
+    const before = player.hp;
     player.berries -= 1;
     player.hp = Math.min(player.maxHp, player.hp + BERRY_HEAL);
+    const message: HealedMessage = { targetType: "player", targetId: client.sessionId, amount: Math.max(1, Math.round(player.hp - before)), berry: true };
+    this.broadcast(ServerMessage.Healed, message);
     this.scheduleSave(client.sessionId);
   }
 

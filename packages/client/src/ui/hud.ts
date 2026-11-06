@@ -1,4 +1,4 @@
-import { MAX_PLAYERS, RESOURCES, RESOURCE_INFO, type Resource } from "@petgame/shared";
+import { BERRY_HEAL, EAT_COOLDOWN_MS, MAX_PLAYERS, RESOURCES, RESOURCE_INFO, type Resource } from "@petgame/shared";
 import { ToastQueue, toastRoom, type ToastLevel } from "./toastQueue.ts";
 
 /** How long (ms) a toast fades out before its element is removed; matches the CSS transition on `.toast`. */
@@ -21,6 +21,14 @@ export class Hud {
   private lastTime = "";
   private soundButton!: HTMLButtonElement;
   private bossBar!: HTMLDivElement;
+  private eatButton: HTMLButtonElement;
+  private eatCover: HTMLSpanElement;
+  private eatSecs: HTMLSpanElement;
+  /** When the Ăn button is ready again (performance.now ms; 0 = ready), the wait's length, and what is shown now. */
+  private eatUntil = 0;
+  private eatTotal = 1;
+  private eatPercent = 0;
+  private eatSecsShown = 0;
 
   constructor(
     parent: HTMLElement,
@@ -35,12 +43,14 @@ export class Hud {
     this.joystickZone = div("joystick-zone");
     this.health = div("hud-health");
     this.health.innerHTML = `<span class="hud-time"></span><span class="hud-region"></span><span class="hud-heart">❤️</span><div class="hud-hp"><div></div></div><span class="hud-hp-text"></span>`;
-    const eat = document.createElement("button");
-    eat.className = "eat-btn";
-    eat.textContent = "🫐 Ăn";
-    eat.title = "Ăn 1 quả mọng để hồi máu (phím H)";
-    eat.addEventListener("click", actions.eat);
-    this.health.append(eat);
+    this.eatButton = document.createElement("button");
+    this.eatButton.className = "eat-btn";
+    this.eatButton.innerHTML = `<span class="eat-label">🫐 Ăn</span><span class="eat-cd"></span><span class="eat-secs"></span>`;
+    this.eatCover = this.eatButton.querySelector<HTMLSpanElement>(".eat-cd")!;
+    this.eatSecs = this.eatButton.querySelector<HTMLSpanElement>(".eat-secs")!;
+    this.eatButton.title = `Ăn 1 quả mọng: hồi ${BERRY_HEAL} máu, rồi chờ ${EAT_COOLDOWN_MS / 1000} giây mới ăn tiếp (phím H)`;
+    this.eatButton.addEventListener("click", actions.eat);
+    this.health.append(this.eatButton);
     this.soundButton = document.createElement("button");
     this.soundButton.className = "sound-btn";
     this.soundButton.title = "Bật/tắt âm thanh (phím M)";
@@ -79,6 +89,42 @@ export class Hud {
       this.root.append(button("btn-attack", "Đánh", actions.attack), button("btn-capture", "Bắt", actions.capture), button("btn-dash", "💨", actions.dash));
     }
     parent.append(this.root);
+  }
+
+  /** The server let the player eat a berry: the Ăn button recharges for `ms`, counted from now. */
+  eatStarted(ms: number) {
+    this.eatUntil = performance.now() + ms;
+    this.eatTotal = ms;
+  }
+
+  /** Whether the Ăn button has recharged (compared with the clock, not the class, so a slow frame cannot lie). */
+  eatReady(now: number): boolean {
+    return now >= this.eatUntil;
+  }
+
+  /** Shakes the Ăn button: pressed while it recharges. */
+  refuseEat() {
+    this.eatButton.classList.remove("nope");
+    void this.eatButton.offsetWidth; // restart the shake
+    this.eatButton.classList.add("nope");
+  }
+
+  /** Per frame: shrinks the dark sweep and counts the seconds left; the DOM is written only when a shown value changes. */
+  tickEat(now: number) {
+    const left = Math.max(0, this.eatUntil - now);
+    const percent = left > 0 ? Math.ceil((left / this.eatTotal) * 100) : 0;
+    const secs = Math.ceil(left / 1000);
+    if (percent !== this.eatPercent) {
+      this.eatPercent = percent;
+      this.eatCover.style.height = `${percent}%`;
+    }
+    if (secs !== this.eatSecsShown) {
+      this.eatSecsShown = secs;
+      this.eatSecs.textContent = secs > 0 ? String(secs) : "";
+      this.eatButton.classList.toggle("cooling", secs > 0);
+      if (secs > 0) this.eatButton.setAttribute("aria-disabled", "true");
+      else this.eatButton.removeAttribute("aria-disabled");
+    }
   }
 
   setMuted(muted: boolean) {

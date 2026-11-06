@@ -273,7 +273,7 @@ async function labelShots(browser) {
         return found;
       });
       await send(page, "debug:give");
-      for (let i = 0; i < 12; i++) { await send(page, "eat"); await sleep(80); }
+      await send(page, "eat"); // one berry: eating waits 4 s (EAT_COOLDOWN_MS) between berries
       await send(page, "debug:teleport", { x: leader.x + 300, y: leader.y + 20 });
       await settle(page);
       await sleep(1500);

@@ -105,7 +105,7 @@ export const ServerMessage = {
   Fainted: "fainted",
   /** A pal (wild or companion) started a skill: it winds up, then the skill flies and lands. */
   SkillCast: "skillCast",
-  /** A heal skill gave someone health back. */
+  /** Someone got health back: a heal skill, or a player ate a berry. */
   Healed: "healed",
   /** The boss stomped the ground. */
   BossStomp: "bossStomp",
@@ -204,6 +204,8 @@ export interface HealedMessage {
   targetType: "player" | "companion" | "pal";
   targetId: string;
   amount: number;
+  /** A berry the player ate (ClientMessage.Eat), not a skill: the eater's Ăn button recharges for EAT_COOLDOWN_MS. */
+  berry?: boolean;
 }
 
 export interface BossStompMessage {

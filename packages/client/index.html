@@ -87,7 +87,16 @@
       @media (max-width: 600px) { .hud-region { display: none; } }
       .float-text.cold { color: #b3e5fc; font-size: 13px; }
       .float-text.heat { color: #ffab91; font-size: 13px; }
-      .eat-btn { border: none; border-radius: 8px; padding: 4px 8px; font-weight: 600; background: #7e57c2; color: #fff; cursor: pointer; min-height: 30px; }
+      /* The Ăn button (T32): a touch target on every screen, above the joystick's half of the screen (drawn after the HUD
+         column on phones; the column's other buttons are T18). Recharging after a berry: a dark sweep that shrinks and the
+         seconds left, like the skill buttons. */
+      .eat-btn { position: relative; z-index: 1; overflow: hidden; min-width: 44px; min-height: 44px; border: none; border-radius: 8px;
+        padding: 4px 8px; font-weight: 600; background: #7e57c2; color: #fff; cursor: pointer; }
+      .eat-btn .eat-cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0,0,0,0.55); pointer-events: none; }
+      .eat-btn .eat-secs { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+        font-size: 18px; font-weight: 800; text-shadow: 0 1px 3px #000; }
+      .eat-btn.cooling .eat-label { opacity: 0.4; }
+      .eat-btn.nope { animation: skill-nope 0.3s; }
       .hud-left { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
         display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: min(460px, calc(100vw - 190px)); }
       .hud-status {
@@ -319,7 +328,8 @@
         .hud-health { font-size: 12px; gap: 5px; padding: 4px 8px; }
         .hud-hp { width: 64px; }
         .hud-hp-text { font-size: 11px; }
-        .eat-btn, .sound-btn { min-height: 28px; padding: 2px 6px; font-size: 12px; }
+        .eat-btn, .sound-btn { padding: 2px 6px; font-size: 12px; }
+        .sound-btn { min-height: 28px; }
         .hud-status { font-size: 12px; padding: 4px 8px; line-height: 1.6; }
         .hud-quest { font-size: 12px; padding: 4px 8px; }
         .hud-quest small { font-size: 11px; }

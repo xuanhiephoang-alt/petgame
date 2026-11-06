@@ -28,6 +28,8 @@ import {
   workerCap,
   PLAYER_MAX_HP,
   BERRY_HEAL,
+  EAT_COOLDOWN_MS,
+  TICK_MS,
   WildPal,
   OwnedPal,
   Chest,
@@ -608,6 +610,133 @@ describe("combat", () => {
     const before = player.hp;
     await ticks(room, 20);
     expect(player.hp).toBeGreaterThan(before);
+  });
+});
+
+describe("eating berries", () => {
+  const nextEatAt = (room: GameRoom, sessionId: string): number => (room as any).controls.get(sessionId).nextEatAt;
+  const now = (room: GameRoom): number => (room as any).clock.currentTime;
+  /** Ticks until the room's clock reaches `time`. */
+  async function until(room: GameRoom, time: number) {
+    while (now(room) < time) await ticks(room, 1);
+  }
+
+  it("eating: a second berry right away is refused quietly and kept, and goes down once the wait is over", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    player.hp = 20;
+    player.berries = 3;
+    const healed = collect<HealedMessage>(client, ServerMessage.Healed);
+    const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+    const sid = client.sessionId;
+
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(2);
+    expect(healed.filter((m) => m.targetType === "player")).toEqual([{ targetType: "player", targetId: sid, amount: BERRY_HEAL, berry: true }]);
+    const readyAt = nextEatAt(room, sid);
+    expect(readyAt - now(room)).toBeGreaterThan(EAT_COOLDOWN_MS - 500);
+    expect(readyAt - now(room)).toBeLessThanOrEqual(EAT_COOLDOWN_MS);
+
+    // Right away, and then just before the wait is over (less than one tick early is let through, so not that close).
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    await until(room, readyAt - 500);
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(2);
+    expect(healed.filter((m) => m.targetType === "player")).toHaveLength(1);
+    expect(notices).toHaveLength(0);
+    expect(nextEatAt(room, sid)).toBe(readyAt);
+
+    await until(room, readyAt);
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(1);
+    expect(healed.filter((m) => m.targetType === "player")).toHaveLength(2);
+    expect(player.hp).toBeLessThan(100);
+  }, 20_000);
+
+  it("eating: only a berry eaten starts the wait; no berries and full health are said first, even while it runs", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const healed = collect<HealedMessage>(client, ServerMessage.Healed);
+    const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+    const sid = client.sessionId;
+    const eat = async () => {
+      client.send(ClientMessage.Eat);
+      await ticks(room, 2);
+    };
+
+    player.berries = 0;
+    await eat();
+    expect(notices.at(-1)?.text).toBe("Hết 🫐 quả mọng");
+    player.berries = 2;
+    await eat();
+    expect(notices.at(-1)?.text).toBe("Máu đang đầy");
+    // Neither refusal started a wait.
+    player.hp = 50;
+    await eat();
+    expect(player.berries).toBe(1);
+    expect(healed.filter((m) => m.targetType === "player")).toHaveLength(1);
+
+    // While the wait runs, what a notice can say is still said first.
+    player.hp = player.maxHp;
+    let count = notices.length;
+    await eat();
+    expect(notices).toHaveLength(count + 1);
+    expect(notices.at(-1)?.text).toBe("Máu đang đầy");
+    player.berries = 0;
+    player.hp = 50;
+    count = notices.length;
+    await eat();
+    expect(notices).toHaveLength(count + 1);
+    expect(notices.at(-1)?.text).toBe("Hết 🫐 quả mọng");
+    // The wait itself is silent and changes nothing.
+    player.berries = 1;
+    const readyAt = nextEatAt(room, sid);
+    const said = notices.length;
+    await eat();
+    expect(notices).toHaveLength(said);
+    expect(player.berries).toBe(1);
+    expect(nextEatAt(room, sid)).toBe(readyAt);
+  });
+
+  it("eating: one tick early is let through, a little more is not", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const control = (room as any).controls.get(client.sessionId);
+    const serverClient = { sessionId: client.sessionId };
+    player.berries = 3;
+    player.hp = 20;
+    // No await in between: the clock cannot move, so the edge is exact (a message could land a tick later).
+    control.nextEatAt = now(room) + TICK_MS;
+    (room as any).eat(serverClient);
+    expect(player.berries).toBe(2);
+    player.hp = 20;
+    control.nextEatAt = now(room) + TICK_MS + 1;
+    (room as any).eat(serverClient);
+    expect(player.berries).toBe(2);
+  });
+
+  it("eating: each player has their own wait, and everyone near sees the berry heal", async () => {
+    const { room, client, player } = await setup();
+    const other = await colyseus.connectTo(room, { name: "Other" });
+    await room.waitForNextTimestep();
+    const otherPlayer = room.state.players.get(other.sessionId)!;
+    room.state.pals.clear();
+    for (const p of [player, otherPlayer]) {
+      p.hp = 50;
+      p.berries = 2;
+    }
+    const seen = collect<HealedMessage>(other, ServerMessage.Healed);
+    client.send(ClientMessage.Eat);
+    await ticks(room, 1);
+    other.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(1);
+    expect(otherPlayer.berries).toBe(1);
+    await vi.waitFor(() => expect(seen.some((m) => m.targetId === client.sessionId && m.berry === true)).toBe(true));
   });
 });
 
@@ -2202,6 +2331,62 @@ describe("reconnecting after a dropped connection", () => {
     await expect(colyseus.sdk.reconnect(oldToken)).rejects.toThrow();
     expect(room.state.players.size).toBe(1);
     expect(player.offline).toBe(false);
+  });
+
+  it("eating: the wait carries over a dropped connection (same player, still waiting)", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    player.hp = 40;
+    player.berries = 3;
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(2);
+    const control = (room as any).controls.get(sid);
+    control.nextEatAt = (room as any).clock.currentTime + 60_000;
+    const letGo = holdReconnect(client);
+    cutConnection(room, sid);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    const waiting = control.nextEatAt;
+    const back = reconnected(client);
+    letGo();
+    await back;
+    expect(control.nextEatAt).toBe(waiting);
+    expect((room as any).controls.get(sid)).toBe(control);
+    player.hp = 40;
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(2);
+    control.nextEatAt = (room as any).clock.currentTime;
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(1);
+  });
+
+  it("eating: a new session of the same device starts without a wait (and at full health: health is not saved)", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "eat-token-0123456789abcd";
+    const { room, client, player } = await setup(token);
+    room.state.pals.clear();
+    player.hp = 40;
+    player.berries = 3;
+    client.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(player.berries).toBe(2);
+    const oldId = client.sessionId;
+
+    const second = await colyseus.connectTo(room, { name: "Tester", token });
+    await room.waitForNextTimestep();
+    expect(room.state.players.has(oldId)).toBe(false);
+    expect((room as any).controls.has(oldId)).toBe(false);
+    const fresh = room.state.players.get(second.sessionId)!;
+    expect(fresh.hp).toBe(PLAYER_MAX_HP);
+    expect(fresh.berries).toBe(2);
+    room.state.pals.clear();
+    fresh.hp = 40;
+    second.send(ClientMessage.Eat);
+    await ticks(room, 2);
+    expect(fresh.berries).toBe(1);
   });
 
   it("one device, one player: joining again from another tab ends the first session", async () => {

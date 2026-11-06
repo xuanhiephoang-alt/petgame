@@ -239,6 +239,66 @@ test("HUD shows health, time of day and lets you eat berries", async ({ browser 
   await expect(page.locator(".hud-toasts")).toContainText(/quả mọng|Máu đang đầy/);
 });
 
+test("eating: the Ăn button recharges after a berry, and a press while it recharges sends nothing", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Đói", "/", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const eat = page.locator(".eat-btn");
+  const size = await eat.boundingBox();
+  expect(size!.width).toBeGreaterThanOrEqual(44);
+  expect(size!.height).toBeGreaterThanOrEqual(44);
+
+  // Snow by day is cold: health drops on its own, so there is something to eat for (nothing hostile lives there).
+  await sendFrom(page, "debug:give");
+  await sendFrom(page, "debug:teleport", { x: 2440, y: 1760 });
+  const me = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const p = room.state.players.get(room.sessionId);
+    return { berries: p.berries as number, hp: p.hp as number, maxHp: p.maxHp as number };
+  });
+  await expect.poll(async () => {
+    const m = await me();
+    return m.berries >= 50 && m.hp < m.maxHp;
+  }, { timeout: 15_000 }).toBe(true);
+  const berries = (await me()).berries;
+
+  await eat.tap();
+  await expect.poll(async () => (await me()).berries).toBe(berries - 1);
+  await expect(eat).toHaveClass(/cooling/);
+  await expect(page.locator(".eat-secs")).toHaveText(/^[1-4]$/);
+
+  // Pressed while it recharges, all in one go so the countdown cannot end in between: the key, then the button.
+  const pressed = await page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const sent: string[] = [];
+    const send = room.send;
+    room.send = (type: string, ...rest: unknown[]) => {
+      sent.push(type);
+      return send.call(room, type, ...rest);
+    };
+    const button = document.querySelector<HTMLButtonElement>(".eat-btn")!;
+    const cooling = button.classList.contains("cooling");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "h" }));
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "h" }));
+    button.click();
+    room.send = send;
+    return { cooling, sent };
+  });
+  expect(pressed).toEqual({ cooling: true, sent: [] });
+  expect((await shownToasts(page)).join(" ")).not.toMatch(/quả mọng|Máu đang đầy/);
+
+  await expect(eat).not.toHaveClass(/cooling/, { timeout: 10_000 });
+  await expect(page.locator(".eat-secs")).toHaveText("");
+  await expect.poll(async () => {
+    const m = await me();
+    return m.hp < m.maxHp;
+  }).toBe(true);
+  await page.keyboard.press("h");
+  await expect.poll(async () => (await me()).berries).toBe(berries - 2);
+  await expect(eat).toHaveClass(/cooling/);
+});
+
 test("exploring: quest tracker, minimap and opening a treasure chest", async ({ browser }) => {
   const page = await join(browser, "Explorer");
   await waitForWorld(page);
@@ -1429,6 +1489,15 @@ for (const screen of TOAST_SCREENS) {
       expect(toast.bottom, toast.text).toBeLessThanOrEqual(layout.height);
       expect(layout.hud.filter((part) => boxesOverlap(toast, part)).map((part) => part.name), toast.text).toEqual([]);
     }
+    // The Ăn button is a touch target on every screen and lies on top at its centre (the joystick's half of the screen is not over it).
+    const eatButton = await page.evaluate(() => {
+      const r = document.querySelector(".eat-btn")!.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { width: r.width, height: r.height, onTop: !!top?.closest(".eat-btn") };
+    });
+    expect(eatButton.width).toBeGreaterThanOrEqual(44);
+    expect(eatButton.height).toBeGreaterThanOrEqual(44);
+    expect(eatButton.onTop).toBe(true);
     if (screen.name === "phone sideways") {
       // The thumb corner stays free, and the HUD column stays left of the name tags around the player.
       for (const toast of layout.toasts) expect(toast.bottom).toBeLessThanOrEqual(layout.height - 140);

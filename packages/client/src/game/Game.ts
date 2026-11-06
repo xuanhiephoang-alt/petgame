@@ -24,6 +24,7 @@ import {
   DAY_LENGTH_MS,
   daylight,
   phaseAt,
+  EAT_COOLDOWN_MS,
   BOSS,
   ALPHA,
   rewardText,
@@ -241,6 +242,13 @@ export class Game {
     if (this.watch.online) this.room.send(type, message);
   }
 
+  /** Eats a berry (key H or the Ăn button) once the button has recharged; the server checks again and decides. */
+  private eat() {
+    if (!this.watch.online) return;
+    if (!this.hud.eatReady(performance.now())) return this.hud.refuseEat();
+    this.send(ClientMessage.Eat);
+  }
+
   private async init(resolution: number) {
     const container = this.container;
     const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
@@ -265,7 +273,7 @@ export class Game {
       capture: () => this.throwBall(),
       placeBase: () => this.send(ClientMessage.PlaceBase),
       toggleBall: () => this.toggleBall(),
-      eat: () => this.send(ClientMessage.Eat),
+      eat: () => this.eat(),
       toggleSound: () => this.sound.toggleMute(),
     });
     this.hud.setMuted(this.sound.muted);
@@ -303,7 +311,7 @@ export class Game {
       e: () => this.throwBall(),
       b: () => this.send(ClientMessage.PlaceBase),
       r: () => this.toggleBall(),
-      h: () => this.send(ClientMessage.Eat),
+      h: () => this.eat(),
       m: () => this.hud.setMuted(this.sound.toggleMute()),
       n: () => this.minimap.toggle(),
       // Order the following pal's skills (nothing is ordered while the connection is down).
@@ -771,6 +779,8 @@ export class Game {
     this.room.onMessage(ServerMessage.SkillCast, (msg: SkillCastMessage) => this.castSkill(msg));
 
     this.room.onMessage(ServerMessage.Healed, (msg: HealedMessage) => {
+      // A berry this player ate: the Ăn button recharges, counted from now (after the server), so it is never ready first.
+      if (msg.berry && msg.targetType === "player" && msg.targetId === this.room.sessionId) this.hud.eatStarted(EAT_COOLDOWN_MS);
       const target = msg.targetType === "player" ? this.players.get(msg.targetId) : msg.targetType === "companion" ? this.companions.get(msg.targetId) : this.pals.get(msg.targetId);
       if (!target || !this.nearMe(target.actor.pos, 700)) return;
       target.actor.hit(0x69f0ae);
@@ -962,6 +972,7 @@ export class Game {
     this.effects.update(dt);
     this.skillBar.tick(now);
     this.hud.tickToasts(now);
+    this.hud.tickEat(now);
     this.weather.update(t, dt, { x: this.camera.x, y: this.camera.y }, day);
     this.lighting.update(dayTime, this.lights(t));
     const phase = phaseAt(dayTime);
