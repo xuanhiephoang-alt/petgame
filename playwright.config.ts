@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { chromiumLaunchOptions } from "./scripts/chromium.mjs";
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -7,6 +8,8 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:5173",
     ...devices["Desktop Chrome"],
+    // Chromium to start: the cloud container's preinstalled one if present; PETGAME_CHROMIUM overrides (scripts/chromium.mjs).
+    launchOptions: chromiumLaunchOptions(),
   },
   webServer: [
     {

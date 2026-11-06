@@ -106,7 +106,7 @@ Khi đó: ghi vào `QUESTIONS.md` (ngày, mã nhiệm vụ, câu hỏi, bối c�
 
 ## Git và an toàn
 
-- Làm và commit trên nhánh hiện tại; mỗi nhiệm vụ một commit (hoặc vài commit nhỏ có nghĩa).
+- Làm và commit trên nhánh hiện tại; mỗi nhiệm vụ một commit (hoặc vài commit nhỏ có nghĩa). Trên nhánh `claude/...`, commit và push riêng `PLAN.md` (và `BALANCE.md`, tài liệu thiết kế vừa sửa) ngay sau bước 1, để bản thiết kế không mất nếu container bị thay; code vẫn chỉ commit ở bước 6.
 - **Push:** chỉ agent chính, chỉ lên nhánh làm việc tên `claude/...`, đúng dạng `git push -u origin <nhánh>`, ngay sau mỗi commit (phiên cloud chạy trong container tạm: commit chưa push sẽ mất khi container bị thu hồi). **Không** force-push, **không** push lên `main`/`master` hay nhánh khác, **không** xoá nhánh trên remote. Nhánh hiện tại không phải `claude/...` (ví dụ chạy trên máy người dùng) thì không push, người dùng tự push.
 - **Không** `git reset --hard`, **không** xoá thư mục, **không** `git clean` (đã chặn trong `.claude/settings.json`).
 - `.claude/settings.json` cho phép sẵn các lệnh build, test, git add/commit, push lên nhánh `claude/...` và chặn lệnh nguy hiểm; agent không được sửa file này. Cần một lệnh chưa có trong danh sách cho phép: dùng lệnh tương đương đã được phép nếu có, không thì ghi vào `QUESTIONS.md`.
@@ -115,7 +115,8 @@ Khi đó: ghi vào `QUESTIONS.md` (ngày, mã nhiệm vụ, câu hỏi, bối c�
 
 ## Môi trường và lưu ý
 
-- Chromium cho Playwright đã cài sẵn và `@playwright/test` được ghim 1.56.1: **không chạy `playwright install`**.
+- `@playwright/test` được ghim 1.56.1, còn container cloud cài sẵn Chromium khác bản (Chrome 153 ở `/opt/pw-browsers/chromium`, trong khi Playwright 1.56.1 đòi bản 1194). E2E và `npm run shots` tự dùng đường dẫn đó khi có (`scripts/chromium.mjs`), nên cứ chạy thẳng `npm run test:e2e`, không cần `PLAYWRIGHT_BROWSERS_PATH` hay thư mục symlink. **Không chạy `playwright install`.** Ghi đè bằng `PETGAME_CHROMIUM=<đường dẫn tới chrome>`, hoặc `PETGAME_CHROMIUM=playwright` để dùng bản Playwright tự cài (CI đặt sẵn). Đừng đặt `TMPDIR` dài (ví dụ trỏ vào scratchpad) khi chạy: Chrome sẽ báo `Socket path too long` rồi thoát.
+- Container cloud có thể bị thay giữa chừng: mọi file chưa commit và `node_modules` mất, repo trở về commit đã push cuối cùng. Khi thấy `node_modules` trống thì `npm install` lại trước khi làm tiếp.
 - E2E cần cổng 2567 và 5173 trống: tắt server dev trước khi chạy. Chromium vẽ WebGL bằng phần mềm nên game tải chậm (timeout 180 s); chờ `window.__petgame.game.frames` tăng thay vì chờ theo giờ.
 - `node:sqlite` cần Node ≥ 22.13. Test photo3d cần Python với numpy, pillow, scipy, fast-simplification, pytest.
 - Tạo ảnh bằng AI (Figma/Canva MCP) tốn credit của người dùng: chỉ làm khi nhiệm vụ yêu cầu rõ.

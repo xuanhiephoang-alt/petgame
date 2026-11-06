@@ -1,45 +1,35 @@
-# PROGRESS: T7 Thú hoang cấp cao bớt nặng tay
+# PROGRESS: T34 Playwright dùng Chromium cài sẵn
 
 ## Vòng 1: coder
-- Bản làm lại sau khi container bị thay (mọi file chưa commit đã mất, repo về `d68201a`): làm lại đúng các thay đổi của lần trước theo `PLAN.md`.
-- [x] Bước 1: `WILD_DAMAGE_PER_LEVEL` = 0,08, `wildDamage` dùng hằng số (`packages/shared/src/combat.ts`)
-- [x] Bước 2: `WILD_SKILL_MAX_LEVEL` = 8 và `wildSkillLevel` (`packages/shared/src/skills.ts`)
-- [x] Bước 3: `GameRoom.ts` thêm import `wildSkillLevel`, nhánh thú hoang thường dùng `wildSkillLevel(pal.level)`; nhánh trùm, thú đầu đàn và `strike` giữ nguyên (`packages/server/src/rooms/GameRoom.ts`)
-- [x] Bước 4-5: sửa JSDoc `ALPHA.damageMultiplier` (`packages/shared/src/alphas.ts`) và `SkillCastMessage.level` (`packages/shared/src/messages.ts`)
-- [x] Bước 6: unit test `describe("wild pals' bites")`: cắn cấp 1 bằng sức cắn gốc và tăng dần, số 20 / 18 / 10, `companionDamage` 13 / 19, luật 1/3 trên mọi loài cấp 1-14 (`packages/shared/src/combat.test.ts`); `wildSkillLevel` 1 / 7 / 8 / 8 / 8, chiêu 33 / 46 / 24 / 33 / +33 (`packages/shared/src/skills.test.ts`)
-- [x] Bước 7: thêm test "a common wild pal's skill is no stronger than at WILD_SKILL_MAX_LEVEL, however high its level" (Emberpup cấp 14 gửi cast `level` 8, Tàn lửa trúng 15); sửa test thú đi theo thành cấp 14, đổi tên "..., with no cap (unlike wild pals)" (cast `level` 14, Phun lửa trúng 28 > 20) (`packages/server/src/rooms/GameRoom.test.ts`)
-- [x] Bước 8: `docs/architecture.md` hai dòng `skills.ts`, `combat.ts`
-- Lệch kế hoạch: không có
-- Lệnh đã chạy: typecheck ✓, test ✓ (282 test); không đụng client nên không chạy build/e2e
+- [x] Bước 1: `scripts/chromium.mjs` (mới): `PREINSTALLED_CHROMIUM`, `chromiumLaunchOptions(env, exists)` đúng 5 luật của bảng
+- [x] Bước 2: `scripts/chromium.test.mjs` (mới, 6 test) + `vitest.config.ts` thêm `scripts/**/*.test.mjs`
+- [x] Bước 3: `playwright.config.ts`: import + `launchOptions: chromiumLaunchOptions()`
+- [x] Bước 4: `scripts/shots.mjs`: gọi hàm trước build/server, `server.kill()` khi `chromium.launch` ném lỗi, ghi chú cách dùng
+- [x] Bước 5: `.github/workflows/ci.yml`: `PETGAME_CHROMIUM: playwright` ở bước e2e
+- [x] Bước 6: `docs/architecture.md`: ba chỗ sửa mục "Kiểm thử"
+- Bước 7 (`CLAUDE.md`) để agent chính áp dụng.
+- Lệch kế hoạch: không có.
+- Tự kiểm (shell của container đã đặt sẵn `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, không phải tôi đặt; không đặt `TMPDIR`):
+  - `npm run test:e2e -- --workers=1`: 27/28 qua. Hỏng "toasts: the catch and the quest it finishes show together; small notices do not push out a level-up" (dòng 1478, chờ `.hud-toasts`). Chạy lặp 3 lần: Chrome đầy đủ 1/3 qua; headless shell 1243 (qua `PETGAME_CHROMIUM`) 2/3 qua. Hỏng với cả hai trình duyệt nên là test chập chờn (timing), không do việc chọn trình duyệt; tester cần xem lại.
+  - Kiểm 2 (`PLAYWRIGHT_BROWSERS_PATH=` rỗng, "wild pals spawn"): qua. Kiểm 3 (headless shell qua biến): qua. Kiểm 4 (`=playwright`): hỏng đúng với `Executable doesn't exist at .../chromium_headless_shell-1194/...`. Kiểm 5 (`/khong/co`, `--list`): một lỗi có tên biến và đường dẫn.
+  - Kiểm 6 `npm run shots -- --only labels`: "Saved 9 shots to shots/latest/". Kiểm 7 (`/khong/co`, `--no-build`): lỗi ngay trước khi bật server. Sau đó cổng 2599, 2567, 5173 trống (kiểm bằng curl; `ss` không có trong container).
+- Lệnh đã chạy: typecheck ✓, test ✓ (288 test), build ✓
 
-## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (282, chạy 2 lần, cả hai qua)   build ✓   e2e ✓ (28, `--workers=1`, chạy với Chromium thay thế, xem "Lưu ý môi trường")   photo3d (không chạy, không đụng)
-- Kiểm lại từ đầu trên cây hiện tại: HEAD `680d685` (= `a8c9551` cộng một commit chỉ có `BALANCE.md`) cộng diff code/test của coder vòng 1. Diff khớp từng bước 1-8 của PLAN.md, JSDoc đúng nguyên văn. Chạy riêng 4 test T7 (`--reporter=verbose`): đều ✓. Số test 276 → 282 (+4 combat, +1 skills, +1 GameRoom). Không test nào bị xoá hay `.skip`/`.only`. Test thú đi theo chỉ chặt hơn (cấp 10 → 14, thêm 2 kiểm).
-- Đối chiếu số bằng script chỉ đọc, import thẳng `packages/shared/src/index.ts` (`/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t7-check.ts`, có thể mất cùng container). 14/14 số có tên trong PLAN.md khớp.
-  - Cú cắn thú hoang thường ở cấp 6/8/11/14: Emberpup 10/11/13/14; Boulderhorn và Coralcrab 14/16/18/20; Scorchtail và Frostfang 13/14/16/18; Cactoad 11/12/14/16. Khớp bảng mục 2, cả cột "trước". Ở cấp 1, mọi loài cắn bằng sức cắn gốc.
-  - `wildSkillLevel` 1/7/8/14/30 = 1/7/8/8/8. Thú hoang cấp 11 và 14: Động đất 33; Quất đuôi lửa và Hơi thở băng giá 24; Phun lửa và Kẹp càng 20; Ném đá và Vòi nước 17; Mưa hồi máu +33; Tàn lửa 15.
-  - Thú đi theo cấp 14 không bị giới hạn: Động đất 46, Hơi thở băng giá 33, Phun lửa 28. `companionDamage` 9/15 = 13/19.
-  - Thú đầu đàn (không bù, `ALPHA.damageMultiplier` 1):
-    - máu 399/630/792/966/792/1.170;
-    - cắn 16/17/28/33/35/42 → 11/11/19/22/23/27, hệ số để giữ như cũ 1,45-1,56;
-    - chiêu tính ở cấp 8: chiêu thứ 3 của 4 con cấp 18-22 là 40/40/44/37, Sấm sét của Voltmouse 29.
-  - Trùm không đổi: cắn 14, giậm 18, chiêu cấp 4 (Húc sừng 19, Gai đá 33), máu 1.152. `boss.ts` không có trong diff.
-- Luật 1/3: duyệt 13 loài ở cấp 1-14, gồm cú cắn và mọi chiêu không phải hỗ trợ.
-  - Đòn mạnh nhất là 33 (Động đất, Boulderhorn từ cấp 8): 3 × 33 = 99 < 100. Cú cắn mạnh nhất 20. Trước T7 đòn mạnh nhất là 46.
-  - Hai điều kiện ngầm của luật cũng đúng. Thú hoang thường chỉ có cấp 1-14 (`rollWildLevel` với `wildMaxLevel` kẹp ở 14, `GameRoom.ts:2126`). `damage()` chỉ giảm sát thương lên người chơi (khiên, giáp; khắc hệ chỉ áp cho thú đi theo), và không chiêu nào trúng một mục tiêu nhiều lần trong một lần tung.
-- Tiêu chí hoàn thành:
-  - [x] `WILD_DAMAGE_PER_LEVEL` = 0,08, `wildDamage` dùng hằng số này, `companionDamage` không đổi.
-  - [x] `WILD_SKILL_MAX_LEVEL` = 8 và `wildSkillLevel`, JSDoc như bước 1-2.
-  - [x] `GameRoom.ts` chỉ đổi import và dòng nhánh thú hoang thường (nay là dòng 696). Nhánh trùm, nhánh đầu đàn và `strike` giữ nguyên.
-  - [x] `ALPHA`, `ALPHAS`, `BOSS`, `SKILL_LEVEL_SCALING` và nhịp đánh (1200 / 450 / 2500 ms, ×1,3) không đổi. JSDoc của `damageMultiplier` và `SkillCastMessage.level` đã sửa. Không đụng client, `schema.ts`, `store.ts`.
-  - [x] Unit test đủ: 20/18/10; 13/19; 1/7/8/8/8; 33/46/24/+33; luật 1/3.
-  - [x] Test tích hợp đủ: thú hoang cast `level` 8, Tàn lửa trúng 15; thú đi theo cast `level` 14, Phun lửa trúng 28.
-  - [x] typecheck, test, e2e qua.
-  - [x] `docs/architecture.md` có hai dòng của bước 8.
-  - [x] Số trong `docs/design/pals.md` (bảng đầu đàn; luật 1/3: 33 và 20) và `docs/design/skills.md` (33, 24, +33) khớp code.
-- Lưu ý môi trường (không phải lỗi T7, không chặn):
-  - Container mới chỉ có Chromium bản 1243 (Chrome for Testing 153) trong `/opt/pw-browsers`, còn `@playwright/test` 1.56.1 cần bản 1194. Chạy thẳng `npm run test:e2e` thì cả 28 test hỏng sau vài ms: `browserType.launch: Executable doesn't exist at /opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`.
-  - Cách đã làm: không chạy `playwright install`, không sửa repo hay `/opt`. Dựng một thư mục symlink tạm trong scratchpad theo bố cục bản 1194, trỏ về bản 1243, rồi chạy `PLAYWRIGHT_BROWSERS_PATH=<thư mục đó> npm run test:e2e -- --workers=1`: 28/28 qua (4,0 phút).
-  - CI không bị ảnh hưởng vì tự chạy `npx playwright install --with-deps chromium`. Agent chính cần quyết cách sửa lâu dài cho môi trường cục bộ.
-- Lỗi: không có.
-- Test đã thêm: không (coder đã thêm đủ test PLAN.md yêu cầu).
+## Kiểm thử vòng 1: FAIL (chỉ vì một test e2e chập chờn có sẵn trong test, không do T34)
+- typecheck ✓   test ✓ (288, 25 file, gồm 6 test của `scripts/chromium.test.mjs`)   build ✓   e2e: cả bộ `--workers=1` 28/28 ✓ ở lần chạy này; riêng test toasts hỏng 3/12 và 2/10 lần chạy lặp   photo3d (không chạy)   shots `--only labels` ✓ (9 ảnh)
+- Tiêu chí hoàn thành: [x] chọn trình duyệt đúng 5 luật (mặc định dùng `/opt/pw-browsers/chromium`; `PLAYWRIGHT_BROWSERS_PATH` đặt hay để trống đều chạy)  [x] `shots` chạy được  [x] CI: `PETGAME_CHROMIUM: playwright` cho `{}` nên hành vi CI không đổi (kiểm: `=playwright` trong container này báo đúng `Executable doesn't exist .../chromium_headless_shell-1194`, vì container không cài bản 1194; CI cài bản đó bằng `playwright install`)  [ ] "cả bộ e2e qua" không ổn định vì lỗi 1
+- Lỗi 1 (chập chờn, nguyên nhân gốc là test): `npx playwright test -g "the catch and the quest it finishes"` -> `expect(locator).toContainText(/Máu đang đầy|Hết 🫐 quả mọng/) ... Received string: "" ... waiting for locator('.hud-toasts')` tại `tests/e2e/multiplayer.spec.ts:1478`. Tần suất: 2/10 (lần chạy 1), 3/12 (lần có đo thêm); lần chạy cả bộ qua. Nguyên nhân: phím `h` gửi `Eat`; server (`GameRoom.ts:1119-1126`, `eat()`) chỉ báo "Máu đang đầy" khi máu đã đầy, còn khi máu chưa đầy (và còn quả mọng) thì ăn im lặng, không có thông báo. Sau lần bắt đầu tiên nhiệm vụ `first_catch` thưởng 5 quả mọng (`shared/quests.ts:20`), nên `h` luôn có quả; thú hoang vừa bị ném bóng đôi khi cắn người chơi trước đó. Đo bằng bản sao tạm của test (đã xoá) in `hp` ngay trước khi bấm phím: mọi lần hỏng có `hp` < 100 (66, 53, 92.4), mọi lần qua có `hp` = 100. Không liên quan đến `toastQueue.ts`/`hud.ts`, thời điểm tin server, hay trình duyệt.
+  - Cách sửa đề xuất (sửa test, không đụng code sản phẩm): trước khi bấm phím, đưa người chơi về máu đầy có điều kiện chắc chắn, hoặc bỏ phụ thuộc vào `h`: dùng một phím từ chối luôn có thông báo cục bộ (ví dụ `4`/`r` đã có "Chưa có 🔵 Bóng xịn") hoặc để người chơi hết quả mọng rồi mới bấm `h` (-> "Hết 🫐 quả mọng"). Hoặc chờ `me.hp === me.maxHp` bằng `expect.poll` trước dòng 1476 (kèm thêm bước loại bỏ thú hoang gần đó nếu hồi máu chậm).
+- Test đã thêm: không (không sửa file test theo luật "không làm yếu test"; lỗi nằm ở giả định của test, chờ coder sửa theo đề xuất).
+
+## Vòng 2: coder
+- [x] Lỗi 1 (test "toasts: ... small notices do not push out a level-up" chập chờn): chỉ sửa `tests/e2e/multiplayer.spec.ts`. Trước `debug:givePal`, dịch người chơi đi xa thú hoang (`debug:teleport` tới 3150,2500) rồi `expect.poll` chờ `hp >= maxHp`, nên phím `h` luôn ra "Máu đang đầy". Chỉ chờ hp thôi là chưa đủ: thú hoang còn đứng gần cứ cắn nên máu không hồi (5 giây không bị đánh mới hồi), lần thử đó hỏng 1/12. Không đổi code sản phẩm, không nới kiểm tra.
+- Lệch kế hoạch: không có.
+- Tự kiểm: test này 12/12 và 12/12 qua (hai đợt `--repeat-each=12 --workers=1`); cả bộ `npm run test:e2e -- --workers=1`: 28 passed; cổng 2599/2567/5173 trống.
+- Lệnh đã chạy: typecheck ✓, test ✓ (vòng 1: 288 test; vòng 2 chỉ đổi file e2e)
+
+## Kiểm thử vòng 2: PASS
+- typecheck ✓   test ✓ (288)   e2e ✓ cả bộ `--workers=1` 28/28   test toasts lặp `--repeat-each=20`: 20/20 qua, không lần nào hỏng (kể cả bước bắt thú)   shots `--only labels` ✓   photo3d (không chạy)
+- Tiêu chí T34: [x] chạy thẳng không cần đặt biến trình duyệt  [x] shots  [x] CI không đổi (`PETGAME_CHROMIUM: playwright` -> `{}`)  [x] cả bộ e2e qua
+- Lỗi vòng 1 đã hết: bản sửa (teleport + chờ hp đầy) đúng nguyên nhân gốc. Cộng dồn vòng 1+2 bước bắt thú không hỏng lần nào trong 20+ lượt ở phía tôi.
+- Test đã thêm: không.

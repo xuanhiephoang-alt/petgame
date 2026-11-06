@@ -1,73 +1,99 @@
 PASS
-# REVIEW: T7 Giảm sức mạnh chiêu và cú cắn của thú hoang cấp cao, vòng 1
+# REVIEW: T34 Playwright dùng Chromium cài sẵn ở `/opt/pw-browsers/chromium`, vòng 2
 
 ## Kết luận
 
-Thay đổi làm đúng từng bước 1-8 của `PLAN.md`: 2 hằng số, 1 hàm thuần, 1 dòng server, 2 JSDoc, test, `docs/architecture.md`. Không làm thừa, không đụng client, `schema.ts`, `store.ts`. Reviewer đã tính lại mọi số trong PLAN và `docs/design/` từ logic shared, tất cả khớp code. Reviewer tự chạy lại: typecheck sạch, 282/282 test qua, test tích hợp mới qua 4/4 lần chạy riêng. Test này bắt đúng hành vi: bỏ giới hạn ở `GameRoom.ts:696` thì tin cast mang cấp 14, sát thương 20, test đỏ.
+Phần chính của T34 làm đúng PLAN và đã được kiểm chứng:
+- `chromiumLaunchOptions` theo đúng thứ tự 5 luật, logic chỉ nằm một chỗ và được `playwright.config.ts`, `scripts/shots.mjs` dùng chung;
+- CI và máy người dùng chạy như cũ;
+- `shots.mjs` tắt server khi trình duyệt không mở được.
+
+Bản sửa test toasts đúng nguyên nhân gốc (phím `h` chỉ báo "Máu đang đầy" khi máu đầy) và không nới kiểm tra nào. Test vẫn còn một đường hỏng hiếm, ước tính khoảng 1-2% (việc mới 1). Đường này không làm FAIL: bản sửa chỉ làm test tốt hơn HEAD (đang hỏng 20-25%) và không sinh lỗi mới.
 
 ## Lỗi phải sửa
 
-Không có.
-
-## Đã xác minh
-
-- **Chỉ một chỗ thú hoang tung chiêu:** `GameRoom.ts:696` là lời gọi `startCast("wild", …)` duy nhất trong mã sản phẩm.
-  - `land` (`:1433`) và `support` (`:1504`) dùng `cast.level`, nên cả sát thương lên người chơi và thú đi theo lẫn lượng máu thú hoang tự hồi đều theo cấp đã giới hạn.
-  - Nhánh trùm (`BOSS.skillLevel`) và nhánh thú đầu đàn (`Math.min(pal.level, ALPHA.skillLevel)`) giữ nguyên. Đúng quyết định "không bù, trùm không đổi" của PLAN.
-  - Không đường nào tạo được thú hoang thường cấp > 14:
-    - `debug:spawnPal` đi qua `spawnPal`, tức `rollWildLevel` ≤ `wildMaxLevel` ≤ 14;
-    - thả thú (`release`) không sinh thú hoang;
-    - khi bắt, chiêu đang gồng bị huỷ (`cancelCasts`), thú thành thú đi theo giữ cấp thật.
-- **Thú đi theo không bị giới hạn:**
-  - Cả 3 lời gọi `startCast("companion", …)` đều truyền `owned.level`: tự động (`:816`), lệnh hồi máu/khiên (`:1367`), lệnh đánh (`:1397`).
-  - `companionDamage` (`progression.ts:58`), `skillPower` và `SKILL_LEVEL_SCALING` không đổi.
-- **`wildDamage`** chỉ được dùng ở `strike` (`:1263`).
-  - Cú cắn thú đầu đàn (×1) thành 11/11/19/22/23/27, đúng bảng trong `pals.md`; hệ số để giữ như cũ là 1,45-1,56.
-  - Trùm vẫn cắn cố định 14.
-  - `daycycle.test.ts:51` vẫn đúng (13 > 10).
-  - Client không dùng `wildDamage`, cũng không đọc `SkillCastMessage.level` (`Game.castSkill`), nên server mới chạy được với client cũ.
-- **Số liệu tính lại bằng `@petgame/shared`:**
-  - Thú đầu đàn:
-    - máu 399/630/792/966/792/1.170;
-    - chiêu thứ 3 tính ở cấp 8 là 40/40/44/37.
-  - Trùm không đổi: dậm 18, chiêu 19/33, máu 1.152.
-  - Mọi ô ở bảng mục 2 của PLAN đều khớp (cắn, chiêu, Mưa hồi máu +33).
-  - Đòn mạnh nhất của thú hoang thường ở cấp 1-14 là 33 (Động đất từ cấp 8; trước T7 là 46), cú cắn mạnh nhất 20.
-  - Không có món đồ nào cộng thêm máu tối đa cho người chơi (`player.maxHp = PLAYER_MAX_HP`), nên luật 1/3 đúng như mô tả.
-- **Test:**
-  - Luật 1/3 duyệt mọi loài ở cấp 1..`wildMaxLevel(1)`, tự gồm chiêu thứ 3 nếu sau này nâng cấp tối đa.
-  - Test thú đi theo cấp 14 kiểm cả tin cast `level` 14 lẫn sát thương 28 > 20.
-  - Test thú hoang tách cú cắn ra khỏi chỗ chiêu rơi bằng `wildAggro.delete`. Emberpup có tính khí tự vệ, nên không tự tìm mục tiêu mới (`wildTarget`, `:1660`).
-- `git diff --check` sạch. Quy ước tên, JSDoc tiếng Anh và import `.ts` đều đúng.
+Không còn.
 
 ## Góp ý không bắt buộc
 
-- `docs/design/pals.md:205`: câu "Trước T7 … các số này ngắn hơn 20-65%" không khớp bảng ngay trên.
-  - Theo bảng, số trước T7 chỉ ngắn hơn 2-39%. Đồng cỏ gần như không đổi: 8,8 / 12,7 / 6,5 so với 9,6 / 13,9 / 6,6. Sa mạc 2 thú: 2,9 so với 3,2.
-  - "20-65%" là mức "sau T7 dài hơn" ở vùng xa, lấy từ `BALANCE.md`.
-  - Gợi ý: "ngắn hơn tới khoảng 40% ở vùng xa (đồng cỏ gần như không đổi)".
-- `docs/design/pals.md:172` (câu có từ trước): "cấp tối đa từ 6 … đến 14 (góc bản đồ)".
-  - Quét lưới 8 px trên đất liền: độ nguy hiểm cao nhất là 0,908 (đảo, tại (256, 240)), tức `wildMaxLevel` 13. Cấp 14 không bao giờ sinh ra.
-  - Câu ngay sau ("12-13 ở đảo") đã đúng. Gợi ý sửa thành "đến 13 (đảo hoang; 14 cần độ nguy hiểm ≥ 0,94, hiện không có đất nào như vậy)".
-  - Test luật 1/3 vẫn nên duyệt tới 14 (chặt hơn).
-- `GameRoom.ts:696`: biểu thức 3 nhánh còn viết tay `Math.min(pal.level, ALPHA.skillLevel)` cho thú đầu đàn, và nhánh này chưa có test đơn vị. Có thể gom cấp sức mạnh chiêu của mọi thú hoang vào một hàm thuần trong shared (ví dụ `wildCastLevel(level, { boss, alpha })`) rồi test cả 3 nhánh. Hợp làm cùng T10 (tách `GameRoom.ts`).
-- Đường ra lệnh 1-3 (`obey`) chưa có kiểm "cast `level` = cấp thú khi cấp > 8". Code không đổi nên không bắt buộc. Thêm một kiểm vào test "runs up to the nearest wild pal and uses the skill it was told to", với thú cấp 9 trở lên, là khoá được luật "thú đi theo không bị giới hạn" cho mọi đường tung chiêu.
-- `BALANCE.md` còn hai lỗi nhỏ PLAN đã chỉ ra:
-  - dòng "đầm lầy, cactoad 11" ở hai bảng thời gian trụ, trong khi Cactoad chỉ sống ở sa mạc;
-  - câu "cấp 6 ở cỏ chỉ giảm 1", trong khi thực tế giảm 2 (12 → 10).
+- **Test toasts còn một đường hỏng hiếm** (đề xuất thành việc mới 1).
+  - Nguồn gốc nằm ở `tests/e2e/multiplayer.spec.ts:1450-1460`: `throwAtNearest` cứ 900 ms ném một bóng vào con thú gần nhất.
+    - Con thú debug bị xoá khỏi state ngay khi bắt được, nhưng vòng ném vẫn chạy đến khi poll thấy cả hai toast. Toast "Bắt được" chỉ hiện sau `captureRevealMs`, tức 1,9 s.
+    - Vì vậy còn khoảng 2 lần ném nữa, nhắm vào con gần nhất kế tiếp. Server nhận nếu con đó cách dưới 180 px (`THROW_RANGE`). 80 thú được rải đều, nên khoảng 24% số lần chạy có một con như vậy.
+  - Nếu con đó là emberpup hoặc pebblet (loài phòng thủ, chiếm 39% thú đồng cỏ) và thoát bóng, nó cắn người ném suốt `WILD_AGGRO_MS` = 8 s.
+    - Trong thời gian đó `wildTarget` đuổi theo mục tiêu dù xa đến đâu (`GameRoom.ts:1653-1658`). Dịch 104 px (từ chỗ xuất hiện (3120,2400) tới (3150,2500)) **không** thoát được nó.
+    - Lần dịch chỉ làm trượt hoặc chậm khoảng một cú cắn: đòn đang vung thì trượt vì ra ngoài `WILD_BITE_REACH`, rồi con thú phải đuổi lại.
+    - Chú thích ở dòng 1473 ("Step away from the wild pals so health regenerates") vì thế không đúng.
+  - Ví dụ: một emberpup cấp cao cắn 9-10 máu mỗi cú. Khoảng 5 cú làm mất 45-50 máu, cú cuối ở khoảng t0+9 s.
+    - Máu bắt đầu hồi 5 s sau cú cuối, mỗi giây 4 máu, nên đầy ở khoảng t0+25,5 đến t0+26,8 s.
+    - Poll bắt đầu khoảng t0+5,5 s và chờ 20 s, tức hạn khoảng t0+25,5 s. Máu đầy đúng hạn hoặc muộn hơn, nên test hỏng ở poll (chưa tính chiêu của thú hoang).
+    - Cả đường này ước tính 1-2% số lần chạy. Con số đó khớp với 0/44 lần hỏng đã đo, vì 44 lần chưa đủ để loại trừ.
+  - Cách sửa tất định:
+    - Lấy id con thú debug: con có `hp === 1` ngay sau `debug:spawnPal` (`GameRoom.ts:403`). Chỉ ném vào id đó.
+    - Bắt xong, server bỏ qua id không còn (`handleThrow`: `if (!pal) return`), nên không con nào khác bị chọc.
+    - Giữ poll chờ máu đầy, vì chính con thú debug vẫn cắn được vài cú khi một lần ném trượt.
+    - Bỏ bước dịch tới (3150,2500), hoặc sửa chú thích cho đúng.
+- **Ghi chép cần chính xác hơn.** `PROGRESS.md` vòng 2 ghi "Lệch kế hoạch: không có", trong khi mục "KHÔNG làm" của PLAN dặn không sửa `tests/e2e/multiplayer.spec.ts`. Việc sửa là cần, vì tester vòng 1 FAIL. Nên ghi rõ đây là lệch kế hoạch, và commit message của T34 nhắc thêm việc sửa test toasts.
+- **`chromiumLaunchOptions` nhận cả thư mục.** Hàm kiểm bằng `existsSync`, nên một thư mục vẫn lọt qua, ví dụ `PETGAME_CHROMIUM=/opt/pw-browsers`.
+  - Khi đó mỗi worker hỏng lúc mở trình duyệt, còn lời báo lỗi lại nói "no file there".
+  - Có thể kiểm bằng `statSync(p, { throwIfNoEntry: false })?.isFile()`, vẫn truyền vào từ ngoài được để test.
+- **`scripts/shots.mjs` còn ba đường bỏ lại server.** Cả ba có từ trước và nằm ngoài phạm vi PLAN:
+  - `browser.close()` trong `finally` mà ném lỗi thì `server.kill()` bị bỏ qua. Nên viết `try { await browser.close(); } finally { server.kill(); }`.
+  - Vòng chờ `/healthz` hết 30 s thì lặng lẽ chạy tiếp, và script nói chuyện với bất cứ thứ gì đang giữ cổng 2599, kể cả server mồ côi của lần trước. Nên báo lỗi, gọi `server.kill()` rồi thoát.
+  - SIGTERM chỉ gửi tới tiến trình node (CI huỷ job, lệnh `timeout`, công cụ chạy quá giờ) bỏ lại server. Nên bắt SIGINT và SIGTERM để tắt server.
+- **Đoạn đề xuất cho `CLAUDE.md` ghi cứng "Chrome 153".** Con số đúng hiện nay nhưng sẽ cũ khi ảnh container đổi. Có thể viết "(hiện là Chrome 153)".
 
-  PLAN và `docs/design/` đã dùng số đúng. Chỉ cần sửa nếu muốn `BALANCE.md` sạch trong commit.
+## Đã kiểm
+
+- **`scripts/chromium.mjs` theo đúng thứ tự luật:**
+  - `playwright`;
+  - đường dẫn: không có file thì ném lỗi, nêu tên biến và đường dẫn;
+  - `/opt/pw-browsers/chromium` nếu có;
+  - `{}`.
+
+  Chuỗi được `trim()`, rỗng hay chỉ có dấu cách thì coi như chưa đặt. Hàm không in gì và mỗi lần gọi trả một object mới. Nếu symlink `/opt` hỏng, `existsSync` trả false và hàm lùi về `{}`, đúng ý.
+- **Chỉ một chỗ chọn trình duyệt.** Grep cả repo (trừ `node_modules`):
+  - `chromium.launch` chỉ có ở `scripts/shots.mjs:293`;
+  - `executablePath` chỉ có trong `scripts/chromium.mjs` và test của nó.
+
+  `playwright.config.ts` chỉ thêm import, một dòng chú thích và `launchOptions`.
+- **CI và máy người dùng chạy như cũ:**
+  - CI đặt `PETGAME_CHROMIUM: playwright`, nên hàm trả `{}`, giống hệt lúc chưa có `launchOptions`. Đọc YAML ra đúng `env` của bước e2e. Bước `npx playwright install --with-deps chromium` giữ nguyên.
+  - Máy người dùng cũng ra `{}`. Trên Windows, đường dẫn `/opt/...` thành `C:\opt\...`, không tồn tại.
+  - Job `check` chạy unit test mới mà không đụng ổ đĩa.
+- **Unit test:** `npx vitest run scripts/chromium.test.mjs` cho 6/6 qua, đủ 6 trường hợp của PLAN. `exists` là hàm giả, nên test không đọc hệ thống file.
+- **`shots.mjs` khi trình duyệt không mở được.** Tôi tự chạy `PETGAME_CHROMIUM=playwright node scripts/shots.mjs --only labels --no-build`; trong container không có bản 1194 nên trình duyệt không mở được.
+  - Kết quả: thoát mã 1 sau 2 s tại `shots.mjs:293`, cổng 2599 trống, không còn tiến trình server.
+  - `PETGAME_CHROMIUM` sai thì báo lỗi ở dòng 25, trước khi build hay bật server.
+- **Vị trí (3150,2500) không gây phụ thuộc mong manh:**
+  - Không vướng vật cản: test dash ở `multiplayer.spec.ts:374-375` dịch tới đúng điểm này và kiểm `x` bằng 3150.
+  - Nằm trong đồng cỏ, nên không bị hại do khí hậu (`climateHazard`).
+  - Đồng cỏ không có loài hung dữ. Ban ngày: leafkit 28%, bubbloon 22%, voltmouse 11% (hiền); emberpup 22%, pebblet 17% (phòng thủ).
+  - Hang thú đầu đàn đồng cỏ cách đó 753 px, xa hơn tầm nhìn 170 px và tầm đi dạo 128 px của nó.
+  - Thú hoang vẫn có thể đứng gần điểm đó: chúng được rải đều bằng `randomPoint` rồi đi lang thang. Nhưng thú đồng cỏ không tự tấn công khi chưa bị chọc.
+- **Không tăng timeout hay thêm retry:** poll chờ máu đầy (20 s) là chờ theo trạng thái, nằm trong ngân sách `test.slow()`. Các kiểm tra của test giữ nguyên.
+- **Tài liệu khớp code.**
+  - `docs/architecture.md` khớp code.
+  - Đoạn đề xuất cho `CLAUDE.md` (Thiết kế 5 của PLAN) cũng khớp code cuối cùng:
+    - e2e và shots tự dùng `/opt/pw-browsers/chromium`;
+    - không cần `PLAYWRIGHT_BROWSERS_PATH`;
+    - ghi đè bằng đường dẫn, hoặc bằng `playwright` (CI đặt sẵn);
+    - có cảnh báo về `TMPDIR` dài.
+
+    Agent chính thay dòng 118 trong cùng commit.
+  - Không còn tài liệu nào hướng dẫn cách cũ. `.claude/agents/tester.md` vẫn đúng.
 
 ## Việc mới nên đưa vào TASKS.md
 
-- **T32 (P2) Ăn quả mọng không có hồi chiêu.** Đề xuất từ PLAN, reviewer đã kiểm trong code.
-  - `eat` (`GameRoom.ts:1118`) hồi `BERRY_HEAL` mỗi lần bấm, không giới hạn nhịp. Người có N quả coi như có 100 + 20N máu giữa trận, làm mất tác dụng các số thời gian trụ của T7 và mốc trận thú đầu đàn.
-  - Game-designer chọn cách làm: hồi chiêu khoảng 1-2 giây kèm đếm ngược trên nút "Ăn", hoặc hồi máu dần.
-  - Server kiểm tra, có test.
-- **T33 (P3, chỉ làm nếu chơi thử thấy nhạt) Trận thú đầu đàn đồng cỏ quá ngắn.** Đề xuất từ PLAN.
-  - Voltmouse cấp 15 có 399 máu, bị hạ trong khoảng 5-8 giây khi đánh liên tục, dưới mốc "vài chục giây".
-  - Cân nhắc hệ số máu riêng cho từng thú đầu đàn (trường mới trong `ALPHAS`) thay vì đổi `ALPHA.hpMultiplier` chung.
-- **T35 (P3) Dọn nhỏ sau T7.** Gồm 4 góp ý đầu ở trên:
-  - sửa `docs/design/pals.md:172` và `:205`;
-  - gom cấp sức mạnh chiêu của thú hoang (trùm, thú đầu đàn, thú thường) vào một hàm thuần có test, nếu không làm cùng T10;
-  - thêm kiểm cấp chiêu cho đường ra lệnh 1-3 của thú đi theo.
+1. **P1 (nhỏ): làm test "toasts: the catch and the quest it finishes..." chạy tất định.**
+   - Chỉ ném vào con thú debug theo id, không ném vào "con gần nhất".
+   - Bỏ bước dịch tới (3150,2500), hoặc sửa chú thích ở dòng 1473.
+   - Kiểm bằng `--repeat-each=30 --workers=1`.
+
+   Lý do và con số ở góp ý đầu tiên phía trên.
+2. **P3: `scripts/shots.mjs` không để server cổng 2599 mồ côi ở mọi đường lỗi.**
+   - `browser.close()` ném lỗi.
+   - `/healthz` không trả lời.
+   - Nhận SIGINT hoặc SIGTERM.
+
+   Làm luôn việc `chromiumLaunchOptions` kiểm "là file" thay vì chỉ "tồn tại".

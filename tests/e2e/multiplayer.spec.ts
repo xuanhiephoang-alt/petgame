@@ -1469,6 +1469,14 @@ test("toasts: the catch and the quest it finishes show together; small notices d
 
   // A level-up with a new skill, then three keys that are refused: the level-up stays, the newest feedback takes the other place.
   await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
+  // "h" only refuses ("Máu đang đầy") at full health; a wild pal may have bitten during the catch, and eating while hurt is silent.
+  // Step away from the wild pals so health regenerates (no regen while taking bites), then wait for full health.
+  await sendFrom(page, "debug:teleport", { x: 3150, y: 2500 });
+  await expect.poll(() => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const me = room.state.players.get(room.sessionId);
+    return me.hp >= me.maxHp;
+  }), { timeout: 20_000 }).toBe(true);
   await sendFrom(page, "debug:givePal", { species: "emberpup", level: 6 });
   await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBeGreaterThanOrEqual(1);
   await sendFrom(page, "debug:xp", { amount: 450 });

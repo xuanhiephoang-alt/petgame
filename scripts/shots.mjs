@@ -4,11 +4,13 @@
 // Usage: npm run shots -- --name before   → shots/before/*.png + report.json
 //        --only world|labels   → just that group (default: both); "labels" is the crowded name-tag scenes
 //        --no-build            → skip the client build
+//        PETGAME_CHROMIUM=<path>|playwright → choose the browser, same as e2e (scripts/chromium.mjs)
 import { createRequire } from "node:module";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, devices } from "@playwright/test";
+import { chromiumLaunchOptions } from "./chromium.mjs";
 
 const args = process.argv.slice(2);
 const name = args.includes("--name") ? args[args.indexOf("--name") + 1] : "latest";
@@ -19,6 +21,8 @@ for (const group of only) {
     process.exit(1);
   }
 }
+// Fails at once on a bad PETGAME_CHROMIUM, before any build or server.
+const launchOptions = chromiumLaunchOptions();
 const port = 2599;
 const out = join("shots", name);
 mkdirSync(out, { recursive: true });
@@ -284,7 +288,14 @@ async function labelShots(browser) {
   }
 }
 
-const browser = await chromium.launch();
+let browser;
+try {
+  browser = await chromium.launch(launchOptions);
+} catch (err) {
+  // Do not leave the server on the port behind when the browser cannot start.
+  server.kill();
+  throw err;
+}
 try {
   if (only.has("world")) await worldShots(browser);
   if (only.has("labels")) await labelShots(browser);
