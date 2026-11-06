@@ -1446,18 +1446,24 @@ test("toasts: the catch and the quest it finishes show together; small notices d
   await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
 
   // The first catch: "Bắt được" and "Xong nhiệm vụ" are both high, so both are on screen at the same time.
-  await sendFrom(page, "debug:spawnPal");
-  const throwAtNearest = () => page.evaluate(() => {
+  const before = await page.evaluate(() => [...(window as any).__petgame.room.state.pals.keys()] as string[]);
+  await sendFrom(page, "debug:spawnPal", { species: "emberpup" });
+  // Balls go only at the pal the hook made (a new id, the only pal at 1 HP), never at "the nearest": once this one is caught that is some wild pal, and one that breaks out fights back for 8 s however far we go. An Emberpup comes at us when a ball does not hold, so it stays in throwing range; a timid pal would run out of it.
+  const spawned = () => page.evaluate((known) => {
     const { room } = (window as any).__petgame;
-    const me = room.state.players.get(room.sessionId);
-    let nearest = "", best = Infinity;
+    const found: string[] = [];
     room.state.pals.forEach((p: any, id: string) => {
-      const d = Math.hypot(p.x - me.x, p.y - me.y);
-      if (d < best) { best = d; nearest = id; }
+      if (!known.includes(id) && p.hp === 1) found.push(id);
     });
-    if (nearest) room.send("throw", { palId: nearest });
-  });
-  const thrower = setInterval(() => void throwAtNearest().catch(() => {}), 900);
+    return found;
+  }, before);
+  await expect.poll(spawned).toHaveLength(1);
+  const [palId] = await spawned();
+  const throwAtSpawned = () => page.evaluate((id) => {
+    const { room } = (window as any).__petgame;
+    if (room.state.pals.has(id)) room.send("throw", { palId: id });
+  }, palId);
+  const thrower = setInterval(() => void throwAtSpawned().catch(() => {}), 900);
   try {
     await expect.poll(async () => {
       const shown = await shownToasts(page);
@@ -1466,12 +1472,12 @@ test("toasts: the catch and the quest it finishes show together; small notices d
   } finally {
     clearInterval(thrower);
   }
+  // The one catch is the pal the hook made: nothing else was thrown at.
+  expect((await partyOf(page)).species).toEqual(["emberpup"]);
 
   // A level-up with a new skill, then three keys that are refused: the level-up stays, the newest feedback takes the other place.
   await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
-  // "h" only refuses ("Máu đang đầy") at full health; a wild pal may have bitten during the catch, and eating while hurt is silent.
-  // Step away from the wild pals so health regenerates (no regen while taking bites), then wait for full health.
-  await sendFrom(page, "debug:teleport", { x: 3150, y: 2500 });
+  // "h" only refuses ("Máu đang đầy") at full health; eating while hurt is silent. Only the spawned Emberpup can have bitten (when a ball did not hold), and it is caught: health comes back 5 s after its last bite, 4 a second.
   await expect.poll(() => page.evaluate(() => {
     const { room } = (window as any).__petgame;
     const me = room.state.players.get(room.sessionId);
