@@ -149,9 +149,25 @@ Nhãn đã thu gọn hoặc ẩn phải có chỗ liên tục 1/4 giây mới hi
 
 ## Tính khí
 
-- **passive** (hiền): không bao giờ tấn công.
-- **defensive** (tự vệ): đánh trả ai đánh nó trong 8 giây.
-- **aggressive** (hung dữ): chủ động tấn công người/thú trong tầm 120 px.
+Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì khi không ai động tới, và khi bị đánh. Số liệu ở `combat.ts`, luật ở `GameRoom.ts` (`provoke`, `wildTarget`).
+
+| Tính khí | Loài | Không ai động tới | Bị đánh |
+|---|---|---|---|
+| **passive** (hiền) | Leafkit, Bubbloon, Voltmouse, Mothlume, Bogbloom | lang thang, không bao giờ tấn công | chạy trốn 2,5 giây |
+| **defensive** (tự vệ) | Emberpup, Pebblet, Ripplefin, Frostfang, Cactoad, Coralcrab | lang thang | lao vào kẻ đánh, cắn và tung chiêu trong 8 giây |
+| **aggressive** (hung dữ) | Boulderhorn, Scorchtail | tấn công người chơi hoặc thú đi theo gần nhất trong 120 px (`AGGRESSIVE_SIGHT`) | như thú tự vệ |
+
+- **Bị đánh** gồm đòn của người chơi, đòn và chiêu của thú đi theo, và cả **bóng không giữ được**: thú thoát khỏi bóng coi như vừa bị người ném đánh.
+- **Chạy trốn và đuổi theo** đều nhanh gấp 1,8 lần lúc lang thang (`WILD_CHASE_SPEED_FACTOR`).
+  - **Thú hiền** chạy thẳng ra xa kẻ đánh trong 2,5 giây (`FLEE_MS`), tính lại sau mỗi đòn. Voltmouse chạy 171 px/s, nhanh hơn người chơi (160 px/s, việc T27), nên đi được khoảng 430 px; Leafkit khoảng 225 px. Không bị ném lại ngay thì nó ra khỏi tầm ném bóng (180 px).
+  - **Thú tự vệ** đuổi theo kẻ đánh nó sau cùng trong 8 giây (`WILD_AGGRO_MS`), tính lại sau mỗi đòn, **bất kể người chơi chạy xa bao nhiêu** (Emberpup đuổi 126 px/s). Không có dây giới hạn, nên chạy ra xa không cắt đuôi được; lướt chỉ làm trượt cú cắn đang gồng. Mỗi cú cắn đẩy người chơi lùi 16 px, ra xa con thú.
+- Thú đang choáng (6 giây) hoặc đang trong bóng thì đứng yên, không cắn. Thú hiền bị đánh tới choáng thì thôi chạy trốn.
+- Thú đầu đàn không theo bảng này: canh lãnh địa, tấn công cả khi là loài hiền, không bỏ chạy, có dây giới hạn (mục "Thú đầu đàn").
+
+**Đòn đánh và bóng trúng con nào:**
+- **Đánh** (Space, nút Đánh): server cho trúng thú hoang **gần nhất trong tầm vũ khí** (tay không 48 px). Người chơi không chọn được con nào. Chỉ khi không có thú nào trong tầm thì đòn mới hái quả, chặt cây hay đập đá.
+- **Bắt** (E, nút Bắt): bóng bay tới thú hoang gần nhất trong 180 px (`THROW_RANGE`); client chọn con, server kiểm lại tầm.
+- Vì vậy một thú hoang đi ngang qua có thể nhận đòn hay quả bóng định cho con khác; nếu là thú tự vệ thì nó đánh lại.
 
 Trường `spawn.biomes` (`meadow`, `lake`, `snow`, `desert`, `swamp`, `volcano`, `island`) và `spawn.time` (`any`, `day`, `night`) quyết định thú xuất hiện ở đâu, khi nào.
 

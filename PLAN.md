@@ -1,545 +1,363 @@
-# PLAN: T39 Trên điện thoại, vùng joystick che nút ở cột trái; nút "Ăn" chạy theo `pointerdown`
+# PLAN: T37 Hai test e2e còn nhắm "con thú gần nhất" (gameplay đánh choáng, thú đi theo sau khi bắt)
 
 ## Mục tiêu
 
-- **Vấn đề** (đo ở HEAD `6b64730`, mục Thiết kế 1):
-  - Trên điện thoại, chạm 🔊 hay 🔗 Mời bạn là bật cần điều khiển chứ không bấm nút, cả khi cầm dọc lẫn cầm ngang.
-    - Người chơi điện thoại không tắt được tiếng.
-    - Họ cũng không mời bạn được: trên điện thoại ô trạng thái chỉ có nút mời, không có link.
-  - **Phát hiện thêm khi lập kế hoạch:** khi cầm dọc (390×844), nút ⚪ Bóng thường / 🔵 Bóng xịn cũng bị che (tâm nút ở x 172, nửa trái là 0-195), nên không đổi được loại bóng.
-  - Nút 🫐 Ăn nghe `click`, mà trên điện thoại ngón thứ hai chạm vào nút không sinh `click`. Vì vậy khi đang giữ cần điều khiển để chạy né, chạm Ăn bằng ngón kia **không ăn được**, đúng lúc cần ăn nhất (đo được, mục Thiết kế 1).
+- **Vấn đề** (đo ở HEAD `b7a3403`, mục Thiết kế 1): hai test e2e hỏng oan vì đánh hoặc ném vào "thú hoang gần nhất", mà con gần nhất có thể là một thú hoang đi ngang qua.
+  - "gameplay: chop a tree, dash, and knock out a dizzy pal": hỏng **3/30** lần đo, ở ba chỗ khác nhau. Trước đó tester T39 đo được 2/10 (code trước T39) và 1/31 trong bộ đầy đủ.
+  - "a captured pal follows the player and shows in the party panel": hỏng **6/53** lần đo hợp lệ (11%), thêm 1 lần qua nhờ may (bắt nhầm một thú hoang khác).
+
+  Đội chấm PASS dựa vào e2e, nên mỗi lần hỏng oan tốn một vòng sửa.
 - **Sau nhiệm vụ:**
-  - Mọi nút ở nửa trái màn hình chạm được: 🫐 Ăn, 🔊, 🔗 Mời bạn, nút Bóng.
-  - Chạm chỗ không phải nút trong nửa trái vẫn bật cần điều khiển như trước, kể cả trên các ô của cột trái. Nhờ vậy cần điều khiển vẫn bật được trên 96% nửa trái.
-  - Kéo cần điều khiển qua nút không bấm nút.
-  - Ăn được bằng ngón thứ hai trong lúc ngón kia giữ cần điều khiển. Chuột và phím H vẫn như cũ.
-  - Desktop không đổi gì.
+  - Hai test chỉ tác động lên con thú debug của mình: bóng ném theo id; đòn đánh thì đứng đúng chỗ con thú đó.
+  - Phím Space chỉ được bấm để chặt cây khi không thú hoang nào kịp chen vào tầm đánh.
+  - Test thú đi theo bắt đúng một con, bỏ hai chỗ chờ cứng.
+  - Hai helper dùng chung với test toasts (T36).
+- Người chơi không thấy gì khác. Mục "Tính khí" trong `docs/design/pals.md` đã ghi luật (game-designer đã sửa trong nhiệm vụ này).
 
 ## Phạm vi
 
 Làm:
-- CSS (`packages/client/index.html`):
-  - `.joystick-zone` thành lớp dưới cùng của HUD (`z-index: -1`);
-  - trên cảm ứng, các ô của cột trái cho chạm xuyên xuống nó, chỉ nút trong cột nhận chạm;
-  - bỏ `z-index: 1` riêng của nút Ăn, sửa chú thích CSS của nút.
-- `hud.ts`:
-  - HUD có lớp `touch` khi dùng cảm ứng;
-  - nút Ăn nghe `pointerdown` qua một hàm dùng chung với các nút Đánh, Bắt, 💨.
-- JSDoc của `joystick.ts`.
-- E2E:
-  - 2 test mới `touch (phone upright|phone sideways)`;
-  - sửa một bước của test "eating:" (T32) cho đúng đường `pointerdown`.
-- `docs/architecture.md`.
-- Tài liệu thiết kế đã cập nhật trong lúc lập kế hoạch, coder không cần sửa: `docs/design/hud.md`, gồm
-  - mục mới "Cần điều khiển và nút cảm ứng";
-  - dòng "Lớp vẽ";
-  - bảng Bố cục;
-  - mục "Nút 🫐 Ăn";
-  - bỏ dòng "còn tồn tại" về vùng cần điều khiển.
+- `tests/e2e/multiplayer.spec.ts`:
+  - thêm 2 helper;
+  - sửa 2 test hỏng;
+  - cho test toasts (T36) và test "party: let a pal go..." dùng helper, hành vi giữ nguyên.
+- Một câu trong dòng "Helper" của `docs/architecture.md`.
+
+Số dòng trong file này tính theo HEAD `b7a3403`.
 
 KHÔNG làm:
-- **Không đổi cỡ hay vị trí nút nào.** Đó là việc của T18. Sau nhiệm vụ này các nút vẫn giữ cỡ cũ:
-  - 🔊: 34×28 khi cầm dọc, 34×30 khi cầm ngang;
-  - 🔗 Mời bạn: 88×21;
-  - nút Bóng: cao 28.
-- **Không đổi bố cục:** không đổi `display`, kích thước, khoảng cách, thứ tự. Thông báo không dời một pixel nào, nên 3 test bố cục toasts giữ nguyên.
-- **Không chuyển nút nào khác sang `pointerdown`:**
-  - 🔗 Mời bạn phải giữ `click` (mục Thiết kế 4);
-  - 🔊, nút Bóng, nút mở bảng và nút trong bảng giữ `click`. Nút Bóng là đề xuất việc riêng ở cuối.
-- **Không sửa logic của `joystick.ts`:** giữ `setPointerCapture`, giữ vị trí `.joystick-base` (vẫn là con của vùng).
-- **Không đụng `Game.ts`** (`Game.eat()` giữ nguyên), server, shared, schema, message, `Profile`.
-- **Không gom `skillbar.ts`** vào hàm dùng chung mới; file đó giữ code `pointerdown` riêng của nó.
-- **Không thêm** hook `debug:*`, không thêm chữ hiển thị mới, không đổi `user-select`.
+- **Không đổi code sản phẩm** (`packages/*`), không thêm hook debug. Mọi thứ cần đã có sẵn:
+  - tin `throw` nhận `palId`;
+  - `debug:spawnPal` nhận `species`;
+  - `debug:teleport`.
+- Không sửa hành vi game liên quan. Đó là việc riêng: Voltmouse chạy nhanh hơn người chơi (T27), dấu thú đang nhắm (T28).
+- Giữ nguyên:
+  - tên test, `test.slow()`;
+  - bước lướt (dòng 557-567);
+  - chờ 800 ms sau khi dịch tới cây (dòng 549);
+  - chờ 500 ms giữa hai lần Space đánh choáng (dòng 577): giữ nhịp hồi đòn 400 ms;
+  - chờ 2500 ms trước khi tải lại trang ở test thú đi theo (dòng 190): chờ lưu game, không liên quan việc bắt;
+  - mọi kiểm tra không nêu ở dưới.
+
+  Không thêm retry, không nới điều kiện kiểm tra.
 
 ## Thiết kế
 
-### 1. Hiện trạng (HEAD `6b64730`)
+### 1. Đo nguyên nhân
 
-**Thứ tự lớp.**
-- `.hud` (`index.html:77`) là `position: absolute; z-index: 2; pointer-events: none`, nên tạo lớp xếp chồng riêng.
-- Con trực tiếp của nó, theo thứ tự được gắn vào DOM:
-  - `hud.ts:62` `.boss-bar`;
-  - `:66` `.hud-left`;
-  - `:80` `.base-btn`;
-  - `:85` `.ball-btn`;
-  - `:88` `.joystick-zone` (chỉ khi cảm ứng);
-  - `:89` Đánh, Bắt, 💨;
-  - rồi `Game.ts:286-304`: bảng Thú (z 3), thanh chiêu, bản đồ nhỏ, bảng Chế tạo và Tủ đồ (z 3).
-- `.joystick-zone` (`index.html:128`) là `position: absolute`, nửa trái, z-index auto, `pointer-events: auto`.
-- `.hud-left` (`:100`) cũng z-index auto và không tạo lớp riêng. Ba ô của nó đặt `pointer-events: auto`:
-  - `.hud-health` (`:78-80`);
-  - `.hud-status` (`:102-104`);
-  - `.hud-quest` (`:105-106`).
-- `.hud-toasts` (`:119-120`) là z 4 và `pointer-events: none`.
-- Các phần tử định vị cùng z auto được vẽ theo thứ tự DOM. Vì vậy vùng cần điều khiển (gắn sau) nằm trên `.hud-left`, `.base-btn`, `.ball-btn`, và `elementFromPoint` trả về vùng trước. Phần gắn sau vùng (Đánh, Bắt, 💨, thanh chiêu, bản đồ) và các lớp z 3-6 thì nằm trên vùng.
-- **T32 nâng riêng nút Ăn** bằng `position: relative; z-index: 1` (`index.html:93`). Nút có z dương trong lớp của `.hud` nên thoát lên trên vùng. Các nút khác trong cột thì không được nâng.
+**Cách đo.** Chép mỗi test thành một bản có ghi chép trong scratchpad: đúng các bước và các lần chờ, chỉ thêm phần ghi lại, không tác động gì.
+- Phần ghi lại gồm:
+  - tin server (`hit`, `defeated`, `damage`, `captureResult`, `notice`);
+  - mọi tin trang gửi, kèm vị trí người chơi;
+  - các thú trong 300 px ở mỗi bước (id, loài, cấp, máu, choáng, khoảng cách);
+  - mẫu 10 lần mỗi giây.
+- Chạy bằng chính config Playwright của repo (cùng server, trình duyệt), `--repeat-each=30 --workers=1`.
 
-**Bộ nghe chạm.**
-- `pointerdown` + `preventDefault()`:
-  - Đánh, Bắt, 💨 (`hud.ts:239-242`);
-  - ô chiêu và Tự động (`skillbar.ts:50-53, 59-62`).
-- `click`:
-  - Ăn (`hud.ts:52`);
-  - 🔊 (`:57`);
-  - 🔗 Mời bạn: `click` gắn trên `.hud-status`, dò ra nút bằng `closest` (`:68-74`);
-  - nút Bóng (`:84`) và các nút bảng.
-- Vùng cần điều khiển nghe `pointerdown` và giữ ngón bằng `setPointerCapture` (`joystick.ts:24-33`).
+**Luật gốc** (đọc trong code):
+- Đòn đánh không mang mục tiêu: `ClientMessage.Attack` không có payload.
+- Server cho trúng **thú hoang gần nhất trong tầm vũ khí**: `handleAttack` (`GameRoom.ts:843-869`) gọi `nearestPal(player, weapon.range)` (`2111-2124`), tay không 48 px (`ATTACK_RANGE`, `constants.ts:19`). Chỉ khi không có con nào trong tầm thì mới hái quả, chặt cây (`854-856`).
+- Con thú debug xuất hiện cách người chơi 40 px về bên phải (`GameRoom.ts:404`), máu 1, đứng yên 60 giây.
 
-**Cách đo.**
-- Dựng game thật: server `PETGAME_DEBUG=1`, DB trong RAM, Vite.
-- Dùng Playwright 1.56.1 với Chromium cài sẵn, trang `hasTouch`, `isMobile`. Script chỉ đọc, đặt trong scratchpad.
-- Chạm thật bằng CDP `Input.dispatchTouchEvent`.
-- Cách sửa được thử bằng CSS chèn vào trang lúc chạy, không đổi file nào.
+**Test gameplay: hỏng 3/30, cả ba do Space trúng một thú hoang khác.** Xác nhận giả thuyết, và lộ thêm chỗ chặt cây.
 
-**Nút ở nửa trái màn hình** (lúc đo, tâm nút trả về gì với `elementFromPoint`; cột cuối là kết quả `locator.tap()` của Playwright):
+| Lượt | Hỏng ở | Bằng chứng |
+|---|---|---|
+| 28 | dòng 574, `dizzyPals` chờ 1, nhận 0 | Một Pebblet hoang cấp 4 (đầy máu) đứng yên cách người chơi 33,2 px, gần hơn con thú debug (40 px). Space đầu trúng con hoang; nó đánh lại (4 cú cắn, Ném đá). |
+| 0 | dòng 579, `dizzyPals` chờ 0, nhận 1 | Space đầu làm con thú debug choáng. Rồi một Bubbloon hoang cấp 1 đi tới cách 17,9 px; Space thứ hai trúng nó, con thú debug vẫn choáng. |
+| 11 | dòng 554, `wood >= 3`, nhận 0 | Một Pebblet hoang cấp 2 ở trong 48 px quanh chỗ chặt cây. 7/8 lần Space trúng thú (con Pebblet, một Leafkit đi qua). Con Pebblet đánh lại (Ném đá, 2 cú cắn), đẩy người chơi lùi 44 px khỏi cây. |
 
-| Khung hình | Nút | Hộp: x, y, rộng×cao | Ở tâm nút | `tap()` |
-|---|---|---|---|---|
-| 390×844 | 🫐 Ăn | 20, 36, 46×44 | chính nút (z 1 của T32) | được |
-| 390×844 | 🔊 | 71, 44, 34×28 | `joystick-zone` | hỏng: "`<div class="joystick-zone">` intercepts pointer events" |
-| 390×844 | 🔗 Mời bạn | 24, 111, 88×21 | `joystick-zone` | hỏng (như trên) |
-| 390×844 | ⚪ Bóng thường | 105, 696, 135×28 | `joystick-zone` | hỏng (như trên) |
-| 844×390 | 🫐 Ăn | 214, 16, 54×44 | chính nút | được |
-| 844×390 | 🔊 | 20, 65, 34×30 | `joystick-zone` | hỏng (như trên) |
-| 844×390 | 🔗 Mời bạn | 204, 107, 88×21 | `joystick-zone` | hỏng (như trên) |
-| 844×390 | ⚪ Bóng thường | ở nửa phải (x 569-694) | chính nút | được |
+- Các lượt qua cũng suýt hỏng: 6/30 lượt có một thú hoang khác trong 48 px lúc bấm Space sau khi tạo thú; 2 trong số đó trong 40 px, chính là lượt 0 và 28.
+- Ước tính tĩnh với luật sinh thú của server (20.000 thế giới):
+  - có thú hoang trong 40 px quanh chỗ dừng sau khi lướt: 3,3% mỗi thời điểm;
+  - có thú hoang trong 48 px quanh chỗ chặt cây: 3,2% mỗi thời điểm.
 
-- **Các ô của cột** (hàng máu, trạng thái, nhiệm vụ): ở cả hai khung hình đều nằm dưới vùng, nên chạm vào ô là bật cần điều khiển.
-- **Bảng và lớp phủ:** khi mở bảng Thú, Chế tạo, Tủ đồ (z 3), bản đồ phóng to (z 4) hay hộp thả thú (z 5), mọi nút của chúng ở nửa trái đều nằm trên vùng. Vùng không che nút nào của bảng, trước và sau khi sửa đều vậy.
-- **Thanh chiêu:** ở 844×390, nút "Tự động" (x 385-468) chờm vào mép vùng nhưng được gắn sau vùng nên nằm trên.
-- **Hai ngón:**
-  - Ngón 1 giữ yên ở chỗ trống: (98, 633) khi dọc, (211, 293) khi ngang. Ngón 2 chạm tâm nút Ăn. Người chơi đang mất máu vì lạnh ở vùng tuyết.
-  - Nút nhận `pointerdown` và `pointerup` (`isPrimary: false`) nhưng **không có `click`**. Không tin nào được gửi, quả vẫn 50 → 50, ở cả hai khung hình.
-  - Thêm thử một bộ nghe `pointerdown` gọi `game.eat()`: tin `eat` được gửi, quả 50 → 49, nút hiện hồi chiêu.
-  - Một ngón chạm Ăn thì có `click` như thường.
-- **Kéo từ chỗ trống tới 🔊 rồi nhấc ngón trên 🔊:** chỉ vùng nhận sự kiện (nó giữ ngón), 🔊 không đổi, không gửi gì. Đúng cả trước lẫn sau khi sửa.
+**Test thú đi theo: hỏng 6/53 lượt hợp lệ, cả 6 ở dòng 185** (`hasBase`).
+- Đo hai đợt 30 lượt. Đợt 1 có 7 lượt hỏng do lỗi của chính bản ghi chép, không tính: bản ghi chạy trước khi `game` có, vì test này không chờ khung hình đầu. Đợt 2 đã sửa bản ghi, 30/30 lượt hợp lệ.
+- **Đường 1, ném nhầm sau khi bắt: cả 6 lượt hỏng đều do đường này.**
+  - Vòng ném trong trang (dòng 145-153) kiểm `me().pals.length === 0` ở đầu mỗi vòng. Lúc đó tin ném vừa gửi, server chưa trả lời.
+  - Rồi nó ngủ 900 ms và ném vào con gần nhất, không kiểm lại. Vậy là sau mỗi lần bắt luôn có **thêm một quả bóng** vào "con gần nhất" (53/53 lượt). Con đó ở xa hơn 180 px thì server bỏ qua.
+  - 20/53 lượt có thú hoang trong 180 px nhận quả bóng thừa. Con đó đầy máu nên 15 lần bóng vỡ, và khi thoát bóng nó bị chọc (`breakOut` gọi `provoke`). 5 lần còn lại bắt thêm được con thứ hai.
+  - Nếu con bị chọc là thú tự vệ (Emberpup, Pebblet; 10/53 lượt), nó đuổi cắn suốt phần còn lại của test. Ở các lượt hỏng: 4-7 cú cắn và 1-2 lần Ném đá hoặc Tàn lửa, mất 34-66 máu. Mỗi cú cắn đẩy người chơi 16 px ra xa nó.
+  - Khi nó đến từ phía tây hoặc tây nam, người chơi bị đẩy về phía lửa trại chung. Trại phải cách lửa trại ít nhất 96 px (`BASE_MIN_CAMPFIRE_DISTANCE`, `work.ts:27`), mà chỗ xuất phát chỉ cách 110,9 px.
+  - Server báo "Quá gần lửa trại chung" (`GameRoom.ts:1036`), `hasBase` không bao giờ thành true, test hỏng ở dòng 185. Lúc bấm dựng trại, người chơi ở cách lửa trại 71-91 px (6 lượt hỏng).
+- **Đường 2, thú hiền chạy khỏi tầm, rồi ném nhầm trước khi bắt** (đợt 1, lượt 25):
+  - Con thú debug là Leafkit cấp 1 (tỉ lệ bắt 0,90) nhưng thoát bóng lần đầu, chạy trốn 2,5 giây, dừng ở 267 px (ngoài tầm ném 180 px), rồi đứng yên.
+  - Vòng ném chuyển sang con gần nhất: một Emberpup hoang cách 48 px. Bóng vỡ một lần, lần sau bắt được.
+  - Test qua nhờ bắt nhầm con khác. Không có con Emberpup đó thì mọi lần ném sau bị từ chối, 0 lần bắt, hỏng ở dòng 158.
+  - Mô phỏng của T36: đường này xảy ra ở 0,28-0,49% số lượt.
+- Quả bóng thừa bắt thêm con thứ hai ở 5/53 lượt. Đó chính là lý do của kiểm "một con trở lên" (dòng 157-158) và hai chỗ chờ cứng (dòng 154 và 166-167: "một quả bóng đang bay có thể bắt thêm con nữa"). Hết quả bóng thừa thì kiểm được đúng 1 và bỏ hai chỗ chờ.
 
-### 2. Cách sửa: vùng cần điều khiển là lớp dưới cùng của HUD; trên cảm ứng, các ô của cột cho chạm xuyên
+### 2. Cách làm tất định
 
-Luật (đã ghi vào `docs/design/hud.md`, mục "Cần điều khiển và nút cảm ứng"):
-1. `.joystick-zone { z-index: -1 }`.
-   - Vùng nằm trong lớp xếp chồng của `.hud` (z 2), nên vẫn ở trên nhãn tên (z 1) và canvas.
-   - Trong HUD, nó nằm dưới mọi thứ khác: chỉ nhận chạm mà không thứ gì khác nhận.
-   - Mọi nút ở nửa trái tự nằm trên nó, kể cả nút thêm sau này, không cần nhớ tự nâng.
-2. **Chỉ trên cảm ứng** (lớp `touch` trên `.hud`, đặt khi `isTouch`, đúng lúc vùng được tạo):
-   - `.hud-health`, `.hud-status`, `.hud-quest` đặt `pointer-events: none`, chạm xuyên xuống vùng như thông báo vẫn làm;
-   - nút trong `.hud-left` đặt `pointer-events: auto`.
-   - Hệ quả, ghi trong chú thích CSS và `hud.md`: chỗ nhận chạm trong cột phải là `<button>`.
-3. Bỏ `z-index: 1` của `.eat-btn`, vì nút đã nằm trên vùng như mọi nút khác.
-   - Giữ `position: relative` (chỗ dựa của lớp tối `.eat-cd` và số giây `.eat-secs`) và `overflow: hidden`.
-4. Kéo cần điều khiển không bấm nút: giữ nguyên `setPointerCapture` (đã đo, mục 1). Ngón chạm xuống trên nút thì bấm nút, vùng không nhận ngón đó.
-5. Desktop: không có vùng cũng không có lớp `touch`, nên các ô giữ `pointer-events: auto`. Link mời trong ô trạng thái vẫn chọn và bấm được.
+**a) Hai helper dùng chung**, đặt ngay sau `sendFrom` (dòng 985):
+- `spawnWeakPal(page, species?)`: tạo thú yếu cạnh người chơi, trả id của nó. Đó là con duy nhất vừa xuất hiện mà có 1 máu: thú hoang luôn sinh ra đầy máu, hook đặt máu 1, id không bao giờ dùng lại. Poll đến khi có đúng một con như vậy.
+  - Thay 2 chỗ đang chép tay (test toasts, dòng 1652-1664; test "party: let a pal go...", dòng 932-944), và dùng ở 2 test cần sửa.
+- `throwingAt(page, palId, wait)`: trong lúc chờ `wait`, cứ 900 ms ném một quả bóng vào đúng id đó, và chỉ khi con đó còn trong thế giới; `wait` xong (qua hay hỏng) thì dừng.
+  - Server nhận một quả mỗi 800 ms (`THROW_COOLDOWN_MS`).
+  - Dùng ở test toasts và test thú đi theo.
+  - Bọc `wait` thay vì trả hàm dừng, để không chép khối `try/finally` ở mỗi chỗ, và poll bên trong vẫn giữ matcher riêng của nó.
+- Hàm kiểm thú hoang quanh người chơi (bước 5) chỉ dùng trong một test nên để cục bộ trong test đó.
 
-**Đo cách sửa** (CSS chèn lúc chạy; lưới 10 px trên nửa trái):
+**b) Test thú đi theo: một con Emberpup, chỉ ném vào nó.**
+- `spawnWeakPal(page, "emberpup")`, rồi `throwingAt` với poll `partyOf(page).species` bằng `["emberpup"]`, timeout 15 s.
+- **Đúng một lần bắt:**
+  - Chỉ con này bị ném. Bắt được thì server xoá nó khỏi thế giới và thêm vào túi trong cùng một lần xử lý (`GameRoom.ts:923-931`), nên client thấy hai việc trong cùng một bản cập nhật.
+  - Từ đó vòng ném không gửi gì nữa. Một tin ném đang trên đường thì trỏ tới id server đã xoá, bị bỏ qua (`GameRoom.ts:893`).
+  - Không thú hoang nào khác bị chọc, nên đường 1 hết.
+- **Chọn Emberpup:**
+  - Loài tự vệ: bóng vỡ thì nó lao vào người ném, luôn trong tầm cho lần ném sau. Đường 2 hết (thú hiền thì chạy khỏi tầm).
+  - Nó đứng cách người chơi 40 px về phía **đông** (`GameRoom.ts:404`), còn lửa trại ở phía đông bắc, tại (3200, 2323). Cú cắn đẩy người chơi ra xa con thú, tức về phía tây, xa lửa trại hơn.
+  - Cấp ≤ 6 quanh chỗ xuất phát, nên chiêu duy nhất là Tàn lửa, không đẩy lùi (`skills.json`). Pebblet thì có Ném đá, đẩy lùi 12 px từ chỗ đá rơi, khó đoán hướng.
+  - Vật cản gần chỗ xuất phát nhất cách 196 px, nên bị đẩy cũng không làm chỗ dựng trại "vướng cây hoặc đá".
+- **Số liệu:** tỉ lệ bắt 85,8-88,1% ở 1 máu (cấp 1-6). Mô phỏng T36 (400.000 lượt): không lượt nào hết 15 giây mà chưa bắt được; 12,6% số lượt có ít nhất một quả bóng vỡ (khi đó nó cắn được khoảng một cú trước quả sau).
+- **Bỏ hai chỗ chờ cứng:**
+  - `await sleep(500)` (dòng 154) mất theo vòng ném cũ;
+  - `await page.waitForTimeout(1500)` (dòng 166-167): thay bằng kiểm chữ chính xác `🐾 Thú (1)` (assertion tự chờ).
+- Sau khi tải lại, kiểm `pals` bằng đúng 1 thay cho "≥ số đã bắt" (dòng 194). Biến `caught` và hàm `partySize` không còn dùng, xoá.
 
-| | 390×844 | 844×390 | Mọi nút ở nửa trái nằm trên cùng tại tâm |
-|---|---|---|---|
-| HEAD | cần điều khiển bật được ở 99% nửa trái | 98% | không (🔊, 🔗, nút Bóng khi dọc) |
-| Chỉ `z-index: -1`, các ô vẫn chặn chạm | 79% | 72% | có |
-| **Chọn:** `z-index: -1` + ô cho chạm xuyên trên cảm ứng | **96%** | **96%** | **có** |
+**c) Test gameplay, bước đánh choáng: đứng đúng chỗ con thú debug.**
+- Đòn đánh không nhận id (client không chọn được), nên không "đánh theo id" được.
+- Thay vào đó: tạo bằng `spawnWeakPal(page, "pebblet")`, đọc x, y của nó, rồi `debug:teleport` người chơi tới đúng chỗ đó, khoảng cách 0.
+  - `nearestPal` luôn chọn nó, vì con khác phải gần hơn 0 px.
+  - Con thú không dời chỗ: hook cho đứng yên 60 giây, thú đang choáng không bị đòn đẩy lùi (`GameRoom.ts:868`, điều kiện `!pal.dizzy`), và không gì khác chọc nó.
+- **Chỗ đó trống:**
+  - Kiểm bằng `worldgen`: trên đường y = 2500 từ x 3150 đến 3624, không vật cản nào chạm thân bán kính 17 (Pebblet; người chơi 14).
+  - Chỗ dừng sau khi lướt đo được 3283-3291, tức con thú ở 3323-3331.
+  - Vì vậy `debug:teleport` đặt người chơi đúng toạ độ: hàm `resolve` chỉ dời chỗ bị vướng.
+- Điều kiện trước: poll đến khi người chơi cách con thú dưới 1 px. Nếu có gì lạ thì test hỏng ngay ở đây, không chập chờn.
+- Kiểm theo id thay cho đếm mọi thú đang choáng:
+  - con này choáng sau Space thứ nhất;
+  - không còn trong thế giới sau Space thứ hai.
+  - Giữ kiểm nhãn `.label.pal.dizzy` (1 cái) và kiểm đá tăng: Pebblet hệ đất luôn rơi ≥ 1 đá.
+- Bỏ `waitForTimeout(800)` sau khi tạo thú (dòng 571): `spawnWeakPal` đã chờ con thú có trong state, và poll khoảng cách chờ lần dịch chỗ.
 
-4% còn lại chính là các nút: Ăn, 🔊, 🔗, nút Bóng, mép nút Tự động.
+**d) Test gameplay, bước chặt cây: chỉ bấm khi không thú hoang nào trong 100 px.**
+- Không có cách nhắm vào cây. Trước mỗi lần Space, poll đến khi không thú hoang nào cách người chơi ≤ 100 px, timeout 60 s.
+- **Vì sao 100 px:**
+  - Thú chưa bị chọc lang thang tối đa 95 px/s (Voltmouse).
+  - Từ lúc đọc state tới lúc server xử lý tin đánh: state cũ tối đa 50 ms, cộng đường đi của phím bấm. Đo được: từ lúc gửi `attack` tới lúc nhận kết quả (`hit` hoặc `gathered`) mất 129-239 ms, trung vị 202 ms (151 lần bấm).
+  - Trong 0,5 giây (gấp đôi độ trễ đo được), thú lang thang đi tối đa 48 px. Từ ngoài 100 px vào tới 48 px phải đi hơn 52 px, nên không kịp.
+  - Mô phỏng bằng chính code lang thang của server (`newBrain`, `stepWander`, quay lại ở bờ biển) trên bản đồ thật, độ trễ 500 ms, 20.000 lượt: 0/60.000 lần bấm có thú lọt vào 48 px trước khi đòn tới.
+  - Với 80 px thì có 6/12.000 lần, nên không dùng.
+- **Thời gian chờ** (cùng mô phỏng):
+  - 17% số lượt phải chờ;
+  - tổng thời gian chờ: p90 4 giây, p99 19 giây, lớn nhất 64 giây (ba lần bấm);
+  - không lần chờ đơn nào quá 60 giây (quá 45 giây: 2-7 lần trong 60.000).
+- Giữ vòng tối đa 8 lần bấm và các kiểm tra: mỗi lần bấm giờ đều chặt, nên vòng dừng sau 3 lần.
+- Cây số 278 (gần chỗ xuất phát nhất) giữ nguyên: 29/30 lượt đo (trừ lượt 11 bị chen) đều có đúng 3 lần `gathered` vào cây này, không lần nào trúng thú.
 
-Lý do chọn:
-- Một quy tắc sửa mọi nút đang bị che, kể cả nút Bóng mà mô tả nhiệm vụ không nêu, và mọi nút sau này.
-- Cần điều khiển gần như giữ nguyên chỗ bật như hiện nay (96% so với 98-99%). Nếu để các ô chặn chạm thì khi cầm ngang mất 26% nửa trái.
-- Không đổi bố cục, nên không động tới thông báo hay test toasts. Desktop không đổi.
+**Đã thử trước** ở scratchpad: viết lại hai test đúng theo các bước 1, 4, 5 dưới đây, chạy 15 lượt mỗi test, 30/30 qua.
+- Test gameplay:
+  - chờ ở cây 2/15 lượt (7,4 và 11,5 giây);
+  - không đòn nào trúng thú ở cây;
+  - cả hai đòn sau khi tạo thú đều trúng con thú debug.
+- Test thú đi theo: chỉ có tin về con thú debug. Một lượt bóng vỡ, Emberpup cắn một cú và đẩy người chơi về phía tây, tới (3104, 2400); trại vẫn dựng được.
 
-### 3. Nút 🫐 Ăn chạy theo `pointerdown`
+**e) Không chọn:**
+- **Thêm hook dọn hoặc đóng băng thú hoang** (`debug:clearPals`...):
+  - là đổi server cho tiện test;
+  - thú lang thang quay lại, thú mới sinh ngẫu nhiên;
+  - không cần, vì rủi ro còn lại ≤ 0,03% (mục cuối).
+- **Bấm Space lặp lại đến khi con thú debug bị hạ:** cứ trúng con chen vào; nếu là thú tự vệ thì nó đánh lại, và 6 giây choáng có thể hết.
+- **Chờ không còn con khác gần trước mỗi lần Space đánh choáng:** thời gian chờ ăn vào 6 giây choáng. Đứng đúng chỗ con thú thì không phải chờ.
+- **Chọn cây khác mỗi lượt (cây vắng nhất):** chỗ chặt của các cây khác chưa kiểm. Đá hay cây bên cạnh đổi thứ mà Space tác động tới, và kiểm `felled` theo id cây.
+- **Vẫn ném "con gần nhất" nhưng dừng ngay khi bắt được:** còn ném nhầm trước khi bắt (lượt 25), và thú hiền vẫn chạy khỏi tầm.
 
-- Nút nghe `pointerdown` + `preventDefault()`, đúng như Đánh, Bắt, 💨. Code dùng chung một hàm mới `onPress` trong `hud.ts`: `button()` cũng dùng hàm này, không lặp 4 dòng.
-- Bỏ bộ nghe `click` của nút Ăn. **Không giữ cả hai:** một lần chạm sẽ chạy hai lần (`pointerdown` rồi `click`). Lần thứ hai có thể ra "Máu đang đầy" ngay sau khi vừa ăn đầy máu.
-- Hành vi khi bấm không đổi:
-  - `Game.eat()` vẫn kiểm `watch.online` rồi hồi chiêu;
-  - đang hồi thì nút lắc (`refuseEat`), không gửi gì.
-- Chuột: `pointerdown` cũng chạy với chuột, nên test desktop `.click()` (`multiplayer.spec.ts:238`) vẫn qua.
-- Bàn phím: phím H như cũ.
-- Enter trên nút Ăn đang được focus thì không còn ăn, giống các nút cảm ứng khác (bàn phím dùng phím tắt). `preventDefault()` trên `pointerdown` của chuột cũng giữ cho nút không lấy focus, như nút Đánh.
+### 3. Chữ hiển thị, điện thoại, bàn phím
 
-### 4. 🔊 và 🔗 Mời bạn giữ `click`
-
-- **🔗 bắt buộc giữ `click`:**
-  - `navigator.share()` và `navigator.clipboard.writeText()` cần "cử chỉ của người dùng" (user activation).
-  - Theo chuẩn HTML, một lần chạm chỉ cho cử chỉ đó lúc ngón nhấc lên (`pointerup`/`touchend`), Safari cũng vậy.
-  - Chuyển sang `pointerdown` thì trên điện thoại thật bảng chia sẻ có thể bị từ chối âm thầm.
-  - Thêm một dòng chú thích ở chỗ gắn bộ nghe để không ai "sửa cho nhất quán".
-- 🔊 không dùng lúc đang chạy, giữ nguyên.
-- Đã đo với cách sửa: `tap()` vào 🔊 đổi 🔊 ↔ 🔇; `tap()` vào 🔗 gọi `navigator.share` với `{ title: "PetGame", text: "Vào chơi cùng mình!", url: <link mời> }`.
-
-### 5. Không chọn
-
-| Phương án | Vì sao không |
-|---|---|
-| Nâng từng nút (`z-index` cho 🔊, 🔗, nút Bóng, như T32 làm với nút Ăn) | Vùng vẫn đè lên mọi thứ gắn trước nó. Mỗi nút mới ở nửa trái phải nhớ tự nâng; chính vì vậy 🔊, 🔗, nút Bóng mới bị che. Lại thành hai cách làm song song |
-| Chỉ `z-index: -1`, các ô vẫn chặn chạm | Cần điều khiển chỉ còn 79% nửa trái khi dọc, 72% khi ngang. Nhấn giữ trên chữ của ô sẽ bôi đen chữ trên điện thoại |
-| Gắn vùng trước cột trong DOM (`prepend`) thay vì `z-index` | Phụ thuộc thứ tự tạo phần tử; `z-index: -1` nói thẳng ý định |
-| `.hud:has(> .joystick-zone)` thay cho lớp `touch` | Giấu điều kiện trong CSS. Code đã có sẵn kiểu lớp `touch` (`.ball-btn.touch`, `.skill-bar.touch`) |
-| Cho các ô chạm xuyên cả trên desktop | Desktop không có cần điều khiển, lại mất chọn và bấm link mời trong ô trạng thái |
-| Đưa `.joystick-base` ra khỏi vùng để nó vẽ đè lên các ô | Thêm code cho một chi tiết hình nhỏ (mục Rủi ro) |
-| Chuyển 🔊, 🔗 sang `pointerdown` | Mục 4 |
-| Giữ cả `click` lẫn `pointerdown` cho nút Ăn (để Enter vẫn ăn) | Mục 3: một lần chạm thành hai lần ăn |
-
-### 6. Chữ hiển thị
-
-Không có chữ mới. Dòng hướng dẫn trên cảm ứng ("Kéo bên trái để đi • Đánh • Bắt • 💨 Lướt né") vẫn đúng.
+Không đổi: chỉ sửa test (chạy trên desktop như cũ). Chú thích code bằng tiếng Anh.
 
 ## Kế hoạch triển khai
 
-Số dòng theo HEAD `6b64730`. Chú thích code bằng tiếng Anh. Có thể làm theo thứ tự 6 → 1 (viết e2e trước, xem nó hỏng trên code cũ), xem bước 7.
+Chỉ sửa `tests/e2e/multiplayer.spec.ts`, cộng một câu trong `docs/architecture.md`.
 
-1. **`packages/client/index.html` (CSS):**
-   - Thay chú thích và rule `.eat-btn` (dòng 90-94) bằng đoạn dưới. Chỉ bỏ `z-index: 1`, còn lại giữ nguyên:
-
-     ```css
-     /* The Ăn button (T32): a 44 px touch target on every screen. Like the other touch buttons it acts on pointerdown
-        (hud.ts), so it eats under a second finger while the first holds the joystick (T39). Recharging after a berry:
-        a dark sweep that shrinks and the seconds left, like the skill buttons (position: relative holds them). */
-     .eat-btn { position: relative; overflow: hidden; min-width: 44px; min-height: 44px; border: none; border-radius: 8px;
-       padding: 4px 8px; font-weight: 600; background: #7e57c2; color: #fff; cursor: pointer; }
-     ```
-
-   - Thay dòng 128 (`.joystick-zone`) bằng đoạn dưới. Thêm `z-index: -1` và hai rule mới; vị trí và cỡ của vùng không đổi:
-
-     ```css
-     /* The joystick's half of the screen (touch only): the HUD's bottom layer (T39), so it gets only the touches nothing
-        else in the HUD takes and covers no button. A drag that starts here keeps its finger (pointer capture, joystick.ts),
-        so it presses nothing it crosses. */
-     .joystick-zone { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; z-index: -1; pointer-events: auto; touch-action: none; }
-     /* Touch screens (.hud.touch, hud.ts): the column's panels let touches through to the joystick and only their buttons
-        take one, so a touch target in the column must be a <button>. The desktop keeps the panels as they are (invite link). */
-     .hud.touch .hud-health, .hud.touch .hud-status, .hud.touch .hud-quest { pointer-events: none; }
-     .hud.touch .hud-left button { pointer-events: auto; }
-     ```
-
-     Độ ưu tiên: `.hud.touch .hud-health` (0,3,0) thắng `.hud-health` (0,1,0) bất kể thứ tự, nên không cần sửa các rule cũ.
-
-2. **`packages/client/src/ui/hud.ts`:**
-   - JSDoc cho `joystickZone` (dòng 10):
-
-     ```ts
-     /** The joystick's half of the screen (touch only): the HUD's bottom layer (CSS), so it gets only the touches nothing else takes. */
-     ```
-
-   - Dòng 38:
-
-     ```ts
-     // Touch screens: the joystick's zone is the HUD's bottom layer, and the column's panels let touches through to it (index.html).
-     this.root = div(isTouch ? "hud touch" : "hud");
-     ```
-
-   - Dòng 52: `this.eatButton.addEventListener("click", actions.eat);` thành `onPress(this.eatButton, actions.eat);`.
-   - Dòng 67, chú thích của nút mời, thành:
-
-     ```ts
-     // Invite button (phones): share sheet if available, else copy the link. It stays on click: both need a user gesture,
-     // which a touch only gives as the finger lifts.
-     ```
-
-   - Dòng 235-244: `button()` gọi hàm mới, tham số đổi tên thành `action` để khỏi trùng tên hàm:
-
-     ```ts
-     function button(className: string, label: string, action: () => void): HTMLButtonElement {
-       const b = document.createElement("button");
-       b.className = `action-btn ${className}`;
-       b.textContent = label;
-       onPress(b, action);
-       return b;
-     }
-
-     /**
-      * Runs `action` as soon as a finger (or the mouse) goes down on `target`: for buttons used on the move, since a phone
-      * makes no click for a second finger's tap while the first holds the joystick. Not for what needs a user gesture
-      * (share sheet, clipboard): a touch only gives one as the finger lifts.
-      */
-     function onPress(target: HTMLElement, action: () => void) {
-       target.addEventListener("pointerdown", (e) => {
-         e.preventDefault();
-         action();
-       });
-     }
-     ```
-
-   - Không đổi gì khác. `actions.eat` vẫn là `() => this.eat()` của `Game`.
-
-3. **`packages/client/src/ui/joystick.ts`:** chỉ thay JSDoc của class (dòng 5-8):
+1. **Helper, chèn sau `sendFrom` (sau dòng 985).** Viết đúng như sau (có thể chỉnh chữ JSDoc):
 
    ```ts
    /**
-    * Floating joystick: touch anywhere on the left half of the screen that no HUD button covers to place it (the zone
-    * is the HUD's bottom layer, see index.html), drag to steer. Screen up maps to world "north" (away from the camera).
-    * The zone captures the pointer, so a drag presses no button it crosses.
+    * A weakened wild pal right beside the page's player (test-only hook: 40 px to the right, 1 HP, standing still for 60 s;
+    * `species` picks which, else the region decides), and its id: the one pal that is new and at 1 HP (wild pals appear at
+    * full health, and ids are never reused).
     */
-   ```
-
-4. **`docs/architecture.md`:**
-   - Dòng 71, mục `ui/`: thay "`hud.ts` (trạng thái, chồng thông báo, nút cảm ứng, nút 🫐 Ăn có hồi chiêu)" bằng "`hud.ts` (trạng thái, chồng thông báo, nút cảm ứng Đánh, Bắt, 💨 và 🫐 Ăn có hồi chiêu, chạy ngay khi ngón chạm xuống: `onPress`, `pointerdown`; lớp `touch` trên HUD khi dùng cảm ứng)".
-   - Cũng dòng 71: thay "`joystick.ts`" bằng "`joystick.ts` (cần điều khiển ở nửa trái: lớp dưới cùng của HUD, `z-index: -1`; trên cảm ứng các ô của cột trái cho chạm xuyên xuống nó; luật ở `docs/design/hud.md`)".
-   - Dòng 92, danh sách helper e2e: thêm sau `toastLayout (...)` ", `fingers` (chạm thật qua CDP `Input.dispatchTouchEvent` cho việc `tap()` không làm được: kéo, ngón thứ hai trong lúc ngón đầu còn giữ)".
-
-5. **`tests/e2e/multiplayer.spec.ts`, test "eating: the Ăn button recharges..." (dòng 242-300):** thay bước bấm lúc đang hồi (dòng 271-288). Nút giờ nghe `pointerdown`, nên `button.click()` không còn đi qua nút nữa, và test sẽ qua "oan".
-
-   ```ts
-   // Pressed while it recharges, all in one go so the countdown cannot end in between: the key, then a finger on the button
-   // (it acts on pointerdown). Each only shakes the button.
-   const pressed = await page.evaluate(() => {
-     const { room } = (window as any).__petgame;
-     const sent: string[] = [];
-     const send = room.send;
-     room.send = (type: string, ...rest: unknown[]) => {
-       sent.push(type);
-       return send.call(room, type, ...rest);
-     };
-     const button = document.querySelector<HTMLButtonElement>(".eat-btn")!;
-     const cooling = button.classList.contains("cooling");
-     window.dispatchEvent(new KeyboardEvent("keydown", { key: "h" }));
-     window.dispatchEvent(new KeyboardEvent("keyup", { key: "h" }));
-     button.classList.remove("nope");
-     button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "touch", isPrimary: true }));
-     const shook = button.classList.contains("nope"); // the button itself refused
-     room.send = send;
-     return { cooling, sent, shook };
-   });
-   expect(pressed).toEqual({ cooling: true, sent: [], shook: true });
-   ```
-
-   Dòng 289 (`shownToasts` không khớp `/quả mọng|Máu đang đầy/`) và phần còn lại giữ nguyên.
-
-6. **`tests/e2e/multiplayer.spec.ts`, phần mới:**
-   - Helper, đặt ngay sau `recordSends` (dòng 873):
-
-     ```ts
-     /**
-      * Real touches through the browser (CDP), for what `tap()` cannot do: a drag, or a second finger while the first stays down.
-      * Each call lists the fingers down after it (an id each); a finger left out of the list lifts, and `touchEnd` lifts them all.
-      */
-     async function fingers(page: Page) {
-       const cdp = await page.context().newCDPSession(page);
-       return (type: "touchStart" | "touchMove" | "touchEnd", points: { x: number; y: number; id: number }[] = []) =>
-         cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
-     }
-     ```
-
-   - Test mới, đặt ngay sau test "eating:" (sau dòng 300). Viết đúng như dưới; nội dung từng bước giải thích ở mục Test:
-
-     ```ts
-     /** A phone held upright and sideways, for what only touch shows. */
-     const PHONE_SCREENS = [
-       { name: "phone upright", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } },
-       { name: "phone sideways", options: { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true } },
-     ] as const;
-
-     for (const screen of PHONE_SCREENS) {
-       test(`touch (${screen.name}): every button in the joystick's half takes its tap, the rest of the half steers, and Ăn eats under a second finger`, async ({ browser }) => {
-         test.slow();
-         const page = await join(browser, "Ngón", "/", { ...screen.options });
-         await waitForWorld(page);
-         await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
-         await expect(page.locator(".hud-quest")).toContainText(/\S/);
-         const finger = await fingers(page);
-         const sent = await recordSends(page);
-
-         // Every HUD button whose centre is in the left half lies on top there: the joystick's zone is the HUD's bottom layer.
-         // The zone still covers the whole left half, and the quest tracker (no button in it) lets a touch through to it.
-         const layout = await page.evaluate(() => {
-           const half = innerWidth / 2;
-           const z = document.querySelector(".joystick-zone")!.getBoundingClientRect();
-           const checked: string[] = [];
-           const covered: string[] = [];
-           for (const b of document.querySelectorAll<HTMLButtonElement>(".hud button")) {
-             const r = b.getBoundingClientRect();
-             if (b.closest("[hidden]") || getComputedStyle(b).display === "none" || r.width === 0 || r.height === 0) continue;
-             const x = r.left + r.width / 2;
-             const y = r.top + r.height / 2;
-             if (x >= half) continue;
-             const name = b.className.split(" ")[0];
-             checked.push(name);
-             const top = document.elementFromPoint(x, y);
-             if (!top || !b.contains(top)) covered.push(`${name} under ${top?.className}`);
-           }
-           const q = document.querySelector(".hud-quest")!.getBoundingClientRect();
-           const quest = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
-           return {
-             zone: [z.left, z.top, z.width, z.height].map(Math.round),
-             leftHalf: [0, 0, Math.round(half), innerHeight],
-             checked,
-             covered,
-             questToJoystick: !!quest?.closest(".joystick-zone"),
-             half,
-             height: innerHeight,
-           };
-         });
-         expect(layout.zone).toEqual(layout.leftHalf);
-         expect(layout.checked).toEqual(expect.arrayContaining(["eat-btn", "sound-btn", "invite-btn"]));
-         expect(layout.covered).toEqual([]);
-         expect(layout.questToJoystick).toBe(true);
-
-         // 🔊: a tap mutes, another one unmutes (a new device starts with the sound on).
-         const sound = page.locator(".sound-btn");
-         await expect(sound).toHaveText("🔊");
-         await sound.tap();
-         await expect(sound).toHaveText("🔇");
-         await sound.tap();
-         await expect(sound).toHaveText("🔊");
-
-         // 🔗 Mời bạn: a tap gives the invite link to the phone's share sheet (stubbed: this Chromium has none to open).
-         await page.evaluate(() => {
-           Object.defineProperty(navigator, "share", {
-             configurable: true,
-             value: (data: unknown) => {
-               (window as any).__shared = data;
-               return Promise.resolve();
-             },
-           });
-         });
-         const invite = page.locator(".invite-btn");
-         await invite.tap();
-         const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
-         const link = await invite.getAttribute("data-link");
-         expect(link).toContain(`room=${roomId}`);
-         await expect.poll(() => page.evaluate(() => (window as any).__shared ?? null)).toEqual({ title: "PetGame", text: "Vào chơi cùng mình!", url: link });
-
-         // An empty spot of the left half (a quarter across, three quarters down) starts the joystick: dragging up walks north.
-         const spot = { x: Math.round(layout.half / 2), y: Math.round(layout.height * 0.75) };
-         expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".joystick-zone"), [spot.x, spot.y])).toBe(true);
-         const me = () => page.evaluate(() => {
-           const { room } = (window as any).__petgame;
-           const p = room.state.players.get(room.sessionId);
-           return { y: p.y as number, berries: p.berries as number, hp: p.hp as number, maxHp: p.maxHp as number };
-         });
-         const start = await me();
-         await finger("touchStart", [{ ...spot, id: 0 }]);
-         for (let i = 1; i <= 6; i++) await finger("touchMove", [{ x: spot.x, y: spot.y - i * 10, id: 0 }]);
-         await expect.poll(async () => start.y - (await me()).y).toBeGreaterThan(40);
-         await finger("touchEnd");
-
-         // A drag that starts on the joystick presses nothing it crosses or ends on (the zone keeps its finger).
-         for (const target of [".sound-btn", ".eat-btn"]) {
-           const box = (await page.locator(target).boundingBox())!;
-           const end = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-           await finger("touchStart", [{ ...spot, id: 0 }]);
-           for (let i = 1; i <= 8; i++) await finger("touchMove", [{ x: spot.x + ((end.x - spot.x) * i) / 8, y: spot.y + ((end.y - spot.y) * i) / 8, id: 0 }]);
-           await finger("touchEnd");
-         }
-
-         // Ăn under a second finger while the first holds the joystick: a phone makes no click for that touch, so Ăn acts on
-         // pointerdown. Snow by day is cold: health drops on its own (nothing hostile lives there, see the eating test).
-         await sendFrom(page, "debug:give");
-         await sendFrom(page, "debug:teleport", { x: 2440, y: 1760 });
-         await expect.poll(async () => {
-           const m = await me();
-           return m.berries >= 50 && m.hp < m.maxHp;
-         }, { timeout: 15_000 }).toBe(true);
-         // The drags pressed nothing (checked now, when anything they set off would have arrived).
-         await expect(sound).toHaveText("🔊");
-         expect(await sent()).not.toContain("eat");
-         const berries = (await me()).berries;
-         const eat = (await page.locator(".eat-btn").boundingBox())!;
-         await finger("touchStart", [{ ...spot, id: 0 }]); // holds the joystick still
-         await finger("touchStart", [{ ...spot, id: 0 }, { x: eat.x + eat.width / 2, y: eat.y + eat.height / 2, id: 1 }]);
-         await finger("touchMove", [{ ...spot, id: 0 }]); // the second finger lifts
-         await finger("touchEnd");
-         await expect.poll(async () => (await me()).berries).toBe(berries - 1);
-         await expect(page.locator(".eat-btn")).toHaveClass(/cooling/);
+   async function spawnWeakPal(page: Page, species?: string): Promise<string> {
+     const before = await page.evaluate(() => [...(window as any).__petgame.room.state.pals.keys()] as string[]);
+     await sendFrom(page, "debug:spawnPal", species ? { species } : {});
+     const spawned = () => page.evaluate((known) => {
+       const found: string[] = [];
+       (window as any).__petgame.room.state.pals.forEach((p: any, id: string) => {
+         if (!known.includes(id) && p.hp === 1) found.push(id);
        });
+       return found;
+     }, before);
+     await expect.poll(spawned).toHaveLength(1);
+     return (await spawned())[0];
+   }
+
+   /**
+    * Runs `wait` while a ball goes at that one wild pal every 900 ms (the server takes one per 800 ms), only while it is still
+    * in the world, and stops when `wait` ends, passed or failed. Never at "the nearest pal": that can be any wild pal walking
+    * by, and one that breaks out of a ball fights back or runs off (docs/design/pals.md, "Tính khí").
+    */
+   async function throwingAt<T>(page: Page, palId: string, wait: () => Promise<T>): Promise<T> {
+     const throwOnce = () => page.evaluate((id) => {
+       const { room } = (window as any).__petgame;
+       if (room.state.pals.has(id)) room.send("throw", { palId: id });
+     }, palId);
+     const thrower = setInterval(() => void throwOnce().catch(() => {}), 900);
+     try {
+       return await wait();
+     } finally {
+       clearInterval(thrower);
      }
+   }
+   ```
+
+2. **Test toasts (dòng 1651-1677), chỉ đổi cách viết.**
+   - Giữ dòng chú thích 1651.
+   - Thay dòng 1652-1677 bằng ba thứ, theo thứ tự:
+     - chú thích ở dòng 1654, rút còn: `// An Emberpup comes at us when a ball does not hold, so it stays in throwing range; a timid pal would run out of it.` Phần "never the nearest" đã nằm trong JSDoc của `throwingAt`;
+     - `const palId = await spawnWeakPal(page, "emberpup");`;
+     - `await throwingAt(page, palId, () => expect.poll(...).toBe(true));`, với nguyên khối poll hai toast hiện có (timeout 15 s).
+   - Dòng 1678 trở đi giữ nguyên.
+3. **Test "party: let a pal go..." (dòng 931-944).**
+   - Giữ chú thích 931.
+   - Thay dòng 932-944 bằng `const wildId = await spawnWeakPal(page);`.
+   - Dòng 945 trở đi giữ nguyên.
+4. **Test thú đi theo (dòng 139-168 và 194).**
+   - Dòng 139-158 thay bằng:
+
+     ```ts
+     // A weakened Emberpup appears next to us (test-only server hook), and balls go only at it until it is in the party:
+     // exactly one catch. It comes at us when a ball does not hold (a timid pal would run out of range), and its bites
+     // push us west, away from the campfire that the camp below must keep clear of.
+     const palId = await spawnWeakPal(page, "emberpup");
+     await throwingAt(page, palId, () =>
+       expect.poll(async () => (await partyOf(page)).species, { timeout: 15_000 }).toEqual(["emberpup"]));
      ```
+   - Giữ `companions` (dòng 160) và `await expect.poll(companions).toBe(1);` (dòng 165).
+   - Xoá `partySize` (dòng 161-164) và hai dòng 166-167 (chú thích, chờ 1500 ms).
+   - Dòng 168 thành `await expect(page.locator(".party-btn")).toHaveText("🐾 Thú (1)");`.
+   - Dòng 194 thành `await expect.poll(async () => (await me()).pals).toBe(1);`.
+   - Phần còn lại giữ nguyên, kể cả chờ 2500 ms ở dòng 190.
+5. **Test gameplay.**
+   - **Chặt cây (dòng 550-553):** ngay trước vòng lặp thêm chú thích và hàm cục bộ:
 
-7. **Tự kiểm trước khi giao tester.** Không sửa file `packages/client` khi e2e đang chạy: Vite tải lại trang.
-   - **Nên làm:** viết bước 5-6 trước rồi chạy `npx playwright test -g "touch \("` trên code chưa sửa. Test phải hỏng ở `layout.covered`:
-     - dọc: `["sound-btn under joystick-zone", "invite-btn under joystick-zone", "ball-btn under joystick-zone"]`;
-     - ngang: chỉ hai nút đầu.
+     ```ts
+     // Space hits the nearest wild pal within reach (48 px) before it chops: press only while none is within 100 px,
+     // so a wandering pal (95 px/s at most) cannot step into reach before the press lands.
+     const wildPalsNear = (radius: number) => page.evaluate((radius) => {
+       const { room } = (window as any).__petgame;
+       const p = room.state.players.get(room.sessionId);
+       const near: string[] = [];
+       room.state.pals.forEach((pal: any, id: string) => {
+         if (Math.hypot(pal.x - p.x, pal.y - p.y) <= radius) near.push(id);
+       });
+       return near;
+     }, radius);
+     ```
+     - Trong vòng, ngay trước `keyboard.press(" ")`: `await expect.poll(() => wildPalsNear(100), { timeout: 60_000 }).toEqual([]);`.
+     - Phần còn lại của vòng và dòng 554-555 giữ nguyên.
+   - **Đánh choáng (dòng 569-580)** thay bằng:
 
-     Như vậy chứng tỏ test bắt được lỗi. Sau đó làm bước 1-4.
-   - `npm run typecheck`.
-   - `npx playwright test -g "touch \(|eating|toasts"`.
+     ```ts
+     // A weakened pal: one hit leaves it dizzy, the next knocks it out for loot. Space hits the nearest wild pal within
+     // reach, whichever it is, so we stand right on this one: no other pal can be nearer.
+     const palId = await spawnWeakPal(page, "pebblet");
+     const pebblet = () => page.evaluate((id) => {
+       const { room } = (window as any).__petgame;
+       const pal = room.state.pals.get(id);
+       const p = room.state.players.get(room.sessionId);
+       return pal ? { x: pal.x as number, y: pal.y as number, dizzy: pal.dizzy as boolean, gap: Math.hypot(pal.x - p.x, pal.y - p.y) } : null;
+     }, palId);
+     const spot = (await pebblet())!;
+     await sendFrom(page, "debug:teleport", { x: spot.x, y: spot.y });
+     await expect.poll(async () => (await pebblet())?.gap).toBeLessThan(1);
+     await page.keyboard.press(" ");
+     await expect.poll(async () => (await pebblet())?.dizzy).toBe(true);
+     await expect(page.locator(".label.pal.dizzy")).toHaveCount(1);
+     const stone = (await me()).stone;
+     await page.waitForTimeout(500);
+     await page.keyboard.press(" ");
+     await expect.poll(pebblet).toBeNull();
+     await expect.poll(async () => (await me()).stone).toBeGreaterThan(stone);
+     ```
+6. **`docs/architecture.md`, dòng "Helper" (dòng 92):**
+   - Thêm vào danh sách:
+     - `spawnWeakPal` (thú hoang 1 máu cạnh người chơi, trả id: con mới duy nhất có 1 máu);
+     - `throwingAt` (trong lúc chờ một điều kiện, cứ 900 ms ném bóng vào đúng một id khi con đó còn trong thế giới).
+   - Thêm câu: "**Thú hoang trong e2e:** không đánh hay ném 'con gần nhất'.
+     - Bóng: ném theo id (`throwingAt`).
+     - Đòn đánh (Space, nút Đánh) không mang id, server đánh con gần nhất trong 48 px. Muốn đánh con thú debug thì đứng đúng chỗ nó (`debug:teleport`). Muốn chặt cây, đập đá thì chỉ bấm khi không thú hoang nào trong 100 px (test `gameplay:`).
+     - Luật ở `docs/design/pals.md`, mục 'Tính khí'."
+
+Không tách commit: một commit cho cả nhiệm vụ.
 
 ## Giao thức
 
-- `schema.ts`, `messages.ts`, `Profile`: **không đổi**.
-- Không có tin mới, server không đổi. Chỉ client đổi: CSS, cách nút Ăn nghe chạm, một lớp CSS trên HUD.
-- Client cũ và server mới, hay ngược lại, vẫn chạy được với nhau.
+Không đổi `schema.ts`, `messages.ts`, `Profile`. Không đụng server, client hay shared, không thêm hook debug.
 
 ## Test
 
-**Unit (shared), tích hợp server:** không thêm. Không có logic dùng chung hay luật server mới. Thay đổi nằm ở thứ tự lớp DOM và bộ nghe chạm, chỉ e2e trong trình duyệt thật kiểm được.
+Không thêm hay xoá test; sửa luồng 2 test, đổi cách viết 2 test. Tester chạy:
+1. `npx playwright test -g "a captured pal follows" --repeat-each=30 --workers=1`: 30/30 qua. Khoảng 25 giây mỗi lượt; chạy nền hoặc chia đợt.
+2. `npx playwright test -g "gameplay: chop a tree" --repeat-each=30 --workers=1`: 30/30 qua.
+   - Ghi thời gian mỗi lượt, khoảng 14 giây; lượt phải chờ ở cây lâu hơn.
+   - Ghi số lượt có chờ ở cây nếu dễ lấy.
+3. Hai test chỉ đổi cách viết:
+   - `-g "the catch and the quest it finishes" --repeat-each=10 --workers=1`: 10/10;
+   - `-g "party: let a pal go" --repeat-each=3 --workers=1`: 3/3.
+4. `npm run test:e2e`: 31/31.
+5. `npm run typecheck` và `npm test` qua (code sản phẩm không đổi, chạy cho chắc).
 
-**E2E mới**, mỗi khung hình điện thoại một test (390×844, 844×390), code ở bước 6:
-1. **Bố cục:**
-   - Mọi `.hud button` đang hiện có tâm ở nửa trái thì nằm trên cùng tại tâm (`covered` rỗng).
-   - Danh sách đã kiểm phải có `eat-btn`, `sound-btn`, `invite-btn`, để phép kiểm không rỗng. Khi dọc có cả `ball-btn`; không bắt buộc, vì vị trí nút Bóng là việc của T18.
-   - Vùng vẫn phủ đúng nửa trái.
-   - Tâm ô nhiệm vụ (không có nút) chạm xuyên xuống vùng.
-2. **🔊:** `tap()` thành 🔇, `tap()` lần nữa về 🔊.
-3. **🔗 Mời bạn:**
-   - Thay `navigator.share` bằng hàm ghi lại tham số. Chromium không đầu không có bảng chia sẻ, còn điện thoại thật đi đường này.
-   - `tap()` rồi kiểm `{ title: "PetGame", text: "Vào chơi cùng mình!", url }` với `url` là `data-link` và chứa `room=<roomId>`.
-4. **Chỗ trống bật cần điều khiển:**
-   - Điểm (¼ rộng, ¾ cao) là vùng; đo được (98, 633) khi dọc và (211, 293) khi ngang.
-   - Kéo lên 60 px thì y của người chơi trên server giảm hơn 40 px. Đo được giảm khoảng 130 px trong 0,8 s, đi từ chỗ xuất hiện (3120, 2400), phía bắc không vướng gì.
-5. **Kéo không bấm nút:**
-   - Hai lần kéo từ chỗ trống, nhấc ngón ở tâm 🔊 và ở tâm Ăn.
-   - Kiểm sau bước 6 (lúc mọi tác dụng nếu có đã kịp tới): 🔊 vẫn 🔊, không có tin `eat`.
-6. **Ăn bằng ngón thứ hai:**
-   - Dùng `debug:give` và `debug:teleport` tới vùng tuyết (2440, 1760), cùng chỗ với test "eating:" của T32. Chỗ này lạnh ban ngày, không có thú hung dữ; phòng mới luôn bắt đầu ban ngày. Đo được: mất máu sau 0,3-0,5 s.
-   - Ngón 1 giữ yên ở chỗ trống, ngón 2 chạm tâm Ăn rồi nhấc.
-   - Kiểm quả giảm đúng 1 và nút có `cooling`.
-   - Trên code cũ bước này hỏng: quả không đổi (đo ở Thiết kế 1).
-
-**E2E sửa:** test "eating:" (T32), bước bấm lúc đang hồi, đổi `button.click()` thành `pointerdown` và kiểm thêm `shook` (bước 5).
-
-**Test cũ phải qua mà không sửa:**
-- "HUD shows health, time of day and lets you eat berries" (dòng 232): `.click()` bằng chuột trên desktop, nay đi qua `pointerdown`;
-- 3 test bố cục `toasts (desktop|phone upright|phone sideways)` (dòng 1464), gồm cả phần kiểm nút Ăn ≥ 44 px và nằm trên cùng. Không có thay đổi bố cục nào;
-- "toasts: the catch and the quest it finishes show together..." (dòng 1511);
-- "party: by touch alone a pal is let go; the dimmed layer takes the taps..." (dòng 943): hộp thả thú z 5 vẫn che vùng;
-- "connection: when the world has let the player go..." (dòng 1225): màn mất kết nối z 6;
-- "labels: in a crowd on a phone..." (dòng 580).
-
-**Tester chạy:**
-1. `npm run typecheck`, `npm test`, `npm run build`.
-2. `npx playwright test -g "touch \(" --repeat-each=3 --workers=1`: 6/6.
-3. `npx playwright test -g "eating"`: test T32 đã sửa.
-4. `npx playwright test -g "toasts"`: 4 test.
-5. `npm run test:e2e`: cả bộ qua (thêm 2 test so với trước).
+Gợi ý tự kiểm cho tester (không bắt buộc), trong một bản chép ở scratchpad: gửi `debug:spawnPal` với `{ full: true }` ngay trước bước chặt cây, để có một thú hoang đứng yên cạnh chỗ chặt.
+- Kết quả mong đợi: không lần Space nào trúng con đó (không có tin `hit`). Test hỏng ở poll 60 s, vì con tạo bằng hook đứng yên 60 giây.
+- Bản test cũ thì đánh con đó ngay lần bấm đầu.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `.joystick-zone` có `z-index: -1` và chú thích như bước 1. Vị trí, cỡ, `pointer-events`, `touch-action` của vùng không đổi.
-- [ ] Có `.hud.touch .hud-health, .hud.touch .hud-status, .hud.touch .hud-quest { pointer-events: none; }` và `.hud.touch .hud-left button { pointer-events: auto; }`, kèm chú thích. `Hud` đặt lớp `touch` lên `.hud` khi và chỉ khi `isTouch`.
-- [ ] `.eat-btn` không còn `z-index`.
-  - Vẫn `position: relative; overflow: hidden`, 44×44.
-  - Chú thích CSS mới như bước 1: không còn nhắc "above the joystick's half" hay T18.
-- [ ] Nút Ăn:
-  - nghe `pointerdown` qua `onPress` (có `preventDefault()`), không còn bộ nghe `click`;
-  - `button()` dùng cùng `onPress`; `onPress` có JSDoc.
-- [ ] 🔊 và 🔗 vẫn `click`. Chú thích ở nút mời nói vì sao.
-- [ ] `Game.ts`, `joystick.ts` (trừ JSDoc), `skillbar.ts`, server, shared không đổi.
-- [ ] Desktop không đổi: không có lớp `touch`, các ô giữ `pointer-events: auto`.
-- [ ] Không đổi bố cục: 3 test bố cục toasts qua mà không sửa.
-- [ ] Hai test `touch (...)` qua 3/3 khi lặp, và hỏng trên code cũ (bước 7).
-- [ ] Test "eating:" đã sửa qua. Cả bộ e2e qua. Typecheck, unit, build qua.
-- [ ] `docs/architecture.md` cập nhật như bước 4.
-- [ ] `docs/design/hud.md` đã cập nhật lúc lập kế hoạch và khớp với code.
+- [ ] Phần coder sửa chỉ có `tests/e2e/multiplayer.spec.ts` và `docs/architecture.md`. Không tính file làm việc của đội và phần game-designer đã sửa (`docs/design/pals.md`). Không file nào trong `packages/` đổi.
+- [ ] Có `spawnWeakPal` và `throwingAt` như bước 1, dùng ở:
+  - test toasts;
+  - test thú đi theo;
+  - test "party: let a pal go..." (chỉ `spawnWeakPal`);
+  - test gameplay (chỉ `spawnWeakPal`).
+
+  Không còn đoạn tìm id mới chép tay ở 2 chỗ cũ.
+- [ ] Trong file không còn vòng nào ném vào "con gần nhất":
+  - không còn `nearest`/`best` trong test thú đi theo;
+  - không còn `throwAtSpawned` riêng của test toasts.
+- [ ] Test thú đi theo:
+  - tạo `emberpup`, chỉ ném qua `throwingAt`;
+  - poll túi bằng `["emberpup"]` (15 s);
+  - kiểm `🐾 Thú (1)`, sau khi tải lại `pals` bằng 1;
+  - không còn `sleep(500)`, `waitForTimeout(1500)`, `caught`, `partySize`;
+  - vẫn chờ 2500 ms trước khi tải lại.
+- [ ] Test gameplay, chặt cây: trước mỗi lần Space có poll "không thú hoang nào trong 100 px" (timeout 60 s); vẫn tối đa 8 lần bấm, kiểm `wood >= 3` và `felled`.
+- [ ] Test gameplay, đánh choáng:
+  - người chơi dịch tới đúng chỗ con thú debug, poll khoảng cách < 1 px;
+  - kiểm theo id: choáng, rồi không còn;
+  - giữ kiểm nhãn `.label.pal.dizzy` (1) và đá tăng;
+  - không còn `dizzyPals`;
+  - không còn chờ 800 ms sau khi tạo thú;
+  - còn chờ 500 ms giữa hai lần Space.
+- [ ] Giữ nguyên tên test, `test.slow()`, bước lướt, các kiểm tra khác; không retry.
+- [ ] `docs/architecture.md`: dòng "Helper" có hai helper mới và câu về thú hoang trong e2e.
+- [ ] Mỗi test sửa chạy lặp 30/30 qua; hai test đổi cách viết 10/10 và 3/3; cả bộ 31/31; typecheck và unit test qua.
 
 ## Rủi ro, câu hỏi mở
 
-- **Hình cần điều khiển nằm dưới các ô của cột.**
-  - `.joystick-base` là con của vùng (z −1). Bật cần điều khiển trên một ô (giờ đã được phép) thì vòng tròn bị ô nền đen mờ phủ lên một phần.
-  - Trước đây vòng vẽ đè lên ô, nhưng vẫn nằm dưới thông báo như bây giờ.
-  - Chỉ là hình: thường cần điều khiển bật ở góc dưới bên trái, xa cột. Chấp nhận, không đưa vòng ra khỏi vùng.
-- **Enter trên nút Ăn đang có focus không còn ăn.** Giống mọi nút cảm ứng khác; bàn phím dùng H. Nhấn chuột không còn để focus lại trên nút Ăn (do `preventDefault()`).
-- **Chưa thử trên máy thật.**
-  - Chromium không đầu, chạm qua CDP, đúng như mô tả nhiệm vụ: ngón thứ hai không sinh `click` nhưng có `pointerdown`.
-  - Safari iOS cũng chỉ sinh `click` cho chạm một ngón. `pointerdown` của ngón thứ hai chạy trên cả hai, nên cách nhất quán này không phụ thuộc trình duyệt.
-- **Phần tử nhận chạm trong cột phải là `<button>`.** Thêm sau này một ô bấm được không phải nút (ví dụ bấm ô nhiệm vụ để mở danh sách) thì trên cảm ứng nó sẽ không nhận chạm. Điều này đã ghi trong chú thích CSS và `docs/design/hud.md`.
-- **Trên điện thoại ngang, bảng Tủ đồ (x 232-702) và bản đồ phóng to che nút Ăn khi đang mở.** Bảng nằm trên HUD là đúng thiết kế; phím H vẫn ăn được. Không đổi ở đây.
-- Không có quyết định nào cần người dùng; **không có dòng CHẶN**.
-- **Đề xuất cho `TASKS.md`:**
-  - **(P2, mới) Nút ⚪/🔵 Bóng nghe `click`.**
-    - Lúc đang giữ cần điều khiển, chạm nút Bóng bằng ngón kia không đổi được bóng (T39 đo: ngón thứ hai không sinh `click`).
-    - Đổi sang `onPress` (`pointerdown`) như nút Ăn. Thêm vào test `touch (...)` một bước hai ngón bằng helper `fingers`.
-    - Có thể gộp vào T18 vì T18 cũng đụng `.ball-btn`.
-  - **Cập nhật ghi chú T18:**
-    - Sau T39, mọi nút ở nửa trái đã nằm trên vùng cần điều khiển: vùng là lớp dưới cùng của HUD, các ô của cột cho chạm xuyên trên cảm ứng.
-    - Việc còn lại của T18 với 🔊 (34×28 khi dọc, 34×30 khi ngang), 🔗 Mời bạn (88×21) và nút Bóng (cao 28) chỉ là cỡ.
-    - Test `touch (phone upright|phone sideways)` kiểm mọi nút có tâm ở nửa trái nằm trên cùng: chạy lại khi đổi cỡ hay bố cục.
+- **Rủi ro còn lại, không xử lý:**
+  - **Thú hung dữ (Scorchtail từ sa mạc) lại gần chỗ chặt cây trong lúc test.** Mô phỏng: 5/20.000 lượt có một con trong 150 px. Khi đó nó tấn công, và poll 100 px có thể hết giờ. Test hiện tại cũng chịu rủi ro này. Chặn hẳn phải đổi server, không đáng.
+  - **Một lần chờ ở cây quá 60 giây:** 0 trong 60.000 lần bấm mô phỏng.
+  - **Test thú đi theo:** 12,6% số lượt bị Emberpup cắn (khoảng một cú mỗi quả bóng vỡ). Cú cắn đều đẩy người chơi về phía tây, ra xa lửa trại.
+  - **Chỗ dựng trại chỉ dư 14,9 px so với giới hạn 96 px.** Nếu sau này đổi chỗ xuất phát, lửa trại hay `BASE_MIN_CAMPFIRE_DISTANCE`, test sẽ hỏng luôn (không chập chờn) và phải dời chỗ dựng trại.
+  - **Bước chặt cây dựa vào tốc độ lang thang tối đa 95 px/s.** Thêm loài nhanh hơn, hay T27/T9 đổi tốc độ lang thang, thì tính lại 100 px.
+- **Thời gian chạy:** test gameplay chờ ở cây trong khoảng 17% số lượt (p90 4 giây, p99 19 giây). Test thú đi theo nhanh hơn một chút: bỏ 2 giây chờ cứng.
+- Không có quyết định nào cần người dùng; không có dòng chặn.
+- **Đề xuất việc mới cho `TASKS.md`:** không có. Các test khác dùng Space hay bóng đã được rà:
+  - "explorer" bắn cung, nhận sát thương của bất kỳ con nào trúng;
+  - "labels" tự tính con đang nhắm;
+  - "party" chỉ kiểm có gửi tin ném;
+  - "skills" kiểm có chiêu tung ra, không phụ thuộc trúng con nào.
+
+  Không test nào hỏng được vì "con gần nhất".
