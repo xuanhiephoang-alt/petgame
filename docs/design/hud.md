@@ -10,13 +10,28 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 | Cột phải trên: 🐾 Thú, 🏕️ Đặt trại, 🔨 Chế tạo, 👕 Tủ đồ, bản đồ nhỏ | bản đồ dưới các nút | bản đồ dưới các nút | bản đồ bên trái các nút |
 | Giữa trên: thanh máu trùm (khi ở gần trùm) | rộng 420 px | rộng 60vw | rộng 200 px, nằm giữa cột trái và bản đồ |
 | Dưới: thanh chiêu, nút bóng, nút cảm ứng (Đánh, Bắt, 💨) | thanh chiêu ở giữa | bên phải | bên phải |
-| Cần điều khiển (chỉ cảm ứng) | không có | hiện ở chỗ ngón trái chạm, trong nửa trái màn hình | như dọc |
+| Cần điều khiển (chỉ cảm ứng) | không có | hiện ở chỗ ngón trái chạm, ở bất cứ đâu trong nửa trái màn hình trừ trên nút (kể cả trên các ô của cột trái và thông báo) | như dọc |
 
 - Nhân vật luôn ở giữa màn hình. Ở điện thoại ngang, cột trái phải kết thúc trước giữa màn hình ít nhất 100 px (844×390: cột đến x = 312, giữa là 422), để không che nhãn tên của người và thú quanh nhân vật.
-- Lớp vẽ, từ dưới lên: nhãn tên (z 1), HUD (z 2). Trong HUD: nút 🫐 Ăn (1, để nằm trên vùng cần điều khiển), bảng Thú, Chế tạo, Tủ đồ (3), **thông báo (4)**, bản đồ phóng to (4, vẽ sau thông báo), hộp xác nhận thả thú (5), màn mất kết nối (6). Thông báo không nhận chạm; chạm xuyên qua nó.
-- Còn tồn tại, làm ở việc riêng:
-  - trên điện thoại dọc, thanh máu trùm đè lên hàng máu của người chơi;
-  - trên điện thoại, vùng cần điều khiển (nửa trái màn hình) được vẽ sau cột trái nên nằm đè lên cột: chạm vào 🔊 hay 🔗 Mời bạn là bật cần điều khiển chứ không bấm nút (đo ở T32 bằng `elementFromPoint`, cả dọc lẫn ngang). Riêng nút 🫐 Ăn đã được nâng lên trên từ T32.
+- Lớp vẽ, từ dưới lên: nhãn tên (z 1), HUD (z 2). Trong HUD: **vùng cần điều khiển (−1, dưới cùng)**, các ô và nút (không đặt z), bảng Thú, Chế tạo, Tủ đồ (3), **thông báo (4)**, bản đồ phóng to (4, vẽ sau thông báo), hộp xác nhận thả thú (5), màn mất kết nối (6). Thông báo không nhận chạm; chạm xuyên qua nó.
+- Còn tồn tại, làm ở việc riêng: trên điện thoại dọc, thanh máu trùm đè lên hàng máu của người chơi.
+
+## Cần điều khiển và nút cảm ứng
+
+Đặt ra ở nhiệm vụ T39. Trước đó vùng cần điều khiển được vẽ đè lên cột trái, nên trên điện thoại không chạm được 🔊, 🔗 Mời bạn và (khi cầm dọc) nút ⚪ Bóng: chạm vào là bật cần điều khiển.
+
+- **Vùng cần điều khiển** là nửa trái màn hình và là **lớp dưới cùng của HUD**: nó chỉ nhận những chạm mà không thứ gì khác trong HUD nhận. Mọi nút ở nửa trái nằm trên nó: chạm đúng nút là bấm nút, không bật cần điều khiển.
+- **Trên màn hình cảm ứng, các ô của cột trái** (hàng máu, trạng thái, nhiệm vụ) **cho chạm xuyên qua**, như thông báo. Chạm vào chỗ không phải nút là bật cần điều khiển.
+  - Nhờ vậy cần điều khiển vẫn bật được trên 96% nửa trái, cả dọc lẫn ngang (đo ở T39). Nếu các ô chặn chạm thì chỉ còn 79% khi cầm dọc và 72% khi cầm ngang. Nhấn giữ trên chữ của ô cũng không bôi đen chữ.
+  - Hệ quả: chỗ nhận chạm trong cột trái phải là nút (`<button>`).
+- **Kéo cần điều khiển qua nút không bấm nút:** cần điều khiển giữ ngón của nó đến khi ngón nhấc lên. Ngược lại, ngón chạm xuống trên nút thì bấm nút, không bật cần điều khiển.
+- **Nút dùng trong lúc ngón kia đang giữ cần điều khiển chạy ngay khi ngón chạm xuống** (`pointerdown`): Đánh, Bắt, 💨, ô chiêu, Tự động/Theo lệnh, 🫐 Ăn.
+  - Lý do: trên điện thoại, ngón thứ hai chạm vào nút không sinh ra `click`. Đo ở T39: khi nút Ăn còn nghe `click`, giữ cần điều khiển rồi chạm Ăn bằng ngón kia thì không ăn được.
+  - Chuột vẫn bấm được (chuột cũng sinh `pointerdown`). Bàn phím dùng phím tắt (H cho Ăn), không dùng Enter trên nút.
+- **🔗 Mời bạn phải nghe `click`.** Mở bảng chia sẻ hay chép link cần "cử chỉ của người dùng". Theo chuẩn HTML (Safari cũng vậy), một lần chạm chỉ cho cử chỉ đó lúc ngón nhấc lên.
+- 🔊, nút mở bảng và nút trong bảng nghe `click`, vì không dùng trong lúc đang chạy.
+- Nút ⚪/🔵 Bóng hiện cũng nghe `click`, nên chưa đổi bóng được bằng ngón thứ hai trong lúc đang chạy. Phần này để việc riêng.
+- **Desktop** không có vùng cần điều khiển; các ô của cột vẫn nhận chuột như cũ, nên link mời trong ô trạng thái vẫn chọn và bấm được.
 
 ## Nút 🫐 Ăn
 
@@ -30,7 +45,10 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
   - Server kiểm theo thứ tự: hết quả, rồi máu đầy, rồi mới đến hồi chiêu. Lý do nào nói được bằng thông báo thì được nói trước.
   - Lần bị từ chối không làm nút hồi lại: bấm lúc đầy máu rồi bị cắn ngay thì vẫn ăn được liền.
 - **Nút hồi tính từ lúc tin của server tới máy** (không đoán trước). Vì vậy nút không bao giờ sẵn sàng sớm hơn server. Mạng chậm thì lớp tối hiện trễ một nhịp; lần bấm thứ hai trong lúc đó bị server bỏ qua, không mất quả.
-- **Cỡ:** cao và rộng ít nhất 44 px ở cả ba khung hình. Trên điện thoại, nút nằm trên vùng cần điều khiển: chạm đúng nút là ăn, không bật cần điều khiển.
+- **Cỡ:** cao và rộng ít nhất 44 px ở cả ba khung hình.
+- **Chạm:** như mọi nút, nút nằm trên vùng cần điều khiển, nên chạm đúng nút là ăn chứ không bật cần điều khiển.
+  - Nút chạy ngay khi ngón chạm xuống (mục "Cần điều khiển và nút cảm ứng"), nên ăn được cả khi ngón kia đang giữ cần điều khiển.
+  - Chuột: bấm. Bàn phím: H.
 
 ## Thông báo (toast)
 
