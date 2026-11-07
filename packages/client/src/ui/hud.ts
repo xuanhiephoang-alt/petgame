@@ -7,6 +7,7 @@ const TOAST_FADE_MS = 200;
 /** DOM overlay: status panel, toasts (see toastQueue.ts), touch action buttons. */
 export class Hud {
   readonly root: HTMLDivElement;
+  /** The joystick's half of the screen (touch only): the HUD's bottom layer (CSS), so it gets only the touches nothing else takes. */
   readonly joystickZone: HTMLDivElement;
   /** Left column under the health bar (status, quest tracker). */
   readonly left: HTMLDivElement;
@@ -35,7 +36,8 @@ export class Hud {
     private isTouch: boolean,
     actions: { attack: () => void; dash: () => void; capture: () => void; placeBase: () => void; toggleBall: () => void; eat: () => void; toggleSound: () => boolean },
   ) {
-    this.root = div("hud");
+    // Touch screens: the joystick's zone is the HUD's bottom layer, and the column's panels let touches through to it (index.html).
+    this.root = div(isTouch ? "hud touch" : "hud");
     this.status = div("hud-status");
     this.toasts = div("hud-toasts");
     this.toasts.setAttribute("role", "status");
@@ -49,7 +51,7 @@ export class Hud {
     this.eatCover = this.eatButton.querySelector<HTMLSpanElement>(".eat-cd")!;
     this.eatSecs = this.eatButton.querySelector<HTMLSpanElement>(".eat-secs")!;
     this.eatButton.title = `Ăn 1 quả mọng: hồi ${BERRY_HEAL} máu, rồi chờ ${EAT_COOLDOWN_MS / 1000} giây mới ăn tiếp (phím H)`;
-    this.eatButton.addEventListener("click", actions.eat);
+    onPress(this.eatButton, actions.eat);
     this.health.append(this.eatButton);
     this.soundButton = document.createElement("button");
     this.soundButton.className = "sound-btn";
@@ -64,7 +66,8 @@ export class Hud {
     // The toasts sit last in the column (CSS order), under the quest tracker that is added to it later.
     this.left.append(this.health, this.status, this.toasts);
     this.root.append(this.left);
-    // Invite button (phones): share sheet if available, else copy the link.
+    // Invite button (phones): share sheet if available, else copy the link. It stays on click: both need a user gesture,
+    // which a touch only gives as the finger lifts.
     this.status.addEventListener("click", (e) => {
       const button = (e.target as HTMLElement).closest<HTMLButtonElement>(".invite-btn");
       if (!button) return;
@@ -232,15 +235,24 @@ function div(className: string): HTMLDivElement {
   return d;
 }
 
-function button(className: string, label: string, onPress: () => void): HTMLButtonElement {
+function button(className: string, label: string, action: () => void): HTMLButtonElement {
   const b = document.createElement("button");
   b.className = `action-btn ${className}`;
   b.textContent = label;
-  b.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    onPress();
-  });
+  onPress(b, action);
   return b;
+}
+
+/**
+ * Runs `action` as soon as a finger (or the mouse) goes down on `target`: for buttons used on the move, since a phone
+ * makes no click for a second finger's tap while the first holds the joystick. Not for what needs a user gesture
+ * (share sheet, clipboard): a touch only gives one as the finger lifts.
+ */
+function onPress(target: HTMLElement, action: () => void) {
+  target.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    action();
+  });
 }
 
 function escapeHtml(s: string): string {

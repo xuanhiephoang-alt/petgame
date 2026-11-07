@@ -268,7 +268,8 @@ test("eating: the Ăn button recharges after a berry, and a press while it recha
   await expect(eat).toHaveClass(/cooling/);
   await expect(page.locator(".eat-secs")).toHaveText(/^[1-4]$/);
 
-  // Pressed while it recharges, all in one go so the countdown cannot end in between: the key, then the button.
+  // Pressed while it recharges, all in one go so the countdown cannot end in between: the key, then a finger on the button
+  // (it acts on pointerdown). Each only shakes the button.
   const pressed = await page.evaluate(() => {
     const { room } = (window as any).__petgame;
     const sent: string[] = [];
@@ -281,11 +282,13 @@ test("eating: the Ăn button recharges after a berry, and a press while it recha
     const cooling = button.classList.contains("cooling");
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "h" }));
     window.dispatchEvent(new KeyboardEvent("keyup", { key: "h" }));
-    button.click();
+    button.classList.remove("nope");
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "touch", isPrimary: true }));
+    const shook = button.classList.contains("nope"); // the button itself refused
     room.send = send;
-    return { cooling, sent };
+    return { cooling, sent, shook };
   });
-  expect(pressed).toEqual({ cooling: true, sent: [] });
+  expect(pressed).toEqual({ cooling: true, sent: [], shook: true });
   expect((await shownToasts(page)).join(" ")).not.toMatch(/quả mọng|Máu đang đầy/);
 
   await expect(eat).not.toHaveClass(/cooling/, { timeout: 10_000 });
@@ -298,6 +301,127 @@ test("eating: the Ăn button recharges after a berry, and a press while it recha
   await expect.poll(async () => (await me()).berries).toBe(berries - 2);
   await expect(eat).toHaveClass(/cooling/);
 });
+
+/** A phone held upright and sideways, for what only touch shows. */
+const PHONE_SCREENS = [
+  { name: "phone upright", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } },
+  { name: "phone sideways", options: { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true } },
+] as const;
+
+for (const screen of PHONE_SCREENS) {
+  test(`touch (${screen.name}): every button in the joystick's half takes its tap, the rest of the half steers, and Ăn eats under a second finger`, async ({ browser }) => {
+    test.slow();
+    const page = await join(browser, "Ngón", "/", { ...screen.options });
+    await waitForWorld(page);
+    await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+    await expect(page.locator(".hud-quest")).toContainText(/\S/);
+    const finger = await fingers(page);
+    const sent = await recordSends(page);
+
+    // Every HUD button whose centre is in the left half lies on top there: the joystick's zone is the HUD's bottom layer.
+    // The zone still covers the whole left half, and the quest tracker (no button in it) lets a touch through to it.
+    const layout = await page.evaluate(() => {
+      const half = innerWidth / 2;
+      const z = document.querySelector(".joystick-zone")!.getBoundingClientRect();
+      const checked: string[] = [];
+      const covered: string[] = [];
+      for (const b of document.querySelectorAll<HTMLButtonElement>(".hud button")) {
+        const r = b.getBoundingClientRect();
+        if (b.closest("[hidden]") || getComputedStyle(b).display === "none" || r.width === 0 || r.height === 0) continue;
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        if (x >= half) continue;
+        const name = b.className.split(" ")[0];
+        checked.push(name);
+        const top = document.elementFromPoint(x, y);
+        if (!top || !b.contains(top)) covered.push(`${name} under ${top?.className}`);
+      }
+      const q = document.querySelector(".hud-quest")!.getBoundingClientRect();
+      const quest = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+      return {
+        zone: [z.left, z.top, z.width, z.height].map(Math.round),
+        leftHalf: [0, 0, Math.round(half), innerHeight],
+        checked,
+        covered,
+        questToJoystick: !!quest?.closest(".joystick-zone"),
+        half,
+        height: innerHeight,
+      };
+    });
+    expect(layout.zone).toEqual(layout.leftHalf);
+    expect(layout.checked).toEqual(expect.arrayContaining(["eat-btn", "sound-btn", "invite-btn"]));
+    expect(layout.covered).toEqual([]);
+    expect(layout.questToJoystick).toBe(true);
+
+    // 🔊: a tap mutes, another one unmutes (a new device starts with the sound on).
+    const sound = page.locator(".sound-btn");
+    await expect(sound).toHaveText("🔊");
+    await sound.tap();
+    await expect(sound).toHaveText("🔇");
+    await sound.tap();
+    await expect(sound).toHaveText("🔊");
+
+    // 🔗 Mời bạn: a tap gives the invite link to the phone's share sheet (stubbed: this Chromium has none to open).
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "share", {
+        configurable: true,
+        value: (data: unknown) => {
+          (window as any).__shared = data;
+          return Promise.resolve();
+        },
+      });
+    });
+    const invite = page.locator(".invite-btn");
+    await invite.tap();
+    const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
+    const link = await invite.getAttribute("data-link");
+    expect(link).toContain(`room=${roomId}`);
+    await expect.poll(() => page.evaluate(() => (window as any).__shared ?? null)).toEqual({ title: "PetGame", text: "Vào chơi cùng mình!", url: link });
+
+    // An empty spot of the left half (a quarter across, three quarters down) starts the joystick: dragging up walks north.
+    const spot = { x: Math.round(layout.half / 2), y: Math.round(layout.height * 0.75) };
+    expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".joystick-zone"), [spot.x, spot.y])).toBe(true);
+    const me = () => page.evaluate(() => {
+      const { room } = (window as any).__petgame;
+      const p = room.state.players.get(room.sessionId);
+      return { y: p.y as number, berries: p.berries as number, hp: p.hp as number, maxHp: p.maxHp as number };
+    });
+    const start = await me();
+    await finger("touchStart", [{ ...spot, id: 0 }]);
+    for (let i = 1; i <= 6; i++) await finger("touchMove", [{ x: spot.x, y: spot.y - i * 10, id: 0 }]);
+    await expect.poll(async () => start.y - (await me()).y).toBeGreaterThan(40);
+    await finger("touchEnd");
+
+    // A drag that starts on the joystick presses nothing it crosses or ends on (the zone keeps its finger).
+    for (const target of [".sound-btn", ".eat-btn"]) {
+      const box = (await page.locator(target).boundingBox())!;
+      const end = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      await finger("touchStart", [{ ...spot, id: 0 }]);
+      for (let i = 1; i <= 8; i++) await finger("touchMove", [{ x: spot.x + ((end.x - spot.x) * i) / 8, y: spot.y + ((end.y - spot.y) * i) / 8, id: 0 }]);
+      await finger("touchEnd");
+    }
+
+    // Ăn under a second finger while the first holds the joystick: a phone makes no click for that touch, so Ăn acts on
+    // pointerdown. Snow by day is cold: health drops on its own (nothing hostile lives there, see the eating test).
+    await sendFrom(page, "debug:give");
+    await sendFrom(page, "debug:teleport", { x: 2440, y: 1760 });
+    await expect.poll(async () => {
+      const m = await me();
+      return m.berries >= 50 && m.hp < m.maxHp;
+    }, { timeout: 15_000 }).toBe(true);
+    // The drags pressed nothing (checked now, when anything they set off would have arrived).
+    await expect(sound).toHaveText("🔊");
+    expect(await sent()).not.toContain("eat");
+    const berries = (await me()).berries;
+    const eat = (await page.locator(".eat-btn").boundingBox())!;
+    await finger("touchStart", [{ ...spot, id: 0 }]); // holds the joystick still
+    await finger("touchStart", [{ ...spot, id: 0 }, { x: eat.x + eat.width / 2, y: eat.y + eat.height / 2, id: 1 }]);
+    await finger("touchMove", [{ ...spot, id: 0 }]); // the second finger lifts
+    await finger("touchEnd");
+    await expect.poll(async () => (await me()).berries).toBe(berries - 1);
+    await expect(page.locator(".eat-btn")).toHaveClass(/cooling/);
+  });
+}
 
 test("exploring: quest tracker, minimap and opening a treasure chest", async ({ browser }) => {
   const page = await join(browser, "Explorer");
@@ -870,6 +994,16 @@ async function recordSends(page: Page): Promise<() => Promise<string[]>> {
     room.send = (type: string, message?: unknown) => (w.__sent.push(type), sendOriginal(type, message));
   });
   return () => page.evaluate(() => (window as any).__sent as string[]);
+}
+
+/**
+ * Real touches through the browser (CDP), for what `tap()` cannot do: a drag, or a second finger while the first stays down.
+ * Each call lists the fingers down after it (an id each); a finger left out of the list lifts, and `touchEnd` lifts them all.
+ */
+async function fingers(page: Page) {
+  const cdp = await page.context().newCDPSession(page);
+  return (type: "touchStart" | "touchMove" | "touchEnd", points: { x: number; y: number; id: number }[] = []) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
 }
 
 test("party: the dialog hands the focus back, closes with its pal and keeps its warning true", async ({ browser }) => {

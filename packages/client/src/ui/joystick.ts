@@ -3,8 +3,9 @@ import type { Vec2 } from "@petgame/shared";
 const RADIUS = 60;
 
 /**
- * Floating joystick: touch anywhere on the left half of the screen to place
- * it, drag to steer. Screen up maps to world "north" (away from the camera).
+ * Floating joystick: touch anywhere on the left half of the screen that no HUD button covers to place it (the zone
+ * is the HUD's bottom layer, see index.html), drag to steer. Screen up maps to world "north" (away from the camera).
+ * The zone captures the pointer, so a drag presses no button it crosses.
  */
 export class Joystick {
   readonly value: Vec2 = { x: 0, y: 0 };
