@@ -1,523 +1,701 @@
-# PLAN: T8 Thú đầu đàn bắt được không có dấu hiệu gì
+# PLAN: T9 Thú kẹt sau cây, đá khi đuổi theo
 
 ## Mục tiêu
 
-- **Vấn đề:**
-  - Bắt được thú đầu đàn là chiến tích lớn nhất của game (nhiệm vụ cuối chuỗi; con thú cấp 15-22). Nhưng vào túi rồi, nó chỉ là một con thú cấp cao bình thường: không thẻ, nhãn hay hồ sơ nào nhớ nó từng là đầu đàn.
-  - Lúc bắt, người ném đọc hai tin cho cùng một việc: "Bắt được Voltmouse! 🎉" (chữ của client) và "★ Hiệp đã bắt được Voltmouse đầu đàn!" (tin `news` của server, gửi cả người ném). Tin thứ hai là thông báo mức cao, nên tin lên cấp phải chờ thêm 3 giây.
+- **Vấn đề:** thú chỉ trượt dọc vật cản (`CollisionGrid.resolve`), không tìm đường.
+  - Khi đường thẳng tới mục tiêu bị cây, đá chắn, khoảng 1/6 số lần đuổi kẹt trong hốc giữa các vật cản tới hết 8 giây đuổi.
+  - Người chơi đứng sau cụm cây là "an toàn" trước thú tự vệ, thú hung dữ.
+  - Thú đi theo đứng ì sau cây trong khi chủ đánh thú hoang (12% số lần không tới được trong 6 giây).
+  - Số đo ở mục Thiết kế 2.
 - **Sau nhiệm vụ:**
-  - Con đầu đàn bắt được mang dấu ★ mãi: lưu trong hồ sơ, hiện trên thẻ ở bảng 🐾 Thú, trên nhãn tên khi nó đi theo hay làm việc (ai trong thế giới cũng thấy), và trong hộp xác nhận thả.
-  - Người ném chỉ đọc một tin: "★ Bắt được Voltmouse đầu đàn! 🎉". Mọi người khác vẫn nhận tin ★.
-- Luật đầy đủ đã ghi trong `docs/design/pals.md` (mục "Thú đầu đàn", tiểu mục mới "Thú đầu đàn đã bắt", "Túi thú và thả thú", "Nhãn tên và thanh máu") và `docs/design/hud.md` (bảng `news`, ví dụ "Bắt thú đầu đàn"). Game-designer đã sửa hai file này trong nhiệm vụ.
+  - Thú hoang (cả thú đầu đàn và trùm) đi vòng để tới kẻ nó đang đánh; thú đầu đàn đi vòng để về hang.
+  - Thú đi theo đi vòng để tới chủ hoặc tới con thú chủ đang đánh.
+  - Đường thẳng thông thì mọi thứ y như trước. Chi phí CPU có giới hạn cứng mỗi tick, kể cả khi khoảng 100 thú cùng cần đường.
+- **Luật** đã ghi trong `docs/design/pals.md`, mục mới "Đi vòng cây, đá", và một câu trong mục "Tính khí". Game-designer đã sửa file này trong nhiệm vụ.
 
 ## Phạm vi
 
-Làm:
-- **shared:**
-  - trường `alpha` ở cuối `OwnedPal` và `Companion` (`schema.ts`);
-  - `CaptureResultMessage.alpha` (`messages.ts`);
-  - hàm `palName` (`alphas.ts`) và test.
-- **server:**
-  - `GameRoom.ts`: mọi chỗ tạo `OwnedPal`, `spawnCompanion`, `saveNow`, `handleThrow`, `announce`, `knockOut`, `release`, hook `debug:givePal`;
-  - `persistence/store.ts`: `SavedPal`, `sanitizeProfile`;
-  - test.
-- **client:**
-  - `Game.ts`: nhãn thú đi theo, chữ khi bắt, dữ liệu cho bảng Thú;
-  - `ui/party.ts`: thẻ, hộp xác nhận;
-  - CSS trong `index.html`.
-- **E2E:** 1 test mới.
-- **`docs/architecture.md`:** 5 chỗ nhỏ (bước 10).
+**Làm:**
+- **shared:** file mới `pathfind.ts` (lưới đi lại `NavGrid`, A* `findPath`, `lineClear`, `defaultNav`) + `pathfind.test.ts` (unit + benchmark nhẹ); export trong `index.ts`.
+- **server, `ai/`:**
+  - file mới `pathing.ts` (`PathPlanner`: khi nào tìm, đi theo điểm mốc, hàng đợi, ngân sách) + `pathing.test.ts`;
+  - tham số `via` cho `stepChase` (`wildCombat.ts`) và `stepCompanion` (`companion.ts`); hàm `companionReach`; test.
+- **`GameRoom.ts`:** trường `paths`; ba chỗ gọi (đuổi, về hang, thú đi theo); `paths.run(now)` mỗi tick; dọn trong `removePal`, `despawnCompanion`.
+- **`GameRoom.test.ts`:** 3 test tích hợp mới.
+- **`docs/architecture.md`:** 4 chỗ (bước 9).
 
-KHÔNG làm:
-- **Không thêm lợi ích nào cho thú đầu đàn đã bắt.** Không thêm chỉ số, chiêu, sức làm việc; không làm hình to hơn hay có quầng vàng. Lý do ở mục Thiết kế 3.
-- Không đổi tin ★ khi **hạ gục** thú đầu đàn: vẫn gửi cả thế giới, kể cả người hạ. Client không có thông báo riêng cho lần hạ gục (tin `Defeated` chỉ có hiệu ứng và chữ bay đồ rơi), nên người hạ không đọc trùng.
-- Không đổi chữ lên cấp, cho ăn bánh, cảnh báo lãnh địa: tên loài là đủ ở đó.
-- Không đổi nhãn của thú đầu đàn hoang ("★ Đầu đàn · Lv 15 Voltmouse"), hạng nhãn `LABEL_RANK`, `labelLayout.ts`, `labels.ts`.
-- Không đổi thứ tự tin và kinh nghiệm của T4/T6: tin ★ và `ALPHA.xp` vẫn chung một hẹn giờ lúc bóng khép, tin trước, kinh nghiệm sau.
-- Không thêm hook debug mới. Chỉ thêm một trường tuỳ chọn `alpha` cho hook `debug:givePal` có sẵn (mục Thiết kế 6).
-- Không đụng `scripts/shots.mjs` (xem đề xuất cho T14 ở cuối).
+**KHÔNG làm:**
+- Không đổi client, schema, message, hồ sơ lưu. Thú chỉ đi khác ở server; client vẫn nội suy vị trí như cũ.
+- Không tìm đường cho:
+  - thú hiền chạy trốn (`stepFlee`, không có đích);
+  - lang thang (`stepWander` tự đổi đích khi bị chặn);
+  - thú làm việc đi tới chỗ làm ở trại;
+  - trùm lang thang về nhà khi đi quá `BOSS_LEASH`: nhánh lang thang, gắn với việc T21 (xem đề xuất cuối).
+- Không đổi luật đuổi: thời gian đuổi 8 giây (`WILD_AGGRO_MS`), tốc độ, tầm cắn, khoảng bám 56 px, nhảy về chủ khi cách quá 480 px (`COMPANION_TELEPORT_DISTANCE`). Không thêm luật "bỏ đuổi khi không có đường".
+- Không đổi `CollisionGrid` (client dùng chung để đoán chuyển động) và `worldgen.ts`.
+- Không sửa bán kính lang thang 20 của trùm (việc T21).
+- Không đổi số cân bằng: không cần balance-analyst (lý do ở Thiết kế 7).
 
 ## Thiết kế
 
-### 1. Lưu cờ
+### 1. Hiện trạng (HEAD `2fd24ba`)
 
-**Trường mới:**
-- `OwnedPal.alpha` (boolean, cuối schema): con thú này bị bắt khi đang là thú đầu đàn.
-- `Companion.alpha` (boolean, cuối schema): chép từ `OwnedPal.alpha` khi con thú ra ngoài (`spawnCompanion`).
-  - Theo đúng cách `Companion` đang chép `speciesId` và `level`: client vẽ nhãn ngay trong `onAdd`, không phải tra chéo sang `Player.pals` (thứ tự patch, nối lại).
-  - Giá trị không bao giờ đổi trong đời con thú, như `mode`.
-- `SavedPal.alpha` (boolean, bắt buộc) trong `Profile`.
+**Vòng tick** (`packages/server/src/rooms/GameRoom.ts`):
+- `setSimulationInterval(tick, TICK_MS)` ở dòng 475: 20 tick/giây, `dtMs` ≈ 50.
+- `tick` (dòng 638-757), lần lượt:
+  - người chơi;
+  - vòng thú hoang (dòng 650-740), mỗi con mỗi tick:
+    - bán kính `radius = pal.boss ? BOSS.radius : species.size` (dòng 662);
+    - thú đầu đàn bị kéo quá `ALPHA.leash` thì về hang: `stepChase(pos, home, …, 8)` (dòng 664-677);
+    - chạy trốn: `stepFlee` (dòng 678-688);
+    - đuổi: `stepChase(pos, target.pos, …, reach)` (dòng 705-706); bước rơi xuống biển thì bỏ (dòng 707-711);
+    - lang thang: `stepWander` (dòng 722-739);
+  - `tickCompanions` (dòng 742; định nghĩa dòng 759-839):
+    - thú làm việc: `stepToward` tới chỗ làm (dòng 773-795);
+    - thú đi theo: `stepCompanion(companion, owner, target, …)` (dòng 803).
 
-Thêm ở cuối schema để chỉ số của các trường cũ giữ nguyên.
+**Hàm AI** (`packages/server/src/ai/`):
+- `stepChase` (`wildCombat.ts` dòng 37-48) gọi `stepToward(pos, target, range * 0.7, …)`: đi thẳng, dừng ở 70% tầm cắn, `inRange` khi ≤ `range`.
+- `stepToward` (`companion.ts` dòng 21-35): bước thẳng rồi `obstacles.resolve(next, radius)`.
+- `stepCompanion` (`companion.ts` dòng 42-59):
+  - cách chủ quá 480 px thì nhảy về cạnh chủ;
+  - không thì đi thẳng tới mục tiêu (dừng ở `COMPANION_ATTACK_RANGE * 0.8 + radius`) hoặc tới chủ (dừng ở 56).
+- `stepWander` (`wander.ts` dòng 42-76): tiến dưới 30% bước thì đổi đích.
 
-**Ai đặt cờ.** Chỉ server: client không bao giờ gửi cờ này, trừ hook thử nghiệm khi `PETGAME_DEBUG=1`. Mọi chỗ server tạo hay chép `OwnedPal`:
+**`CollisionGrid`** (`packages/shared/src/collision.ts`):
+- Ô băm 96 px trong một `Map<number, Circle[]>` (dòng 16-33, khoá băm dòng 74-76).
+- `query` tạo `Set` và mảng mới mỗi lần (dòng 36-43). `blocked` (dòng 45-47).
+- `resolve` (dòng 53-72): tối đa 3 lượt, đẩy thân ra theo pháp tuyến mỗi vòng tròn chạm.
+  - Lao thẳng vào tâm một thân cây thì lực đẩy triệt tiêu bước đi: đứng yên.
+  - Hai cây gần nhau tạo hốc: kẹt ở đáy hốc.
+- Vật cản sinh trong `worldgen.ts` (dòng 308-312), `defaultWorld()` dòng 336-342. Gồm 1.455 vòng tròn:
+  - lửa trại (27 px), núi lửa (112 px);
+  - 54 vòng hồ;
+  - 1.399 cây, đá: bán kính 5-59, trung vị 12,6, p90 22.
 
-| Chỗ | Giá trị |
+**Bán kính thân** (dùng cho va chạm):
+
+| Ai | Bán kính |
 |---|---|
-| Bắt được (`handleThrow`) | `pal.alpha` của thú hoang lúc ném |
-| Nạp hồ sơ (`onJoin`) | `saved.alpha` (đã qua `sanitizeProfile`, luôn là boolean) |
-| `debug:givePal` | `message?.alpha === true` |
-| `saveNow` (ghi hồ sơ) | `p.alpha === true` |
-| `spawnCompanion` (ra ngoài) | `companion.alpha = owned.alpha === true` |
+| Thú thường, theo loài (`pals.json`) | Voltmouse 12, Mothlume 13, Leafkit 14, 15-16 phần lớn, Pebblet và Frostfang 17, Boulderhorn 20 |
+| Thú đầu đàn | `species.size` (hình to 1,6 lần chỉ là hình vẽ) |
+| Trùm khi đuổi, cắn | `BOSS.radius` 40 (`boss.ts` dòng 23) |
+| Trùm khi lang thang | 20 (lỗi T21, `GameRoom.ts` dòng 731) |
+| Thú đi theo | `species.size` |
 
-Schema dùng `t.boolean()` không có giá trị mặc định, nên `new OwnedPal()` có `alpha` là `undefined` cho đến khi gán. Vì vậy:
-- mọi chỗ tạo trong `GameRoom` gán tường minh, giống `pal.alpha = false` ở `spawnPal`;
-- hai chỗ ranh giới (`saveNow`, `spawnCompanion`) ép `=== true`. Nếu sau này có đường tạo thú quên gán, nó vẫn ra `false` chứ không ra `undefined`.
+**Tốc độ:**
+- Đuổi: `species.speed × 1,8` (`WILD_CHASE_SPEED_FACTOR`), tức 54-171 px/s.
+- Thú đi theo 190 px/s (`COMPANION_SPEED`).
 
-**Hồ sơ cũ:**
-- `sanitizeProfile` đọc `alpha: p.alpha === true`. Hồ sơ trước T8 không có trường thì ra `false`. Giá trị lạ (`"yes"`, `1`) cũng ra `false`. Đọc lại kết quả đã đọc không đổi gì.
-- `emptyProfile` không đổi: `pals` rỗng.
-- Quay về code cũ (nếu phải): code cũ dựng hồ sơ từ các trường nó biết, nên bỏ qua `alpha`. Chỉ mất cờ, không hỏng gì. Vì vậy không cần hỏi người dùng.
+**Số thú mỗi phòng:**
+- `WILD_PAL_TARGET` 80, +3 ban đêm, + trùm + 6 thú đầu đàn: khoảng 90 thú hoang.
+- Tối đa 5 thú đi theo, cộng thú làm việc (không đuổi).
 
-### 2. Hiển thị ★
+### 2. Số đo "trước" (script chỉ đọc trên `defaultWorld()`)
 
-| Ở đâu | Thú thường (không đổi) | Thú đầu đàn đã bắt |
-|---|---|---|
-| Tên trên thẻ ở bảng 🐾 Thú | `Voltmouse · Lv 15` | `★ Voltmouse · Lv 15`: ★ là `<span class="party-star" title="Thú đầu đàn">`, màu `#b77900` |
-| Thẻ | viền theo việc (đi theo xanh, làm việc cam) | thêm class `alpha`: vạch vàng 4 px bên trái trong thẻ (`box-shadow: inset 4px 0 0 #ffb300`), không đụng viền theo việc |
-| Nút "Thả" (chế độ 🕊️ Thả bớt), `aria-label` | `Thả Voltmouse · Lv 15` | `Thả Voltmouse đầu đàn · Lv 15` |
-| Hộp xác nhận thả | (không có dòng) | dòng `★ Thú đầu đàn` ngay dưới tiêu đề, chữ đậm `#9a6200` |
-| Thông báo sau khi thả (server) | `Đã thả Voltmouse. Tạm biệt! 👋` | `Đã thả Voltmouse đầu đàn. Tạm biệt! 👋` |
-| Nhãn trên đầu khi đi theo hay làm việc | `Lv 15 Voltmouse`, class `label companion` | `★ Lv 15 Voltmouse`, class `label companion alpha`: chữ vàng `#ffe082`, đậm 600, nền tối như cũ |
+Script nằm trong scratchpad, ngoài repo; không file nào trong repo bị đổi khi đo.
+- Mô phỏng hàm thật `stepChase` / `stepCompanion` với `defaultWorld().grid`, 20 tick/giây.
+- Seed cố định.
+- Bản mẫu A* để so "sau" và đo chi phí.
 
-**Lý do các lựa chọn:**
-- **★ đặt trong tên**, khớp với nhãn trên đầu ("★ Lv 15 Voltmouse"), tin ★, dấu ★ trên bản đồ và nhãn "★ Đầu đàn" của thú hoang.
-- **Vạch vàng bên trái** giúp nhìn ra ngay trong danh sách tới 30 thẻ. Viền vàng bên trái cũng là dấu "quan trọng" mà thông báo mức cao đang dùng.
-- **Màu (đo tương phản):**
-  - `#b77900` cho ★: 3,37-3,65:1 trên ba nền thẻ (`#fff`, `#f1f8e9`, `#fff8e1`), đạt 3:1 cho ký hiệu;
-  - `#9a6200` cho chữ trong hộp: 4,93:1 trên `#fafcf6`, đạt 4,5:1 cho chữ 14 px;
-  - `#ffe082` cho nhãn: khoảng 9,9:1 trên nền nhãn.
-- **Nhãn vẫn chữ vàng trên nền tối**, không dùng nền vàng: nền vàng là nhãn của chính mình (`.label.me`) và của thú đầu đàn hoang. Chữ vàng là đủ để phân biệt.
-- **Hạng nhãn không đổi (T5):**
-  - thú đi theo của mình vẫn là `LABEL_RANK.follower`, nhãn ghim;
-  - thú của người khác và thú làm việc vẫn là `LABEL_RANK.companion`.
+**A. Thú hoang đuổi mục tiêu đứng yên** cách 60-320 px. Mỗi loại thân 1.500 cặp; chỉ tính cặp có đường đi thật.
 
-  Hạng xếp theo thứ người chơi cần thấy (của mình, mối nguy). Thú đầu đàn đã thuần không phải mối nguy. Nhãn chỉ rộng thêm khoảng 10 px; `labelLayout` đã đo lại khi chữ đổi.
-- **Không ★ trên hình chân dung:** không cần thêm chỗ trên ô 52 px đã có số cấp.
-- **Hình trong thế giới không đổi** (không quầng vàng, không to 1,6 lần): hai thứ đó nghĩa là "thú đầu đàn hoang đang canh lãnh địa". Nếu thú đi theo cũng có, người chơi sẽ tưởng bị tấn công. Trên điện thoại, hình to còn chiếm chỗ.
+| Thân | Đường thẳng bị chắn | Tới trong 8 giây khi bị chắn, trước | Sau (bản mẫu) | Tới trong 8 giây, mọi cặp, trước → sau |
+|---|---|---|---|---|
+| Emberpup (15, 126 px/s) | 38% | 84,0% | 99,3% | 93,9% → 99,7% |
+| Boulderhorn (20, 81 px/s) | 43% | 81,1% | 99,7% | 91,9% → 99,9% |
+| Trùm (40, 81 px/s, tầm 64) | 57% | 77,5% | 93,9% | 87,2% → 96,5% |
 
-**Điện thoại và bàn phím:**
-- Không có thao tác mới. Thả vẫn qua chuột, chạm và Q, Tab, Enter, Escape như T2.
-- Ở thẻ hẹp (390×844, cột chữ khoảng 125 px), tên có thể xuống dòng ở khoảng trắng như hiện nay. Chuyện thẻ quá cao để T18 lo.
-- Hộp xác nhận cao thêm khoảng 28 px. Ước tính ở 844×390: khoảng 245-270 px so với 358 px trống, và hộp đã có `max-height: 100%; overflow-y: auto`. E2E đo lại.
-- `title` của ★ chỉ hiện khi rê chuột. Trên cảm ứng, chữ "★ Thú đầu đàn" trong hộp và tin lúc bắt đã nói ★ là gì.
+- **Bao lâu:** 4.000 lần Emberpup đuổi khi bị chắn, 15,6% kẹt tới hết 8 giây: kẹt từ lúc chạm vật cản tới hết giờ, trung vị 7,1 giây, p90 7,7 giây.
+- **Kẹt vào gì:**
+  - 87% kẹt trong hốc chạm từ hai vật cản trở lên;
+  - theo loại vật cản: cây 57%, đá 23%, cây cùng đá 14%, hồ 2%, còn lại (lắc qua lại, bờ biển) 4%.
+- **Kẹt ở đâu** (tỉ lệ kẹt trong số lần đuổi bị chắn): đầm lầy 40%, đồng cỏ (rừng) 28%, núi tuyết 16%, núi lửa 11%, sa mạc 8%, đảo 4%.
+- **Trùm** sau T9 vẫn không tới khoảng 6%: phần lớn cần hơn 8 giây kể cả theo đường ngắn nhất, hoặc thân 80 px không lọt.
 
-### 3. Lợi ích thêm: không có
+**B. Người chơi bị đuổi chạy 1,5 giây rồi đứng:** trước T9 đã tới 100%, vì thú đi theo vết người chơi.
+- Vậy kẹt xảy ra khi vật cản nằm giữa ngay từ đầu cuộc đuổi:
+  - thú hung dữ thấy người trong 120 px;
+  - thú thoát bóng đuổi người ném (tới 180 px);
+  - đòn hay chiêu của thú đi theo;
+  - mục tiêu là thú đi theo.
 
-Thú đầu đàn đã bắt có chỉ số, chiêu, sức làm việc, cấp tối đa như thú thường cùng loài cùng cấp. Số liệu tính bằng script chỉ đọc trên code hiện tại:
-- **Phần thưởng đã lớn.**
-  - Con bắt được ở cấp 15, 17, 18, 19, 20, 22. Kinh nghiệm cộng dồn lần lượt 4.159, 5.746, 6.657, 7.650, 8.727, 11.141.
-  - Theo bảng "Nhịp mục tiêu" (`pals.md`), nuôi một con lên cấp 15 mất 116 trận, khoảng 2,6 giờ ở nhịp bình thường; cấp 20 mất 5,7 giờ.
-  - Thú đi theo còn nhận phần bắt theo cấp (60-78) cộng 300 (`ALPHA.xp`).
-- **Lợi ích gắn với dấu ★ sẽ cày được.**
-  - Thú đầu đàn quay lại sau 6 phút (`ALPHA.respawnMs`).
-  - Choáng ở 1 máu, mỗi lần ném bắt được 33,0-33,8% (bóng xịn: 33,7-34,8%, gần như không thêm vì ở 1 máu tỉ lệ gốc đã gần trần trước khi nhân 0,4). Choáng 6 giây cho khoảng 7 lần ném, nên chỉ khoảng 6% số lần cả 7 quả đều trượt.
-  - Một lợi ích theo cờ sẽ cộng dồn tới 30 con trong túi.
-- **Cân bằng T7** tính sức thú đi theo chỉ theo cấp (`companionDamage`, chiêu theo cấp). Thêm chỉ số làm lệch thời gian trận đã đo.
-- **Luật thả thú (T2)** không hoàn lại gì, để không có vòng bắt rồi thả kiếm đồ. Thú đầu đàn cũng không ngoại lệ.
+**C. Thú đi theo:**
+- Lao vào thú hoang đứng sau vật cản, cách 80-280 px (1.000 lần): tới trong 6 giây (`COMPANION_AGGRO_MS`) 88,0% → 99,7%.
+- Bám chủ đi đường bình thường (120 lượt, 52 phút đi): nhảy về chủ 0,06 lần/phút, xa chủ quá 150 px 0,8% thời gian. Sau T9 như cũ (0,02 lần/phút, 0,9%).
+- Chủ (thân 12) lách khe mà thú (thân 17) không lọt: còn xa chủ quá 120 px trong 5 giây cuối 1,8% → 0%.
+- Tóm lại: bám chủ vốn ít kẹt; lợi lớn ở lao vào đánh.
 
-Không đổi số cân bằng nào, nên không cần balance-analyst.
+**D. Cảnh test "chén cây"** (mục Test):
+- Trước T9 cả 4 trường hợp kẹt tới hết giờ.
+- Sau (bản mẫu):
+  - Emberpup tới tầm cắn sau 3,25 giây;
+  - Boulderhorn sau 5,25 giây;
+  - thú đi theo tới cạnh chủ sau 2,05 giây;
+  - thú đi theo tới đánh được thú hoang sau 2,10 giây.
+- Mỗi trường hợp 1 lần tìm, khoảng 125 ô.
 
-### 4. Tin nhắn khi bắt
+### 3. Lưới đi lại `NavGrid` (shared)
 
-**`CaptureResultMessage.alpha?: boolean`:**
-- Có (`true`) khi thú bị ném là thú đầu đàn, **cả khi bắt được lẫn khi nó thoát**. Không có trường khi thú thường. Viết theo kiểu cờ tuỳ chọn đang dùng: `...(crit ? { crit } : {})`.
-- Tin vẫn `broadcast` như cũ. Người khác nhận được nhưng không dùng (chữ "Bắt được" chỉ hiện cho người ném).
+**Ô 16 px** (`NAV_CELL = TERRAIN_CELL`): 400 × 300 = 120.000 ô, khớp đúng từng ô của `Terrain`.
+- Cờ biển của mỗi ô chính xác.
+- 16 px giữ được các khe 24-34 px giữa thân cây. Ô 32 px làm mất các khe đó, và tâm ô cách điểm thật tới 23 px.
 
-**Chữ của người ném** (client, `Game.ts`, hàm `verdict`), tên lấy từ `palName(msg.speciesId, msg.alpha === true)`:
+**Mỗi ô lưu khoảng trống** (`clearance`, `Uint8Array`):
+- Giá trị: khoảng cách từ tâm ô tới mép vật cản gần nhất, làm tròn xuống, kẹp trong [0, `NAV_MAX_CLEARANCE` = 64]. Bên trong vật cản là 0.
+- Một ô **mở cho một thân** bán kính `r` khi `clearance ≥ r`, và không phải biển trừ khi thân đó được qua biển.
+- Một lưới dùng cho mọi bán kính (12 tới 40), không cần một lưới cho mỗi cỡ thân.
+- Đã kiểm: với bán kính nguyên, "ô mở" trùng **tuyệt đối** với `!grid.blocked(tâm ô, r)` trên toàn thế giới. Đo 960.000 lần (8 bán kính × 120.000 ô): 0 lần lệch. Unit test giữ tính chất này.
 
-| Kết quả | Thú thường (không đổi) | Thú đầu đàn | Mức, thời gian |
+**Dựng một lần** từ `CollisionGrid.circles` và `Terrain`:
+- Với mỗi vòng tròn, duyệt các ô trong `c.r + 64` quanh nó, lấy `min`. Khoảng 110 nghìn phép, đo 14 ms.
+- Cờ biển: `isSea(terrain, tâm ô)` từng ô. Không có `terrain` thì không ô nào là biển (test).
+- Ngoài thế giới coi như đóng.
+- Đất liền bị đóng: thân 12 đóng 18%, thân 15 đóng 21%, thân 20 đóng 27%, thân 40 đóng 49%.
+
+**`clearanceAt(x, y)`:** nội suy song tuyến giữa 4 tâm ô quanh điểm; điểm ngoài lưới tính là 0.
+- Chọn nội suy thay vì lấy ô gần nhất: trên cùng bộ 1.500 cặp, cách lấy ô gần nhất báo "bị chắn" nhiều hơn 5-8% (tìm đường thừa) và tới đích ít hơn.
+- Ví dụ Boulderhorn: 98,3% thay vì 99,7%.
+
+**`lineClear(from, to, body, stopShort = 0)`:** đường thẳng có đủ rộng cho thân không.
+- Lấy mẫu mỗi 8 px (`NAV_CELL / 2`), gồm cả hai đầu, dừng `stopShort` px trước `to`.
+- Mỗi mẫu cần `clearanceAt ≥ radius`; nếu thân không qua biển thì ô dưới mẫu không phải biển.
+- Không tạo object. Viết chặt (không closure), bản mẫu đo 0,65 µs cho 300 px thông, 0,21 µs khi bị chắn (dừng sớm).
+
+**Bộ nhớ và chia sẻ:**
+- Lưới khoảng 240 KB. Mảng nháp A* khoảng 2 MB, cấp một lần ở lần tìm đầu.
+- `defaultNav()` dựng một lần mỗi process (như `defaultWorld()`), mọi phòng dùng chung.
+- An toàn vì `findPath` chạy đồng bộ, không nhường lượt.
+
+### 4. A* (`NavGrid.findPath`) và làm mượt
+
+**Truy vấn:** `findPath(from, to, { radius, sea, goalRadius, maxNodes, weight? })` trả `{ status: "found" | "none" | "limit", path: Vec2[], expanded }`.
+
+**Lưới và bước đi:**
+- 8 hướng; đi thẳng tốn 16, đi chéo tốn 16·√2.
+- Không cắt góc: đi chéo chỉ khi cả hai ô cạnh đều mở.
+- Thứ tự xét láng giềng cố định (Đ, T, N, B, rồi 4 góc), nên kết quả tất định.
+
+**Ô đầu:** ô chứa `from` (kẹp vào lưới), **luôn được nhận** dù không mở.
+- Thân có thể đứng sát cây hợp lệ trong khi tâm ô hẹp hơn thân.
+- Các ô sau phải mở.
+
+**Đích là một vùng:**
+- Thành công khi lấy ra một ô có tâm cách `to` không quá `max(goalRadius, NAV_CELL)`.
+- Mục tiêu đứng chỗ hẹp (người chơi thân 12 sát cây) vẫn tới được, vì chỉ cần một ô mở trong tầm.
+- Ô đầu thoả luôn thì `found` với `path` rỗng.
+
+**Heuristic:** khoảng cách octile từ tâm ô tới `to`, nhân `PATH_HEURISTIC_WEIGHT` = 1,2. So trên 2.000 cặp bị chắn (thân 15, 60-320 px):
+
+| Trọng số | Ô xét, trung vị | Ô xét, p90 | Đường dài hơn tối ưu, p99 |
 |---|---|---|---|
-| Bắt được | `Bắt được Voltmouse! 🎉` | `★ Bắt được Voltmouse đầu đàn! 🎉` | cao, 3,0 giây |
-| Thoát | `Voltmouse thoát ra rồi (33%)` | `Voltmouse đầu đàn thoát ra rồi (33%)` | thường, 3,0 giây |
+| 1 | 30 | 94 | 0% |
+| 1,2 | 17 | 69 | 7,7% |
+| 1,5 | 16 | 50 | 10,6% |
 
-**Tin ★ (`announce`, kind `news`):**
-- Chữ không đổi: `★ Hiệp đã bắt được Voltmouse đầu đàn!`.
-- Gửi cho mọi người **trừ người ném**: `this.broadcast(..., { except })`, Colyseus 0.18 hỗ trợ `except?: Client | Client[]`.
-- `except` lấy lúc hẹn giờ chạy, theo sessionId: `this.clients.find((c) => c.sessionId === client.sessionId)`. Không dùng biến `client` của lúc ném. Lý do, đọc trong `@colyseus/core` 0.18.18 (`Room.mjs`):
-  - khi rớt mạng, Colyseus xoá client khỏi `this.clients` (`_onLeave`);
-  - khi nối lại, nó đẩy vào một đối tượng `Client` **mới**, cùng sessionId;
-  - `except` so sánh bằng tham chiếu.
+Chọn 1,2: bớt 43% số ô ở trung vị, đường gần như tối ưu.
 
-  Hệ quả:
+**Giới hạn:**
+- Xét tối đa `maxNodes` ô. Hết mà chưa tới thì `"limit"`, khi đó `expanded === maxNodes`.
+- Hết ô để xét thì `"none"`: bị nhốt, ví dụ trong vòng cây kín.
+- `radius > NAV_MAX_CLEARANCE` thì `"none"` ngay với `expanded` 0 (không ô nào đủ rộng). Không ném lỗi trong tick.
 
-  | Lúc hẹn giờ chạy, người ném… | Tra theo sessionId | Dùng `client` cũ |
-  |---|---|---|
-  | đang chơi bình thường | được loại ra | được loại ra |
-  | đang chờ nối lại | không tìm thấy, `except` là `undefined`, mọi người còn lại nhận (người ném không nằm trong danh sách) | như cột trái |
-  | vừa nối lại | đối tượng mới, được loại ra | không loại được, người ném lại thấy tin ★ |
-- Hạ gục: `announce(text)` không có `except`, như cũ.
+**Mảng nháp** (cấp một lần, không xoá giữa các lần tìm):
+- Dấu lượt tìm: `Uint32Array` "đã gặp" và "đã đóng", so với số lượt tăng dần mỗi lần tìm.
+- `g: Float32Array`, `parent: Int32Array`.
+- Heap nhị phân trên `Int32Array` + `Float32Array`, sức chứa `maxNodes × 8 + 8`, nới khi truy vấn cần nhiều hơn. Cho phép trùng, bỏ ô đã đóng khi lấy ra.
+- **Không xoá 120.000 ô mỗi lần tìm.**
 
-**Thứ tự (T4/T6) giữ nguyên:**
-- Một hẹn giờ lúc `captureRevealMs(shakes) + CAPTURE_NEWS_DELAY_MS` (2,2 giây khi bắt được). Trong đó: `announce` trước, `grantXp` sau. Người khác nhận tin ★ rồi mới đến `LevelUp` (tin `LevelUp` cũng `broadcast`).
-- Người ném thấy "★ Bắt được…" ở client lúc bóng khép (1,9 giây). `LevelUp` đến sau 0,3 giây như mọi lần bắt.
-- Người ném rời phòng trước khi bóng khép: không ai để loại, mọi người còn lại vẫn nhận tin, không trả kinh nghiệm (test sẵn có, giữ nguyên).
+**Làm mượt** ("kéo dây" tham lam bằng `lineClear` cùng thân):
+- Neo = `from`.
+- Từ neo, đi xa nhất có thể theo dãy tâm ô mà vẫn thấy được, lấy điểm đó làm điểm mốc và làm neo mới. Lặp tới hết.
+- Không có điểm nào xa hơn thấy được thì vẫn lấy điểm kế tiếp.
+- `path` không gồm `from`; điểm cuối là ô đích (trong `goalRadius` của `to`).
+- Đo: trung vị 25 ô thành 3 điểm mốc (p99: 48 ô thành 8 điểm), 395 mẫu (p99 1.200), khoảng 10-30 µs.
 
-**Màn hình người ném** (`toastDuration`, 2 chỗ khi desktop hay điện thoại dọc), trường hợp xong luôn nhiệm vụ cuối:
-- "★ Bắt được…" hiện từ 1,9 đến 4,9 giây; "Xong nhiệm vụ…" từ 2,1 đến 6,0 giây.
-- Tin lên cấp đến lúc 2,2 giây, chờ đến 4,9 giây mới hiện.
-- Cả cảnh khoảng 9 giây; trước T8 khoảng 10 giây và đọc hai tin cho một việc.
-- Điện thoại ngang (1 chỗ): ngắn đi khoảng 3 giây, bằng thời gian của tin ★ cũ (3,0 giây).
+### 5. Khi nào tìm, đi theo điểm mốc, khi nào tính lại (`PathPlanner.steer`, server)
 
-### 5. Một hàm chung cho tên
+**Mỗi tick, mỗi con đang đuổi** gọi `paths.steer(key, pos, goal, walker, now)` ngay trước bước đi.
+- Hàm trả điểm phải đi tới tick này: chính `goal` (đi thẳng như cũ) hoặc một điểm mốc.
+- `key` là `"w:<id thú hoang>"` hoặc `"c:<id OwnedPal>"`, như `skillReady`.
+- `walker = { radius, sea, goalRadius, step }`:
+  - `goalRadius`: cách bao nhiêu là "đã tới" (tầm cắn, tầm đánh, khoảng bám, vùng về hang);
+  - `step`: số px đi được tick này, để biết kẹt.
 
-`palName(speciesId: string, alpha = false): string` trong `packages/shared/src/alphas.ts`:
-- trả `Voltmouse` hoặc `Voltmouse đầu đàn`;
-- import `getSpecies` từ `./pals.ts` (không vòng: `pals.ts` chỉ import JSON).
+**Trạng thái mỗi con** (`Track`, chỉ server, trong `Map` của planner):
+- `path`, `next`: điểm mốc và chỉ số điểm đang tới;
+- `pathGoal`: đích lúc tìm;
+- `lastPos`, `lastSteerAt`;
+- `stuck`: số tick liền gần như đứng yên;
+- `forced`: đường này có vì bị kẹt;
+- `nextSearchAt`;
+- `query`: `from`, `goal`, `walker` mới nhất, cho lần tìm.
+- Chép `x`, `y` vào object của `Track`, **không giữ tham chiếu tới object schema** (nó di chuyển).
 
-Thay cho `alphaName(pal)` riêng của `GameRoom` (bỏ phương thức này) ở 4 chỗ:
-- tin bắt được;
-- tin hạ gục;
-- thông báo thả (server);
-- chữ bắt và thoát, `aria-label` nút Thả (client).
+**Luật** (theo thứ tự, mỗi lần gọi):
+1. **Bị dời đi:** cách `lastPos` quá `jumpPx` (64 px) thì bỏ đường, `stuck = 0`.
+   - Ví dụ: nhảy về chủ, dịch chuyển thử nghiệm, chuyển chế độ.
+   - 64 lớn hơn mọi cú đẩy: dậm 44, chiêu tối đa 30.
+2. **Đếm kẹt:** ngược lại, nếu đi chưa tới 30% `step` từ lần gọi trước và chưa trong `goalRadius` thì `stuck += 1`; không thì `stuck = 0`. Ghi `lastPos`, `lastSteerAt`.
+3. **Đã trong `goalRadius`:** bỏ đường, trả `goal`.
+   - Thú đứng cắn qua thân cây như trước, nhịp cắn không đổi.
+   - Vì vậy `goalRadius` là **tầm** (cắn 40, trùm 64, thú đi theo đánh `40 + thân`), không phải khoảng dừng 70%.
+   - Đo: dùng tầm cho kết quả bằng hoặc tốt hơn khoảng dừng (bảng mục 2 là số với tầm).
+4. **Kẹt mà chưa có đường:** `stuck ≥ stuckTicks` (6 tick, 0,3 giây) và chưa có `path` thì đặt `forced = true`.
+5. **Đường thẳng thông:** nếu không `forced` và `lineClear(pos, goal, walker, goalRadius)` thì bỏ đường, trả `goal`.
+   - Đây là trường hợp thường gặp: hành vi y như trước T9.
+   - Kiểm tới điểm `goalRadius` trước mục tiêu, vì chỉ cần tới được tầm.
+6. **Đang có đường:**
+   - Bỏ qua các điểm mốc đã thấy được: tối đa `lookahead` (2) lần `lineClear(pos, path[next + 1])`.
+   - Bỏ qua điểm cách `pos` không quá `max(4, step)`.
+   - Hết điểm thì bỏ đường.
+7. **Cần tìm** khi:
+   - chưa có đường; hoặc
+   - đích đã dời quá `repathPx` (48 px, 3 ô; người chơi chạy 48 px mất 0,3 giây) khỏi `pathGoal`; hoặc
+   - `stuck ≥ stuckTicks` dù đang có đường (đường bị chặn hay kém).
 
-Mục đích: chữ "đầu đàn" ghép giống nhau ở cả hai bên, có unit test. Cảnh báo lãnh địa trong `Game.ts` tự ghép "… đầu đàn" và giữ nguyên (đề xuất cho T12 ở cuối).
+   Cần tìm và `now ≥ nextSearchAt` thì ghi `query` và xếp hàng (mỗi con tối đa 1 chỗ trong hàng).
+8. **Trả** `path[next]` nếu có đường. Không thì trả `goal`: trượt thẳng như cũ trong lúc chờ, hoặc khi không có đường.
 
-### 6. Hook thử nghiệm
+**Bỏ đường** = `path = undefined`, `next = 0`, `forced = false`.
 
-`debug:givePal` nhận thêm `alpha?: boolean`: `owned.alpha = message?.alpha === true`.
-- **Lý do:** e2e không bắt được thú đầu đàn thật bằng hook sẵn có.
-  - Không hook nào làm yếu một con thú đầu đàn; `debug:spawnPal` chỉ sinh thú thường.
-  - Ném vào con đầy máu chỉ trúng 3,6-6% mỗi lần, trong lúc nó cắn 11 máu mỗi 1,2 giây.
-- Hook vẫn chỉ đăng ký khi `PETGAME_DEBUG=1`. Test tích hợp kiểm cả giá trị `true` lẫn giá trị lạ.
+**Kết quả tìm** (trong `run`):
+- `stuck = 0`.
+- `found` có điểm mốc: gán `path`, `next = 0`, `pathGoal`, `nextSearchAt = now + retryMs` (500).
+  - `forced` giữ nguyên: đường có vì kẹt thì đi hết, không lấy lối tắt ở luật 5 (lối tắt chính là thứ đã làm nó kẹt).
+- `found` rỗng: bỏ đường, `nextSearchAt = now + retryMs`.
+- `none` / `limit`: bỏ đường, `nextSearchAt = now + failRetryMs` (2000). Thú trượt như cũ, 2 giây sau thử lại.
+
+### 6. Hàng đợi và ngân sách mỗi tick (`PathPlanner.run`)
+
+**Hàng đợi:** `Set<string>` các `key`, giữ thứ tự xếp đầu tiên (FIFO; thêm lại không đổi chỗ).
+
+**`run(now)`** gọi một lần mỗi tick, sau vòng thú hoang và `tickCompanions`. Duyệt hàng từ đầu:
+- Dừng khi đã chạy `searchesPerTick` (8) lần tìm, hoặc khi `đã xét + maxNodes > tickBudget`.
+  - Với `maxNodes` 1.500 và `tickBudget` 3.000: một lần tìm chỉ bắt đầu khi đã xét không quá 1.500 ô.
+  - Nên **một tick không bao giờ quá 3.000 ô**, và luôn chạy được ít nhất 1 lần tìm.
+- Mỗi `key` lấy ra thì xoá khỏi hàng.
+  - Không còn `Track`, hoặc không gọi `steer` trong `staleMs` (250 ms; đã thôi đuổi, đang choáng, đang gồng hay tung chiêu): bỏ, không tìm.
+  - Ngược lại tìm với `maxNodes`, áp kết quả (mục 5).
+- Ghi `lastRun = { searches, expanded }` cho test.
+
+**Hệ quả:**
+- Thường mỗi tick 0-2 lần tìm, mỗi lần khoảng 17 ô.
+- 100 con cùng cần đường một lúc thì con cuối được phục vụ ở tick 13 (0,65 giây). Trong lúc chờ nó trượt như cũ.
+- Một con tìm tối đa 2 lần mỗi giây; con không có đường tốn tối đa 1.500 ô mỗi 2 giây.
+
+### 7. Áp dụng cho ai
+
+| Ai | Chỗ gọi | `goal` | `goalRadius` | `radius` | `sea` | `step` |
+|---|---|---|---|---|---|---|
+| Thú hoang, thú đầu đàn đuổi | dòng 705-706 | `target.pos` | `range` (40) | `species.size` | false | `species.speed × 1,8 × dt` |
+| Trùm đuổi | cùng chỗ | `target.pos` | `range` = `BOSS.radius + 24` (64) | 40 | false | như trên |
+| Thú đầu đàn về hang | dòng 672 | `home` | `ALPHA.roam × 0,5` (64, đúng mốc kết thúc về hang ở dòng 675) | `species.size` | false | như trên |
+| Thú đi theo (bám chủ, lao vào đánh) | dòng 803 | `target ?? owner` | `companionReach(radius, !!target)`: `40 + radius` khi đánh, 56 khi bám | `species.size` | true (theo chủ đi bè như trước) | `COMPANION_SPEED × dt` |
+
+**Trùm có tìm đường**, với thân 40:
+- Lợi: 77,5% → 93,9% khi bị chắn.
+- Chi phí: thân 80 px ít lối đi, nên khoảng 28% lần tìm của trùm hết giới hạn hoặc không có đường. Mỗi lần như vậy tốn tối đa 1.500 ô mỗi 2 giây, chỉ một con.
+
+**Thú đi theo cách chủ quá 480 px** thì không gọi `steer`: `stepCompanion` nhảy nó về.
+- Lần gọi sau thấy nó bị dời quá 64 px, nên tự bỏ đường cũ (luật 1).
+
+**Không đổi cân bằng:**
+- Thời gian trụ của T7 tính người đứng yên, thú tới được. T9 chỉ làm cho điều đó đúng cả trong rừng.
+- Luật "chạy xa không cắt đuôi được" (Tính khí) nay đúng cả khi núp sau cây.
+- Không đổi sát thương, máu, tốc độ, nên không cần balance-analyst.
+
+### 8. Hiệu năng
+
+**Đo trên bản mẫu** (JavaScript chưa tối ưu, có closure; container 4 vCPU):
+- A* thân 15, cặp bị chắn 60-320 px: trung vị 17 ô, p90 69, p99 khoảng 1.000; trung bình 0,08-0,11 ms mỗi lần tìm (cả làm mượt).
+- Cặp 320-640 px: trung vị 41 ô, p90 140.
+- Một lần tìm chạm giới hạn 2.000 ô: 1,5 ms trung bình, 3,5 ms p99.
+- 100 con cùng đuổi mục tiêu bị chắn, 160 tick:
+  - mỗi tick trung bình 0,25-0,37 ms, p99 1,8-3,1 ms, cho **cả vòng** (gồm `stepChase`/`resolve` vốn có);
+  - nhiều nhất khoảng 1.800 ô mỗi tick;
+  - mọi con có đường trước tick 14;
+  - 97-99% tới tầm cắn trong 8 giây.
+
+**Xấu nhất mỗi tick, code thật, 100 con đuổi:**
+- `lineClear`: tối đa 3 lần mỗi con (thẳng + 2 nhìn trước) × 100 × khoảng 1 µs = 0,3 ms.
+- A*: tối đa 3.000 ô × khoảng 1 µs = 3 ms. Mục tiêu cho coder: không quá 1 µs mỗi ô; bản mẫu khoảng 0,7 µs khi chạm giới hạn.
+- Làm mượt: tối đa 8 lần × khoảng 0,05 ms = 0,4 ms.
+- Cộng lại khoảng 3,7 ms trên 50 ms của một tick (7%). Chỉ xảy ra khi nhiều lần tìm dài trùng một tick.
+- Thường (dưới 20 con đuổi): dưới 0,2 ms.
+
+**Cấp phát:**
+- Lưới và mảng nháp cấp một lần mỗi process.
+- Mỗi tick chỉ có object nhỏ: `walker` ở chỗ gọi (như `pos` vốn tạo mỗi tick).
+- Mỗi lần tìm: mảng điểm mốc, tối đa 8 lần mỗi tick.
+- `Track` dùng lại object `lastPos`, `query.from`, `query.goal` (gán `x`, `y`).
+
+### 9. Số liệu
+
+Không phải số cân bằng, nhưng để trong bảng hằng số, không rải trong logic:
+
+| Hằng số | Giá trị | Ở đâu | Lý do |
+|---|---|---|---|
+| `NAV_CELL` | `TERRAIN_CELL` (16) | `shared/pathfind.ts` | cờ biển đúng từng ô, giữ khe giữa cây |
+| `NAV_MAX_CLEARANCE` | 64 | như trên | lớn hơn thân to nhất tìm đường (trùm 40) |
+| `PATH_HEURISTIC_WEIGHT` | 1,2 | như trên | bảng mục 4 |
+| `PATHING.maxNodes` | 1.500 | `server/ai/pathing.ts` | thân 15 tìm thấy 99,0% (1.000: 98,8%; 3.000: 99,0%) |
+| `PATHING.tickBudget` | 3.000 | như trên | tối đa khoảng 3 ms mỗi tick |
+| `PATHING.searchesPerTick` | 8 | như trên | 100 yêu cầu xong trong 13 tick; giới hạn chi phí làm mượt (4/tick: 26 tick, 16/tick: 7 tick, cùng chi phí) |
+| `PATHING.retryMs` | 500 | như trên | tối đa 2 lần tìm mỗi giây mỗi con |
+| `PATHING.failRetryMs` | 2.000 | như trên | con không có đường tốn tối đa 1.500 ô mỗi 2 giây |
+| `PATHING.repathPx` | 48 | như trên | 3 ô; người chơi chạy 0,3 giây |
+| `PATHING.stuckTicks` | 6 | như trên | 0,3 giây tiến dưới 30% bước |
+| `PATHING.lookahead` | 2 | như trên | bỏ điểm mốc thừa khi đi |
+| `PATHING.jumpPx` | 64 | như trên | lớn hơn mọi cú đẩy (44), nhỏ hơn mọi cú nhảy |
+| `PATHING.staleMs` | 250 | như trên | 5 tick không gọi `steer` thì bỏ yêu cầu |
 
 ## Kế hoạch triển khai
 
-Số dòng tính theo HEAD `54fe64c`. Chú thích code bằng tiếng Anh, chữ hiển thị tiếng Việt, đúng như bảng ở mục Thiết kế.
+Số dòng theo HEAD `2fd24ba`. Chú thích code bằng tiếng Anh (JSDoc cho hàm, class, trường không hiển nhiên). Không có chữ người chơi thấy.
 
-1. **`packages/shared/src/schema.ts`:**
-   - `OwnedPal` (dòng 9-19): sau `assignment`, thêm:
+1. **`packages/shared/src/pathfind.ts`** (mới). Import `WORLD_WIDTH`, `WORLD_HEIGHT` (`constants.ts`), `type CollisionGrid` (`collision.ts`), `type Vec2` (`movement.ts`), `TERRAIN_CELL`, `isSea`, `type Terrain` (`terrain.ts`), `defaultWorld` (`worldgen.ts`; không tạo vòng import).
+   - Hằng số: `NAV_CELL`, `NAV_MAX_CLEARANCE`, `PATH_HEURISTIC_WEIGHT` (mục 9), mỗi cái có JSDoc nói vì sao.
+   - Kiểu:
      ```ts
-     /** Caught while it was a region's pack leader (alphas.ts): shown with a ★, nothing more. */
-     alpha: t.boolean(),
-     ```
-   - `Companion` (dòng 90-103): sau `maxHp`, thêm:
-     ```ts
-     /** Its OwnedPal was caught as a pack leader: the name tag shows a ★. Set once when it comes out, like `mode`. */
-     alpha: t.boolean(),
-     ```
-2. **`packages/shared/src/messages.ts`**, `CaptureResultMessage` (dòng 276-284), sau `shakes`:
-   ```ts
-   /** The pal thrown at was a region's pack leader (whether caught or not): the thrower reads "… đầu đàn". */
-   alpha?: boolean;
-   ```
-3. **`packages/shared/src/alphas.ts`:** thêm `import { getSpecies } from "./pals.ts";` và hàm sau `ALPHA`:
-   ```ts
-   /** A pal's name as players read it: "Voltmouse", or "Voltmouse đầu đàn" for a pack leader, wild or caught. */
-   export function palName(speciesId: string, alpha = false): string {
-     const name = getSpecies(speciesId).name;
-     return alpha ? `${name} đầu đàn` : name;
-   }
-   ```
-4. **`packages/server/src/persistence/store.ts`:**
-   - `SavedPal` (dòng 31-37) thêm:
-     ```ts
-     /** Caught as a region's pack leader (★). Saves from before it was kept have none: read as false. */
-     alpha: boolean;
-     ```
-   - `sanitizeProfile`, dòng 156: `pals.push({ id: p.id, speciesId: p.speciesId, level, xp, assignment, alpha: p.alpha === true });`.
-5. **`packages/server/src/rooms/GameRoom.ts`:**
-   - Import `palName` từ `@petgame/shared`.
-   - **`debug:givePal`** (dòng 439-458):
-     - kiểu `message?: { species?: string; level?: number; alpha?: boolean }`;
-     - thêm `owned.alpha = message?.alpha === true;` cạnh các trường khác;
-     - chú thích dòng 439: `// A pal of this species and level joins the party and follows (to try its skills); { alpha: true } makes it a caught pack leader.`
-   - **`onJoin`** (dòng 512-520): thêm `owned.alpha = saved.alpha;`.
-   - **`handleThrow`** (dòng 889-954):
-     - Ngay sau `const species = getSpecies(pal.speciesId);` (dòng 903): `const alpha = pal.alpha === true;`. Dùng `alpha` thay cho `pal.alpha` ở dòng 907.
-     - Nhánh `success`:
-       - bỏ `alphaName` (dòng 922);
-       - thêm `owned.alpha = alpha;` trước `player.pals.push(owned)`;
-       - `if (alpha) this.questEvent(client.sessionId, "alpha");`;
-       - `xp` cộng `(alpha ? ALPHA.xp : 0)`;
-       - `const news = alpha ? \`★ ${player.name} đã bắt được ${palName(species.id, true)}!\` : "";`.
-     - Chú thích dòng 937-939 sửa thành: `Once the ball has clicked shut (as the thrower sees it): a pack leader's news for everyone else (the thrower reads it in this result, CaptureResultMessage.alpha), then the XP for the pal that helped, in one timer (timers due in the same tick run last-registered first). Not at the throw: a level-up then would give the catch away while the ball still wobbles.`
-     - Trong hẹn giờ, thay `if (news) this.announce(news);` bằng:
-       ```ts
-       // Found again now, not the `client` of the throw: a reconnect in between brings a new Client for this session.
-       if (news) this.announce(news, this.clients.find((c) => c.sessionId === client.sessionId));
-       ```
-     - Dòng 952:
-       ```ts
-       const result: CaptureResultMessage = { playerId: client.sessionId, palId, speciesId: species.id, success, chance, shakes, ...(alpha ? { alpha } : {}) };
-       ```
-   - **`release`** (dòng 1016-1029): `const owned = player.pals[index];` và `const name = palName(owned.speciesId, owned.alpha === true);`, thay dòng 1020.
-   - **`knockOut`** (dòng 1195): `const name = pal.alpha ? palName(pal.speciesId, true) : "";`.
-   - **Xoá phương thức `alphaName`** (dòng 1616-1619).
-   - **`announce`** (dòng 1621-1624):
-     ```ts
-     /** Tells everyone in the world but `except` (a "news" notice). */
-     private announce(text: string, except?: Client) {
-       this.broadcast(ServerMessage.Notice, { text, kind: "news" } satisfies NoticeMessage, { except });
+     /** A body finding its way: how wide it is, and whether it may cross the sea (companions follow a rafting owner; wild pals cannot swim). */
+     export interface NavBody { radius: number; sea: boolean }
+     export interface PathQuery extends NavBody {
+       /** Any cell whose center is this close to the goal will do (at least NAV_CELL). */
+       goalRadius: number;
+       /** Cells it may expand before giving up ("limit"). */
+       maxNodes: number;
+       /** Heuristic weight (PATH_HEURISTIC_WEIGHT unless given). */
+       weight?: number;
+     }
+     export interface PathResult {
+       status: "found" | "none" | "limit";
+       /** Waypoints after smoothing, not including `from`; the last is within goalRadius of the goal. Empty unless found. */
+       path: Vec2[];
+       /** Cells expanded: the search's cost. */
+       expanded: number;
      }
      ```
-   - **`spawnCompanion`** (dòng 2024-2035): `companion.alpha = owned.alpha === true;`.
-   - **`saveNow`** (dòng 2086-2092): thêm `alpha: p.alpha === true,` sau `assignment`.
-6. **`packages/client/src/game/Game.ts`:**
-   - Import `palName` từ `@petgame/shared`.
-   - **`CaptureResult`** (dòng 696-706):
-     - `const name = palName(msg.speciesId, msg.alpha === true);` thay dòng 701;
-     - chữ bắt được: `` `${msg.alpha ? "★ " : ""}Bắt được ${name}! 🎉` ``;
-     - chữ thoát giữ cách viết, dùng `name` mới.
-   - **`$.onAdd("companions")`** (dòng 488-521):
-     - Trước `nameTag`:
-       ```ts
-       // A caught pack leader: a ★ and gold text. Set once by the server when it comes out, like `mode`.
-       const star = companion.alpha ? "★ " : "";
-       ```
-     - `nameTag` nhận chữ `` `${star}Lv ${companion.level} ${species.name}` `` và class `companion.alpha ? "label companion alpha" : "label companion"`.
-     - Trong `onChange` (dòng 517): `` const shown = `${star}Lv ${companion.level} ${species.name}`; ``. Giữ phép so sánh trước khi gán.
-   - **`updateHud`** (dòng 1166): thêm `alpha: p.alpha === true` vào object của mỗi thú.
-7. **`packages/client/src/ui/party.ts`:**
-   - Import `palName`.
-   - `PartyEntry` (dòng 26-33) thêm:
+   - `export class NavGrid`, đúng mục 3-4:
+     - `constructor(obstacles: Pick<CollisionGrid, "circles">, terrain?: Terrain)`: dựng `clearance`, `sea` (`Uint8Array`, riêng tư); `readonly cols`, `rows`.
+     - `clearanceAt(x: number, y: number): number`: song tuyến.
+     - `cellOpen(x: number, y: number, body: NavBody): boolean`: ô chứa điểm có mở cho thân không (theo tâm ô).
+     - `lineClear(from: Vec2, to: Vec2, body: NavBody, stopShort = 0): boolean`.
+     - `findPath(from: Vec2, to: Vec2, query: PathQuery): PathResult`: A* + làm mượt; mảng nháp riêng tư, cấp ở lần tìm đầu.
+     - JSDoc của class ghi: một lưới cho mọi cỡ thân; dùng chung giữa các phòng an toàn vì chạy đồng bộ.
+   - `export function defaultNav(): NavGrid`: cache cấp module, `new NavGrid(defaultWorld().grid, defaultWorld().layout.terrain)`.
+2. **`packages/shared/src/index.ts`:** thêm `export * from "./pathfind.ts";` (cuối file).
+3. **`packages/server/src/ai/wildCombat.ts`:** `stepChase` (dòng 36-48) thêm tham số cuối `via?: Vec2`.
+   - JSDoc: "`via` (a waypoint around trees, ai/pathing.ts) is walked to at full speed instead of the target; the bite range is still measured to the target."
+   - Thân hàm:
      ```ts
-     /** Caught as a pack leader: a ★ on its card and a line in the release dialog. */
-     alpha: boolean;
+     const detour = via !== undefined && (via.x !== target.x || via.y !== target.y);
+     const next = detour
+       ? stepToward(pos, via, 0, dtMs, radius, obstacles, speed)
+       : stepToward(pos, target, range * 0.7, dtMs, radius, obstacles, speed);
+     return { pos: next, inRange: distance(next, target) <= range };
      ```
-   - Khoá vẽ lại (dòng 188): `` `${p.id}:${p.level}:${p.xp}:${p.assignment}:${p.alpha ? 1 : 0}` ``.
-   - **`card`:**
-     - `` card.className = `party-card ${entry.assignment || "idle"}${entry.alpha ? " alpha" : ""}`; ``
-     - Tên (dòng 262-263): nếu `entry.alpha`, tạo `span.party-star` có chữ `★`, `title = "Thú đầu đàn"`, rồi `name.append(star, " ")`. Sau đó `` name.append(`${species.name} · Lv ${entry.level}`) `` (chữ của tên là `★ Voltmouse · Lv 15`).
-     - `aria-label` của nút Thả (dòng 298): `` `Thả ${palName(entry.speciesId, entry.alpha)} · Lv ${entry.level}` ``.
-   - **Hộp xác nhận:**
-     - Trường mới `private confirmAlpha: HTMLParagraphElement;`. Dựng một lần trong constructor: `className = "party-confirm-alpha"`, chữ `★ Thú đầu đàn`.
-     - Thứ tự trong hộp: `box.append(this.confirmHead, this.confirmAlpha, text, this.confirmStatus, this.confirmWarn, choices)`.
-     - `fillConfirm`: `this.confirmAlpha.hidden = !entry.alpha;`.
-8. **`packages/client/index.html` (CSS):**
-   - Cạnh `.label.companion span` (dòng 217):
-     ```css
-     /* A caught pack leader (★): gold text on the usual dark tag (a gold tag is mine or a wild leader's). */
-     .label.companion.alpha span { color: #ffe082; font-weight: 600; }
+   - Không có `via`, hoặc `via` trùng `target`: y như cũ.
+4. **`packages/server/src/ai/companion.ts`:**
+   - Thêm hàm, đặt trước `stepCompanion`:
+     ```ts
+     /** How close counts as "there" for a companion: within hitting range of the wild pal it fights, or trailing distance of its owner. */
+     export function companionReach(radius: number, attacking: boolean): number {
+       return attacking ? COMPANION_ATTACK_RANGE + radius : COMPANION_FOLLOW_DISTANCE;
+     }
      ```
-   - Cạnh các quy tắc thẻ (sau dòng 201):
-     ```css
-     /* A caught pack leader: a gold bar inside the card's left edge (the border keeps showing what the pal does) and a gold ★ in its name. */
-     .party-card.alpha { box-shadow: inset 4px 0 0 #ffb300; }
-     .party-star { color: #b77900; }
+   - `stepCompanion` (dòng 42-59) thêm tham số cuối `via?: Vec2`; JSDoc thêm câu như bước 3.
+     - Nhánh nhảy về chủ không đổi, bỏ qua `via`.
+     - Rồi `goal = target ?? owner`; `detour` tính như bước 3, so với `goal`.
+     - Có `detour`: `stepToward(pos, via, 0, dtMs, radius, obstacles)`. Không: như cũ (`stopAt` dòng 55 giữ nguyên).
+     - `inAttackRange = !!target && distance(next, target) <= companionReach(radius, true)`, thay biểu thức ở dòng 57 (cùng giá trị).
+5. **`packages/server/src/ai/pathing.ts`** (mới), đúng mục 5-6.
+   - `export const PATHING = { maxNodes: 1500, tickBudget: 3000, searchesPerTick: 8, retryMs: 500, failRetryMs: 2000, repathPx: 48, stuckTicks: 6, lookahead: 2, jumpPx: 64, staleMs: 250 } as const;`
+     - JSDoc từng trường (một dòng, nói vì sao).
+     - JSDoc của bảng trỏ tới `docs/design/pals.md`, mục "Đi vòng cây, đá".
+   - Kiểu walker:
+     ```ts
+     export interface Walker extends NavBody {
+       /** This close to its goal it is "there" (bite or hit range, trailing distance): no path, it walks straight as before. */
+       goalRadius: number;
+       /** Pixels it walks this tick (speed × dt): moving less than 30% of it counts toward being stuck. */
+       step: number;
+     }
      ```
-   - Cạnh `.party-confirm-warn` (dòng 167): `.party-confirm-alpha { color: #9a6200; font-weight: 700; }`.
-9. **Test:** theo mục Test.
-10. **`docs/architecture.md`:**
-    - Dòng `schema.ts` (22): thêm "; `OwnedPal.alpha`, `Companion.alpha`: thú đầu đàn đã bắt (★)".
-    - Dòng `messages.ts` (23): thêm "; `CaptureResultMessage.alpha` (thú bị ném là đầu đàn)".
-    - Dòng `boss.ts`, `alphas.ts` (35): thêm "; `palName` (tên kèm "đầu đàn", dùng chung)".
-    - Mục "Thông báo và thứ tự tin" (dòng 46): sau "tin ★ trước, kinh nghiệm sau." thêm "Tin ★ của lần bắt gửi mọi người trừ người ném (`announce(text, except)`, tìm client theo sessionId lúc hẹn giờ chạy vì nối lại tạo `Client` mới); người ném đọc "★ Bắt được … đầu đàn! 🎉" từ `CaptureResultMessage.alpha`. Tin ★ khi hạ gục vẫn gửi cả người hạ."
-    - Dòng hook (59): `givePal` thành "givePal (`species`, `level`, `alpha: true` cho thú đầu đàn đã bắt)".
+   - `export type PathLimits = Readonly<Record<keyof typeof PATHING, number>>;` (`PATHING` là `as const` nên các số mang kiểu literal; kiểu này cho test truyền bảng khác, ví dụ `{ ...PATHING, searchesPerTick: 2 }`).
+   - `export class PathPlanner`:
+     - `constructor(nav: NavGrid, limits: PathLimits = PATHING)`.
+     - `steer(key: string, pos: Vec2, goal: Vec2, walker: Walker, now: number): Vec2`: luật 1-8 mục 5. Trả chính object `goal` khi đi thẳng.
+     - `run(now: number): void`: mục 6.
+     - `forget(key: string): void`: xoá `Track` và chỗ trong hàng.
+     - `has(key: string): boolean`, `waypoints(key: string): readonly Vec2[] | undefined` (cho test).
+     - `lastRun: { searches: number; expanded: number }` (đọc được từ ngoài).
+   - Không dùng `Math.random`, không hẹn giờ: thời gian là `now` truyền vào.
+6. **`packages/server/src/rooms/GameRoom.ts`:**
+   - **Import:**
+     - từ `@petgame/shared` thêm `COMPANION_SPEED`, `WILD_ATTACK_RANGE`, `defaultNav`;
+     - dòng 197: thêm `companionReach`;
+     - thêm `import { PathPlanner } from "../ai/pathing.ts";`.
+   - **Trường mới** sau `private obstacles = defaultWorld().grid;` (dòng 334):
+     ```ts
+     /** Ways around trees, rocks and water for chasing pals and companions (ai/pathing.ts), keyed "w:<wild id>" / "c:<owned id>". */
+     private paths = new PathPlanner(defaultNav());
+     ```
+   - **Về hang** (dòng 672), thay bằng:
+     ```ts
+     const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
+     const via = this.paths.steer(`w:${id}`, pos, home, { radius, sea: false, goalRadius: ALPHA.roam * 0.5, step: (speed * dtMs) / 1000 }, now);
+     const step = stepChase(pos, home, speed, dtMs, radius, this.obstacles, 8, via);
+     ```
+   - **Đuổi** (dòng 705-706), thay bằng:
+     ```ts
+     const range = pal.boss ? BOSS.radius + 24 : WILD_ATTACK_RANGE;
+     const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
+     const via = this.paths.steer(`w:${id}`, pos, target.pos, { radius, sea: false, goalRadius: range, step: (speed * dtMs) / 1000 }, now);
+     const step = stepChase(pos, target.pos, speed, dtMs, radius, this.obstacles, range, via);
+     ```
+     Biến `reach` cũ đổi thành `range`; giá trị như cũ, vì `stepChase` mặc định `WILD_ATTACK_RANGE`.
+   - **Thú đi theo** (dòng 803), thay bằng:
+     ```ts
+     // Within reach of its owner it walks around trees; farther, stepCompanion jumps it back next to them.
+     const via = distance(companion, owner) > COMPANION_TELEPORT_DISTANCE ? undefined : this.paths.steer(`c:${id}`, companion, target ?? owner,
+       { radius, sea: true, goalRadius: companionReach(radius, !!target), step: (COMPANION_SPEED * dtMs) / 1000 }, now);
+     const step = stepCompanion(companion, owner, target, dtMs, radius, this.obstacles, via);
+     ```
+   - **Sau** `this.tickCompanions(dtMs);` (dòng 742): `this.paths.run(now);`, chú thích `// The searches asked for this tick, within its budget (the pals walk them from the next tick).`
+   - **`removePal`** (dòng 1222-1243): thêm `this.paths.forget(\`w:${palId}\`);` cạnh `this.forgetSkills(...)`.
+   - **`despawnCompanion`** (dòng 2040-2047): thêm `this.paths.forget(\`c:${id}\`);`.
+   - Không đổi gì khác: nhánh chạy trốn, lang thang, thú làm việc, kiểm biển sau bước đuổi (dòng 707-711) giữ nguyên.
+7. **Test:** theo mục Test.
+8. Chạy `npm run typecheck` (`noUnusedLocals`, `noUnusedParameters`).
+9. **`docs/architecture.md`:**
+   - Bảng shared: thêm dòng sau dòng `movement.ts`, `collision.ts` (dòng 24):
+     `| pathfind.ts | Tìm đường (T9): NavGrid (lưới 16 px dẫn xuất từ CollisionGrid: khoảng trống tới vật cản gần nhất của mỗi ô, cờ biển), lineClear, findPath (A* 8 hướng, giới hạn số ô, làm mượt), defaultNav() |`
+   - Dòng `rooms/GameRoom.ts` (41): sau "thú hoang (lang thang, nổi giận, gồng rồi cắn, choáng, bỏ chạy)" thêm "; thú đuổi theo và thú đi theo đi vòng cây, đá qua `paths` (`PathPlanner`; `paths.run(now)` mỗi tick sau `tickCompanions`)".
+   - Dòng `ai/` (57): thêm "`pathing.ts` (`PathPlanner`: khi nào tìm đường, đi theo điểm mốc, hàng đợi và ngân sách mỗi tick; số liệu `PATHING`)".
+   - Mục Kiểm thử (84): thêm helper `plantTrees` vào danh sách helper của `GameRoom.test.ts`.
 
-Một commit cho cả nhiệm vụ.
+**Tách bước (tuỳ chọn):** việc vừa một vòng coder. Nếu cần commit nhỏ hơn thì chia 2 commit:
+- (A) bước 1-2 + `pathfind.test.ts`;
+- (B) phần còn lại.
+
+Tester và reviewer vẫn chấm cả nhiệm vụ một lần.
 
 ## Giao thức
 
-| Thay đổi | Chi tiết | Ảnh hưởng |
-|---|---|---|
-| `schema.ts` | `OwnedPal.alpha`, `Companion.alpha` (boolean, cuối mỗi schema) | Server và client đổi cùng nhiệm vụ (một container chạy cả hai). Thêm ở cuối nên chỉ số các trường cũ không đổi |
-| `messages.ts` | `CaptureResultMessage.alpha?: boolean` | Tuỳ chọn: client không đọc thì như cũ |
-| `Profile` | `SavedPal.alpha: boolean`; `sanitizeProfile` đọc `p.alpha === true` | Hồ sơ cũ đọc được: mọi thú là thú thường. Code cũ đọc hồ sơ mới thì bỏ qua trường, không hỏng |
-| Hook debug | `debug:givePal` nhận `alpha` | Chỉ khi `PETGAME_DEBUG=1` |
-
-Không đổi `ClientMessage`, `NoticeMessage`, `NoticeKind`.
+- Không đổi `schema.ts`, `messages.ts`, `Profile`, hook debug.
+- Client không đổi: vẫn nội suy vị trí thú do server gửi.
+- Đổi chữ ký hai hàm chỉ server dùng: `stepChase`, `stepCompanion` thêm tham số cuối tuỳ chọn; mọi chỗ gọi cũ vẫn đúng.
+- Export mới từ `@petgame/shared`: `NavGrid`, `defaultNav`, `NAV_CELL`, `NAV_MAX_CLEARANCE`, `PATH_HEURISTIC_WEIGHT`, kiểu `NavBody`, `PathQuery`, `PathResult`.
 
 ## Test
 
-**Unit, shared:** `packages/shared/src/alphas.test.ts`, test mới `names a pack leader, wild or caught, as players read it`:
-- `palName("voltmouse")` và `palName("voltmouse", false)` là `"Voltmouse"`;
-- `palName("voltmouse", true)` là `"Voltmouse đầu đàn"`;
-- với mọi `ALPHAS`: `palName(def.speciesId, true) === \`${getSpecies(def.speciesId).name} đầu đàn\``.
+**Cảnh "chén cây"** dùng chung (tâm `C`), như bản mẫu đã đo:
+- Cây bán kính 14, tâm cách nhau 20 px (chồng lên nhau, không thân nào lọt).
+- Hàng đáy từ `C.x - 80` tới `C.x + 80` ở `y = C.y + 40`.
+- Hai cánh ở `x = C.x ± 80`, từ `C.y + 20` lên `C.y - 60`.
+- Miệng chén quay lên bắc. Thú đứng ở `C` (trong chén), mục tiêu ở `(C.x, C.y + 120)` (sau đáy chén).
+- Helper `treeCup(c: Vec2): Circle[]` (khoảng 10 dòng) có trong cả 3 file: `pathfind.test.ts`, `pathing.test.ts`, `GameRoom.test.ts`.
+  - Chấp nhận chép vì repo chưa có module tiện ích dùng chung cho test.
+  - Import từ một file `.test.ts` khác thì Vitest chạy lại các `describe` của file đó.
+  - Không đưa hàm chỉ dành cho test vào `index.ts` của shared.
 
-**Unit, server:** `packages/server/src/persistence/store.test.ts`:
-- `saves and loads a profile` (dòng 9): con thú được đẩy vào có `alpha: true`. Lượt lưu rồi đọc vẫn `toEqual(profile)`.
-- Test mới `reads pals saved before pack leaders were marked as common pals, and keeps the mark only when it is true`:
-  - `sanitizeProfile({ pals: [...] })` với 4 con: không có trường, `alpha: true`, `alpha: "yes"`, `alpha: 1`;
-  - kết quả `pals.map((p) => p.alpha)` là `[false, true, false, false]`;
-  - `sanitizeProfile(p)` bằng `p`.
+**Unit, shared:** `packages/shared/src/pathfind.test.ts` (mới).
+1. `measures how far each cell's center is from the nearest obstacle's edge`:
+   - một cây `{ x: 1000, y: 1000, r: 20 }` (1000 là tâm ô);
+   - `clearanceAt(1000, 1000)` = 0, `clearanceAt(1048, 1000)` = 28, `clearanceAt(2000, 2000)` = `NAV_MAX_CLEARANCE`;
+   - giữa hai tâm ô thì nội suy: `clearanceAt(1040, 1000)` = 20, giữa 12 (tâm ô 1032) và 28 (tâm ô 1048).
+2. `opens a cell for a body exactly when the collision grid has room for it there`:
+   - thế giới thật, hai cửa sổ 48 × 48 ô quanh lãnh địa đồng cỏ (`alphaLairs().get("meadow")`) và quanh núi lửa;
+   - bán kính 12, 15, 17, 20, 40;
+   - `defaultNav().cellOpen(tâm, { radius: r, sea: true }) === !defaultWorld().grid.blocked(tâm, r)` mọi ô.
+3. `marks the sea from the terrain`:
+   - `defaultNav().cellOpen(8, 8, { radius: 12, sea: false })` là false, với `sea: true` là true;
+   - ô của lửa trại đóng với mọi thân (`radius: 1`);
+   - ô của cả 6 lãnh địa thú đầu đàn mở cho `{ radius: 17, sea: false }`.
+4. `checks a straight way for a body's width`:
+   - không vật cản: true;
+   - một cây giữa đường: false;
+   - hai hàng cây chừa khe 51 px (cảnh dưới, test 9): thân 15 qua, thân 40 không;
+   - đường từ `(1000, 1000)` tới tâm một cây `(1200, 1000, r 14)`: false; cùng đường với `stopShort: 40` (dừng ở 1160, khoảng trống 26): true;
+   - ra ngoài thế giới: false;
+   - dải biển (test 8): thân `sea: false` không qua, `sea: true` qua.
+5. `finds a way out of a cup of trees and around it`:
+   - chén ở `(1000, 1000)`, không terrain, thân `{ radius: 15, sea: false }`, `goalRadius: 40`, `maxNodes: 1500`;
+   - `found`, `expanded ≤ 400` (bản mẫu 129);
+   - độ dài đường (từ `from` qua các điểm mốc) trong khoảng 240-520 px: tối thiểu gấp đôi đường thẳng 120, bản mẫu 410-430;
+   - mọi điểm mốc `cellOpen`; mọi đoạn giữa hai điểm mốc liền nhau `lineClear`, kể cả đoạn từ `from` (tâm chén mở cho thân 15);
+   - điểm cuối cách đích ≤ 40;
+   - `lineClear(C, đích)` false (cảnh có ý nghĩa).
+6. `says when there is no way, and stops at its limit`:
+   - vòng cây kín bán kính 60 quanh `(1000, 1000)` (cây 14, tâm cách nhau khoảng 20 px theo vòng: 19 cây);
+   - từ `(1000, 1000)` ra `(1300, 1000)`: `"none"`, `path` rỗng, `expanded < 50` (bản mẫu 9);
+   - từ `(1300, 1000)` vào `(1000, 1000)` với `maxNodes: 300`: `"limit"`, `expanded === 300`.
+7. `starts from a tight spot`:
+   - một cây `(1000, 1000, r 14)`; thân 15 đứng ở `(1021, 1021)`, cách tâm cây 29,7 px (chỗ đứng hợp lệ);
+   - tâm ô của nó `(1016, 1016)` chỉ có khoảng trống 8, tức ô đầu đóng;
+   - tìm tới `(800, 800)` (sau cây): `found`.
+8. `keeps wild pals off the sea and lets companions cross it`:
+   - terrain tự dựng: `{ cols: 400, rows: 300, data }` toàn 1 (meadow), cột 100-109 là 0 (biển, x 1600-1760);
+   - từ `(1500, 1000)` tới `(1900, 1000)`, `maxNodes: 500`;
+   - `sea: false`: không `found`;
+   - `sea: true`: `found`, `expanded < 100`.
+9. `takes a narrow gap only when the body fits`:
+   - một hàng cây r 14 dọc `y = 1000`, tâm cách nhau 20 px: phần trái x = 700, 720, …, 960; phần phải x = 1039, 1059, …, 1299; khe giữa hai mép 974 và 1025 rộng 51 px;
+   - từ `(1000, 900)` tới `(1000, 1100)`, `goalRadius: 20`, `maxNodes: 3000`;
+   - thân 15: `found`, dài < 250 (qua khe; bản mẫu 180);
+   - thân 40: `found`, dài > 600 (vòng qua đầu hàng; bản mẫu 803).
+10. `gives the same path for the same question` (tất định), và `finds nothing for a body wider than it keeps clearance for` (`radius: 65`: `"none"`, `expanded` 0).
+11. `defaultNav is built once`: `defaultNav() === defaultNav()`.
+12. **Benchmark nhẹ:** `keeps searches on the real world cheap (benchmark)`.
+    - 200 cặp tạo bằng `mulberry32(9)`:
+      - điểm đầu `x = 32 + rand() × (WORLD_WIDTH − 64)`, `y` tương tự, giữ nếu không phải biển và `!grid.blocked(p, 20)`;
+      - đích ở góc `rand() × 2π`, cách `60 + rand() × 260`, giữ nếu không biển, `!grid.blocked(t, PLAYER_RADIUS)` và `!lineClear(p, t, thân)`.
+    - Thân `{ radius: 15, sea: false }`, `goalRadius: 40`, `maxNodes: 1500`.
+    - Kiểm:
+      - mọi `expanded ≤ 1500`;
+      - `found` ≥ 97% (bản mẫu 99%);
+      - p90 của `expanded` ≤ 150 (bản mẫu 69);
+      - cả lô < 1.000 ms (bản mẫu khoảng 20-40 ms; giới hạn rộng chỉ để bắt lỗi kiểu xoá 120.000 ô mỗi lần tìm).
+    - Không in gì ra console.
 
-**Tích hợp:** `packages/server/src/rooms/GameRoom.test.ts`.
+**Unit, server:**
+- `packages/server/src/ai/wildCombat.test.ts`, thêm `walks to a waypoint at full speed, but measures its bite range to the target`:
+  - `stepChase({x:0,y:0}, {x:30,y:0}, 50, 1000, 10, undefined, 40, {x:0,y:100})`: vị trí `(0, 50)`, `inRange` false;
+  - `via` trùng `target` cho kết quả giống hệt khi không có `via`.
+- `packages/server/src/ai/companion.test.ts`, thêm `walks to a waypoint when given one, counting its attack range to the target`:
+  - có `target`, `via` khác: đi về `via` đủ tốc độ, `inAttackRange` tính tới `target`;
+  - cách chủ quá 480 px thì nhảy về chủ, bỏ qua `via`;
+  - `companionReach(14, true) === 54`, `companionReach(14, false) === COMPANION_FOLLOW_DISTANCE`.
+- `packages/server/src/ai/pathing.test.ts` (mới). Dùng `NavGrid` thật dựng từ cảnh tự tạo (không terrain) trừ test 11; `now` tăng 50 mỗi tick.
+  1. `walks straight when the way is clear`: `steer` trả `goal` (cùng toạ độ), `run` → `lastRun.searches` 0, `waypoints(key)` undefined.
+  2. `does not look for a way once within reach`: một cây giữa `pos` và `goal` cách 30 px, `goalRadius` 40: trả `goal`, không tìm.
+  3. `leads a pal out of a cup of trees to a player behind it, where sliding alone stays stuck`:
+     - chén ở `(1000, 1000)`; Emberpup (thân 15, 126 px/s, tầm 40); mỗi tick: `steer` → `stepChase(…, 40, via)` → `run`;
+     - tới tầm cắn trước tick 100 (bản mẫu 65);
+     - đối chứng: `stepChase` không `via`, 160 tick, không lần nào `inRange`.
+  4. `serves searches first come, first served, 8 a tick`:
+     - 30 thân ở `(1000 + 100i, 1000)`, mỗi thân một cây `(x, 1040, r 14)` chắn đích `(x, 1080)`;
+     - mỗi tick `steer` cả 30 theo thứ tự rồi `run`;
+     - sau tick k (k = 1..4) đúng các thân `0 … min(8k, 30) − 1` có `waypoints`;
+     - mỗi `run`: `searches ≤ 8`, `expanded ≤ 3000`.
+  5. `never expands more than its tick budget`:
+     - 5 thân có đích nằm trong 5 vòng cây kín (mỗi lần tìm chạm `maxNodes`);
+     - `run` đầu: `searches === 2`, `expanded === 3000`; `run` sau phục vụ 2 thân kế.
+  6. `waits before searching again`:
+     - cảnh chén như test 3, thân đi theo đường mỗi tick;
+     - lần tìm đầu `found`; tick sau dời đích sang `(C.x + 60, C.y + 120)` (vẫn sau đáy chén);
+     - mọi `run` trước 500 ms kể từ lần tìm đầu: `searches` 0; `run` đầu tiên từ 500 ms: `searches` 1;
+     - thân bị nhốt trong vòng kín, đích ở ngoài (`none`): gọi `steer` mỗi tick, không tìm lại trước 2.000 ms, tìm lại ở `run` đầu tiên từ 2.000 ms.
+  7. `keeps its path while the goal moves a little`:
+     - cảnh chén, thân đi theo đường; tick sau lần tìm đầu, dời đích 30 px (< 48);
+     - trong 20 tick sau đó: không `run` nào tìm, `steer` vẫn trả điểm mốc (khác toạ độ `goal`).
+  8. `searches when stuck even if the way looks clear, and walks that path`:
+     - không vật cản, gọi `steer` 7 lần với cùng `pos` (đích cách 200 px);
+     - lần thứ 7 xếp hàng; sau `run`, `steer` trả điểm mốc (khác toạ độ `goal`) dù đường thẳng thông.
+  9. `drops its path when moved far`: có đường rồi gọi `steer` với `pos` dời 100 px: `waypoints(key)` undefined.
+  10. `forgets`: `forget(key)` thì `has(key)` false và yêu cầu đang chờ không chạy. Thân không gọi `steer` quá 250 ms thì `run` bỏ yêu cầu (`searches` 0).
+  11. **Benchmark:** `keeps to its budget with 100 pals chasing around trees at once (benchmark)`.
+      - `defaultNav()`, `defaultWorld().grid`.
+      - 100 cặp như benchmark shared nhưng cách 100-400 px, tạo bằng `mulberry32(5150)` và `randomPoint(rand, grid, 20)` từ `./wander.ts`.
+      - Emberpup, 160 tick. Mỗi tick, mỗi thân chưa tới: `steer` → `stepChase(…, via)` → bỏ bước rơi xuống biển (như `GameRoom`); rồi `run`.
+      - Kiểm:
+        - mọi `run`: `searches ≤ 8`, `expanded ≤ 3000`;
+        - ≥ 95% tới tầm cắn trong 160 tick (bản mẫu 97-99%);
+        - thời gian trung bình mỗi tick < 5 ms (bản mẫu 0,25-0,37 ms).
 
-Sửa:
-1. **`adds a captured pal to the party and makes it follow`** (dòng 127-136): thêm `expect(player.pals[0].alpha).toBe(false)` và `expect(companion.alpha).toBe(false)`. Bắt thú thường ra `false` tường minh, không phải `undefined`.
-2. **`is harder to catch than its kind`** (dòng 1100-1110): thêm `expect(result.alpha).toBe(true)`, đúng dù lần ném đó trúng hay trượt.
-3. **`caught, the news of the catch comes before the level-up the ball's click pays for`** (dòng 1168-1199):
-   - đổi tên thành `caught, everyone else hears the news before the level-up the ball's click pays for; the thrower is not told twice`;
-   - thêm `watcher = await colyseus.connectTo(room, { name: "Watcher" })`, ghi thứ tự (Notice, LevelUp) **ở watcher** như đang ghi ở `client`;
-   - ở watcher: có tin `★ ${player.name} đã bắt được Cactoad đầu đàn!`, và đúng một `"LevelUp 6 -> 7"` đến sau tin;
-   - ở người ném: không tin Notice nào bắt đầu bằng `★`; có đúng một `LevelUp 6 -> 7`; `result.alpha === true`.
-4. **`addPals`** (dòng 1932-1945): gán `owned.alpha = false;` như mọi chỗ tạo thú của server.
-
-Giữ nguyên, phải vẫn qua:
-- `caught, if the thrower leaves before the ball clicks shut...` (dòng 1201): người ném đã rời thì không ai bị loại;
-- `every notice says what it is about` (dòng 1273): tin ★ khi hạ gục vẫn đến người hạ;
-- `a big gain skips levels...` (dòng 1313).
-
-Thêm:
-5. **Trong `describe("pack leaders")`:** `caught, it stays a pack leader: in the party, as a companion, in the client's state, and after rejoining`.
-   - Token riêng (`"alpha-token-0123456789"`). Lấy Voltmouse đầu đàn bằng `alphaOf`, xoá các thú khác, người chơi đứng cách 40 px, `Math.random` trả 0, ném.
-   - `result` có `success` và `alpha` đều `true`.
-   - `player.pals[0].alpha === true`, cấp 15.
-   - Con đầu tiên tự đi theo: `room.state.companions.get(id).alpha === true`.
-   - Bản state của client: `await vi.waitFor(...)` thấy `client.state.players.get(sid).pals[0].alpha` và `client.state.companions.get(id).alpha` đều `true`.
-   - Sau `ticks(room, 20)` (chờ hồi ném), `placeWild(room, "leafkit", player, 60)` rồi bắt tiếp với `random` trả 0: `result.alpha` là `undefined`, `player.pals[1].alpha === false`.
-   - Rời phòng, `colyseus.cleanup()`, `setup(token)` lại:
-     - `pals.map((p) => p.alpha)` là `[true, false]`;
-     - thú đi theo được gọi lại có `companion.alpha === true`.
-6. **Trong `describe("saving")`:** `an old save without the mark loads its pals as common pals`.
-   - `db = new SqliteStore(":memory:")`, `useStore(db)`.
-   - `db.save(token, { ...emptyProfile("Old"), pals: [{ id: "old-voltmouse", speciesId: "voltmouse", level: 15, xp: 0, assignment: "follow" }] } as Profile)`, chú thích "saved before T8: no `alpha`". Import `type Profile` từ `../persistence/store.ts`.
-   - Sau `setup(token)`: `player.pals[0].alpha === false` và thú đi theo `alpha === false`.
-7. **Trong `describe("releasing pals and a full party")`:** `letting a caught pack leader go names it so`.
-   - `const [a] = addPals(player, 1, "voltmouse"); a.alpha = true;`, gửi `Release`.
-   - Thông báo cuối là `"Đã thả Voltmouse đầu đàn. Tạm biệt! 👋"`.
-8. **Cạnh `the test hook that gives a pal says why when the party is full`:** `the test hook that gives a pal makes a caught pack leader only with alpha: true`.
-   - Dùng `vi.stubEnv("PETGAME_DEBUG", "1")` và `vi.unstubAllEnvs()` trong `finally`, như dòng 265-290; không dùng `delete process.env` (xem T20).
-   - Gửi `{ species: "voltmouse", level: 15, alpha: true }`: con đầu `alpha === true`, thú đi theo của nó `alpha === true`.
-   - Gửi `{ species: "leafkit", alpha: "yes" }`: con thứ hai `alpha === false`, và thú đi theo lúc này (Leafkit) có `alpha === false`.
-
-Không viết test cho trường hợp người ném nối lại trong 2,2 giây trước khi bóng khép (xem Rủi ro).
-
-**E2E:** `tests/e2e/multiplayer.spec.ts`, test mới đặt ngay sau `pack leaders: a gold-tagged leader...` (sau dòng 674). Viết theo khung sau; được chỉnh chữ chú thích và cách viết nhỏ, giữ các kiểm tra:
-
-```ts
-test("pack leaders: a caught leader keeps its ★ on its card, its name tag and in the release dialog, after a reload too", async ({ browser }) => {
-  test.slow();
-  const page = await join(browser, "Thuần");
-  await waitForWorld(page);
-  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
-  const marks = () => page.evaluate(() => {
-    const { room } = (window as any).__petgame;
-    return room.state.players.get(room.sessionId).pals.map((p: any) => p.alpha === true) as boolean[];
-  });
-
-  // A Leafkit, then a caught pack leader (test-only hook: `alpha: true`), which follows since it came last.
-  await sendFrom(page, "debug:givePal", { species: "leafkit", level: 3 });
-  await sendFrom(page, "debug:givePal", { species: "voltmouse", level: 15, alpha: true });
-  await expect.poll(async () => (await partyOf(page)).species).toEqual(["leafkit", "voltmouse"]);
-  expect(await marks()).toEqual([false, true]);
-
-  // Its name tag carries the star; my follower's tag is pinned, so always shown.
-  const myTag = page.locator(".labels > .label.companion.alpha", { hasText: "Voltmouse" });
-  await expect(myTag).toHaveText("★ Lv 15 Voltmouse");
-  await expect(myTag).toBeVisible();
-
-  // The leader's card has the star (inside the card on a phone held upright or sideways and on a desktop); the Leafkit's has none.
-  await page.locator(".party-btn").click();
-  const leaderCard = page.locator(".party-card.alpha");
-  await expect(leaderCard).toHaveCount(1);
-  await expect(leaderCard.locator("strong")).toHaveText("★ Voltmouse · Lv 15");
-  await expect(leaderCard.locator(".party-star")).toHaveAttribute("title", "Thú đầu đàn");
-  await expect(page.locator(".party-card:not(.alpha) strong")).toHaveText("Leafkit · Lv 3");
-  await expect(page.locator(".party-card:not(.alpha) .party-star")).toHaveCount(0);
-  for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 720 }]) {
-    await page.setViewportSize(size);
-    await expect(leaderCard.locator(".party-star")).toBeVisible();
-    const star = (await leaderCard.locator(".party-star").boundingBox())!;
-    const card = (await leaderCard.boundingBox())!;
-    expect(star.x >= card.x && star.x + star.width <= card.x + card.width, `star inside its card at ${size.width}x${size.height}`).toBe(true);
+**Tích hợp:** `packages/server/src/rooms/GameRoom.test.ts`, `describe("finding a way around trees")` mới, đặt sau `describe("combat")` (sau dòng 630).
+- **Helper:**
+  ```ts
+  /** Only `circles` stand in this room's world from now on (its real trees and rocks go), with paths around them. */
+  function plantTrees(room: GameRoom, circles: Circle[]) {
+    const grid = new CollisionGrid(circles);
+    (room as any).obstacles = grid;
+    (room as any).paths = new PathPlanner(new NavGrid(grid, defaultWorld().layout.terrain));
   }
+  ```
+- `C = { x: 3200, y: 2560 }`: đồng cỏ trống phía nam lửa trại; đã kiểm `C` và `(C.x, C.y + 120)` không phải biển.
+- Mỗi test đặt timeout `15_000` (tick chạy theo thời gian thật).
 
-  // The release dialog says it is a pack leader and still fits a phone held sideways; the Leafkit's does not say it.
-  await page.locator(".party-release-toggle").click();
-  const leaderRelease = leaderCard.locator(".party-action.release");
-  await expect(leaderRelease).toHaveAttribute("aria-label", "Thả Voltmouse đầu đàn · Lv 15");
-  await leaderRelease.click();
-  const dialog = page.locator(".party-confirm-box");
-  const mark = page.locator(".party-confirm-alpha");
-  await expect(mark).toBeVisible();
-  await expect(mark).toHaveText("★ Thú đầu đàn");
-  await page.setViewportSize({ width: 844, height: 390 });
-  const box = (await dialog.boundingBox())!;
-  expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.y + box.height).toBeLessThanOrEqual(390);
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.locator(".confirm-keep").click();
-  await page.locator(".party-card:not(.alpha) .party-action.release").click();
-  await expect(dialog).toBeVisible();
-  await expect(mark).toBeHidden();
-  await page.locator(".confirm-keep").click();
-  await page.keyboard.press("q"); // the panel closes, and release mode with it
+1. `a wild pal walks out of a cup of trees and around it to the player behind it`:
+   - `room.state.pals.clear()`, `plantTrees(room, treeCup(C))`;
+   - người chơi ở `(C.x, C.y + 120)`;
+   - `placeWild(room, "emberpup", C, 0)`;
+   - `skillGapUntil.set(\`w:${id}\`, Infinity)`: không tung chiêu, chỉ đi;
+   - `provoke(id, { kind: "player", id: client.sessionId })`;
+   - chờ từng tick, tối đa 100 tick (5 giây; bản mẫu 3,25 giây; đuổi kéo dài 8 giây): khoảng cách ≤ `WILD_ATTACK_RANGE`;
+   - sau đó `removePal(id)` (qua `as any`) thì `paths.has(\`w:${id}\`)` false.
+2. `a following pal walks around a cup of trees to its owner, without jumping`:
+   - `giveCompanion(room, client, player, "emberpup")`, rồi `room.state.pals.clear()`, `plantTrees`;
+   - chủ ở `(C.x, C.y + 120)`, thú đi theo ở `C`;
+   - chờ tối đa 80 tick (bản mẫu 2,05 giây): cách chủ ≤ `COMPANION_FOLLOW_DISTANCE + 8`;
+   - mỗi tick dịch không quá 20 px so với tick trước, tính từ vị trí `C` vừa đặt (đi bộ 9,5 px/tick, không nhảy về chủ).
+3. `a following pal goes around a cup of trees to the wild pal its owner fights`:
+   - như test 2 nhưng chủ ở `(C.x, C.y − 150)` (phía miệng chén), `player.palAuto = false` (chỉ đi và cắn, không chiêu bay qua tường);
+   - thú hoang `placeWild(room, "leafkit", { x: C.x, y: C.y + 120 }, 0)`;
+   - `controls.get(sid).targetPalId = id`, `aggroUntil = clock.currentTime + 6000`;
+   - chờ tối đa 80 tick (bản mẫu 2,1 giây) tới `Hit` có `companionId === owned.id` và `palId === id`.
 
-  // A friend's caught pack leader shows its star on my screen too.
-  const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
-  const friend = await observer(roomId, "Bạn");
-  friend.send("debug:givePal", { species: "frostfang", level: 19, alpha: true });
-  await expect(page.locator(".labels > .label.companion.alpha", { hasText: "Frostfang" })).toHaveText("★ Lv 19 Frostfang");
+**Giữ nguyên, phải vẫn qua** (đường thẳng thông nên đi y như cũ):
+- `attacks whoever comes close… walks home when led too far` (về hang);
+- `walks the boss back home when it strays` (lang thang, không đổi);
+- `companion attacks the wild pal its owner hit`;
+- các test né, choáng, chặt cây.
 
-  // After a reload (the same device), it is still one.
-  await page.waitForTimeout(2500); // saves are batched every 2 s
-  await page.reload();
-  await enterLobby(page, "Thuần");
-  await waitForWorld(page);
-  await expect.poll(marks).toEqual([false, true]);
-  await expect(myTag).toHaveText("★ Lv 15 Voltmouse");
-  await page.locator(".party-btn").click();
-  await expect(page.locator(".party-card.alpha strong")).toHaveText("★ Voltmouse · Lv 15");
-});
-```
-
-Không test e2e chữ "★ Bắt được … đầu đàn! 🎉" (không bắt thật được thú đầu đàn, mục Thiết kế 6). Nó được giữ bởi ba thứ:
-- test tích hợp kiểm `CaptureResultMessage.alpha`;
-- unit test của `palName`;
-- reviewer đọc 2 dòng ở `verdict`.
+**E2E:** không thêm (chỉ hành vi server, không có giao diện mới).
 
 **Tester chạy:**
-1. `npm run typecheck` và `npm test`: toàn bộ qua.
-2. `npx playwright test -g "pack leaders" --repeat-each=5 --workers=1`: 10/10 (test mới và test cũ, mỗi test 5 lượt).
-3. Các test e2e đụng bảng Thú, nhãn, bắt thú:
-   - `-g "party:"` (3 test);
-   - `-g "labels:"`;
-   - `-g "a captured pal follows"`;
-   - `-g "the catch and the quest it finishes"`.
-
-   Mỗi lệnh 1 lượt.
-4. `npm run test:e2e`: 32/32.
+1. `npm run typecheck`, `npm test`: toàn bộ qua.
+2. Lặp 5 lần `npx vitest run packages/server/src/rooms/GameRoom.test.ts -t "finding a way around trees"`; lặp 3 lần `npx vitest run packages/shared/src/pathfind.test.ts packages/server/src/ai/pathing.test.ts`. Tất cả qua.
+3. `npm run build`.
+4. `npm run test:e2e` một lượt (thú đuổi tới được sau cây nhiều hơn; xác nhận không test nào phụ thuộc vào thú kẹt).
 
 ## Tiêu chí hoàn thành
 
-- [ ] **Schema, tin, hàm chung:**
-  - `OwnedPal` và `Companion` có `alpha: t.boolean()` ở cuối;
-  - `CaptureResultMessage` có `alpha?: boolean`;
-  - `palName` ở `alphas.ts`, có unit test;
-  - `GameRoom` không còn `alphaName`.
-- [ ] **Hồ sơ:**
-  - `SavedPal.alpha: boolean`; `sanitizeProfile` đọc `p.alpha === true`;
-  - `saveNow` ghi `alpha: p.alpha === true`;
-  - `onJoin` gán `owned.alpha = saved.alpha`;
-  - hồ sơ không có trường đọc ra `false` (unit và tích hợp).
-- [ ] **Mọi chỗ server tạo `OwnedPal` gán `alpha` tường minh:** bắt, nạp hồ sơ, `debug:givePal` (`message?.alpha === true`). `spawnCompanion` gán `companion.alpha = owned.alpha === true`.
-- [ ] **Bắt thú đầu đàn:**
-  - `CaptureResultMessage` có `alpha: true` khi bắt được lẫn khi thoát; thú thường không có trường này;
-  - con trong túi và thú đi theo của nó có `alpha === true`, vẫn vậy sau khi vào lại.
-- [ ] **Tin ★:**
-  - khi bắt: người ném không nhận, người khác nhận, gửi qua `announce(news, this.clients.find(...sessionId...))` trong **cùng** hẹn giờ với `grantXp`, tin trước kinh nghiệm sau;
-  - khi hạ gục: vẫn gửi cả người hạ.
-- [ ] **Client:** chữ người ném là `★ Bắt được Voltmouse đầu đàn! 🎉` và `Voltmouse đầu đàn thoát ra rồi (N%)` với thú đầu đàn; thú thường giữ chữ cũ.
-- [ ] **Nhãn thú đi theo hay làm việc:**
-  - `★ Lv N Loài`, class `label companion alpha`, chữ vàng `#ffe082`;
-  - hạng nhãn không đổi; `labels.ts` và `labelLayout.ts` không đổi.
-- [ ] **Thẻ:**
-  - class `alpha` (vạch vàng trái);
-  - tên `★ Loài · Lv N` với `span.party-star[title="Thú đầu đàn"]`;
-  - `aria-label` nút Thả có "đầu đàn";
-  - khoá vẽ lại có cờ.
-- [ ] **Hộp xác nhận:** dòng `★ Thú đầu đàn` (`.party-confirm-alpha`) chỉ hiện với thú đầu đàn.
-- [ ] **Thông báo thả:** `Đã thả Voltmouse đầu đàn. Tạm biệt! 👋`.
+- [ ] **`pathfind.ts` (shared):**
+  - `NavGrid` lưu khoảng trống `Uint8Array` theo ô 16 px và cờ biển; một lưới cho mọi bán kính;
+  - `clearanceAt` nội suy song tuyến; `lineClear` lấy mẫu mỗi 8 px, có `stopShort`, không tạo object;
+  - `findPath`: A* 8 hướng không cắt góc, ô đầu luôn nhận, đích là vùng `max(goalRadius, 16)`, trọng số 1,2, `limit` với `expanded === maxNodes`, `none` khi hết ô, làm mượt bằng `lineClear`;
+  - mảng nháp cấp một lần, dấu lượt tìm, không xoá cả lưới mỗi lần tìm;
+  - `defaultNav()` cache; export trong `index.ts`.
+- [ ] **`pathing.ts` (server):**
+  - `PATHING` đúng bảng mục 9;
+  - `PathPlanner.steer` đúng luật 1-8, trả chính `goal` khi đi thẳng hoặc đã trong tầm;
+  - `run` theo FIFO, tối đa 8 lần tìm và 3.000 ô mỗi lần gọi, bỏ yêu cầu cũ hơn 250 ms;
+  - `forget`, `has`, `waypoints`, `lastRun`;
+  - không `Math.random`, không giữ tham chiếu object schema.
+- [ ] **`stepChase` và `stepCompanion`:** nhận `via` tuỳ chọn; không có `via` (hoặc trùng đích) thì kết quả y hệt trước; tầm đo tới mục tiêu thật. `companionReach` thay biểu thức tầm đánh.
+- [ ] **`GameRoom`:**
+  - trường `paths`;
+  - ba chỗ gọi `steer` đúng bảng mục 7: `goalRadius` là tầm, thú hoang `sea: false`, thú đi theo `sea: true`, không gọi khi thú đi theo cách chủ quá 480;
+  - `paths.run(now)` sau `tickCompanions`;
+  - `forget` trong `removePal` và `despawnCompanion`;
+  - không đổi nhánh chạy trốn, lang thang, thú làm việc, kiểm biển.
 - [ ] **Test:**
-  - đủ các test ở mục Test, test 3 đổi như mô tả;
-  - không test nào bị nới hay bỏ;
-  - typecheck, `npm test`, `npm run test:e2e` (32/32) qua.
-- [ ] **Tài liệu:** `docs/architecture.md` có đủ 5 chỗ ở bước 10. `docs/design/pals.md` và `hud.md` khớp code; nếu code buộc phải khác thì báo lại, không tự sửa thiết kế.
+  - đủ test ở mục Test (unit shared 12, server: `wildCombat` 1, `companion` 1, `pathing` 11; tích hợp 3);
+  - đối chứng "chỉ trượt thì kẹt" có trong `pathing.test.ts`;
+  - không test cũ nào bị nới hay bỏ;
+  - typecheck, `npm test`, build, `npm run test:e2e` qua; lặp như mục "Tester chạy" đều qua.
+- [ ] **Hiệu năng:** benchmark trong test giữ đúng ngân sách (`expanded ≤ 3000`, `searches ≤ 8` mỗi tick); reviewer xác nhận không có vòng lặp theo cả 120.000 ô trong một lần tìm và không có cấp phát lớn mỗi tick.
+- [ ] **Tài liệu:**
+  - `docs/architecture.md` đủ 4 chỗ ở bước 9;
+  - code khớp `docs/design/pals.md`, mục "Đi vòng cây, đá". Nếu code buộc phải khác thì báo lại, không tự sửa thiết kế.
 
 ## Rủi ro, câu hỏi mở
 
-- **Người ném rớt mạng rồi nối lại trong 2,2 giây** từ lúc ném tới lúc bóng khép:
-  - tra theo sessionId xử lý đúng: đang chờ nối lại thì không nhận gì; đã nối lại thì được loại đúng;
-  - không viết test vì dựng phải dùng bộ cắt mạng của T3, mà trường hợp hiếm;
-  - nếu sai, hậu quả chỉ là thấy hai tin như trước T8.
-- **Thú từng là đầu đàn trong hồ sơ cũ thành thú thường:** không suy được từ cấp, vì thú thường cũng lên được cấp đó. Chấp nhận và đã ghi trong `pals.md`.
-- **Thẻ ở điện thoại dọc:** tên dài thêm 2 ký tự, có thể xuống thêm một dòng ở vài loài. Chiều cao thẻ để T18 lo.
-- **Không có ảnh chụp:** bộ `npm run shots` chưa có cảnh thú đầu đàn đã bắt. E2E kiểm bằng DOM ở 3 khung hình (★ trong thẻ, hộp vừa màn hình ngang).
-- **Không có quyết định nào cần người dùng; không có dòng chặn.**
-  - Lợi ích thêm: quyết "không", lý do ở Thiết kế 3.
-  - Thay đổi hồ sơ không làm hỏng dữ liệu đã lưu: cũ đọc được, quay về code cũ chỉ mất cờ.
+- **Test tích hợp chạy theo thời gian thật:** 3 test, mỗi test 2-5 giây, làm `npm test` lâu thêm khoảng 10 giây. Mỗi test có timeout 15 giây; số tick tối đa gấp khoảng 1,5 lần số đo bản mẫu.
+- **Giới hạn thời gian trong benchmark:** gấp 15-50 lần số đo, nên máy CI chậm vẫn qua. Phần chấm chính là bộ đếm (`expanded`, `searches`), tất định.
+- **Ngưỡng tỉ lệ trong benchmark** (≥ 97% tìm thấy, ≥ 95% tới nơi) có lề 2-4 điểm so với bản mẫu.
+  - Hai test tất định (seed cố định, thế giới cố định): nếu bản của coder thấp hơn thì luôn thấp. Khi đó tìm nguyên nhân (thường do `lineClear` hay đích), không hạ ngưỡng.
+- **Đường thẳng tính bằng nội suy** có thể lệch vài px sát thân cây.
+  - Thân có thể cọ vào cây rồi được `resolve` đẩy trượt qua.
+  - Kẹt thật thì luật đếm kẹt tìm lại sau 0,3 giây.
+- **Trùm** (thân 40) ít lối: khoảng 28% lần tìm hết giới hạn hoặc không có đường. Khi đó trượt như cũ, tốn tối đa 1.500 ô mỗi 2 giây.
+- **Lối chơi đổi có chủ đích:** núp sau cụm cây hết cắt đuôi được thú (đã ghi trong `pals.md`).
+  - E2E có thể bị ảnh hưởng nếu một test vô tình dựa vào việc thú kẹt; tester chạy cả bộ.
+  - Các test e2e đã chỉ nhắm thú debug theo id (T36, T37).
+- **Không có quyết định nào cần người dùng; không có dòng chặn:** không đổi giao thức, hồ sơ, không xoá tính năng; chỉ hành vi AI ở server, quay lại được bằng cách bỏ `via`.
 - **Đề xuất cho `TASKS.md`** (ghép vào việc có sẵn, không tạo việc mới):
-  - T14: trong nhóm `labels` của `scripts/shots.mjs`, cho một khách nhận `debug:givePal` có `alpha: true`, để có ảnh so sánh nhãn "★ Lv N Loài" chữ vàng ở 3 khung hình;
-  - T12: cảnh báo lãnh địa trong `Game.ts` tự ghép "… đầu đàn"; khi gom chữ, dùng `palName`.
+  - **T21:** khi thống nhất bán kính trùm, cho trùm về nhà (vượt `BOSS_LEASH`) bằng `PathPlanner` như thú đầu đàn về hang. Hiện `stepWander` bỏ đích khi bị chặn, còn dây giới hạn đặt lại đích mỗi tick, nên trùm có thể lắc qua lại sau vật cản.
+  - **T27:** khi kẹp tốc độ bỏ chạy, cân nhắc cho thú hiền chạy về phía thoáng (`NavGrid.clearanceAt`) thay vì thẳng vào cây; T9 không đo việc này.
+  - **T10:** khi tách `GameRoom.ts`, để `paths` cùng module di chuyển của thú hoang và thú đi theo.

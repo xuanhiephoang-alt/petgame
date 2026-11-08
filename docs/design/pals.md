@@ -184,7 +184,7 @@ Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì
 - **Bị đánh** gồm đòn của người chơi, đòn và chiêu của thú đi theo, và cả **bóng không giữ được**: thú thoát khỏi bóng coi như vừa bị người ném đánh.
 - **Chạy trốn và đuổi theo** đều nhanh gấp 1,8 lần lúc lang thang (`WILD_CHASE_SPEED_FACTOR`).
   - **Thú hiền** chạy thẳng ra xa kẻ đánh trong 2,5 giây (`FLEE_MS`), tính lại sau mỗi đòn. Voltmouse chạy 171 px/s, nhanh hơn người chơi (160 px/s, việc T27), nên đi được khoảng 430 px; Leafkit khoảng 225 px. Không bị ném lại ngay thì nó ra khỏi tầm ném bóng (180 px).
-  - **Thú tự vệ** đuổi theo kẻ đánh nó sau cùng trong 8 giây (`WILD_AGGRO_MS`), tính lại sau mỗi đòn, **bất kể người chơi chạy xa bao nhiêu** (Emberpup đuổi 126 px/s). Không có dây giới hạn, nên chạy ra xa không cắt đuôi được; lướt chỉ làm trượt cú cắn đang gồng. Mỗi cú cắn đẩy người chơi lùi 16 px, ra xa con thú.
+  - **Thú tự vệ** đuổi theo kẻ đánh nó sau cùng trong 8 giây (`WILD_AGGRO_MS`), tính lại sau mỗi đòn, **bất kể người chơi chạy xa bao nhiêu** (Emberpup đuổi 126 px/s). Không có dây giới hạn, nên chạy ra xa không cắt đuôi được; núp sau cây, đá cũng không, vì thú tìm đường vòng (mục "Đi vòng cây, đá"). Lướt chỉ làm trượt cú cắn đang gồng. Mỗi cú cắn đẩy người chơi lùi 16 px, ra xa con thú.
 - Thú đang choáng (6 giây) hoặc đang trong bóng thì đứng yên, không cắn. Thú hiền bị đánh tới choáng thì thôi chạy trốn.
 - Thú đầu đàn không theo bảng này: canh lãnh địa, tấn công cả khi là loài hiền, không bỏ chạy, có dây giới hạn (mục "Thú đầu đàn").
 
@@ -195,6 +195,52 @@ Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì
 
 Trường `spawn.biomes` (`meadow`, `lake`, `snow`, `desert`, `swamp`, `volcano`, `island`) và `spawn.time` (`any`, `day`, `night`) quyết định thú xuất hiện ở đâu, khi nào.
 
+## Đi vòng cây, đá
+
+Đặt ra ở nhiệm vụ T9. Code: `packages/shared/src/pathfind.ts` (lưới đi lại, A*), `packages/server/src/ai/pathing.ts` (khi nào tìm đường, giới hạn chi phí), chỗ gọi trong `GameRoom.ts`.
+
+**Ai tìm đường:**
+
+| Ai | Tới đâu | Coi là đã tới khi cách | Thân | Qua biển |
+|---|---|---|---|---|
+| Thú hoang đuổi (thú tự vệ bị đánh, thú hung dữ thấy người, thú vừa thoát bóng) | kẻ nó đang đánh | tầm cắn 40 px | 12-20 px theo loài | không |
+| Thú đầu đàn đuổi trong lãnh địa | như trên | 40 px | theo loài | không |
+| Thú đầu đàn bị kéo quá xa, đi về hang | chỗ ở | 64 px (nửa vùng dạo) | theo loài | không |
+| Trùm Vua Đá đuổi | kẻ nó đang đánh | tầm cắn 64 px | 40 px | không |
+| Thú đi theo bám chủ | chủ | 56 px (khoảng bám) | theo loài | được |
+| Thú đi theo lao vào thú hoang chủ đang đánh | con thú đó | tầm đánh, 40 px cộng thân nó | theo loài | được |
+
+Không tìm đường (giữ như cũ): thú hiền chạy trốn (chạy thẳng, không có đích), lang thang (đã tự đổi đích khi bị chặn), thú làm việc đi tới chỗ làm ở trại, trùm lang thang về nhà khi đi quá xa (việc T21).
+
+**Cách đi:**
+- Đường thẳng tới mục tiêu đủ rộng cho thân nó thì đi thẳng, y như trước T9.
+- Bị cây, đá, hồ hay núi lửa chắn thì tìm một đường vòng rồi đi theo các điểm mốc. Với thú hoang, biển cũng là vật chắn. Thấy lại mục tiêu là đi thẳng ngay.
+- Đường tính theo đúng bề rộng thân: thú to không chui khe hẹp; trùm (thân 40 px) chỉ đi lối rộng từ 80 px.
+- Mục tiêu chạy xa hơn 48 px khỏi chỗ đường dẫn tới thì tìm lại. Mỗi con tìm nhiều nhất 2 lần mỗi giây.
+- Đang đuổi mà gần như đứng yên 0,3 giây (kẹt) thì tìm đường, kể cả khi đường thẳng trông có vẻ thông.
+- Đã trong tầm (cắn, đánh, bám) thì không tìm đường: thú đứng cắn qua thân cây như trước, nhịp cắn không đổi.
+- Không có đường, hoặc đường quá xa để tìm trong giới hạn: trượt quanh vật cản như trước T9, 2 giây sau thử lại. Luật đuổi không đổi: thú hoang vẫn đuổi 8 giây rồi thôi, thú đi theo vẫn nhảy về cạnh chủ khi cách quá 480 px.
+
+**Vì sao.** Trước T9 thú chỉ trượt dọc vật cản. Mô phỏng trên thế giới thật (`defaultWorld()`, mục tiêu đứng yên cách 60-320 px, đường thẳng bị chắn):
+
+| Trường hợp | Tới được trước T9 | Sau T9 (bản mẫu khi lập kế hoạch) |
+|---|---|---|
+| Emberpup (thân 15) đuổi người, trong 8 giây | 84% | 99% |
+| Boulderhorn (thân 20) | 81% | 99,7% |
+| Trùm (thân 40) | 78% | 94% (phần lớn số còn lại cần hơn 8 giây kể cả theo đường ngắn nhất) |
+| Thú đi theo lao vào thú hoang, trong 6 giây | 88% | 99,7% |
+
+- Con kẹt thì kẹt tới hết 8 giây (trung vị 7,1 giây). 87% kẹt trong hốc giữa hai vật cản trở lên: cụm cây, cây với đá.
+- Kẹt nhiều nhất ở đầm lầy (40% số lần đuổi bị chắn), rừng đồng cỏ (28%) và núi tuyết (16%).
+- Thú đi theo bám chủ vốn ít kẹt, vì nó đi theo vết chủ: nhảy về chủ 0,06 lần mỗi phút. Tìm đường giúp chủ yếu khi chủ lách qua khe mà thú to hơn không lọt.
+
+**Lối chơi:** núp sau cụm cây không còn cắt đuôi được thú tự vệ hay thú hung dữ. Muốn thoát thì chạy xa rồi chờ hết 8 giây, như mọi nơi khác. Không đổi số cân bằng nào: thời gian trụ của T7 vốn tính người đứng yên và thú tới được.
+
+**Giới hạn chi phí (mỗi phòng):**
+- Mỗi lần tìm xét tối đa 1.500 ô (lưới 16 px).
+- Mỗi tick (1/20 giây) xét tối đa 3.000 ô và 8 lần tìm. Yêu cầu xếp hàng theo thứ tự đến; trong lúc chờ, thú vẫn trượt như cũ.
+- Một con tìm lại sau ít nhất 0,5 giây, hoặc 2 giây nếu lần trước không thấy đường.
+- Ví dụ xấu nhất: 100 con cùng cần đường một lúc thì con cuối chờ khoảng 0,65 giây.
 
 ## Bản đồ và độ khó
 
