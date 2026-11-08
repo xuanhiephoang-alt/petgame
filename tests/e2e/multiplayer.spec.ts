@@ -136,36 +136,16 @@ test("a captured pal follows the player and shows in the party panel", async ({ 
   const page = await join(browser, "Tamer");
   await waitForWorld(page);
 
-  // A weakened pal appears next to us (test-only server hook); throw until caught.
-  const caught = await page.evaluate(async () => {
-    const { room } = (window as any).__petgame;
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const me = () => room.state.players.get(room.sessionId);
-    room.send("debug:spawnPal");
-    for (let attempt = 0; attempt < 20 && me().pals.length === 0; attempt++) {
-      await sleep(900);
-      let nearest = "", best = Infinity;
-      room.state.pals.forEach((p: any, id: string) => {
-        const d = Math.hypot(p.x - me().x, p.y - me().y);
-        if (d < best) { best = d; nearest = id; }
-      });
-      if (nearest) room.send("throw", { palId: nearest });
-    }
-    await sleep(500);
-    return me().pals.length;
-  });
-  // A throw already in flight can land a second catch; one or more is fine.
-  expect(caught).toBeGreaterThanOrEqual(1);
+  // A weakened Emberpup appears next to us (test-only server hook), and balls go only at it until it is in the party:
+  // exactly one catch. It comes at us when a ball does not hold (a timid pal would run out of range), and its bites
+  // push us west, away from the campfire that the camp below must keep clear of.
+  const palId = await spawnWeakPal(page, "emberpup");
+  await throwingAt(page, palId, () =>
+    expect.poll(async () => (await partyOf(page)).species, { timeout: 15_000 }).toEqual(["emberpup"]));
 
   const companions = () => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number);
-  const partySize = () => page.evaluate(() => {
-    const { room } = (window as any).__petgame;
-    return room.state.players.get(room.sessionId).pals.length as number;
-  });
   await expect.poll(companions).toBe(1);
-  // A throw still in flight may add one more; the button must match the real party.
-  await page.waitForTimeout(1500);
-  await expect(page.locator(".party-btn")).toHaveText(`🐾 Thú (${await partySize()})`);
+  await expect(page.locator(".party-btn")).toHaveText("🐾 Thú (1)");
   await page.locator(".party-btn").click();
   await expect(page.locator(".party-card.follow .party-action.rest")).toHaveText("Cho về");
 
@@ -191,7 +171,7 @@ test("a captured pal follows the player and shows in the party panel", async ({ 
   await page.reload();
   await enterLobby(page, "Tamer");
   await waitForWorld(page);
-  await expect.poll(async () => (await me()).pals).toBeGreaterThanOrEqual(caught);
+  await expect.poll(async () => (await me()).pals).toBe(1);
   expect((await me()).hasBase).toBe(true);
   expect((await me()).assignments).toContain("work");
   await expect.poll(companions).toBe(1);
@@ -547,7 +527,19 @@ test("gameplay: chop a tree, dash, and knock out a dizzy pal", async ({ browser 
     return { index: t.index as number };
   });
   await page.waitForTimeout(800);
+  // Space hits the nearest wild pal within reach (48 px) before it chops: press only while none is within 100 px,
+  // so a wandering pal (95 px/s at most) cannot step into reach before the press lands.
+  const wildPalsNear = (radius: number) => page.evaluate((radius) => {
+    const { room } = (window as any).__petgame;
+    const p = room.state.players.get(room.sessionId);
+    const near: string[] = [];
+    room.state.pals.forEach((pal: any, id: string) => {
+      if (Math.hypot(pal.x - p.x, pal.y - p.y) <= radius) near.push(id);
+    });
+    return near;
+  }, radius);
   for (let i = 0; i < 8 && (await me()).wood < 3; i++) {
+    await expect.poll(() => wildPalsNear(100), { timeout: 60_000 }).toEqual([]);
     await page.keyboard.press(" ");
     await page.waitForTimeout(500);
   }
@@ -567,16 +559,24 @@ test("gameplay: chop a tree, dash, and knock out a dizzy pal", async ({ browser 
   expect((await me()).x - before.x).toBeGreaterThan(75);
 
   // A weakened pal: one hit leaves it dizzy, the next knocks it out for loot.
-  await page.evaluate(() => (window as any).__petgame.room.send("debug:spawnPal", { species: "pebblet" }));
-  await page.waitForTimeout(800);
+  // Space hits the nearest wild pal within reach, whichever it is, so we stand right on this one: no other pal can be nearer.
+  const palId = await spawnWeakPal(page, "pebblet");
+  const pebblet = () => page.evaluate((id) => {
+    const { room } = (window as any).__petgame;
+    const pal = room.state.pals.get(id);
+    const p = room.state.players.get(room.sessionId);
+    return pal ? { x: pal.x as number, y: pal.y as number, dizzy: pal.dizzy as boolean, gap: Math.hypot(pal.x - p.x, pal.y - p.y) } : null;
+  }, palId);
+  const spot = (await pebblet())!;
+  await sendFrom(page, "debug:teleport", { x: spot.x, y: spot.y });
+  await expect.poll(async () => (await pebblet())?.gap).toBeLessThan(1);
   await page.keyboard.press(" ");
-  const dizzyPals = () => page.evaluate(() => [...(window as any).__petgame.room.state.pals.values()].filter((p: any) => p.dizzy).length);
-  await expect.poll(dizzyPals).toBe(1);
+  await expect.poll(async () => (await pebblet())?.dizzy).toBe(true);
   await expect(page.locator(".label.pal.dizzy")).toHaveCount(1);
   const stone = (await me()).stone;
   await page.waitForTimeout(500);
   await page.keyboard.press(" ");
-  await expect.poll(dizzyPals).toBe(0);
+  await expect.poll(pebblet).toBeNull();
   await expect.poll(async () => (await me()).stone).toBeGreaterThan(stone);
 });
 
@@ -929,19 +929,7 @@ test("party: let a pal go after confirming; a full party cannot throw", async ({
   await expect(page.locator(".party-btn")).toHaveClass(/full/);
 
   // A weakened wild pal right beside us, and a record of what the page sends to the server.
-  const before = await page.evaluate(() => [...(window as any).__petgame.room.state.pals.keys()] as string[]);
-  await send("debug:spawnPal");
-  const nearby = () => page.evaluate((known) => {
-    const { room } = (window as any).__petgame;
-    const me = room.state.players.get(room.sessionId);
-    let found = "";
-    room.state.pals.forEach((p: any, id: string) => {
-      if (!known.includes(id) && Math.hypot(p.x - me.x, p.y - me.y) < 100) found = id;
-    });
-    return found;
-  }, before);
-  await expect.poll(nearby).not.toBe("");
-  const wildId = await nearby();
+  const wildId = await spawnWeakPal(page);
   await page.evaluate(() => {
     const w = window as any;
     w.__sent = [] as string[];
@@ -983,6 +971,43 @@ const partyOf = (page: Page) =>
 /** Sends a message to the server as the page's player would (the room is exposed on `window.__petgame` for tests). */
 const sendFrom = (page: Page, type: string, message: object = {}) =>
   page.evaluate(([t, m]) => (window as any).__petgame.room.send(t, m), [type, message] as [string, object]);
+
+/**
+ * A weakened wild pal right beside the page's player (test-only hook: 40 px to the right, 1 HP, standing still for 60 s;
+ * `species` picks which, else the region decides), and its id: the one pal that is new and at 1 HP (wild pals appear at
+ * full health, and ids are never reused).
+ */
+async function spawnWeakPal(page: Page, species?: string): Promise<string> {
+  const before = await page.evaluate(() => [...(window as any).__petgame.room.state.pals.keys()] as string[]);
+  await sendFrom(page, "debug:spawnPal", species ? { species } : {});
+  const spawned = () => page.evaluate((known) => {
+    const found: string[] = [];
+    (window as any).__petgame.room.state.pals.forEach((p: any, id: string) => {
+      if (!known.includes(id) && p.hp === 1) found.push(id);
+    });
+    return found;
+  }, before);
+  await expect.poll(spawned).toHaveLength(1);
+  return (await spawned())[0];
+}
+
+/**
+ * Runs `wait` while a ball goes at that one wild pal every 900 ms (the server takes one per 800 ms), only while it is still
+ * in the world, and stops when `wait` ends, passed or failed. Never at "the nearest pal": that can be any wild pal walking
+ * by, and one that breaks out of a ball fights back or runs off (docs/design/pals.md, "Tính khí").
+ */
+async function throwingAt<T>(page: Page, palId: string, wait: () => Promise<T>): Promise<T> {
+  const throwOnce = () => page.evaluate((id) => {
+    const { room } = (window as any).__petgame;
+    if (room.state.pals.has(id)) room.send("throw", { palId: id });
+  }, palId);
+  const thrower = setInterval(() => void throwOnce().catch(() => {}), 900);
+  try {
+    return await wait();
+  } finally {
+    clearInterval(thrower);
+  }
+}
 
 /** Starts a record of the messages this page sends to the server; returns a function that reads their types so far. */
 async function recordSends(page: Page): Promise<() => Promise<string[]>> {
@@ -1649,32 +1674,12 @@ test("toasts: the catch and the quest it finishes show together; small notices d
   await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
 
   // The first catch: "Bắt được" and "Xong nhiệm vụ" are both high, so both are on screen at the same time.
-  const before = await page.evaluate(() => [...(window as any).__petgame.room.state.pals.keys()] as string[]);
-  await sendFrom(page, "debug:spawnPal", { species: "emberpup" });
-  // Balls go only at the pal the hook made (a new id, the only pal at 1 HP), never at "the nearest": once this one is caught that is some wild pal, and one that breaks out fights back for 8 s however far we go. An Emberpup comes at us when a ball does not hold, so it stays in throwing range; a timid pal would run out of it.
-  const spawned = () => page.evaluate((known) => {
-    const { room } = (window as any).__petgame;
-    const found: string[] = [];
-    room.state.pals.forEach((p: any, id: string) => {
-      if (!known.includes(id) && p.hp === 1) found.push(id);
-    });
-    return found;
-  }, before);
-  await expect.poll(spawned).toHaveLength(1);
-  const [palId] = await spawned();
-  const throwAtSpawned = () => page.evaluate((id) => {
-    const { room } = (window as any).__petgame;
-    if (room.state.pals.has(id)) room.send("throw", { palId: id });
-  }, palId);
-  const thrower = setInterval(() => void throwAtSpawned().catch(() => {}), 900);
-  try {
-    await expect.poll(async () => {
-      const shown = await shownToasts(page);
-      return shown.some((t) => t.startsWith("Bắt được")) && shown.some((t) => t.startsWith("Xong nhiệm vụ"));
-    }, { timeout: 15_000 }).toBe(true);
-  } finally {
-    clearInterval(thrower);
-  }
+  // An Emberpup comes at us when a ball does not hold, so it stays in throwing range; a timid pal would run out of it.
+  const palId = await spawnWeakPal(page, "emberpup");
+  await throwingAt(page, palId, () => expect.poll(async () => {
+    const shown = await shownToasts(page);
+    return shown.some((t) => t.startsWith("Bắt được")) && shown.some((t) => t.startsWith("Xong nhiệm vụ"));
+  }, { timeout: 15_000 }).toBe(true));
   // The one catch is the pal the hook made: nothing else was thrown at.
   expect((await partyOf(page)).species).toEqual(["emberpup"]);
 

@@ -1,47 +1,58 @@
 PASS
-# REVIEW: T39 Nút HUD trên điện thoại không bị vùng joystick che; nút "Ăn" nghe `pointerdown`, vòng 1
+# REVIEW: T37 Hai test e2e nhắm đúng con thú (gameplay đánh choáng, thú đi theo sau khi bắt), vòng 1
 
 ## Kết luận
-Code làm đúng và đủ mọi bước, mọi tiêu chí hoàn thành của PLAN.md, không làm gì ngoài phạm vi. Thứ tự lớp đúng: vùng joystick z −1 nằm trong lớp xếp chồng của `.hud` (z 2), nên vẫn ở trên canvas và nhãn tên (z 1). Bảng (3), thông báo (4), bản đồ phóng to (4), hộp thả thú (5, trong `.hud`) và màn che kết nối (6, trong `#game`) vẫn nằm trên vùng như trước, desktop không đổi. Mình đã chạy lại `npx playwright test -g "touch \("`: qua 2/2 (23 s).
+Thay đổi làm đúng và đủ PLAN.md, chỉ sửa `tests/e2e/multiplayer.spec.ts` và một dòng `docs/architecture.md`. Mỗi chỗ sửa nhắm đúng nguyên nhân đã đo, và mình đã đối chiếu từng chỗ với code server. Không còn lỗi phải sửa. Mình chạy lại typecheck strict cho riêng file spec (sạch) và 3 test e2e bị sửa (3/3 qua).
 
-## Lỗi phải sửa (FAIL khi còn mục này)
+## Lỗi phải sửa
 Không có.
 
-## Đã kiểm (tóm tắt)
-- **CSS** (`packages/client/index.html:131-135`):
-  - Vùng joystick chỉ thêm `z-index: -1`; vị trí, cỡ, `pointer-events`, `touch-action` giữ nguyên.
-  - `.hud.touch .hud-health/.hud-status/.hud-quest` (độ ưu tiên 0,3,0) thắng các rule `pointer-events: auto` cũ. Mọi con không phải nút thừa hưởng `none`; nút trong cột nhận `auto` qua `.hud.touch .hud-left button`.
-  - Chạm xuyên không làm mất thao tác nào trên ba ô. Trên cảm ứng, ô trạng thái chỉ có nút mời (không có link). Ô nhiệm vụ không có bộ nghe nào. Hàng máu chỉ có Ăn và 🔊, cả hai là `<button>`.
-  - Nút mời vẫn chạy: `click` nổi bọt qua `.hud-status` dù ô này là `pointer-events: none`, test xác nhận `navigator.share` được gọi.
-  - Phần ô tràn sang nửa phải khi cầm dọc (x 195-262) giờ chạm xuống canvas. Canvas và Pixi không có bộ nghe nào (đã grep), nên không có tác dụng gì mới.
-- **`.eat-btn` bỏ `z-index: 1`:** trên desktop không có gì đè nút. Thanh máu trùm gắn trước `.hud-left` và là `pointer-events: none`. 3 test bố cục toasts (kiểm cả nút Ăn nằm trên cùng) vẫn qua.
-- **Lớp `touch`:** đặt cùng cờ `isTouch` và cùng lúc với vùng joystick (`hud.ts:40` và `:90-91`) và `Joystick` (`Game.ts:285`). Cả ba chỉ tính một lần, nên không thể lệch nhau. Không có selector `.touch` trần hay so sánh `className === "hud"` nào bị ảnh hưởng (đã grep client, tests, scripts).
-- **`onPress`:** nút Ăn và mọi tổ tiên của nó không còn bộ nghe `click`, nên một lần chạm hay một cú bấm chuột chỉ ăn một lần. Bộ nghe `click` của `.hud-status` không chứa nút Ăn. Phím H vẫn chạy. 🔊, 🔗 và nút Bóng giữ `click` như PLAN. Server vẫn kiểm hồi chiêu nếu bấm dồn bằng nhiều ngón.
-- **Kéo qua nút:** ngón bắt đầu trên vùng bị vùng giữ (capture tường minh, cộng capture ngầm của cảm ứng), nên không gửi `pointerdown` hay `click` cho nút nào nó đi qua. Chạm chỗ trống vẫn bật joystick.
-- **E2E:**
-  - `fingers` không trùng helper nào: Playwright 1.56 chỉ có `touchscreen.tap()`. Nó dùng lại `join`, `waitForWorld`, `recordSends`, `sendFrom`. Phiên CDP đóng theo context trong `afterEach`.
-  - Chú thích của `fingers` khớp cách Chromium xử lý `Input.dispatchTouchEvent`: điểm mới là nhấn, điểm thiếu là nhấc, `touchEnd` phải rỗng.
-  - Phép kiểm bố cục không rỗng: bắt buộc có `eat-btn`, `sound-btn`, `invite-btn`.
-  - Bước ngón thứ hai phân biệt được `click` và `pointerdown` (PLAN đã đo: trên code cũ quả không đổi). Tester đã chạy test mới trên code cũ và thấy hỏng đúng chỗ, chạy lặp 20/20.
-  - Test "eating:" giờ kiểm `shook`, nên trên code cũ thì hỏng.
-- **Tài liệu:** `docs/design/hud.md` khớp code: lớp vẽ, mục "Cần điều khiển và nút cảm ứng", danh sách nút `pointerdown` (khớp `skillbar.ts:50-62`). `docs/architecture.md` cập nhật đúng bước 4.
+## Đã kiểm
+- **Phạm vi:**
+  - `git status` chỉ có file spec, `docs/architecture.md`, `PROGRESS.md`; không file nào trong `packages/` đổi.
+  - Đủ mọi mục Tiêu chí hoàn thành. Đã hết: `nearest`/`best` trong test thú đi theo, `throwAtSpawned`, `dizzyPals`, `caught`, `partySize`, `sleep(500)`, `waitForTimeout(1500)`, chờ 800 ms sau khi tạo thú.
+  - Giữ nguyên: tên test, `test.slow()`, bước lướt, chờ 800 ms ở cây, 500 ms giữa hai lần Space, 2500 ms trước khi tải lại. Không thêm retry.
+- **Đúng nguyên nhân đã đo:**
+  - **Đánh choáng (lượt 28 và 0):** `handleAttack` gọi `nearestPal(player, 48)` (`GameRoom.ts:852`, `2111-2124`). Người chơi đứng đúng chỗ con thú (khoảng cách 0) thì không con nào gần hơn được: thú thường đo từ tâm tới tâm. Chỉ trùm được trừ bán kính 40, mà trùm ở quanh núi lửa phía đông (dây giới hạn 256 px), rất xa đoạn y = 2500.
+  - **Chặt cây (lượt 11):**
+    - Trước mỗi lần Space, poll đến khi không thú hoang nào trong 100 px.
+    - Thú lang thang đi tối đa 95 px/s: `stepWander` dùng đúng `species.speed`, Voltmouse nhanh nhất. Tay không với 48 px (`FISTS`).
+    - Không ai chọc thú quanh cây, nên không có con nào đuổi theo ở tốc độ ×1,8.
+  - **Thú đi theo (đường 1 và 2):**
+    - Bóng chỉ ném theo id, và dừng khi con đó rời khỏi state. Bắt được thì server xoá nó và thêm vào túi trong cùng một lần xử lý (`GameRoom.ts:923-931`); tin ném đến muộn trỏ tới id đã xoá nên bị bỏ (`:893`).
+    - Emberpup là thú tự vệ nên luôn ở trong tầm ném.
+    - Người chơi xuất phát ở (3120, 2400) (`GameRoom.ts:487-488`), lửa trại ở (3200, 2323,2) (`worldgen.ts:107`): cách nhau đúng 110,9 px. Con thú ở phía đông nên cú cắn đẩy người chơi về phía tây, xa lửa trại hơn. Ở cấp thấp nó chỉ có Tàn lửa, chiêu không đẩy lùi.
+- **Hai helper:**
+  - **`spawnWeakPal` (`:980-992`):**
+    - Nhận con thú qua id mới cộng `hp === 1`. Id không bao giờ dùng lại (`pal${nextPalId++}`), thú hoang sinh ra đầy máu (`:2144`).
+    - Thú bị đánh choáng vẫn giữ 1 máu (`hitWildPal`, `combat.ts:66-67`), nên con thú debug có bị chạm vẫn nhận ra được.
+    - Thú đi theo chỉ đánh mục tiêu của chủ (`GameRoom.ts:796-799`), nên ở test "party" nó không động vào con thú mới.
+    - Không trùng helper sẵn có (gọi qua `sendFrom`), và thay đúng 2 đoạn chép tay.
+  - **`throwingAt` (`:999-1010`):** giống hệt khối của T36. `finally` luôn dừng interval; lỗi `evaluate` khi trang đóng thì bị bỏ qua.
+- **Đánh choáng vẫn kiểm đúng hành vi game:**
+  - Vẫn đi đủ đường: phím Space thật → client → server → choáng → nhãn → hạ gục → rơi đá. Kiểm theo id nên chặt hơn cách cũ (đếm mọi thú đang choáng).
+  - Khoảng cách 0 không làm code chạy nhánh khác:
+    - `face(0, 0)` giữ nguyên hướng (`entities.ts:66-71`);
+    - thú đang choáng không bị đẩy lùi (`GameRoom.ts:868`);
+    - `knockback` có xử lý vector 0 (`combat.ts:86`).
+  - Đánh trúng ở 40 px vẫn được kiểm ở test "explorer" (bắn cung vào con thú debug) và các test tích hợp của server.
+- **Chờ "không thú hoang trong 100 px" có giới hạn, không che lỗi thật:**
+  - Mỗi lần chờ tối đa 60 s, và chờ thật nhiều nhất 3 lần, vì lần bấm nào sau khi chờ cũng chặt. `nodeHits` không hồi theo thời gian (`GameRoom.ts:1955`), nên chờ lâu không làm mất nhát đã chặt. Tổng vẫn nằm trong 540 s của `test.slow()`.
+  - Hết giờ thì test hỏng rõ ràng, kèm danh sách id các con còn gần.
+  - Đây chỉ là điều kiện về môi trường, không bỏ hay nới kiểm tra `wood >= 3` và `felled`.
+- **Test toasts và party giữ nguyên hành vi:**
+  - Toasts: logic giữ y nguyên.
+  - Party: bản cũ tìm "id mới trong 100 px", bản mới tìm "id mới có 1 máu". Hook luôn đặt con thú cách 40 px, nên hai cách tương đương, và cách mới chặt hơn.
+- **Tài liệu:** dòng "Helper" có cả hai helper và câu "Thú hoang trong e2e", khớp PLAN.md. Mục "Tính khí" trong `docs/design/pals.md` (commit `d97516f`) tồn tại, đúng chỗ câu đó trỏ tới.
+- **Mình đã chạy lại:**
+  - `tsc --strict --noUnusedLocals --noUnusedParameters` riêng cho file spec: sạch. Typecheck của repo không kiểm e2e (việc T38).
+  - `npx playwright test -g "gameplay: chop a tree|a captured pal follows|party: let a pal go" --workers=1`: 3/3 qua (14,6 s, 15,3 s, 22,9 s).
 
 ## Góp ý không bắt buộc
-- **`onPress` chạy với mọi nút chuột** (`hud.ts:251-256`). `pointerdown` có cả chuột phải và chuột giữa, còn `click` chỉ có chuột trái. Vì vậy trên desktop, chuột phải vào 🫐 Ăn giờ cũng ăn (kèm menu chuột phải).
-  - Ô chiêu (`skillbar.ts:50-62`) đã như vậy từ trước, và tác dụng chỉ là việc của chính nút, nên không chặn PASS.
-  - Sửa một dòng: `if (e.button !== 0) return;` (ngón tay và đầu bút chạm đều báo `button` 0).
-- **Enter/Space trên nút Ăn đang được focus, và trình đọc màn hình, không còn ăn.** PLAN đã chấp nhận và H vẫn dùng được. Nếu sau này muốn giữ: nghe thêm `click` nhưng chỉ chạy khi `e.detail === 0` (click do bàn phím hay công cụ hỗ trợ sinh ra; click của chuột hay ngón tay có `detail` ≥ 1) thì không bị chạy hai lần. Cần đo trên Safari trước khi dùng.
-- **Không test nào bắt được việc gắn lại `click` cạnh `pointerdown`** cho nút Ăn: tin `eat` thứ hai bị server lặng lẽ bỏ vì hồi chiêu, quả vẫn chỉ giảm 1. Có thể bọc `recordSends` quanh `.click()` của test desktop (`multiplayer.spec.ts:238`) và kiểm đúng một tin `eat`.
-- **Desktop "không đổi" mới chỉ được kiểm bằng đọc code.** Thêm một dòng vào một test desktop (`.hud` không có lớp `touch`, `.hud-status` có `pointer-events` là `auto`) sẽ giữ được điều này.
-- **`PHONE_SCREENS`** (`multiplayer.spec.ts:306-309`) lặp lại hai mục điện thoại của `TOAST_SCREENS` (`:1592-1596`); có thể dựng `TOAST_SCREENS` từ nó.
-- **Ghi chú T18 trong `TASKS.md:29`** viết "(🔗 và 🔊 giữ `click` vì share/copy cần cử chỉ người dùng)". Lý do đó chỉ đúng cho 🔗. 🔊 giữ `click` vì không dùng lúc đang chạy (`docs/design/hud.md:32`). Agent chính sửa câu chữ khi cập nhật TASKS.md.
+- `docs/architecture.md:92`: "server đánh con gần nhất trong 48 px" chỉ đúng khi tay không. Nên viết "trong tầm vũ khí (tay không 48 px)" cho khớp `docs/design/pals.md`, vì test "explorer" cầm cung.
+- `wildPalsNear` (`tests/e2e/multiplayer.spec.ts:532-540`) có thể trả thêm loài và khoảng cách, để khi hết 60 s thì lỗi nói rõ con nào đứng lì gần cây.
+- `spawnWeakPal` gọi `spawned()` thêm một lần sau khi poll qua; có thể giữ luôn giá trị poll vừa thấy. Rủi ro hiện tại không đáng kể.
+- Giả định "thú lang thang tối đa 95 px/s" giờ chỉ nằm trong chú thích test và PLAN.md (sẽ bị ghi đè ở nhiệm vụ sau). Nên thêm nửa câu vào ghi chú "Thú hoang trong e2e" ở `docs/architecture.md`, để ai thêm loài nhanh hơn biết phải tính lại ngưỡng 100 px.
 
-## Việc mới nên đưa vào TASKS.md
-1. **(P2, ghép vào T18; ghi chú đã có trong cây làm việc) Nút ⚪/🔵 Bóng sang `onPress`**, thêm bước hai ngón vào test `touch (...)` bằng `fingers`. Kèm điểm mới:
-   - Khi cầm dọc, nút Bóng (x 105-240, y 696-724) giờ nằm trên vùng joystick, ngay chỗ ngón cái trái hay đặt. Ở đó chạm nhanh là đổi bóng, còn kéo bắt đầu từ đó thì không làm gì.
-   - Nâng nút lên 44 px (T18) thì chỗ chết này rộng thêm. Nên cân nhắc dời nút sang nửa phải khi cầm dọc (như khi cầm ngang), rồi chạy lại `touch (phone upright)`.
-2. **(P3) Nút chạy theo `pointerdown` nhận cả chuột phải và chuột giữa.**
-   - Gồm `onPress` (`hud.ts`: Ăn, và Đánh, Bắt, 💨 trên laptop cảm ứng) và ô chiêu, Tự động (`skillbar.ts`, có cả trên desktop).
-   - Bỏ qua khi `e.button !== 0`. Gom về một hàm dùng chung (xuất `onPress`, `skillbar.ts` dùng lại).
-   - E2E desktop: chuột phải vào Ăn hay ô chiêu không gửi gì.
-3. **(P3, có thể ghép T19) Kích hoạt nút Ăn bằng bàn phím hay trình đọc màn hình** (Enter/Space khi nút có focus): quyết định có hỗ trợ không, ví dụ `click` với `detail === 0`. Hiện `docs/design/hud.md` ghi bàn phím chỉ dùng H.
+## Việc mới cho TASKS.md
+- Không có việc mới bắt buộc. Nên gộp bốn góp ý trên vào T20, vốn đã có phần dọn helper e2e và sửa dòng "Helper" của `docs/architecture.md`.
