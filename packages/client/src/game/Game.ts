@@ -67,6 +67,7 @@ import {
   type Look,
   type Worn,
   defaultWorld,
+  palName,
 } from "@petgame/shared";
 import { inviteLink, type GameRoom } from "../net/connection.ts";
 import type { ConnectionWatch } from "../net/reconnect.ts";
@@ -493,7 +494,9 @@ export class Game {
       this.addActor(actor);
       // `mode` is set once by the server when the companion is created, so the rank holds for its whole life.
       const rank = companion.ownerId === this.room.sessionId && companion.mode === "follow" ? LABEL_RANK.follower : LABEL_RANK.companion;
-      const { tag, label, text } = this.nameTag(`Lv ${companion.level} ${species.name}`, "label companion", () => actor.pos, actor.height + 4, rank);
+      // A caught pack leader: a ★ and gold text. Set once by the server when it comes out, like `mode`.
+      const star = companion.alpha ? "★ " : "";
+      const { tag, label, text } = this.nameTag(`${star}Lv ${companion.level} ${species.name}`, companion.alpha ? "label companion alpha" : "label companion", () => actor.pos, actor.height + 4, rank);
       const hpFill = addHpBar(label);
       this.companions.set(id, { actor, tag, label });
       // Just caught: it stays in the ball until it clicks shut, then hops out and runs to its owner.
@@ -514,7 +517,7 @@ export class Game {
         actor.server.x = companion.x;
         actor.server.y = companion.y;
         // Writing the same text again makes the tag be measured again, and this runs about 20 times a second.
-        const shown = `Lv ${companion.level} ${species.name}`;
+        const shown = `${star}Lv ${companion.level} ${species.name}`;
         if (text.textContent !== shown) text.textContent = shown;
         setHp(label, hpFill, companion.hp, companion.maxHp);
       });
@@ -698,11 +701,11 @@ export class Game {
       const entity = this.pals.get(msg.palId) ?? this.leaving.get(msg.palId)?.entity;
       const mine = msg.playerId === this.room.sessionId;
       const great = mine && this.useGreatBall;
-      const name = getSpecies(msg.speciesId).name;
+      const name = palName(msg.speciesId, msg.alpha === true);
       const verdict = () => {
         if (!mine) return;
         this.sound.play(msg.success ? "capture" : "escape");
-        this.hud.showToast(msg.success ? `Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${Math.round(msg.chance * 100)}%)`, msg.success ? "high" : "normal");
+        this.hud.showToast(msg.success ? `${msg.alpha ? "★ " : ""}Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${Math.round(msg.chance * 100)}%)`, msg.success ? "high" : "normal");
       };
       if (msg.success) this.setFate(msg.palId, "caught");
       if (mine) this.sound.play("throw");
@@ -1163,7 +1166,7 @@ export class Game {
     if (me) {
       const wardrobe = [...me.wardrobe];
       this.wardrobe.update({ look: lookOf(me), worn: wornOf(me), wardrobe });
-      const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment }));
+      const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment, alpha: p.alpha === true }));
       this.party.update(party, me.hasBase, me.snacks);
       this.updateSkillBar(me.activePalId, me.palAuto);
       if (me.greatBalls === 0) this.useGreatBall = false;

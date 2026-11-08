@@ -19,8 +19,8 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 | File | Nội dung |
 |---|---|
 | `constants.ts` | Hằng số chung (cổng, `TICK_MS`, `MAX_PLAYERS` 5, `MAX_PARTY` 30, `WILD_PAL_TARGET`, tốc độ...) |
-| `schema.ts` | State đồng bộ: `Player`, `OwnedPal`, `WildPal`, `Companion`, `Chest`... dựng bằng `schema()` + `t.*` (không decorator). Đổi schema là đổi giao thức |
-| `messages.ts` | `ClientMessage`, `ServerMessage` và kiểu payload từng tin; `NoticeMessage.kind` (refused, done, warning, reward, quest, news): client chọn mức thông báo theo đó |
+| `schema.ts` | State đồng bộ: `Player`, `OwnedPal`, `WildPal`, `Companion`, `Chest`... dựng bằng `schema()` + `t.*` (không decorator); `OwnedPal.alpha`, `Companion.alpha`: thú đầu đàn đã bắt (★). Đổi schema là đổi giao thức |
+| `messages.ts` | `ClientMessage`, `ServerMessage` và kiểu payload từng tin; `NoticeMessage.kind` (refused, done, warning, reward, quest, news): client chọn mức thông báo theo đó; `CaptureResultMessage.alpha` (thú bị ném là đầu đàn) |
 | `movement.ts`, `collision.ts` | Bước đi, lướt, đẩy lùi, `CollisionGrid` |
 | `worldgen.ts`, `terrain.ts`, `noise.ts` | Thế giới sinh từ seed (`defaultWorld()`: bố cục + grid vật cản), vùng (`biomeAt`, `terrainAt`), độ nguy hiểm (`dangerAt`) |
 | `pals.ts` + `data/pals.json` | 13 loài: chỉ số, hệ, tính khí, nơi sinh, 3 chiêu (`skills`) |
@@ -32,7 +32,7 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
 | `crafting.ts` + `data/recipes.json` | Chế tạo, nâng trại (`craftBlocker` dùng chung client/server) |
 | `wardrobe.ts` + `data/wearables.json` | Ngoại hình, quần áo, mũ, vũ khí (chống rét/nắng, giáp, sát thương, tầm) |
 | `daycycle.ts`, `climate.ts` | Ngày đêm, lạnh/nóng theo vùng |
-| `boss.ts`, `alphas.ts` | Trùm Vua Đá Boulderhorn; 6 thú đầu đàn và lãnh địa (`alphaLairs`) |
+| `boss.ts`, `alphas.ts` | Trùm Vua Đá Boulderhorn; 6 thú đầu đàn và lãnh địa (`alphaLairs`); `palName` (tên kèm "đầu đàn", dùng chung) |
 | `rewards.ts`, `treasure.ts`, `quests.ts` | Phần thưởng, rương báu, chuỗi 17 nhiệm vụ |
 
 ## packages/server
@@ -43,7 +43,7 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
   - Hẹn giờ bằng `this.clock.setTimeout`. Mọi sát thương lên thú hoang đi qua `hitWild` (thú thường giữ ≥ 1 máu rồi choáng, trùm có thể bị hạ).
   - **Thông báo và thứ tự tin:** client xếp thông báo theo mức (`ui/toastQueue.ts`, luật ở `docs/design/hud.md`): tối đa 2 cái cùng lúc (1 khi điện thoại ngang hoặc điện thoại dọc thấp hơn 760 px). Thông báo mức cao (lên cấp, bắt được, phần thưởng, xong nhiệm vụ, tin ★) không bị thay và hiện đủ thời gian, nên hai tin đến cùng lúc đều đọc được. `NoticeMessage.kind` cho client biết mức của mỗi tin; `quest` hiện trễ `QUEST_DELAY_MS`. Server vẫn giữ thứ tự tự nhiên:
     - tin báo của sự kiện trước, `grantXp` (tin `LevelUp`) sau: `knockOut`, `defeatBoss`, `feed`;
-    - bắt thú: kinh nghiệm bắt (cộng `ALPHA.xp` nếu là thú đầu đàn) trả trong **một** hẹn giờ lúc bóng khép (`captureRevealMs(shakes) + CAPTURE_NEWS_DELAY_MS`), tin ★ trước, kinh nghiệm sau. Trả lúc ném thì tin lên cấp sẽ lộ kết quả khi bóng còn lắc;
+    - bắt thú: kinh nghiệm bắt (cộng `ALPHA.xp` nếu là thú đầu đàn) trả trong **một** hẹn giờ lúc bóng khép (`captureRevealMs(shakes) + CAPTURE_NEWS_DELAY_MS`), tin ★ trước, kinh nghiệm sau. Tin ★ của lần bắt gửi mọi người trừ người ném (`announce(text, except)`, tìm client theo sessionId lúc hẹn giờ chạy vì nối lại tạo `Client` mới); người ném đọc "★ Bắt được … đầu đàn! 🎉" từ `CaptureResultMessage.alpha`. Tin ★ khi hạ gục vẫn gửi cả người hạ. Trả lúc ném thì tin lên cấp sẽ lộ kết quả khi bóng còn lắc;
     - ngoại lệ chấp nhận được: `XP_PER_HIT` của đòn thú đi theo cộng sau hậu quả của chính đòn đó. Đòn kết liễu trùm có thể gây một `LevelUp` thứ hai sau tin phần thưởng; hàng đợi giữ cả hai.
 
     Hai hẹn giờ `this.clock.setTimeout` cùng đáo hạn trong một tick thì cái đăng ký **sau** chạy **trước** (`ClockTimer` duyệt từ cuối về đầu), nên tin cần đi theo thứ tự phải chung một hẹn giờ.
@@ -56,7 +56,7 @@ packages/shared: dữ liệu JSON + logic thuần, cả hai bên cùng import
     - `liveSessions` (cấp module, token thiết bị → phiên đang sống, trong toàn process): mỗi thiết bị một phiên. `onJoin` gọi `endSession` cho phiên cũ **trước** khi đọc hồ sơ (đang chờ thì `reject`, đang mở thì `leave(CLOSE_REPLACED)`), nên không có hai bản của một người và bản cũ không ghi đè tiến trình mới. Chạy nhiều process thì phải chuyển sang Presence của Colyseus.
 - `ai/`: hàm thuần có test: `wander.ts` (lang thang, `randomPoint`), `wildCombat.ts` (chọn mục tiêu, đuổi, bỏ chạy), `companion.ts` (bám chủ, lao vào thú chủ đánh), `skillAi.ts` (chọn chiêu).
 - `persistence/store.ts`: hồ sơ người chơi trong SQLite (`node:sqlite`, file ở `PETGAME_DB`), theo token ngẫu nhiên của thiết bị; luôn qua `sanitizeProfile` khi đọc (thú có kinh nghiệm dư đủ cho cấp sau theo đường cong hiện tại thì lên cấp ngay lúc đọc, không bao giờ xuống). Thêm dữ liệu cần lưu: cập nhật `Profile`, `emptyProfile`, `sanitizeProfile`, chỗ đọc/ghi trong `GameRoom` và test.
-- Hook thử nghiệm `debug:*` (spawnPal, give, givePal, gear, wardrobe, quest, setTime, teleport, xp: cộng kinh nghiệm cho thú đang đi theo qua đúng đường lên cấp (`grantXp`: tin `LevelUp`, nhiệm vụ), endGrace: kết thúc ngay mọi lần chờ nối lại trong phòng của người gửi) chỉ đăng ký khi `PETGAME_DEBUG=1`. Không bao giờ bật trên server thật.
+- Hook thử nghiệm `debug:*` (spawnPal, give, givePal (`species`, `level`, `alpha: true` cho thú đầu đàn đã bắt), gear, wardrobe, quest, setTime, teleport, xp: cộng kinh nghiệm cho thú đang đi theo qua đúng đường lên cấp (`grantXp`: tin `LevelUp`, nhiệm vụ), endGrace: kết thúc ngay mọi lần chờ nối lại trong phòng của người gửi) chỉ đăng ký khi `PETGAME_DEBUG=1`. Không bao giờ bật trên server thật.
 
 ## packages/client
 

@@ -34,6 +34,8 @@ export interface SavedPal {
   level: number;
   xp: number;
   assignment: "" | "follow" | "work";
+  /** Caught as a region's pack leader (★). Saves from before it was kept have none: read as false. */
+  alpha: boolean;
 }
 
 /** Everything that survives leaving the game, keyed by the device token. */
@@ -153,7 +155,7 @@ export function sanitizeProfile(raw: unknown): Profile | undefined {
     ids.add(p.id);
     // A profile saved when levels cost more can hold XP that now pays for the next one: level up on reading, never down.
     const { level, xp } = addXp({ level: Math.round(num(p.level, 1, MAX_LEVEL, 1)), xp: Math.round(num(p.xp, 0, 1e9, 0)) }, 0);
-    pals.push({ id: p.id, speciesId: p.speciesId, level, xp, assignment });
+    pals.push({ id: p.id, speciesId: p.speciesId, level, xp, assignment, alpha: p.alpha === true });
   }
 
   const base =

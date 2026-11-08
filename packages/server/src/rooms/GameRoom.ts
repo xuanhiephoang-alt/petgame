@@ -93,6 +93,7 @@ import {
   ALPHA,
   ALPHAS,
   alphaLairs,
+  palName,
   type AlphaDef,
   type Region,
   type PalAutoMessage,
@@ -436,8 +437,8 @@ export class GameRoom extends Room<{ state: GameState }> {
         if (!player) return;
         for (const r of RESOURCES) player[r] += 50;
       });
-      // A pal of this species and level joins the party and follows (to try its skills).
-      this.onMessage("debug:givePal", (client, message?: { species?: string; level?: number }) => {
+      // A pal of this species and level joins the party and follows (to try its skills); { alpha: true } makes it a caught pack leader.
+      this.onMessage("debug:givePal", (client, message?: { species?: string; level?: number; alpha?: boolean }) => {
         const player = this.state.players.get(client.sessionId);
         if (!player) return;
         if (player.pals.length >= MAX_PARTY) return this.notify(client, PARTY_FULL_TEXT, "refused");
@@ -453,6 +454,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         owned.level = Math.max(1, Math.min(50, Math.floor(Number(message?.level) || 1)));
         owned.xp = 0;
         owned.assignment = "";
+        owned.alpha = message?.alpha === true;
         player.pals.push(owned);
         this.summon(client.sessionId, owned.id);
       });
@@ -516,6 +518,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       owned.level = saved.level;
       owned.xp = saved.xp;
       owned.assignment = "";
+      owned.alpha = saved.alpha;
       player.pals.push(owned);
     }
     this.state.players.set(client.sessionId, player);
@@ -901,10 +904,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (blocker) return this.notify(client, blocker, "refused");
 
     const species = getSpecies(pal.speciesId);
+    const alpha = pal.alpha === true;
     const useGreat = greatBall && player.greatBalls > 0;
     if (useGreat) player.greatBalls -= 1;
     const bonus = (useGreat ? GREAT_BALL_BONUS : 1) * (pal.dizzy ? DIZZY_CATCH_BONUS : 1);
-    const chance = captureChance(pal.hp, pal.maxHp, levelCatchRate(species.catchRate, pal.level), bonus) * (pal.alpha ? ALPHA.catchMultiplier : 1);
+    const chance = captureChance(pal.hp, pal.maxHp, levelCatchRate(species.catchRate, pal.level), bonus) * (alpha ? ALPHA.catchMultiplier : 1);
     const roll = Math.random();
     const success = roll < chance;
     const shakes = captureShakes(success, chance, roll);
@@ -919,7 +923,6 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.inBallThrower.set(palId, client.sessionId);
     }
     if (success) {
-      const alphaName = pal.alpha ? this.alphaName(pal) : "";
       this.removePal(palId);
       // There is room: checked above, in this same call (nothing runs in between), so a catch is never lost.
       const owned = new OwnedPal();
@@ -928,20 +931,23 @@ export class GameRoom extends Room<{ state: GameState }> {
       owned.level = pal.level;
       owned.xp = 0;
       owned.assignment = "";
+      owned.alpha = alpha;
       player.pals.push(owned);
       const follower = player.pals.find((p) => p.id === player.activePalId);
       // The first catch starts following right away.
       if (!follower) this.summon(client.sessionId, owned.id);
       this.questEvent(client.sessionId, "catch");
-      if (alphaName) this.questEvent(client.sessionId, "alpha");
-      // Once the ball has clicked shut (as the thrower sees it): a pack leader's news, then the XP for the pal that
-      // helped, in one timer (timers due in the same tick run last-registered first). Not at the throw: a level-up
-      // then would give the catch away while the ball still wobbles.
-      const xp = follower ? finishXp(XP_PER_CAPTURE, pal.level) + (alphaName ? ALPHA.xp : 0) : 0;
-      const news = alphaName ? `★ ${player.name} đã bắt được ${alphaName}!` : "";
+      if (alpha) this.questEvent(client.sessionId, "alpha");
+      // Once the ball has clicked shut (as the thrower sees it): a pack leader's news for everyone else (the thrower
+      // reads it in this result, CaptureResultMessage.alpha), then the XP for the pal that helped, in one timer (timers
+      // due in the same tick run last-registered first). Not at the throw: a level-up then would give the catch away
+      // while the ball still wobbles.
+      const xp = follower ? finishXp(XP_PER_CAPTURE, pal.level) + (alpha ? ALPHA.xp : 0) : 0;
+      const news = alpha ? `★ ${player.name} đã bắt được ${palName(species.id, true)}!` : "";
       if (xp > 0 || news) {
         this.clock.setTimeout(() => {
-          if (news) this.announce(news);
+          // Found again now, not the `client` of the throw: a reconnect in between brings a new Client for this session.
+          if (news) this.announce(news, this.clients.find((c) => c.sessionId === client.sessionId));
           if (!follower || !this.state.players.get(client.sessionId)?.pals.includes(follower)) return;
           this.grantXp(client.sessionId, follower, xp);
           this.scheduleSave(client.sessionId);
@@ -949,7 +955,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       }
       this.scheduleSave(client.sessionId);
     }
-    const result: CaptureResultMessage = { playerId: client.sessionId, palId, speciesId: species.id, success, chance, shakes };
+    const result: CaptureResultMessage = { playerId: client.sessionId, palId, speciesId: species.id, success, chance, shakes, ...(alpha ? { alpha } : {}) };
     this.broadcast(ServerMessage.CaptureResult, result);
   }
 
@@ -1017,7 +1023,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     const player = this.state.players.get(client.sessionId);
     const index = player ? player.pals.findIndex((p) => p.id === ownedId) : -1;
     if (!player || index < 0) return; // not one of theirs: ignored quietly, so it tells nothing and cannot be used to spam notices
-    const name = getSpecies(player.pals[index].speciesId).name;
+    const owned = player.pals[index];
+    const name = palName(owned.speciesId, owned.alpha === true);
     if (player.activePalId === ownedId) player.activePalId = "";
     this.despawnCompanion(ownedId);
     const control = this.controls.get(client.sessionId);
@@ -1192,7 +1199,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const loot = palDrops(getSpecies(pal.speciesId), pal.level, Math.random);
     // A pack leader leaves more, and its knocker's pal learns a lot.
     if (pal.alpha) for (const [item, n] of Object.entries(ALPHA.reward) as [keyof typeof ALPHA.reward, number][]) loot[item] = (loot[item] ?? 0) + n;
-    const name = pal.alpha ? this.alphaName(pal) : "";
+    const name = pal.alpha ? palName(pal.speciesId, true) : "";
     const xp = pal.alpha ? ALPHA.xp : finishXp(XP_PER_KNOCKOUT, pal.level);
     this.removePal(palId);
     const player = this.state.players.get(sessionId);
@@ -1613,14 +1620,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.alphaHome.set(id, { ...lair });
   }
 
-  /** "Voltmouse đầu đàn". */
-  private alphaName(pal: WildPal): string {
-    return `${getSpecies(pal.speciesId).name} đầu đàn`;
-  }
-
-  /** Tells everyone (a "news" notice). */
-  private announce(text: string) {
-    this.broadcast(ServerMessage.Notice, { text, kind: "news" } satisfies NoticeMessage);
+  /** Tells everyone in the world but `except` (a "news" notice). */
+  private announce(text: string, except?: Client) {
+    this.broadcast(ServerMessage.Notice, { text, kind: "news" } satisfies NoticeMessage, { except });
   }
 
   private defeatBoss(bossId: string) {
@@ -2029,6 +2031,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     companion.mode = mode;
     companion.maxHp = companionMaxHp(getSpecies(owned.speciesId), owned.level);
     companion.hp = companion.maxHp;
+    companion.alpha = owned.alpha === true;
     companion.x = at.x;
     companion.y = at.y;
     this.state.companions.set(owned.id, companion);
@@ -2089,6 +2092,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         level: p.level,
         xp: p.xp,
         assignment: p.assignment === "follow" || p.assignment === "work" ? p.assignment : "",
+        alpha: p.alpha === true,
       })),
       base: player.hasBase ? { x: player.baseX, y: player.baseY } : null,
       baseLevel: player.baseLevel || 1,

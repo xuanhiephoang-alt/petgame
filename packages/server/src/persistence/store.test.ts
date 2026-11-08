@@ -6,7 +6,7 @@ describe("profile store", () => {
   it("saves and loads a profile", () => {
     const store = new SqliteStore(":memory:");
     const profile = emptyProfile("Hiep");
-    profile.pals.push({ id: "a1", speciesId: "leafkit", level: 3, xp: 10, assignment: "follow" });
+    profile.pals.push({ id: "a1", speciesId: "leafkit", level: 3, xp: 10, assignment: "follow", alpha: true });
     profile.base = { x: 300, y: 400 };
     profile.resources.wood = 7;
     profile.look = { hair: "bun", hairColor: 2, skin: 3 };
@@ -54,6 +54,15 @@ describe("profile store", () => {
     expect(p.look).toBeNull();
     expect(p.wardrobe).toEqual(STARTER_WARDROBE);
     expect(p.worn).toEqual(DEFAULT_WORN);
+  });
+
+  it("reads pals saved before pack leaders were marked as common pals, and keeps the mark only when it is true", () => {
+    const saved = (id: string, extra: object) => ({ id, speciesId: "leafkit", level: 3, xp: 0, assignment: "", ...extra });
+    const p = sanitizeProfile({
+      pals: [saved("a1", {}), saved("a2", { alpha: true }), saved("a3", { alpha: "yes" }), saved("a4", { alpha: 1 })],
+    })!;
+    expect(p.pals.map((x) => x.alpha)).toEqual([false, true, false, false]);
+    expect(sanitizeProfile(p)).toEqual(p);
   });
 
   it("levels up pals saved under the old curve, never down, keeping their XP", () => {

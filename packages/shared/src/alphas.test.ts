@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALPHAS, ALPHA, alphaLairs } from "./alphas.ts";
+import { ALPHAS, ALPHA, alphaLairs, palName } from "./alphas.ts";
 import { getSpecies } from "./pals.ts";
 import { SKILL_LEVELS, knownSkills } from "./skills.ts";
 import { terrainAt } from "./terrain.ts";
@@ -15,6 +15,13 @@ describe("pack leaders", () => {
       expect(knownSkills(species, alpha.level)).toHaveLength(3);
     }
     expect(ALPHA.leash).toBeGreaterThan(ALPHA.sight);
+  });
+
+  it("names a pack leader, wild or caught, as players read it", () => {
+    expect(palName("voltmouse")).toBe("Voltmouse");
+    expect(palName("voltmouse", false)).toBe("Voltmouse");
+    expect(palName("voltmouse", true)).toBe("Voltmouse đầu đàn");
+    for (const def of ALPHAS) expect(palName(def.speciesId, true)).toBe(`${getSpecies(def.speciesId).name} đầu đàn`);
   });
 
   it("live on open ground in their region, the meadow's away from the spawn", () => {

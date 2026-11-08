@@ -4,6 +4,7 @@ import {
   RESOURCE_INFO,
   getSpecies,
   learnset,
+  palName,
   skillPower,
   strongAgainst,
   workOutput,
@@ -30,6 +31,8 @@ export interface PartyEntry {
   xp: number;
   /** "", "follow" or "work". */
   assignment: string;
+  /** Caught as a pack leader: a ★ on its card and a line in the release dialog. */
+  alpha: boolean;
 }
 
 export interface PartyActions {
@@ -70,6 +73,7 @@ export class PartyPanel {
   private confirm: HTMLDivElement;
   private confirmHead: HTMLDivElement;
   private confirmTitle: HTMLElement;
+  private confirmAlpha: HTMLParagraphElement;
   private confirmStatus: HTMLParagraphElement;
   private confirmWarn: HTMLParagraphElement;
   private keepButton: HTMLButtonElement;
@@ -118,6 +122,9 @@ export class PartyPanel {
     this.confirmHead.className = "party-confirm-head";
     this.confirmTitle = document.createElement("strong");
     this.confirmTitle.id = "party-confirm-title";
+    this.confirmAlpha = document.createElement("p");
+    this.confirmAlpha.className = "party-confirm-alpha";
+    this.confirmAlpha.textContent = "★ Thú đầu đàn";
     const text = document.createElement("p");
     text.className = "party-confirm-text";
     text.textContent = "Nó sẽ về với thiên nhiên, không quay lại và không để lại gì.";
@@ -137,7 +144,7 @@ export class PartyPanel {
     this.releaseButton.className = "confirm-release";
     this.releaseButton.textContent = "Thả";
     choices.append(this.keepButton, this.releaseButton);
-    box.append(this.confirmHead, text, this.confirmStatus, this.confirmWarn, choices);
+    box.append(this.confirmHead, this.confirmAlpha, text, this.confirmStatus, this.confirmWarn, choices);
     this.confirm.append(box);
     this.keepButton.addEventListener("click", () => this.closeConfirm());
     this.releaseButton.addEventListener("click", () => this.confirmRelease());
@@ -185,7 +192,7 @@ export class PartyPanel {
     this.snacks = snacks;
     if (party.length === 0) this.releasing = false;
     if (this.confirmId && !party.some((p) => p.id === this.confirmId)) this.closeConfirm();
-    const key = `${hasBase}|${snacks > 0}|${this.releasing}|${party.map((p) => `${p.id}:${p.level}:${p.xp}:${p.assignment}`).join(",")}`;
+    const key = `${hasBase}|${snacks > 0}|${this.releasing}|${party.map((p) => `${p.id}:${p.level}:${p.xp}:${p.assignment}:${p.alpha ? 1 : 0}`).join(",")}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
     this.render();
@@ -252,7 +259,7 @@ export class PartyPanel {
     const species = getSpecies(entry.speciesId);
     const output = RESOURCE_INFO[workOutput(species)];
     const card = document.createElement("div");
-    card.className = `party-card ${entry.assignment || "idle"}`;
+    card.className = `party-card ${entry.assignment || "idle"}${entry.alpha ? " alpha" : ""}`;
     card.dataset.palId = entry.id;
 
     const swatch = this.swatch(entry);
@@ -260,7 +267,14 @@ export class PartyPanel {
     const info = document.createElement("div");
     info.className = "party-info";
     const name = document.createElement("strong");
-    name.textContent = `${species.name} · Lv ${entry.level}`;
+    if (entry.alpha) {
+      const star = document.createElement("span");
+      star.className = "party-star";
+      star.textContent = "★";
+      star.title = "Thú đầu đàn";
+      name.append(star, " ");
+    }
+    name.append(`${species.name} · Lv ${entry.level}`);
     const detail = document.createElement("small");
     const status = entry.assignment === "follow" ? "Đang đi theo" : entry.assignment === "work" ? `Đang làm ${output.icon}` : `Làm ra ${output.icon}`;
     const strong = ELEMENT_INFO[strongAgainst(species.element)];
@@ -295,7 +309,7 @@ export class PartyPanel {
       return b;
     };
     if (this.releasing) {
-      add("Thả", () => this.openConfirm(entry), "release").setAttribute("aria-label", `Thả ${species.name} · Lv ${entry.level}`);
+      add("Thả", () => this.openConfirm(entry), "release").setAttribute("aria-label", `Thả ${palName(entry.speciesId, entry.alpha)} · Lv ${entry.level}`);
     } else {
       if (entry.assignment !== "follow") add("Đi theo", () => this.actions.summon(entry.id));
       if (entry.assignment !== "work") add("Làm việc", () => this.actions.work(entry.id), "work", !hasBase);
@@ -324,6 +338,7 @@ export class PartyPanel {
     if (!entry) return;
     this.confirmTitle.textContent = `Thả ${getSpecies(entry.speciesId).name} · Lv ${entry.level}?`;
     this.confirmHead.replaceChildren(this.swatch(entry), this.confirmTitle);
+    this.confirmAlpha.hidden = !entry.alpha;
     this.confirmStatus.hidden = entry.assignment === "";
     this.confirmStatus.textContent = entry.assignment === "follow" ? "Đang đi theo bạn." : "Đang làm việc ở trại.";
     this.confirmWarn.hidden = this.party.length !== 1;

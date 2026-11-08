@@ -165,6 +165,7 @@
       .party-confirm-head { display: flex; align-items: center; gap: 10px; font-size: 17px; }
       .party-confirm-box p { margin: 8px 0 0; font-size: 14px; line-height: 1.4; }
       .party-confirm-warn { color: #b71c1c; font-weight: 700; }
+      .party-confirm-alpha { color: #9a6200; font-weight: 700; }
       .party-confirm-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
       .party-confirm-buttons button { min-height: 44px; min-width: 96px; padding: 0 16px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700;
         cursor: pointer; }
@@ -199,6 +200,9 @@
       .party-card { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; background: #fff; border: 2px solid transparent; }
       .party-card.follow { border-color: #7cb342; background: #f1f8e9; }
       .party-card.work { border-color: #ffb74d; background: #fff8e1; }
+      /* A caught pack leader: a gold bar inside the card's left edge (the border keeps showing what the pal does) and a gold ★ in its name. */
+      .party-card.alpha { box-shadow: inset 4px 0 0 #ffb300; }
+      .party-star { color: #b77900; }
       .party-hint { margin: 2px 4px 6px; font-size: 13px; color: #8d6e63; }
       .party-xp { height: 4px; background: #e0e0e0; border-radius: 2px; margin-top: 4px; overflow: hidden; }
       .party-xp div { height: 100%; background: #42a5f5; }
@@ -215,6 +219,8 @@
       .party-action { border: none; border-radius: 8px; padding: 6px 10px; min-height: 36px; min-width: 76px; font-weight: 600; cursor: pointer;
         background: #7cb342; color: #fff; }
       .label.companion span { font-size: 11px; font-weight: 500; }
+      /* A caught pack leader (★): gold text on the usual dark tag (a gold tag is mine or a wild leader's). */
+      .label.companion.alpha span { color: #ffe082; font-weight: 600; }
       .float-text { font-size: 15px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000; animation: float-up 1.2s ease-out forwards; }
       @keyframes float-up { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-36px); opacity: 0; } }
       .base-btn { position: absolute; top: max(56px, calc(env(safe-area-inset-top) + 44px)); right: max(12px, env(safe-area-inset-right));

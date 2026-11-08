@@ -673,6 +673,81 @@ test("pack leaders: a gold-tagged leader guards its lair, warns you and attacks"
   await expect.poll(() => page.evaluate(() => (window as any).__hurt as number), { timeout: 20_000 }).toBeGreaterThan(0);
 });
 
+test("pack leaders: a caught leader keeps its ★ on its card, its name tag and in the release dialog, after a reload too", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Thuần");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const marks = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return room.state.players.get(room.sessionId).pals.map((p: any) => p.alpha === true) as boolean[];
+  });
+
+  // A Leafkit, then a caught pack leader (test-only hook: `alpha: true`), which follows since it came last.
+  await sendFrom(page, "debug:givePal", { species: "leafkit", level: 3 });
+  await sendFrom(page, "debug:givePal", { species: "voltmouse", level: 15, alpha: true });
+  await expect.poll(async () => (await partyOf(page)).species).toEqual(["leafkit", "voltmouse"]);
+  expect(await marks()).toEqual([false, true]);
+
+  // Its name tag carries the star; my follower's tag is pinned, so always shown.
+  const myTag = page.locator(".labels > .label.companion.alpha", { hasText: "Voltmouse" });
+  await expect(myTag).toHaveText("★ Lv 15 Voltmouse");
+  await expect(myTag).toBeVisible();
+
+  // The leader's card has the star (inside the card on a phone held upright or sideways and on a desktop); the Leafkit's has none.
+  await page.locator(".party-btn").click();
+  const leaderCard = page.locator(".party-card[data-pal-id].alpha");
+  await expect(leaderCard).toHaveCount(1);
+  await expect(leaderCard.locator("strong")).toHaveText("★ Voltmouse · Lv 15");
+  await expect(leaderCard.locator(".party-star")).toHaveAttribute("title", "Thú đầu đàn");
+  await expect(page.locator(".party-card[data-pal-id]:not(.alpha) strong")).toHaveText("Leafkit · Lv 3");
+  await expect(page.locator(".party-card[data-pal-id]:not(.alpha) .party-star")).toHaveCount(0);
+  for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 720 }]) {
+    await page.setViewportSize(size);
+    await expect(leaderCard.locator(".party-star")).toBeVisible();
+    const star = (await leaderCard.locator(".party-star").boundingBox())!;
+    const card = (await leaderCard.boundingBox())!;
+    expect(star.x >= card.x && star.x + star.width <= card.x + card.width, `star inside its card at ${size.width}x${size.height}`).toBe(true);
+  }
+
+  // The release dialog says it is a pack leader and still fits a phone held sideways; the Leafkit's does not say it.
+  await page.locator(".party-release-toggle").click();
+  const leaderRelease = leaderCard.locator(".party-action.release");
+  await expect(leaderRelease).toHaveAttribute("aria-label", "Thả Voltmouse đầu đàn · Lv 15");
+  await leaderRelease.click();
+  const dialog = page.locator(".party-confirm-box");
+  const mark = page.locator(".party-confirm-alpha");
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveText("★ Thú đầu đàn");
+  await page.setViewportSize({ width: 844, height: 390 });
+  const box = (await dialog.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(390);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.locator(".confirm-keep").click();
+  await page.locator(".party-card[data-pal-id]:not(.alpha) .party-action.release").click();
+  await expect(dialog).toBeVisible();
+  await expect(mark).toBeHidden();
+  await page.locator(".confirm-keep").click();
+  await page.keyboard.press("q"); // the panel closes, and release mode with it
+
+  // A friend's caught pack leader shows its star on my screen too.
+  const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
+  const friend = await observer(roomId, "Bạn");
+  friend.send("debug:givePal", { species: "frostfang", level: 19, alpha: true });
+  await expect(page.locator(".labels > .label.companion.alpha", { hasText: "Frostfang" })).toHaveText("★ Lv 19 Frostfang");
+
+  // After a reload (the same device), it is still one.
+  await page.waitForTimeout(2500); // saves are batched every 2 s
+  await page.reload();
+  await enterLobby(page, "Thuần");
+  await waitForWorld(page);
+  await expect.poll(marks).toEqual([false, true]);
+  await expect(myTag).toHaveText("★ Lv 15 Voltmouse");
+  await page.locator(".party-btn").click();
+  await expect(page.locator(".party-card[data-pal-id].alpha strong")).toHaveText("★ Voltmouse · Lv 15");
+});
+
 /**
  * The pairs of name tags whose visible parts (the name text, the HP bar) overlap on screen, as "<text A> | <text B>".
  * A tag hidden by opacity, or a part with no opacity or display, does not count; floating texts are not name tags.

@@ -4,6 +4,7 @@ import { terrainAt } from "./terrain.ts";
 import { biomeAt, defaultWorld, CLEARING_RADIUS, type WorldLayout } from "./worldgen.ts";
 import type { CollisionGrid } from "./collision.ts";
 import { PIXELS_PER_UNIT } from "./constants.ts";
+import { getSpecies } from "./pals.ts";
 
 /**
  * Pack leaders ("thú đầu đàn"): one big, tough pal guards a lair in each
@@ -59,6 +60,12 @@ export const ALPHA = {
   /** It comes back this long after it was knocked out or caught (ms). */
   respawnMs: 6 * 60 * 1000,
 } as const;
+
+/** A pal's name as players read it: "Voltmouse", or "Voltmouse đầu đàn" for a pack leader, wild or caught. */
+export function palName(speciesId: string, alpha = false): string {
+  const name = getSpecies(speciesId).name;
+  return alpha ? `${name} đầu đàn` : name;
+}
 
 let lairs: Map<Region, Vec2> | undefined;
 

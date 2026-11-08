@@ -77,7 +77,7 @@ import {
   type Vec2,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
-import { SqliteStore, emptyProfile } from "../persistence/store.ts";
+import { SqliteStore, emptyProfile, type Profile } from "../persistence/store.ts";
 
 // Profiles go to an in-memory database for tests (opened lazily on first join).
 process.env.PETGAME_DB = ":memory:";
@@ -133,6 +133,8 @@ describe("party and companions", () => {
     const companion = room.state.companions.get(player.activePalId)!;
     expect(companion.ownerId).toBe(client.sessionId);
     expect(companion.speciesId).toBe(player.pals[0].speciesId);
+    expect(player.pals[0].alpha).toBe(false); // a common pal is an explicit false, not undefined
+    expect(companion.alpha).toBe(false);
   });
 
   it("companion walks toward its owner", async () => {
@@ -342,7 +344,7 @@ describe("saving", () => {
     // Saved before the curve got cheaper: level 4 with 159 XP over (the old curve asked 160 for level 5, the new one 104).
     db.save(token, {
       ...emptyProfile("Old"),
-      pals: [{ id: "old-leafkit", speciesId: "leafkit", level: 4, xp: 159, assignment: "follow" }],
+      pals: [{ id: "old-leafkit", speciesId: "leafkit", level: 4, xp: 159, assignment: "follow", alpha: false }],
       quest: { index: trainer, progress: 0 },
     });
     const { room, player } = await setup(token);
@@ -352,6 +354,20 @@ describe("saving", () => {
     expect(companion.level).toBe(5);
     expect(companion.maxHp).toBe(companionMaxHp(getSpecies("leafkit"), 5));
     expect(player.questIndex).toBe(trainer + 1);
+  });
+
+  it("an old save without the mark loads its pals as common pals", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "old-mark-token-0123456789";
+    // Saved before T8: no `alpha` on the pal.
+    db.save(token, {
+      ...emptyProfile("Old"),
+      pals: [{ id: "old-voltmouse", speciesId: "voltmouse", level: 15, xp: 0, assignment: "follow" }],
+    } as Profile);
+    const { room, player } = await setup(token);
+    expect(player.pals[0].alpha).toBe(false);
+    expect(room.state.companions.get(player.pals[0].id)!.alpha).toBe(false);
   });
 });
 
@@ -498,7 +514,7 @@ describe("offline production", () => {
     const token = "offline-token-0123456789";
     db.save(token, {
       name: "Away",
-      pals: [{ id: "w1", speciesId: "pebblet", level: 1, xp: 0, assignment: "work" }],
+      pals: [{ id: "w1", speciesId: "pebblet", level: 1, xp: 0, assignment: "work", alpha: false }],
       base: { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 + 150 },
       baseLevel: 1,
       resources: { wood: 0, stone: 0, berries: 0 },
@@ -1107,6 +1123,47 @@ describe("pack leaders", () => {
     client.send(ClientMessage.Throw, { palId: id });
     const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
     expect(result.chance).toBeCloseTo(expected, 6);
+    expect(result.alpha).toBe(true); // caught or not
+  });
+
+  it("caught, it stays a pack leader: in the party, as a companion, in the client's state, and after rejoining", async () => {
+    const token = "alpha-token-0123456789";
+    const { room, client, player } = await setup(token);
+    const [id, pal] = alphaOf(room, "voltmouse");
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    player.x = pal.x + 40;
+    player.y = pal.y;
+    vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    expect([result.success, result.alpha]).toEqual([true, true]);
+    expect(player.pals[0].alpha).toBe(true);
+    expect(player.pals[0].level).toBe(15);
+    const leaderId = player.pals[0].id;
+    expect(player.activePalId).toBe(leaderId); // the first catch follows
+    expect(room.state.companions.get(leaderId)!.alpha).toBe(true);
+    await vi.waitFor(() => {
+      expect(client.state.players.get(client.sessionId)!.pals[0].alpha).toBe(true);
+      expect(client.state.companions.get(leaderId)!.alpha).toBe(true);
+    });
+
+    // A common pal caught next is not one: no field in the result, a plain false in the party.
+    await ticks(room, 20); // wait out the throw cooldown
+    const leafId = placeWild(room, "leafkit", player, 60);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    client.send(ClientMessage.Throw, { palId: leafId });
+    const second: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    expect(second.success).toBe(true);
+    expect(second.alpha).toBeUndefined();
+    expect(player.pals[1].alpha).toBe(false);
+
+    await client.leave();
+    await colyseus.cleanup();
+    const again = await setup(token);
+    expect(again.player.pals.map((p) => p.alpha)).toEqual([true, false]);
+    expect(again.room.state.companions.get(again.player.activePalId)!.alpha).toBe(true);
   });
 
   it("knocked out, it pays well, its knocker's pal learns a lot, everyone hears, and it comes back", async () => {
@@ -1165,11 +1222,12 @@ describe("pack leaders", () => {
     expect([owned.level, owned.xp]).toEqual([total.level, total.xp]);
   });
 
-  it("caught, the news of the catch comes before the level-up that the ball's click pays for", async () => {
+  it("caught, everyone else hears the news before the level-up the ball's click pays for; the thrower is not told twice", async () => {
     const { room, client, player } = await setup();
     const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
     owned.xp = 0;
     player.palAuto = false; // no hits of its own to count
+    const watcher = await colyseus.connectTo(room, { name: "Watcher" });
     const [id, pal] = alphaOf(room, "cactoad");
     const level = pal.level;
     for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
@@ -1181,6 +1239,9 @@ describe("pack leaders", () => {
     const order: string[] = [];
     client.onMessage(ServerMessage.Notice, (m: NoticeMessage) => order.push(m.text));
     client.onMessage(ServerMessage.LevelUp, (m: LevelUpMessage) => order.push(`LevelUp ${m.fromLevel} -> ${m.level}`));
+    const heard: string[] = [];
+    watcher.onMessage(ServerMessage.Notice, (m: NoticeMessage) => heard.push(m.text));
+    watcher.onMessage(ServerMessage.LevelUp, (m: LevelUpMessage) => heard.push(`LevelUp ${m.fromLevel} -> ${m.level}`));
     vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
     client.send(ClientMessage.Throw, { palId: id });
     const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
@@ -1192,10 +1253,17 @@ describe("pack leaders", () => {
     const expected = addXp({ level: 6, xp: 0 }, finishXp(XP_PER_CAPTURE, level) + ALPHA.xp);
     expect(expected.level).toBe(7);
     expect([owned.level, owned.xp]).toEqual([expected.level, expected.xp]);
-    const news = order.indexOf(`★ ${player.name} đã bắt được Cactoad đầu đàn!`);
+    // The watcher reads the news, then one level-up from the old level (the last thing read).
+    await vi.waitFor(() => expect(heard).toContain("LevelUp 6 -> 7"));
+    const news = heard.indexOf(`★ ${player.name} đã bắt được Cactoad đầu đàn!`);
     expect(news).toBeGreaterThanOrEqual(0);
-    expect(order.filter((m) => m.startsWith("LevelUp"))).toEqual(["LevelUp 6 -> 7"]); // one, from the old level
-    expect(order.indexOf("LevelUp 6 -> 7")).toBeGreaterThan(news); // the level-up is the last thing read
+    expect(heard.filter((m) => m.startsWith("LevelUp"))).toEqual(["LevelUp 6 -> 7"]);
+    expect(heard.indexOf("LevelUp 6 -> 7")).toBeGreaterThan(news);
+    // The thrower read it in the result ("★ Bắt được ..."), so no second ★ notice, and still the one level-up.
+    await vi.waitFor(() => expect(order).toContain("LevelUp 6 -> 7"));
+    expect(order.filter((m) => m.startsWith("★"))).toEqual([]);
+    expect(order.filter((m) => m.startsWith("LevelUp"))).toEqual(["LevelUp 6 -> 7"]);
+    expect(result.alpha).toBe(true);
   });
 
   it("caught, if the thrower leaves before the ball clicks shut, the others still hear the news and no XP is paid", async () => {
@@ -1938,6 +2006,7 @@ function addPals(player: Pick<Player, "pals">, n: number, speciesId = "leafkit")
     owned.level = 1;
     owned.xp = 0;
     owned.assignment = "";
+    owned.alpha = false;
     player.pals.push(owned);
     added.push(owned);
   }
@@ -2107,6 +2176,34 @@ describe("releasing pals and a full party", () => {
     } finally {
       delete process.env.PETGAME_DEBUG;
     }
+  });
+
+  it("the test hook that gives a pal makes a caught pack leader only with alpha: true", async () => {
+    vi.stubEnv("PETGAME_DEBUG", "1"); // the hooks are registered when the room is created
+    try {
+      const { room, client, player } = await setup();
+      client.send("debug:givePal", { species: "voltmouse", level: 15, alpha: true });
+      await ticks(room, 3);
+      expect(player.pals[0].alpha).toBe(true);
+      expect(room.state.companions.get(player.pals[0].id)!.alpha).toBe(true);
+      client.send("debug:givePal", { species: "leafkit", alpha: "yes" }); // only the value true counts
+      await ticks(room, 3);
+      expect(player.pals[1].alpha).toBe(false);
+      expect(room.state.companions.get(player.activePalId)!.speciesId).toBe("leafkit");
+      expect(room.state.companions.get(player.activePalId)!.alpha).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("letting a caught pack leader go names it so", async () => {
+    const { room, client, player } = await setup();
+    const [a] = addPals(player, 1, "voltmouse");
+    a.alpha = true;
+    const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+    client.send(ClientMessage.Release, { palId: a.id });
+    await ticks(room, 3);
+    expect(notices.at(-1)?.text).toBe("Đã thả Voltmouse đầu đàn. Tạm biệt! 👋");
   });
 });
 

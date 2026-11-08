@@ -281,6 +281,8 @@ export interface CaptureResultMessage {
   chance: number;
   /** How many times the ball wobbles before it clicks shut or the pal breaks out (captureShakes). */
   shakes: number;
+  /** The pal thrown at was a region's pack leader (whether caught or not): the thrower reads "… đầu đàn". */
+  alpha?: boolean;
 }
 
 export interface HitMessage {

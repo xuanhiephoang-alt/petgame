@@ -14,6 +14,8 @@ export const OwnedPal = schema(
     xp: t.number(),
     /** "" (resting in the party), "follow" or "work". */
     assignment: t.string(),
+    /** Caught while it was a region's pack leader (alphas.ts): shown with a ★, nothing more. */
+    alpha: t.boolean(),
   },
   "OwnedPal",
 );
@@ -98,6 +100,8 @@ export const Companion = schema(
     mode: t.string(),
     hp: t.number(),
     maxHp: t.number(),
+    /** Its OwnedPal was caught as a pack leader: the name tag shows a ★. Set once when it comes out, like `mode`. */
+    alpha: t.boolean(),
   },
   "Companion",
 );
