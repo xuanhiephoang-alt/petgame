@@ -85,13 +85,17 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 | `warning` | thường | cảnh báo lạnh, nóng; bị ngất; thú kiệt sức |
 | `reward` | cao | phần thưởng trùm, rương báu, trại lên cấp, thú làm được khi vắng |
 | `quest` | cao | "Xong nhiệm vụ …", hiện sau 2,1 giây để việc làm xong nhiệm vụ (bóng đang lắc, đồ trong rương bay ra) diễn xong |
-| `news` | cao | "★ Hiệp đã hạ Voltmouse đầu đàn!" (gửi cả thế giới) |
+| `news` | cao | "★ Hiệp đã hạ Voltmouse đầu đàn!" (gửi cả thế giới). Tin bắt được "★ Hiệp đã bắt được Voltmouse đầu đàn!" gửi mọi người trừ người bắt: người bắt đã đọc "★ Bắt được Voltmouse đầu đàn! 🎉" (T8) |
 
 **Âm thanh và hiệu ứng** (lấp lánh khi lên cấp, tiếng bóng khép) chạy ngay khi sự kiện đến, kể cả khi chữ của nó phải chờ.
 
 **Ví dụ (luật trên, thời gian tính từ sự kiện):**
 - Hạ trùm: phần thưởng và "lên cấp 8, học chiêu mới" hiện cùng lúc. "Xong nhiệm vụ" đến lúc 2,1 giây, chờ đến khi tin lên cấp hết (khoảng 3,9 giây). Không mất tin nào.
-- Bắt thú đầu đàn: "Bắt được Voltmouse! 🎉" (1,9 giây) và "Xong nhiệm vụ" (2,1 giây) hiện cùng lúc. Tin ★ và tin lên cấp (2,2 giây) chờ rồi lần lượt hiện. Cả cảnh kéo dài khoảng 10 giây.
+- Bắt thú đầu đàn, xong luôn nhiệm vụ cuối:
+  - Người bắt thấy cùng lúc "★ Bắt được Voltmouse đầu đàn! 🎉" (1,9 giây) và "Xong nhiệm vụ" (2,1 giây).
+  - Tin lên cấp (2,2 giây) chờ đến 4,9 giây mới hiện. Cả cảnh khoảng 9 giây.
+  - Người bắt không nhận tin ★ (T8). Trước đó họ đọc hai tin cho cùng một việc và cảnh dài khoảng 10 giây; khi điện thoại ngang (1 chỗ) thì thêm 3 giây.
+  - Những người khác thấy "★ Hiệp đã bắt được Voltmouse đầu đàn!" lúc 2,2 giây.
 - Con thú đầu tiên: "Bắt được Leafkit! 🎉" và "Xong nhiệm vụ "Bắt con thú đầu tiên"" hiện cùng lúc. Mẹo "Thú choáng" đang hiện thì bị thay (đã hiện hơn 3 giây).
 - Đang có tin lên cấp, bấm liên tục những phím không làm được: tin lên cấp vẫn ở nguyên; ô thứ hai chỉ hiện phản hồi mới nhất.
 - Vừa ăn quả mọng, bấm Ăn liên tục trong 4 giây hồi: không thông báo nào hiện thêm, chỉ nút lắc.

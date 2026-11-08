@@ -1,363 +1,523 @@
-# PLAN: T37 Hai test e2e còn nhắm "con thú gần nhất" (gameplay đánh choáng, thú đi theo sau khi bắt)
+# PLAN: T8 Thú đầu đàn bắt được không có dấu hiệu gì
 
 ## Mục tiêu
 
-- **Vấn đề** (đo ở HEAD `b7a3403`, mục Thiết kế 1): hai test e2e hỏng oan vì đánh hoặc ném vào "thú hoang gần nhất", mà con gần nhất có thể là một thú hoang đi ngang qua.
-  - "gameplay: chop a tree, dash, and knock out a dizzy pal": hỏng **3/30** lần đo, ở ba chỗ khác nhau. Trước đó tester T39 đo được 2/10 (code trước T39) và 1/31 trong bộ đầy đủ.
-  - "a captured pal follows the player and shows in the party panel": hỏng **6/53** lần đo hợp lệ (11%), thêm 1 lần qua nhờ may (bắt nhầm một thú hoang khác).
-
-  Đội chấm PASS dựa vào e2e, nên mỗi lần hỏng oan tốn một vòng sửa.
+- **Vấn đề:**
+  - Bắt được thú đầu đàn là chiến tích lớn nhất của game (nhiệm vụ cuối chuỗi; con thú cấp 15-22). Nhưng vào túi rồi, nó chỉ là một con thú cấp cao bình thường: không thẻ, nhãn hay hồ sơ nào nhớ nó từng là đầu đàn.
+  - Lúc bắt, người ném đọc hai tin cho cùng một việc: "Bắt được Voltmouse! 🎉" (chữ của client) và "★ Hiệp đã bắt được Voltmouse đầu đàn!" (tin `news` của server, gửi cả người ném). Tin thứ hai là thông báo mức cao, nên tin lên cấp phải chờ thêm 3 giây.
 - **Sau nhiệm vụ:**
-  - Hai test chỉ tác động lên con thú debug của mình: bóng ném theo id; đòn đánh thì đứng đúng chỗ con thú đó.
-  - Phím Space chỉ được bấm để chặt cây khi không thú hoang nào kịp chen vào tầm đánh.
-  - Test thú đi theo bắt đúng một con, bỏ hai chỗ chờ cứng.
-  - Hai helper dùng chung với test toasts (T36).
-- Người chơi không thấy gì khác. Mục "Tính khí" trong `docs/design/pals.md` đã ghi luật (game-designer đã sửa trong nhiệm vụ này).
+  - Con đầu đàn bắt được mang dấu ★ mãi: lưu trong hồ sơ, hiện trên thẻ ở bảng 🐾 Thú, trên nhãn tên khi nó đi theo hay làm việc (ai trong thế giới cũng thấy), và trong hộp xác nhận thả.
+  - Người ném chỉ đọc một tin: "★ Bắt được Voltmouse đầu đàn! 🎉". Mọi người khác vẫn nhận tin ★.
+- Luật đầy đủ đã ghi trong `docs/design/pals.md` (mục "Thú đầu đàn", tiểu mục mới "Thú đầu đàn đã bắt", "Túi thú và thả thú", "Nhãn tên và thanh máu") và `docs/design/hud.md` (bảng `news`, ví dụ "Bắt thú đầu đàn"). Game-designer đã sửa hai file này trong nhiệm vụ.
 
 ## Phạm vi
 
 Làm:
-- `tests/e2e/multiplayer.spec.ts`:
-  - thêm 2 helper;
-  - sửa 2 test hỏng;
-  - cho test toasts (T36) và test "party: let a pal go..." dùng helper, hành vi giữ nguyên.
-- Một câu trong dòng "Helper" của `docs/architecture.md`.
-
-Số dòng trong file này tính theo HEAD `b7a3403`.
+- **shared:**
+  - trường `alpha` ở cuối `OwnedPal` và `Companion` (`schema.ts`);
+  - `CaptureResultMessage.alpha` (`messages.ts`);
+  - hàm `palName` (`alphas.ts`) và test.
+- **server:**
+  - `GameRoom.ts`: mọi chỗ tạo `OwnedPal`, `spawnCompanion`, `saveNow`, `handleThrow`, `announce`, `knockOut`, `release`, hook `debug:givePal`;
+  - `persistence/store.ts`: `SavedPal`, `sanitizeProfile`;
+  - test.
+- **client:**
+  - `Game.ts`: nhãn thú đi theo, chữ khi bắt, dữ liệu cho bảng Thú;
+  - `ui/party.ts`: thẻ, hộp xác nhận;
+  - CSS trong `index.html`.
+- **E2E:** 1 test mới.
+- **`docs/architecture.md`:** 5 chỗ nhỏ (bước 10).
 
 KHÔNG làm:
-- **Không đổi code sản phẩm** (`packages/*`), không thêm hook debug. Mọi thứ cần đã có sẵn:
-  - tin `throw` nhận `palId`;
-  - `debug:spawnPal` nhận `species`;
-  - `debug:teleport`.
-- Không sửa hành vi game liên quan. Đó là việc riêng: Voltmouse chạy nhanh hơn người chơi (T27), dấu thú đang nhắm (T28).
-- Giữ nguyên:
-  - tên test, `test.slow()`;
-  - bước lướt (dòng 557-567);
-  - chờ 800 ms sau khi dịch tới cây (dòng 549);
-  - chờ 500 ms giữa hai lần Space đánh choáng (dòng 577): giữ nhịp hồi đòn 400 ms;
-  - chờ 2500 ms trước khi tải lại trang ở test thú đi theo (dòng 190): chờ lưu game, không liên quan việc bắt;
-  - mọi kiểm tra không nêu ở dưới.
-
-  Không thêm retry, không nới điều kiện kiểm tra.
+- **Không thêm lợi ích nào cho thú đầu đàn đã bắt.** Không thêm chỉ số, chiêu, sức làm việc; không làm hình to hơn hay có quầng vàng. Lý do ở mục Thiết kế 3.
+- Không đổi tin ★ khi **hạ gục** thú đầu đàn: vẫn gửi cả thế giới, kể cả người hạ. Client không có thông báo riêng cho lần hạ gục (tin `Defeated` chỉ có hiệu ứng và chữ bay đồ rơi), nên người hạ không đọc trùng.
+- Không đổi chữ lên cấp, cho ăn bánh, cảnh báo lãnh địa: tên loài là đủ ở đó.
+- Không đổi nhãn của thú đầu đàn hoang ("★ Đầu đàn · Lv 15 Voltmouse"), hạng nhãn `LABEL_RANK`, `labelLayout.ts`, `labels.ts`.
+- Không đổi thứ tự tin và kinh nghiệm của T4/T6: tin ★ và `ALPHA.xp` vẫn chung một hẹn giờ lúc bóng khép, tin trước, kinh nghiệm sau.
+- Không thêm hook debug mới. Chỉ thêm một trường tuỳ chọn `alpha` cho hook `debug:givePal` có sẵn (mục Thiết kế 6).
+- Không đụng `scripts/shots.mjs` (xem đề xuất cho T14 ở cuối).
 
 ## Thiết kế
 
-### 1. Đo nguyên nhân
+### 1. Lưu cờ
 
-**Cách đo.** Chép mỗi test thành một bản có ghi chép trong scratchpad: đúng các bước và các lần chờ, chỉ thêm phần ghi lại, không tác động gì.
-- Phần ghi lại gồm:
-  - tin server (`hit`, `defeated`, `damage`, `captureResult`, `notice`);
-  - mọi tin trang gửi, kèm vị trí người chơi;
-  - các thú trong 300 px ở mỗi bước (id, loài, cấp, máu, choáng, khoảng cách);
-  - mẫu 10 lần mỗi giây.
-- Chạy bằng chính config Playwright của repo (cùng server, trình duyệt), `--repeat-each=30 --workers=1`.
+**Trường mới:**
+- `OwnedPal.alpha` (boolean, cuối schema): con thú này bị bắt khi đang là thú đầu đàn.
+- `Companion.alpha` (boolean, cuối schema): chép từ `OwnedPal.alpha` khi con thú ra ngoài (`spawnCompanion`).
+  - Theo đúng cách `Companion` đang chép `speciesId` và `level`: client vẽ nhãn ngay trong `onAdd`, không phải tra chéo sang `Player.pals` (thứ tự patch, nối lại).
+  - Giá trị không bao giờ đổi trong đời con thú, như `mode`.
+- `SavedPal.alpha` (boolean, bắt buộc) trong `Profile`.
 
-**Luật gốc** (đọc trong code):
-- Đòn đánh không mang mục tiêu: `ClientMessage.Attack` không có payload.
-- Server cho trúng **thú hoang gần nhất trong tầm vũ khí**: `handleAttack` (`GameRoom.ts:843-869`) gọi `nearestPal(player, weapon.range)` (`2111-2124`), tay không 48 px (`ATTACK_RANGE`, `constants.ts:19`). Chỉ khi không có con nào trong tầm thì mới hái quả, chặt cây (`854-856`).
-- Con thú debug xuất hiện cách người chơi 40 px về bên phải (`GameRoom.ts:404`), máu 1, đứng yên 60 giây.
+Thêm ở cuối schema để chỉ số của các trường cũ giữ nguyên.
 
-**Test gameplay: hỏng 3/30, cả ba do Space trúng một thú hoang khác.** Xác nhận giả thuyết, và lộ thêm chỗ chặt cây.
+**Ai đặt cờ.** Chỉ server: client không bao giờ gửi cờ này, trừ hook thử nghiệm khi `PETGAME_DEBUG=1`. Mọi chỗ server tạo hay chép `OwnedPal`:
 
-| Lượt | Hỏng ở | Bằng chứng |
+| Chỗ | Giá trị |
+|---|---|
+| Bắt được (`handleThrow`) | `pal.alpha` của thú hoang lúc ném |
+| Nạp hồ sơ (`onJoin`) | `saved.alpha` (đã qua `sanitizeProfile`, luôn là boolean) |
+| `debug:givePal` | `message?.alpha === true` |
+| `saveNow` (ghi hồ sơ) | `p.alpha === true` |
+| `spawnCompanion` (ra ngoài) | `companion.alpha = owned.alpha === true` |
+
+Schema dùng `t.boolean()` không có giá trị mặc định, nên `new OwnedPal()` có `alpha` là `undefined` cho đến khi gán. Vì vậy:
+- mọi chỗ tạo trong `GameRoom` gán tường minh, giống `pal.alpha = false` ở `spawnPal`;
+- hai chỗ ranh giới (`saveNow`, `spawnCompanion`) ép `=== true`. Nếu sau này có đường tạo thú quên gán, nó vẫn ra `false` chứ không ra `undefined`.
+
+**Hồ sơ cũ:**
+- `sanitizeProfile` đọc `alpha: p.alpha === true`. Hồ sơ trước T8 không có trường thì ra `false`. Giá trị lạ (`"yes"`, `1`) cũng ra `false`. Đọc lại kết quả đã đọc không đổi gì.
+- `emptyProfile` không đổi: `pals` rỗng.
+- Quay về code cũ (nếu phải): code cũ dựng hồ sơ từ các trường nó biết, nên bỏ qua `alpha`. Chỉ mất cờ, không hỏng gì. Vì vậy không cần hỏi người dùng.
+
+### 2. Hiển thị ★
+
+| Ở đâu | Thú thường (không đổi) | Thú đầu đàn đã bắt |
 |---|---|---|
-| 28 | dòng 574, `dizzyPals` chờ 1, nhận 0 | Một Pebblet hoang cấp 4 (đầy máu) đứng yên cách người chơi 33,2 px, gần hơn con thú debug (40 px). Space đầu trúng con hoang; nó đánh lại (4 cú cắn, Ném đá). |
-| 0 | dòng 579, `dizzyPals` chờ 0, nhận 1 | Space đầu làm con thú debug choáng. Rồi một Bubbloon hoang cấp 1 đi tới cách 17,9 px; Space thứ hai trúng nó, con thú debug vẫn choáng. |
-| 11 | dòng 554, `wood >= 3`, nhận 0 | Một Pebblet hoang cấp 2 ở trong 48 px quanh chỗ chặt cây. 7/8 lần Space trúng thú (con Pebblet, một Leafkit đi qua). Con Pebblet đánh lại (Ném đá, 2 cú cắn), đẩy người chơi lùi 44 px khỏi cây. |
+| Tên trên thẻ ở bảng 🐾 Thú | `Voltmouse · Lv 15` | `★ Voltmouse · Lv 15`: ★ là `<span class="party-star" title="Thú đầu đàn">`, màu `#b77900` |
+| Thẻ | viền theo việc (đi theo xanh, làm việc cam) | thêm class `alpha`: vạch vàng 4 px bên trái trong thẻ (`box-shadow: inset 4px 0 0 #ffb300`), không đụng viền theo việc |
+| Nút "Thả" (chế độ 🕊️ Thả bớt), `aria-label` | `Thả Voltmouse · Lv 15` | `Thả Voltmouse đầu đàn · Lv 15` |
+| Hộp xác nhận thả | (không có dòng) | dòng `★ Thú đầu đàn` ngay dưới tiêu đề, chữ đậm `#9a6200` |
+| Thông báo sau khi thả (server) | `Đã thả Voltmouse. Tạm biệt! 👋` | `Đã thả Voltmouse đầu đàn. Tạm biệt! 👋` |
+| Nhãn trên đầu khi đi theo hay làm việc | `Lv 15 Voltmouse`, class `label companion` | `★ Lv 15 Voltmouse`, class `label companion alpha`: chữ vàng `#ffe082`, đậm 600, nền tối như cũ |
 
-- Các lượt qua cũng suýt hỏng: 6/30 lượt có một thú hoang khác trong 48 px lúc bấm Space sau khi tạo thú; 2 trong số đó trong 40 px, chính là lượt 0 và 28.
-- Ước tính tĩnh với luật sinh thú của server (20.000 thế giới):
-  - có thú hoang trong 40 px quanh chỗ dừng sau khi lướt: 3,3% mỗi thời điểm;
-  - có thú hoang trong 48 px quanh chỗ chặt cây: 3,2% mỗi thời điểm.
+**Lý do các lựa chọn:**
+- **★ đặt trong tên**, khớp với nhãn trên đầu ("★ Lv 15 Voltmouse"), tin ★, dấu ★ trên bản đồ và nhãn "★ Đầu đàn" của thú hoang.
+- **Vạch vàng bên trái** giúp nhìn ra ngay trong danh sách tới 30 thẻ. Viền vàng bên trái cũng là dấu "quan trọng" mà thông báo mức cao đang dùng.
+- **Màu (đo tương phản):**
+  - `#b77900` cho ★: 3,37-3,65:1 trên ba nền thẻ (`#fff`, `#f1f8e9`, `#fff8e1`), đạt 3:1 cho ký hiệu;
+  - `#9a6200` cho chữ trong hộp: 4,93:1 trên `#fafcf6`, đạt 4,5:1 cho chữ 14 px;
+  - `#ffe082` cho nhãn: khoảng 9,9:1 trên nền nhãn.
+- **Nhãn vẫn chữ vàng trên nền tối**, không dùng nền vàng: nền vàng là nhãn của chính mình (`.label.me`) và của thú đầu đàn hoang. Chữ vàng là đủ để phân biệt.
+- **Hạng nhãn không đổi (T5):**
+  - thú đi theo của mình vẫn là `LABEL_RANK.follower`, nhãn ghim;
+  - thú của người khác và thú làm việc vẫn là `LABEL_RANK.companion`.
 
-**Test thú đi theo: hỏng 6/53 lượt hợp lệ, cả 6 ở dòng 185** (`hasBase`).
-- Đo hai đợt 30 lượt. Đợt 1 có 7 lượt hỏng do lỗi của chính bản ghi chép, không tính: bản ghi chạy trước khi `game` có, vì test này không chờ khung hình đầu. Đợt 2 đã sửa bản ghi, 30/30 lượt hợp lệ.
-- **Đường 1, ném nhầm sau khi bắt: cả 6 lượt hỏng đều do đường này.**
-  - Vòng ném trong trang (dòng 145-153) kiểm `me().pals.length === 0` ở đầu mỗi vòng. Lúc đó tin ném vừa gửi, server chưa trả lời.
-  - Rồi nó ngủ 900 ms và ném vào con gần nhất, không kiểm lại. Vậy là sau mỗi lần bắt luôn có **thêm một quả bóng** vào "con gần nhất" (53/53 lượt). Con đó ở xa hơn 180 px thì server bỏ qua.
-  - 20/53 lượt có thú hoang trong 180 px nhận quả bóng thừa. Con đó đầy máu nên 15 lần bóng vỡ, và khi thoát bóng nó bị chọc (`breakOut` gọi `provoke`). 5 lần còn lại bắt thêm được con thứ hai.
-  - Nếu con bị chọc là thú tự vệ (Emberpup, Pebblet; 10/53 lượt), nó đuổi cắn suốt phần còn lại của test. Ở các lượt hỏng: 4-7 cú cắn và 1-2 lần Ném đá hoặc Tàn lửa, mất 34-66 máu. Mỗi cú cắn đẩy người chơi 16 px ra xa nó.
-  - Khi nó đến từ phía tây hoặc tây nam, người chơi bị đẩy về phía lửa trại chung. Trại phải cách lửa trại ít nhất 96 px (`BASE_MIN_CAMPFIRE_DISTANCE`, `work.ts:27`), mà chỗ xuất phát chỉ cách 110,9 px.
-  - Server báo "Quá gần lửa trại chung" (`GameRoom.ts:1036`), `hasBase` không bao giờ thành true, test hỏng ở dòng 185. Lúc bấm dựng trại, người chơi ở cách lửa trại 71-91 px (6 lượt hỏng).
-- **Đường 2, thú hiền chạy khỏi tầm, rồi ném nhầm trước khi bắt** (đợt 1, lượt 25):
-  - Con thú debug là Leafkit cấp 1 (tỉ lệ bắt 0,90) nhưng thoát bóng lần đầu, chạy trốn 2,5 giây, dừng ở 267 px (ngoài tầm ném 180 px), rồi đứng yên.
-  - Vòng ném chuyển sang con gần nhất: một Emberpup hoang cách 48 px. Bóng vỡ một lần, lần sau bắt được.
-  - Test qua nhờ bắt nhầm con khác. Không có con Emberpup đó thì mọi lần ném sau bị từ chối, 0 lần bắt, hỏng ở dòng 158.
-  - Mô phỏng của T36: đường này xảy ra ở 0,28-0,49% số lượt.
-- Quả bóng thừa bắt thêm con thứ hai ở 5/53 lượt. Đó chính là lý do của kiểm "một con trở lên" (dòng 157-158) và hai chỗ chờ cứng (dòng 154 và 166-167: "một quả bóng đang bay có thể bắt thêm con nữa"). Hết quả bóng thừa thì kiểm được đúng 1 và bỏ hai chỗ chờ.
+  Hạng xếp theo thứ người chơi cần thấy (của mình, mối nguy). Thú đầu đàn đã thuần không phải mối nguy. Nhãn chỉ rộng thêm khoảng 10 px; `labelLayout` đã đo lại khi chữ đổi.
+- **Không ★ trên hình chân dung:** không cần thêm chỗ trên ô 52 px đã có số cấp.
+- **Hình trong thế giới không đổi** (không quầng vàng, không to 1,6 lần): hai thứ đó nghĩa là "thú đầu đàn hoang đang canh lãnh địa". Nếu thú đi theo cũng có, người chơi sẽ tưởng bị tấn công. Trên điện thoại, hình to còn chiếm chỗ.
 
-### 2. Cách làm tất định
+**Điện thoại và bàn phím:**
+- Không có thao tác mới. Thả vẫn qua chuột, chạm và Q, Tab, Enter, Escape như T2.
+- Ở thẻ hẹp (390×844, cột chữ khoảng 125 px), tên có thể xuống dòng ở khoảng trắng như hiện nay. Chuyện thẻ quá cao để T18 lo.
+- Hộp xác nhận cao thêm khoảng 28 px. Ước tính ở 844×390: khoảng 245-270 px so với 358 px trống, và hộp đã có `max-height: 100%; overflow-y: auto`. E2E đo lại.
+- `title` của ★ chỉ hiện khi rê chuột. Trên cảm ứng, chữ "★ Thú đầu đàn" trong hộp và tin lúc bắt đã nói ★ là gì.
 
-**a) Hai helper dùng chung**, đặt ngay sau `sendFrom` (dòng 985):
-- `spawnWeakPal(page, species?)`: tạo thú yếu cạnh người chơi, trả id của nó. Đó là con duy nhất vừa xuất hiện mà có 1 máu: thú hoang luôn sinh ra đầy máu, hook đặt máu 1, id không bao giờ dùng lại. Poll đến khi có đúng một con như vậy.
-  - Thay 2 chỗ đang chép tay (test toasts, dòng 1652-1664; test "party: let a pal go...", dòng 932-944), và dùng ở 2 test cần sửa.
-- `throwingAt(page, palId, wait)`: trong lúc chờ `wait`, cứ 900 ms ném một quả bóng vào đúng id đó, và chỉ khi con đó còn trong thế giới; `wait` xong (qua hay hỏng) thì dừng.
-  - Server nhận một quả mỗi 800 ms (`THROW_COOLDOWN_MS`).
-  - Dùng ở test toasts và test thú đi theo.
-  - Bọc `wait` thay vì trả hàm dừng, để không chép khối `try/finally` ở mỗi chỗ, và poll bên trong vẫn giữ matcher riêng của nó.
-- Hàm kiểm thú hoang quanh người chơi (bước 5) chỉ dùng trong một test nên để cục bộ trong test đó.
+### 3. Lợi ích thêm: không có
 
-**b) Test thú đi theo: một con Emberpup, chỉ ném vào nó.**
-- `spawnWeakPal(page, "emberpup")`, rồi `throwingAt` với poll `partyOf(page).species` bằng `["emberpup"]`, timeout 15 s.
-- **Đúng một lần bắt:**
-  - Chỉ con này bị ném. Bắt được thì server xoá nó khỏi thế giới và thêm vào túi trong cùng một lần xử lý (`GameRoom.ts:923-931`), nên client thấy hai việc trong cùng một bản cập nhật.
-  - Từ đó vòng ném không gửi gì nữa. Một tin ném đang trên đường thì trỏ tới id server đã xoá, bị bỏ qua (`GameRoom.ts:893`).
-  - Không thú hoang nào khác bị chọc, nên đường 1 hết.
-- **Chọn Emberpup:**
-  - Loài tự vệ: bóng vỡ thì nó lao vào người ném, luôn trong tầm cho lần ném sau. Đường 2 hết (thú hiền thì chạy khỏi tầm).
-  - Nó đứng cách người chơi 40 px về phía **đông** (`GameRoom.ts:404`), còn lửa trại ở phía đông bắc, tại (3200, 2323). Cú cắn đẩy người chơi ra xa con thú, tức về phía tây, xa lửa trại hơn.
-  - Cấp ≤ 6 quanh chỗ xuất phát, nên chiêu duy nhất là Tàn lửa, không đẩy lùi (`skills.json`). Pebblet thì có Ném đá, đẩy lùi 12 px từ chỗ đá rơi, khó đoán hướng.
-  - Vật cản gần chỗ xuất phát nhất cách 196 px, nên bị đẩy cũng không làm chỗ dựng trại "vướng cây hoặc đá".
-- **Số liệu:** tỉ lệ bắt 85,8-88,1% ở 1 máu (cấp 1-6). Mô phỏng T36 (400.000 lượt): không lượt nào hết 15 giây mà chưa bắt được; 12,6% số lượt có ít nhất một quả bóng vỡ (khi đó nó cắn được khoảng một cú trước quả sau).
-- **Bỏ hai chỗ chờ cứng:**
-  - `await sleep(500)` (dòng 154) mất theo vòng ném cũ;
-  - `await page.waitForTimeout(1500)` (dòng 166-167): thay bằng kiểm chữ chính xác `🐾 Thú (1)` (assertion tự chờ).
-- Sau khi tải lại, kiểm `pals` bằng đúng 1 thay cho "≥ số đã bắt" (dòng 194). Biến `caught` và hàm `partySize` không còn dùng, xoá.
+Thú đầu đàn đã bắt có chỉ số, chiêu, sức làm việc, cấp tối đa như thú thường cùng loài cùng cấp. Số liệu tính bằng script chỉ đọc trên code hiện tại:
+- **Phần thưởng đã lớn.**
+  - Con bắt được ở cấp 15, 17, 18, 19, 20, 22. Kinh nghiệm cộng dồn lần lượt 4.159, 5.746, 6.657, 7.650, 8.727, 11.141.
+  - Theo bảng "Nhịp mục tiêu" (`pals.md`), nuôi một con lên cấp 15 mất 116 trận, khoảng 2,6 giờ ở nhịp bình thường; cấp 20 mất 5,7 giờ.
+  - Thú đi theo còn nhận phần bắt theo cấp (60-78) cộng 300 (`ALPHA.xp`).
+- **Lợi ích gắn với dấu ★ sẽ cày được.**
+  - Thú đầu đàn quay lại sau 6 phút (`ALPHA.respawnMs`).
+  - Choáng ở 1 máu, mỗi lần ném bắt được 33,0-33,8% (bóng xịn: 33,7-34,8%, gần như không thêm vì ở 1 máu tỉ lệ gốc đã gần trần trước khi nhân 0,4). Choáng 6 giây cho khoảng 7 lần ném, nên chỉ khoảng 6% số lần cả 7 quả đều trượt.
+  - Một lợi ích theo cờ sẽ cộng dồn tới 30 con trong túi.
+- **Cân bằng T7** tính sức thú đi theo chỉ theo cấp (`companionDamage`, chiêu theo cấp). Thêm chỉ số làm lệch thời gian trận đã đo.
+- **Luật thả thú (T2)** không hoàn lại gì, để không có vòng bắt rồi thả kiếm đồ. Thú đầu đàn cũng không ngoại lệ.
 
-**c) Test gameplay, bước đánh choáng: đứng đúng chỗ con thú debug.**
-- Đòn đánh không nhận id (client không chọn được), nên không "đánh theo id" được.
-- Thay vào đó: tạo bằng `spawnWeakPal(page, "pebblet")`, đọc x, y của nó, rồi `debug:teleport` người chơi tới đúng chỗ đó, khoảng cách 0.
-  - `nearestPal` luôn chọn nó, vì con khác phải gần hơn 0 px.
-  - Con thú không dời chỗ: hook cho đứng yên 60 giây, thú đang choáng không bị đòn đẩy lùi (`GameRoom.ts:868`, điều kiện `!pal.dizzy`), và không gì khác chọc nó.
-- **Chỗ đó trống:**
-  - Kiểm bằng `worldgen`: trên đường y = 2500 từ x 3150 đến 3624, không vật cản nào chạm thân bán kính 17 (Pebblet; người chơi 14).
-  - Chỗ dừng sau khi lướt đo được 3283-3291, tức con thú ở 3323-3331.
-  - Vì vậy `debug:teleport` đặt người chơi đúng toạ độ: hàm `resolve` chỉ dời chỗ bị vướng.
-- Điều kiện trước: poll đến khi người chơi cách con thú dưới 1 px. Nếu có gì lạ thì test hỏng ngay ở đây, không chập chờn.
-- Kiểm theo id thay cho đếm mọi thú đang choáng:
-  - con này choáng sau Space thứ nhất;
-  - không còn trong thế giới sau Space thứ hai.
-  - Giữ kiểm nhãn `.label.pal.dizzy` (1 cái) và kiểm đá tăng: Pebblet hệ đất luôn rơi ≥ 1 đá.
-- Bỏ `waitForTimeout(800)` sau khi tạo thú (dòng 571): `spawnWeakPal` đã chờ con thú có trong state, và poll khoảng cách chờ lần dịch chỗ.
+Không đổi số cân bằng nào, nên không cần balance-analyst.
 
-**d) Test gameplay, bước chặt cây: chỉ bấm khi không thú hoang nào trong 100 px.**
-- Không có cách nhắm vào cây. Trước mỗi lần Space, poll đến khi không thú hoang nào cách người chơi ≤ 100 px, timeout 60 s.
-- **Vì sao 100 px:**
-  - Thú chưa bị chọc lang thang tối đa 95 px/s (Voltmouse).
-  - Từ lúc đọc state tới lúc server xử lý tin đánh: state cũ tối đa 50 ms, cộng đường đi của phím bấm. Đo được: từ lúc gửi `attack` tới lúc nhận kết quả (`hit` hoặc `gathered`) mất 129-239 ms, trung vị 202 ms (151 lần bấm).
-  - Trong 0,5 giây (gấp đôi độ trễ đo được), thú lang thang đi tối đa 48 px. Từ ngoài 100 px vào tới 48 px phải đi hơn 52 px, nên không kịp.
-  - Mô phỏng bằng chính code lang thang của server (`newBrain`, `stepWander`, quay lại ở bờ biển) trên bản đồ thật, độ trễ 500 ms, 20.000 lượt: 0/60.000 lần bấm có thú lọt vào 48 px trước khi đòn tới.
-  - Với 80 px thì có 6/12.000 lần, nên không dùng.
-- **Thời gian chờ** (cùng mô phỏng):
-  - 17% số lượt phải chờ;
-  - tổng thời gian chờ: p90 4 giây, p99 19 giây, lớn nhất 64 giây (ba lần bấm);
-  - không lần chờ đơn nào quá 60 giây (quá 45 giây: 2-7 lần trong 60.000).
-- Giữ vòng tối đa 8 lần bấm và các kiểm tra: mỗi lần bấm giờ đều chặt, nên vòng dừng sau 3 lần.
-- Cây số 278 (gần chỗ xuất phát nhất) giữ nguyên: 29/30 lượt đo (trừ lượt 11 bị chen) đều có đúng 3 lần `gathered` vào cây này, không lần nào trúng thú.
+### 4. Tin nhắn khi bắt
 
-**Đã thử trước** ở scratchpad: viết lại hai test đúng theo các bước 1, 4, 5 dưới đây, chạy 15 lượt mỗi test, 30/30 qua.
-- Test gameplay:
-  - chờ ở cây 2/15 lượt (7,4 và 11,5 giây);
-  - không đòn nào trúng thú ở cây;
-  - cả hai đòn sau khi tạo thú đều trúng con thú debug.
-- Test thú đi theo: chỉ có tin về con thú debug. Một lượt bóng vỡ, Emberpup cắn một cú và đẩy người chơi về phía tây, tới (3104, 2400); trại vẫn dựng được.
+**`CaptureResultMessage.alpha?: boolean`:**
+- Có (`true`) khi thú bị ném là thú đầu đàn, **cả khi bắt được lẫn khi nó thoát**. Không có trường khi thú thường. Viết theo kiểu cờ tuỳ chọn đang dùng: `...(crit ? { crit } : {})`.
+- Tin vẫn `broadcast` như cũ. Người khác nhận được nhưng không dùng (chữ "Bắt được" chỉ hiện cho người ném).
 
-**e) Không chọn:**
-- **Thêm hook dọn hoặc đóng băng thú hoang** (`debug:clearPals`...):
-  - là đổi server cho tiện test;
-  - thú lang thang quay lại, thú mới sinh ngẫu nhiên;
-  - không cần, vì rủi ro còn lại ≤ 0,03% (mục cuối).
-- **Bấm Space lặp lại đến khi con thú debug bị hạ:** cứ trúng con chen vào; nếu là thú tự vệ thì nó đánh lại, và 6 giây choáng có thể hết.
-- **Chờ không còn con khác gần trước mỗi lần Space đánh choáng:** thời gian chờ ăn vào 6 giây choáng. Đứng đúng chỗ con thú thì không phải chờ.
-- **Chọn cây khác mỗi lượt (cây vắng nhất):** chỗ chặt của các cây khác chưa kiểm. Đá hay cây bên cạnh đổi thứ mà Space tác động tới, và kiểm `felled` theo id cây.
-- **Vẫn ném "con gần nhất" nhưng dừng ngay khi bắt được:** còn ném nhầm trước khi bắt (lượt 25), và thú hiền vẫn chạy khỏi tầm.
+**Chữ của người ném** (client, `Game.ts`, hàm `verdict`), tên lấy từ `palName(msg.speciesId, msg.alpha === true)`:
 
-### 3. Chữ hiển thị, điện thoại, bàn phím
+| Kết quả | Thú thường (không đổi) | Thú đầu đàn | Mức, thời gian |
+|---|---|---|---|
+| Bắt được | `Bắt được Voltmouse! 🎉` | `★ Bắt được Voltmouse đầu đàn! 🎉` | cao, 3,0 giây |
+| Thoát | `Voltmouse thoát ra rồi (33%)` | `Voltmouse đầu đàn thoát ra rồi (33%)` | thường, 3,0 giây |
 
-Không đổi: chỉ sửa test (chạy trên desktop như cũ). Chú thích code bằng tiếng Anh.
+**Tin ★ (`announce`, kind `news`):**
+- Chữ không đổi: `★ Hiệp đã bắt được Voltmouse đầu đàn!`.
+- Gửi cho mọi người **trừ người ném**: `this.broadcast(..., { except })`, Colyseus 0.18 hỗ trợ `except?: Client | Client[]`.
+- `except` lấy lúc hẹn giờ chạy, theo sessionId: `this.clients.find((c) => c.sessionId === client.sessionId)`. Không dùng biến `client` của lúc ném. Lý do, đọc trong `@colyseus/core` 0.18.18 (`Room.mjs`):
+  - khi rớt mạng, Colyseus xoá client khỏi `this.clients` (`_onLeave`);
+  - khi nối lại, nó đẩy vào một đối tượng `Client` **mới**, cùng sessionId;
+  - `except` so sánh bằng tham chiếu.
+
+  Hệ quả:
+
+  | Lúc hẹn giờ chạy, người ném… | Tra theo sessionId | Dùng `client` cũ |
+  |---|---|---|
+  | đang chơi bình thường | được loại ra | được loại ra |
+  | đang chờ nối lại | không tìm thấy, `except` là `undefined`, mọi người còn lại nhận (người ném không nằm trong danh sách) | như cột trái |
+  | vừa nối lại | đối tượng mới, được loại ra | không loại được, người ném lại thấy tin ★ |
+- Hạ gục: `announce(text)` không có `except`, như cũ.
+
+**Thứ tự (T4/T6) giữ nguyên:**
+- Một hẹn giờ lúc `captureRevealMs(shakes) + CAPTURE_NEWS_DELAY_MS` (2,2 giây khi bắt được). Trong đó: `announce` trước, `grantXp` sau. Người khác nhận tin ★ rồi mới đến `LevelUp` (tin `LevelUp` cũng `broadcast`).
+- Người ném thấy "★ Bắt được…" ở client lúc bóng khép (1,9 giây). `LevelUp` đến sau 0,3 giây như mọi lần bắt.
+- Người ném rời phòng trước khi bóng khép: không ai để loại, mọi người còn lại vẫn nhận tin, không trả kinh nghiệm (test sẵn có, giữ nguyên).
+
+**Màn hình người ném** (`toastDuration`, 2 chỗ khi desktop hay điện thoại dọc), trường hợp xong luôn nhiệm vụ cuối:
+- "★ Bắt được…" hiện từ 1,9 đến 4,9 giây; "Xong nhiệm vụ…" từ 2,1 đến 6,0 giây.
+- Tin lên cấp đến lúc 2,2 giây, chờ đến 4,9 giây mới hiện.
+- Cả cảnh khoảng 9 giây; trước T8 khoảng 10 giây và đọc hai tin cho một việc.
+- Điện thoại ngang (1 chỗ): ngắn đi khoảng 3 giây, bằng thời gian của tin ★ cũ (3,0 giây).
+
+### 5. Một hàm chung cho tên
+
+`palName(speciesId: string, alpha = false): string` trong `packages/shared/src/alphas.ts`:
+- trả `Voltmouse` hoặc `Voltmouse đầu đàn`;
+- import `getSpecies` từ `./pals.ts` (không vòng: `pals.ts` chỉ import JSON).
+
+Thay cho `alphaName(pal)` riêng của `GameRoom` (bỏ phương thức này) ở 4 chỗ:
+- tin bắt được;
+- tin hạ gục;
+- thông báo thả (server);
+- chữ bắt và thoát, `aria-label` nút Thả (client).
+
+Mục đích: chữ "đầu đàn" ghép giống nhau ở cả hai bên, có unit test. Cảnh báo lãnh địa trong `Game.ts` tự ghép "… đầu đàn" và giữ nguyên (đề xuất cho T12 ở cuối).
+
+### 6. Hook thử nghiệm
+
+`debug:givePal` nhận thêm `alpha?: boolean`: `owned.alpha = message?.alpha === true`.
+- **Lý do:** e2e không bắt được thú đầu đàn thật bằng hook sẵn có.
+  - Không hook nào làm yếu một con thú đầu đàn; `debug:spawnPal` chỉ sinh thú thường.
+  - Ném vào con đầy máu chỉ trúng 3,6-6% mỗi lần, trong lúc nó cắn 11 máu mỗi 1,2 giây.
+- Hook vẫn chỉ đăng ký khi `PETGAME_DEBUG=1`. Test tích hợp kiểm cả giá trị `true` lẫn giá trị lạ.
 
 ## Kế hoạch triển khai
 
-Chỉ sửa `tests/e2e/multiplayer.spec.ts`, cộng một câu trong `docs/architecture.md`.
+Số dòng tính theo HEAD `54fe64c`. Chú thích code bằng tiếng Anh, chữ hiển thị tiếng Việt, đúng như bảng ở mục Thiết kế.
 
-1. **Helper, chèn sau `sendFrom` (sau dòng 985).** Viết đúng như sau (có thể chỉnh chữ JSDoc):
-
+1. **`packages/shared/src/schema.ts`:**
+   - `OwnedPal` (dòng 9-19): sau `assignment`, thêm:
+     ```ts
+     /** Caught while it was a region's pack leader (alphas.ts): shown with a ★, nothing more. */
+     alpha: t.boolean(),
+     ```
+   - `Companion` (dòng 90-103): sau `maxHp`, thêm:
+     ```ts
+     /** Its OwnedPal was caught as a pack leader: the name tag shows a ★. Set once when it comes out, like `mode`. */
+     alpha: t.boolean(),
+     ```
+2. **`packages/shared/src/messages.ts`**, `CaptureResultMessage` (dòng 276-284), sau `shakes`:
    ```ts
-   /**
-    * A weakened wild pal right beside the page's player (test-only hook: 40 px to the right, 1 HP, standing still for 60 s;
-    * `species` picks which, else the region decides), and its id: the one pal that is new and at 1 HP (wild pals appear at
-    * full health, and ids are never reused).
-    */
-   async function spawnWeakPal(page: Page, species?: string): Promise<string> {
-     const before = await page.evaluate(() => [...(window as any).__petgame.room.state.pals.keys()] as string[]);
-     await sendFrom(page, "debug:spawnPal", species ? { species } : {});
-     const spawned = () => page.evaluate((known) => {
-       const found: string[] = [];
-       (window as any).__petgame.room.state.pals.forEach((p: any, id: string) => {
-         if (!known.includes(id) && p.hp === 1) found.push(id);
-       });
-       return found;
-     }, before);
-     await expect.poll(spawned).toHaveLength(1);
-     return (await spawned())[0];
-   }
-
-   /**
-    * Runs `wait` while a ball goes at that one wild pal every 900 ms (the server takes one per 800 ms), only while it is still
-    * in the world, and stops when `wait` ends, passed or failed. Never at "the nearest pal": that can be any wild pal walking
-    * by, and one that breaks out of a ball fights back or runs off (docs/design/pals.md, "Tính khí").
-    */
-   async function throwingAt<T>(page: Page, palId: string, wait: () => Promise<T>): Promise<T> {
-     const throwOnce = () => page.evaluate((id) => {
-       const { room } = (window as any).__petgame;
-       if (room.state.pals.has(id)) room.send("throw", { palId: id });
-     }, palId);
-     const thrower = setInterval(() => void throwOnce().catch(() => {}), 900);
-     try {
-       return await wait();
-     } finally {
-       clearInterval(thrower);
-     }
+   /** The pal thrown at was a region's pack leader (whether caught or not): the thrower reads "… đầu đàn". */
+   alpha?: boolean;
+   ```
+3. **`packages/shared/src/alphas.ts`:** thêm `import { getSpecies } from "./pals.ts";` và hàm sau `ALPHA`:
+   ```ts
+   /** A pal's name as players read it: "Voltmouse", or "Voltmouse đầu đàn" for a pack leader, wild or caught. */
+   export function palName(speciesId: string, alpha = false): string {
+     const name = getSpecies(speciesId).name;
+     return alpha ? `${name} đầu đàn` : name;
    }
    ```
-
-2. **Test toasts (dòng 1651-1677), chỉ đổi cách viết.**
-   - Giữ dòng chú thích 1651.
-   - Thay dòng 1652-1677 bằng ba thứ, theo thứ tự:
-     - chú thích ở dòng 1654, rút còn: `// An Emberpup comes at us when a ball does not hold, so it stays in throwing range; a timid pal would run out of it.` Phần "never the nearest" đã nằm trong JSDoc của `throwingAt`;
-     - `const palId = await spawnWeakPal(page, "emberpup");`;
-     - `await throwingAt(page, palId, () => expect.poll(...).toBe(true));`, với nguyên khối poll hai toast hiện có (timeout 15 s).
-   - Dòng 1678 trở đi giữ nguyên.
-3. **Test "party: let a pal go..." (dòng 931-944).**
-   - Giữ chú thích 931.
-   - Thay dòng 932-944 bằng `const wildId = await spawnWeakPal(page);`.
-   - Dòng 945 trở đi giữ nguyên.
-4. **Test thú đi theo (dòng 139-168 và 194).**
-   - Dòng 139-158 thay bằng:
-
+4. **`packages/server/src/persistence/store.ts`:**
+   - `SavedPal` (dòng 31-37) thêm:
      ```ts
-     // A weakened Emberpup appears next to us (test-only server hook), and balls go only at it until it is in the party:
-     // exactly one catch. It comes at us when a ball does not hold (a timid pal would run out of range), and its bites
-     // push us west, away from the campfire that the camp below must keep clear of.
-     const palId = await spawnWeakPal(page, "emberpup");
-     await throwingAt(page, palId, () =>
-       expect.poll(async () => (await partyOf(page)).species, { timeout: 15_000 }).toEqual(["emberpup"]));
+     /** Caught as a region's pack leader (★). Saves from before it was kept have none: read as false. */
+     alpha: boolean;
      ```
-   - Giữ `companions` (dòng 160) và `await expect.poll(companions).toBe(1);` (dòng 165).
-   - Xoá `partySize` (dòng 161-164) và hai dòng 166-167 (chú thích, chờ 1500 ms).
-   - Dòng 168 thành `await expect(page.locator(".party-btn")).toHaveText("🐾 Thú (1)");`.
-   - Dòng 194 thành `await expect.poll(async () => (await me()).pals).toBe(1);`.
-   - Phần còn lại giữ nguyên, kể cả chờ 2500 ms ở dòng 190.
-5. **Test gameplay.**
-   - **Chặt cây (dòng 550-553):** ngay trước vòng lặp thêm chú thích và hàm cục bộ:
-
+   - `sanitizeProfile`, dòng 156: `pals.push({ id: p.id, speciesId: p.speciesId, level, xp, assignment, alpha: p.alpha === true });`.
+5. **`packages/server/src/rooms/GameRoom.ts`:**
+   - Import `palName` từ `@petgame/shared`.
+   - **`debug:givePal`** (dòng 439-458):
+     - kiểu `message?: { species?: string; level?: number; alpha?: boolean }`;
+     - thêm `owned.alpha = message?.alpha === true;` cạnh các trường khác;
+     - chú thích dòng 439: `// A pal of this species and level joins the party and follows (to try its skills); { alpha: true } makes it a caught pack leader.`
+   - **`onJoin`** (dòng 512-520): thêm `owned.alpha = saved.alpha;`.
+   - **`handleThrow`** (dòng 889-954):
+     - Ngay sau `const species = getSpecies(pal.speciesId);` (dòng 903): `const alpha = pal.alpha === true;`. Dùng `alpha` thay cho `pal.alpha` ở dòng 907.
+     - Nhánh `success`:
+       - bỏ `alphaName` (dòng 922);
+       - thêm `owned.alpha = alpha;` trước `player.pals.push(owned)`;
+       - `if (alpha) this.questEvent(client.sessionId, "alpha");`;
+       - `xp` cộng `(alpha ? ALPHA.xp : 0)`;
+       - `const news = alpha ? \`★ ${player.name} đã bắt được ${palName(species.id, true)}!\` : "";`.
+     - Chú thích dòng 937-939 sửa thành: `Once the ball has clicked shut (as the thrower sees it): a pack leader's news for everyone else (the thrower reads it in this result, CaptureResultMessage.alpha), then the XP for the pal that helped, in one timer (timers due in the same tick run last-registered first). Not at the throw: a level-up then would give the catch away while the ball still wobbles.`
+     - Trong hẹn giờ, thay `if (news) this.announce(news);` bằng:
+       ```ts
+       // Found again now, not the `client` of the throw: a reconnect in between brings a new Client for this session.
+       if (news) this.announce(news, this.clients.find((c) => c.sessionId === client.sessionId));
+       ```
+     - Dòng 952:
+       ```ts
+       const result: CaptureResultMessage = { playerId: client.sessionId, palId, speciesId: species.id, success, chance, shakes, ...(alpha ? { alpha } : {}) };
+       ```
+   - **`release`** (dòng 1016-1029): `const owned = player.pals[index];` và `const name = palName(owned.speciesId, owned.alpha === true);`, thay dòng 1020.
+   - **`knockOut`** (dòng 1195): `const name = pal.alpha ? palName(pal.speciesId, true) : "";`.
+   - **Xoá phương thức `alphaName`** (dòng 1616-1619).
+   - **`announce`** (dòng 1621-1624):
      ```ts
-     // Space hits the nearest wild pal within reach (48 px) before it chops: press only while none is within 100 px,
-     // so a wandering pal (95 px/s at most) cannot step into reach before the press lands.
-     const wildPalsNear = (radius: number) => page.evaluate((radius) => {
-       const { room } = (window as any).__petgame;
-       const p = room.state.players.get(room.sessionId);
-       const near: string[] = [];
-       room.state.pals.forEach((pal: any, id: string) => {
-         if (Math.hypot(pal.x - p.x, pal.y - p.y) <= radius) near.push(id);
-       });
-       return near;
-     }, radius);
+     /** Tells everyone in the world but `except` (a "news" notice). */
+     private announce(text: string, except?: Client) {
+       this.broadcast(ServerMessage.Notice, { text, kind: "news" } satisfies NoticeMessage, { except });
+     }
      ```
-     - Trong vòng, ngay trước `keyboard.press(" ")`: `await expect.poll(() => wildPalsNear(100), { timeout: 60_000 }).toEqual([]);`.
-     - Phần còn lại của vòng và dòng 554-555 giữ nguyên.
-   - **Đánh choáng (dòng 569-580)** thay bằng:
-
+   - **`spawnCompanion`** (dòng 2024-2035): `companion.alpha = owned.alpha === true;`.
+   - **`saveNow`** (dòng 2086-2092): thêm `alpha: p.alpha === true,` sau `assignment`.
+6. **`packages/client/src/game/Game.ts`:**
+   - Import `palName` từ `@petgame/shared`.
+   - **`CaptureResult`** (dòng 696-706):
+     - `const name = palName(msg.speciesId, msg.alpha === true);` thay dòng 701;
+     - chữ bắt được: `` `${msg.alpha ? "★ " : ""}Bắt được ${name}! 🎉` ``;
+     - chữ thoát giữ cách viết, dùng `name` mới.
+   - **`$.onAdd("companions")`** (dòng 488-521):
+     - Trước `nameTag`:
+       ```ts
+       // A caught pack leader: a ★ and gold text. Set once by the server when it comes out, like `mode`.
+       const star = companion.alpha ? "★ " : "";
+       ```
+     - `nameTag` nhận chữ `` `${star}Lv ${companion.level} ${species.name}` `` và class `companion.alpha ? "label companion alpha" : "label companion"`.
+     - Trong `onChange` (dòng 517): `` const shown = `${star}Lv ${companion.level} ${species.name}`; ``. Giữ phép so sánh trước khi gán.
+   - **`updateHud`** (dòng 1166): thêm `alpha: p.alpha === true` vào object của mỗi thú.
+7. **`packages/client/src/ui/party.ts`:**
+   - Import `palName`.
+   - `PartyEntry` (dòng 26-33) thêm:
      ```ts
-     // A weakened pal: one hit leaves it dizzy, the next knocks it out for loot. Space hits the nearest wild pal within
-     // reach, whichever it is, so we stand right on this one: no other pal can be nearer.
-     const palId = await spawnWeakPal(page, "pebblet");
-     const pebblet = () => page.evaluate((id) => {
-       const { room } = (window as any).__petgame;
-       const pal = room.state.pals.get(id);
-       const p = room.state.players.get(room.sessionId);
-       return pal ? { x: pal.x as number, y: pal.y as number, dizzy: pal.dizzy as boolean, gap: Math.hypot(pal.x - p.x, pal.y - p.y) } : null;
-     }, palId);
-     const spot = (await pebblet())!;
-     await sendFrom(page, "debug:teleport", { x: spot.x, y: spot.y });
-     await expect.poll(async () => (await pebblet())?.gap).toBeLessThan(1);
-     await page.keyboard.press(" ");
-     await expect.poll(async () => (await pebblet())?.dizzy).toBe(true);
-     await expect(page.locator(".label.pal.dizzy")).toHaveCount(1);
-     const stone = (await me()).stone;
-     await page.waitForTimeout(500);
-     await page.keyboard.press(" ");
-     await expect.poll(pebblet).toBeNull();
-     await expect.poll(async () => (await me()).stone).toBeGreaterThan(stone);
+     /** Caught as a pack leader: a ★ on its card and a line in the release dialog. */
+     alpha: boolean;
      ```
-6. **`docs/architecture.md`, dòng "Helper" (dòng 92):**
-   - Thêm vào danh sách:
-     - `spawnWeakPal` (thú hoang 1 máu cạnh người chơi, trả id: con mới duy nhất có 1 máu);
-     - `throwingAt` (trong lúc chờ một điều kiện, cứ 900 ms ném bóng vào đúng một id khi con đó còn trong thế giới).
-   - Thêm câu: "**Thú hoang trong e2e:** không đánh hay ném 'con gần nhất'.
-     - Bóng: ném theo id (`throwingAt`).
-     - Đòn đánh (Space, nút Đánh) không mang id, server đánh con gần nhất trong 48 px. Muốn đánh con thú debug thì đứng đúng chỗ nó (`debug:teleport`). Muốn chặt cây, đập đá thì chỉ bấm khi không thú hoang nào trong 100 px (test `gameplay:`).
-     - Luật ở `docs/design/pals.md`, mục 'Tính khí'."
+   - Khoá vẽ lại (dòng 188): `` `${p.id}:${p.level}:${p.xp}:${p.assignment}:${p.alpha ? 1 : 0}` ``.
+   - **`card`:**
+     - `` card.className = `party-card ${entry.assignment || "idle"}${entry.alpha ? " alpha" : ""}`; ``
+     - Tên (dòng 262-263): nếu `entry.alpha`, tạo `span.party-star` có chữ `★`, `title = "Thú đầu đàn"`, rồi `name.append(star, " ")`. Sau đó `` name.append(`${species.name} · Lv ${entry.level}`) `` (chữ của tên là `★ Voltmouse · Lv 15`).
+     - `aria-label` của nút Thả (dòng 298): `` `Thả ${palName(entry.speciesId, entry.alpha)} · Lv ${entry.level}` ``.
+   - **Hộp xác nhận:**
+     - Trường mới `private confirmAlpha: HTMLParagraphElement;`. Dựng một lần trong constructor: `className = "party-confirm-alpha"`, chữ `★ Thú đầu đàn`.
+     - Thứ tự trong hộp: `box.append(this.confirmHead, this.confirmAlpha, text, this.confirmStatus, this.confirmWarn, choices)`.
+     - `fillConfirm`: `this.confirmAlpha.hidden = !entry.alpha;`.
+8. **`packages/client/index.html` (CSS):**
+   - Cạnh `.label.companion span` (dòng 217):
+     ```css
+     /* A caught pack leader (★): gold text on the usual dark tag (a gold tag is mine or a wild leader's). */
+     .label.companion.alpha span { color: #ffe082; font-weight: 600; }
+     ```
+   - Cạnh các quy tắc thẻ (sau dòng 201):
+     ```css
+     /* A caught pack leader: a gold bar inside the card's left edge (the border keeps showing what the pal does) and a gold ★ in its name. */
+     .party-card.alpha { box-shadow: inset 4px 0 0 #ffb300; }
+     .party-star { color: #b77900; }
+     ```
+   - Cạnh `.party-confirm-warn` (dòng 167): `.party-confirm-alpha { color: #9a6200; font-weight: 700; }`.
+9. **Test:** theo mục Test.
+10. **`docs/architecture.md`:**
+    - Dòng `schema.ts` (22): thêm "; `OwnedPal.alpha`, `Companion.alpha`: thú đầu đàn đã bắt (★)".
+    - Dòng `messages.ts` (23): thêm "; `CaptureResultMessage.alpha` (thú bị ném là đầu đàn)".
+    - Dòng `boss.ts`, `alphas.ts` (35): thêm "; `palName` (tên kèm "đầu đàn", dùng chung)".
+    - Mục "Thông báo và thứ tự tin" (dòng 46): sau "tin ★ trước, kinh nghiệm sau." thêm "Tin ★ của lần bắt gửi mọi người trừ người ném (`announce(text, except)`, tìm client theo sessionId lúc hẹn giờ chạy vì nối lại tạo `Client` mới); người ném đọc "★ Bắt được … đầu đàn! 🎉" từ `CaptureResultMessage.alpha`. Tin ★ khi hạ gục vẫn gửi cả người hạ."
+    - Dòng hook (59): `givePal` thành "givePal (`species`, `level`, `alpha: true` cho thú đầu đàn đã bắt)".
 
-Không tách commit: một commit cho cả nhiệm vụ.
+Một commit cho cả nhiệm vụ.
 
 ## Giao thức
 
-Không đổi `schema.ts`, `messages.ts`, `Profile`. Không đụng server, client hay shared, không thêm hook debug.
+| Thay đổi | Chi tiết | Ảnh hưởng |
+|---|---|---|
+| `schema.ts` | `OwnedPal.alpha`, `Companion.alpha` (boolean, cuối mỗi schema) | Server và client đổi cùng nhiệm vụ (một container chạy cả hai). Thêm ở cuối nên chỉ số các trường cũ không đổi |
+| `messages.ts` | `CaptureResultMessage.alpha?: boolean` | Tuỳ chọn: client không đọc thì như cũ |
+| `Profile` | `SavedPal.alpha: boolean`; `sanitizeProfile` đọc `p.alpha === true` | Hồ sơ cũ đọc được: mọi thú là thú thường. Code cũ đọc hồ sơ mới thì bỏ qua trường, không hỏng |
+| Hook debug | `debug:givePal` nhận `alpha` | Chỉ khi `PETGAME_DEBUG=1` |
+
+Không đổi `ClientMessage`, `NoticeMessage`, `NoticeKind`.
 
 ## Test
 
-Không thêm hay xoá test; sửa luồng 2 test, đổi cách viết 2 test. Tester chạy:
-1. `npx playwright test -g "a captured pal follows" --repeat-each=30 --workers=1`: 30/30 qua. Khoảng 25 giây mỗi lượt; chạy nền hoặc chia đợt.
-2. `npx playwright test -g "gameplay: chop a tree" --repeat-each=30 --workers=1`: 30/30 qua.
-   - Ghi thời gian mỗi lượt, khoảng 14 giây; lượt phải chờ ở cây lâu hơn.
-   - Ghi số lượt có chờ ở cây nếu dễ lấy.
-3. Hai test chỉ đổi cách viết:
-   - `-g "the catch and the quest it finishes" --repeat-each=10 --workers=1`: 10/10;
-   - `-g "party: let a pal go" --repeat-each=3 --workers=1`: 3/3.
-4. `npm run test:e2e`: 31/31.
-5. `npm run typecheck` và `npm test` qua (code sản phẩm không đổi, chạy cho chắc).
+**Unit, shared:** `packages/shared/src/alphas.test.ts`, test mới `names a pack leader, wild or caught, as players read it`:
+- `palName("voltmouse")` và `palName("voltmouse", false)` là `"Voltmouse"`;
+- `palName("voltmouse", true)` là `"Voltmouse đầu đàn"`;
+- với mọi `ALPHAS`: `palName(def.speciesId, true) === \`${getSpecies(def.speciesId).name} đầu đàn\``.
 
-Gợi ý tự kiểm cho tester (không bắt buộc), trong một bản chép ở scratchpad: gửi `debug:spawnPal` với `{ full: true }` ngay trước bước chặt cây, để có một thú hoang đứng yên cạnh chỗ chặt.
-- Kết quả mong đợi: không lần Space nào trúng con đó (không có tin `hit`). Test hỏng ở poll 60 s, vì con tạo bằng hook đứng yên 60 giây.
-- Bản test cũ thì đánh con đó ngay lần bấm đầu.
+**Unit, server:** `packages/server/src/persistence/store.test.ts`:
+- `saves and loads a profile` (dòng 9): con thú được đẩy vào có `alpha: true`. Lượt lưu rồi đọc vẫn `toEqual(profile)`.
+- Test mới `reads pals saved before pack leaders were marked as common pals, and keeps the mark only when it is true`:
+  - `sanitizeProfile({ pals: [...] })` với 4 con: không có trường, `alpha: true`, `alpha: "yes"`, `alpha: 1`;
+  - kết quả `pals.map((p) => p.alpha)` là `[false, true, false, false]`;
+  - `sanitizeProfile(p)` bằng `p`.
+
+**Tích hợp:** `packages/server/src/rooms/GameRoom.test.ts`.
+
+Sửa:
+1. **`adds a captured pal to the party and makes it follow`** (dòng 127-136): thêm `expect(player.pals[0].alpha).toBe(false)` và `expect(companion.alpha).toBe(false)`. Bắt thú thường ra `false` tường minh, không phải `undefined`.
+2. **`is harder to catch than its kind`** (dòng 1100-1110): thêm `expect(result.alpha).toBe(true)`, đúng dù lần ném đó trúng hay trượt.
+3. **`caught, the news of the catch comes before the level-up the ball's click pays for`** (dòng 1168-1199):
+   - đổi tên thành `caught, everyone else hears the news before the level-up the ball's click pays for; the thrower is not told twice`;
+   - thêm `watcher = await colyseus.connectTo(room, { name: "Watcher" })`, ghi thứ tự (Notice, LevelUp) **ở watcher** như đang ghi ở `client`;
+   - ở watcher: có tin `★ ${player.name} đã bắt được Cactoad đầu đàn!`, và đúng một `"LevelUp 6 -> 7"` đến sau tin;
+   - ở người ném: không tin Notice nào bắt đầu bằng `★`; có đúng một `LevelUp 6 -> 7`; `result.alpha === true`.
+4. **`addPals`** (dòng 1932-1945): gán `owned.alpha = false;` như mọi chỗ tạo thú của server.
+
+Giữ nguyên, phải vẫn qua:
+- `caught, if the thrower leaves before the ball clicks shut...` (dòng 1201): người ném đã rời thì không ai bị loại;
+- `every notice says what it is about` (dòng 1273): tin ★ khi hạ gục vẫn đến người hạ;
+- `a big gain skips levels...` (dòng 1313).
+
+Thêm:
+5. **Trong `describe("pack leaders")`:** `caught, it stays a pack leader: in the party, as a companion, in the client's state, and after rejoining`.
+   - Token riêng (`"alpha-token-0123456789"`). Lấy Voltmouse đầu đàn bằng `alphaOf`, xoá các thú khác, người chơi đứng cách 40 px, `Math.random` trả 0, ném.
+   - `result` có `success` và `alpha` đều `true`.
+   - `player.pals[0].alpha === true`, cấp 15.
+   - Con đầu tiên tự đi theo: `room.state.companions.get(id).alpha === true`.
+   - Bản state của client: `await vi.waitFor(...)` thấy `client.state.players.get(sid).pals[0].alpha` và `client.state.companions.get(id).alpha` đều `true`.
+   - Sau `ticks(room, 20)` (chờ hồi ném), `placeWild(room, "leafkit", player, 60)` rồi bắt tiếp với `random` trả 0: `result.alpha` là `undefined`, `player.pals[1].alpha === false`.
+   - Rời phòng, `colyseus.cleanup()`, `setup(token)` lại:
+     - `pals.map((p) => p.alpha)` là `[true, false]`;
+     - thú đi theo được gọi lại có `companion.alpha === true`.
+6. **Trong `describe("saving")`:** `an old save without the mark loads its pals as common pals`.
+   - `db = new SqliteStore(":memory:")`, `useStore(db)`.
+   - `db.save(token, { ...emptyProfile("Old"), pals: [{ id: "old-voltmouse", speciesId: "voltmouse", level: 15, xp: 0, assignment: "follow" }] } as Profile)`, chú thích "saved before T8: no `alpha`". Import `type Profile` từ `../persistence/store.ts`.
+   - Sau `setup(token)`: `player.pals[0].alpha === false` và thú đi theo `alpha === false`.
+7. **Trong `describe("releasing pals and a full party")`:** `letting a caught pack leader go names it so`.
+   - `const [a] = addPals(player, 1, "voltmouse"); a.alpha = true;`, gửi `Release`.
+   - Thông báo cuối là `"Đã thả Voltmouse đầu đàn. Tạm biệt! 👋"`.
+8. **Cạnh `the test hook that gives a pal says why when the party is full`:** `the test hook that gives a pal makes a caught pack leader only with alpha: true`.
+   - Dùng `vi.stubEnv("PETGAME_DEBUG", "1")` và `vi.unstubAllEnvs()` trong `finally`, như dòng 265-290; không dùng `delete process.env` (xem T20).
+   - Gửi `{ species: "voltmouse", level: 15, alpha: true }`: con đầu `alpha === true`, thú đi theo của nó `alpha === true`.
+   - Gửi `{ species: "leafkit", alpha: "yes" }`: con thứ hai `alpha === false`, và thú đi theo lúc này (Leafkit) có `alpha === false`.
+
+Không viết test cho trường hợp người ném nối lại trong 2,2 giây trước khi bóng khép (xem Rủi ro).
+
+**E2E:** `tests/e2e/multiplayer.spec.ts`, test mới đặt ngay sau `pack leaders: a gold-tagged leader...` (sau dòng 674). Viết theo khung sau; được chỉnh chữ chú thích và cách viết nhỏ, giữ các kiểm tra:
+
+```ts
+test("pack leaders: a caught leader keeps its ★ on its card, its name tag and in the release dialog, after a reload too", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Thuần");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const marks = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return room.state.players.get(room.sessionId).pals.map((p: any) => p.alpha === true) as boolean[];
+  });
+
+  // A Leafkit, then a caught pack leader (test-only hook: `alpha: true`), which follows since it came last.
+  await sendFrom(page, "debug:givePal", { species: "leafkit", level: 3 });
+  await sendFrom(page, "debug:givePal", { species: "voltmouse", level: 15, alpha: true });
+  await expect.poll(async () => (await partyOf(page)).species).toEqual(["leafkit", "voltmouse"]);
+  expect(await marks()).toEqual([false, true]);
+
+  // Its name tag carries the star; my follower's tag is pinned, so always shown.
+  const myTag = page.locator(".labels > .label.companion.alpha", { hasText: "Voltmouse" });
+  await expect(myTag).toHaveText("★ Lv 15 Voltmouse");
+  await expect(myTag).toBeVisible();
+
+  // The leader's card has the star (inside the card on a phone held upright or sideways and on a desktop); the Leafkit's has none.
+  await page.locator(".party-btn").click();
+  const leaderCard = page.locator(".party-card.alpha");
+  await expect(leaderCard).toHaveCount(1);
+  await expect(leaderCard.locator("strong")).toHaveText("★ Voltmouse · Lv 15");
+  await expect(leaderCard.locator(".party-star")).toHaveAttribute("title", "Thú đầu đàn");
+  await expect(page.locator(".party-card:not(.alpha) strong")).toHaveText("Leafkit · Lv 3");
+  await expect(page.locator(".party-card:not(.alpha) .party-star")).toHaveCount(0);
+  for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 720 }]) {
+    await page.setViewportSize(size);
+    await expect(leaderCard.locator(".party-star")).toBeVisible();
+    const star = (await leaderCard.locator(".party-star").boundingBox())!;
+    const card = (await leaderCard.boundingBox())!;
+    expect(star.x >= card.x && star.x + star.width <= card.x + card.width, `star inside its card at ${size.width}x${size.height}`).toBe(true);
+  }
+
+  // The release dialog says it is a pack leader and still fits a phone held sideways; the Leafkit's does not say it.
+  await page.locator(".party-release-toggle").click();
+  const leaderRelease = leaderCard.locator(".party-action.release");
+  await expect(leaderRelease).toHaveAttribute("aria-label", "Thả Voltmouse đầu đàn · Lv 15");
+  await leaderRelease.click();
+  const dialog = page.locator(".party-confirm-box");
+  const mark = page.locator(".party-confirm-alpha");
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveText("★ Thú đầu đàn");
+  await page.setViewportSize({ width: 844, height: 390 });
+  const box = (await dialog.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(390);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.locator(".confirm-keep").click();
+  await page.locator(".party-card:not(.alpha) .party-action.release").click();
+  await expect(dialog).toBeVisible();
+  await expect(mark).toBeHidden();
+  await page.locator(".confirm-keep").click();
+  await page.keyboard.press("q"); // the panel closes, and release mode with it
+
+  // A friend's caught pack leader shows its star on my screen too.
+  const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
+  const friend = await observer(roomId, "Bạn");
+  friend.send("debug:givePal", { species: "frostfang", level: 19, alpha: true });
+  await expect(page.locator(".labels > .label.companion.alpha", { hasText: "Frostfang" })).toHaveText("★ Lv 19 Frostfang");
+
+  // After a reload (the same device), it is still one.
+  await page.waitForTimeout(2500); // saves are batched every 2 s
+  await page.reload();
+  await enterLobby(page, "Thuần");
+  await waitForWorld(page);
+  await expect.poll(marks).toEqual([false, true]);
+  await expect(myTag).toHaveText("★ Lv 15 Voltmouse");
+  await page.locator(".party-btn").click();
+  await expect(page.locator(".party-card.alpha strong")).toHaveText("★ Voltmouse · Lv 15");
+});
+```
+
+Không test e2e chữ "★ Bắt được … đầu đàn! 🎉" (không bắt thật được thú đầu đàn, mục Thiết kế 6). Nó được giữ bởi ba thứ:
+- test tích hợp kiểm `CaptureResultMessage.alpha`;
+- unit test của `palName`;
+- reviewer đọc 2 dòng ở `verdict`.
+
+**Tester chạy:**
+1. `npm run typecheck` và `npm test`: toàn bộ qua.
+2. `npx playwright test -g "pack leaders" --repeat-each=5 --workers=1`: 10/10 (test mới và test cũ, mỗi test 5 lượt).
+3. Các test e2e đụng bảng Thú, nhãn, bắt thú:
+   - `-g "party:"` (3 test);
+   - `-g "labels:"`;
+   - `-g "a captured pal follows"`;
+   - `-g "the catch and the quest it finishes"`.
+
+   Mỗi lệnh 1 lượt.
+4. `npm run test:e2e`: 32/32.
 
 ## Tiêu chí hoàn thành
 
-- [ ] Phần coder sửa chỉ có `tests/e2e/multiplayer.spec.ts` và `docs/architecture.md`. Không tính file làm việc của đội và phần game-designer đã sửa (`docs/design/pals.md`). Không file nào trong `packages/` đổi.
-- [ ] Có `spawnWeakPal` và `throwingAt` như bước 1, dùng ở:
-  - test toasts;
-  - test thú đi theo;
-  - test "party: let a pal go..." (chỉ `spawnWeakPal`);
-  - test gameplay (chỉ `spawnWeakPal`).
-
-  Không còn đoạn tìm id mới chép tay ở 2 chỗ cũ.
-- [ ] Trong file không còn vòng nào ném vào "con gần nhất":
-  - không còn `nearest`/`best` trong test thú đi theo;
-  - không còn `throwAtSpawned` riêng của test toasts.
-- [ ] Test thú đi theo:
-  - tạo `emberpup`, chỉ ném qua `throwingAt`;
-  - poll túi bằng `["emberpup"]` (15 s);
-  - kiểm `🐾 Thú (1)`, sau khi tải lại `pals` bằng 1;
-  - không còn `sleep(500)`, `waitForTimeout(1500)`, `caught`, `partySize`;
-  - vẫn chờ 2500 ms trước khi tải lại.
-- [ ] Test gameplay, chặt cây: trước mỗi lần Space có poll "không thú hoang nào trong 100 px" (timeout 60 s); vẫn tối đa 8 lần bấm, kiểm `wood >= 3` và `felled`.
-- [ ] Test gameplay, đánh choáng:
-  - người chơi dịch tới đúng chỗ con thú debug, poll khoảng cách < 1 px;
-  - kiểm theo id: choáng, rồi không còn;
-  - giữ kiểm nhãn `.label.pal.dizzy` (1) và đá tăng;
-  - không còn `dizzyPals`;
-  - không còn chờ 800 ms sau khi tạo thú;
-  - còn chờ 500 ms giữa hai lần Space.
-- [ ] Giữ nguyên tên test, `test.slow()`, bước lướt, các kiểm tra khác; không retry.
-- [ ] `docs/architecture.md`: dòng "Helper" có hai helper mới và câu về thú hoang trong e2e.
-- [ ] Mỗi test sửa chạy lặp 30/30 qua; hai test đổi cách viết 10/10 và 3/3; cả bộ 31/31; typecheck và unit test qua.
+- [ ] **Schema, tin, hàm chung:**
+  - `OwnedPal` và `Companion` có `alpha: t.boolean()` ở cuối;
+  - `CaptureResultMessage` có `alpha?: boolean`;
+  - `palName` ở `alphas.ts`, có unit test;
+  - `GameRoom` không còn `alphaName`.
+- [ ] **Hồ sơ:**
+  - `SavedPal.alpha: boolean`; `sanitizeProfile` đọc `p.alpha === true`;
+  - `saveNow` ghi `alpha: p.alpha === true`;
+  - `onJoin` gán `owned.alpha = saved.alpha`;
+  - hồ sơ không có trường đọc ra `false` (unit và tích hợp).
+- [ ] **Mọi chỗ server tạo `OwnedPal` gán `alpha` tường minh:** bắt, nạp hồ sơ, `debug:givePal` (`message?.alpha === true`). `spawnCompanion` gán `companion.alpha = owned.alpha === true`.
+- [ ] **Bắt thú đầu đàn:**
+  - `CaptureResultMessage` có `alpha: true` khi bắt được lẫn khi thoát; thú thường không có trường này;
+  - con trong túi và thú đi theo của nó có `alpha === true`, vẫn vậy sau khi vào lại.
+- [ ] **Tin ★:**
+  - khi bắt: người ném không nhận, người khác nhận, gửi qua `announce(news, this.clients.find(...sessionId...))` trong **cùng** hẹn giờ với `grantXp`, tin trước kinh nghiệm sau;
+  - khi hạ gục: vẫn gửi cả người hạ.
+- [ ] **Client:** chữ người ném là `★ Bắt được Voltmouse đầu đàn! 🎉` và `Voltmouse đầu đàn thoát ra rồi (N%)` với thú đầu đàn; thú thường giữ chữ cũ.
+- [ ] **Nhãn thú đi theo hay làm việc:**
+  - `★ Lv N Loài`, class `label companion alpha`, chữ vàng `#ffe082`;
+  - hạng nhãn không đổi; `labels.ts` và `labelLayout.ts` không đổi.
+- [ ] **Thẻ:**
+  - class `alpha` (vạch vàng trái);
+  - tên `★ Loài · Lv N` với `span.party-star[title="Thú đầu đàn"]`;
+  - `aria-label` nút Thả có "đầu đàn";
+  - khoá vẽ lại có cờ.
+- [ ] **Hộp xác nhận:** dòng `★ Thú đầu đàn` (`.party-confirm-alpha`) chỉ hiện với thú đầu đàn.
+- [ ] **Thông báo thả:** `Đã thả Voltmouse đầu đàn. Tạm biệt! 👋`.
+- [ ] **Test:**
+  - đủ các test ở mục Test, test 3 đổi như mô tả;
+  - không test nào bị nới hay bỏ;
+  - typecheck, `npm test`, `npm run test:e2e` (32/32) qua.
+- [ ] **Tài liệu:** `docs/architecture.md` có đủ 5 chỗ ở bước 10. `docs/design/pals.md` và `hud.md` khớp code; nếu code buộc phải khác thì báo lại, không tự sửa thiết kế.
 
 ## Rủi ro, câu hỏi mở
 
-- **Rủi ro còn lại, không xử lý:**
-  - **Thú hung dữ (Scorchtail từ sa mạc) lại gần chỗ chặt cây trong lúc test.** Mô phỏng: 5/20.000 lượt có một con trong 150 px. Khi đó nó tấn công, và poll 100 px có thể hết giờ. Test hiện tại cũng chịu rủi ro này. Chặn hẳn phải đổi server, không đáng.
-  - **Một lần chờ ở cây quá 60 giây:** 0 trong 60.000 lần bấm mô phỏng.
-  - **Test thú đi theo:** 12,6% số lượt bị Emberpup cắn (khoảng một cú mỗi quả bóng vỡ). Cú cắn đều đẩy người chơi về phía tây, ra xa lửa trại.
-  - **Chỗ dựng trại chỉ dư 14,9 px so với giới hạn 96 px.** Nếu sau này đổi chỗ xuất phát, lửa trại hay `BASE_MIN_CAMPFIRE_DISTANCE`, test sẽ hỏng luôn (không chập chờn) và phải dời chỗ dựng trại.
-  - **Bước chặt cây dựa vào tốc độ lang thang tối đa 95 px/s.** Thêm loài nhanh hơn, hay T27/T9 đổi tốc độ lang thang, thì tính lại 100 px.
-- **Thời gian chạy:** test gameplay chờ ở cây trong khoảng 17% số lượt (p90 4 giây, p99 19 giây). Test thú đi theo nhanh hơn một chút: bỏ 2 giây chờ cứng.
-- Không có quyết định nào cần người dùng; không có dòng chặn.
-- **Đề xuất việc mới cho `TASKS.md`:** không có. Các test khác dùng Space hay bóng đã được rà:
-  - "explorer" bắn cung, nhận sát thương của bất kỳ con nào trúng;
-  - "labels" tự tính con đang nhắm;
-  - "party" chỉ kiểm có gửi tin ném;
-  - "skills" kiểm có chiêu tung ra, không phụ thuộc trúng con nào.
-
-  Không test nào hỏng được vì "con gần nhất".
+- **Người ném rớt mạng rồi nối lại trong 2,2 giây** từ lúc ném tới lúc bóng khép:
+  - tra theo sessionId xử lý đúng: đang chờ nối lại thì không nhận gì; đã nối lại thì được loại đúng;
+  - không viết test vì dựng phải dùng bộ cắt mạng của T3, mà trường hợp hiếm;
+  - nếu sai, hậu quả chỉ là thấy hai tin như trước T8.
+- **Thú từng là đầu đàn trong hồ sơ cũ thành thú thường:** không suy được từ cấp, vì thú thường cũng lên được cấp đó. Chấp nhận và đã ghi trong `pals.md`.
+- **Thẻ ở điện thoại dọc:** tên dài thêm 2 ký tự, có thể xuống thêm một dòng ở vài loài. Chiều cao thẻ để T18 lo.
+- **Không có ảnh chụp:** bộ `npm run shots` chưa có cảnh thú đầu đàn đã bắt. E2E kiểm bằng DOM ở 3 khung hình (★ trong thẻ, hộp vừa màn hình ngang).
+- **Không có quyết định nào cần người dùng; không có dòng chặn.**
+  - Lợi ích thêm: quyết "không", lý do ở Thiết kế 3.
+  - Thay đổi hồ sơ không làm hỏng dữ liệu đã lưu: cũ đọc được, quay về code cũ chỉ mất cờ.
+- **Đề xuất cho `TASKS.md`** (ghép vào việc có sẵn, không tạo việc mới):
+  - T14: trong nhóm `labels` của `scripts/shots.mjs`, cho một khách nhận `debug:givePal` có `alpha: true`, để có ảnh so sánh nhãn "★ Lv N Loài" chữ vàng ở 3 khung hình;
+  - T12: cảnh báo lãnh địa trong `Game.ts` tự ghép "… đầu đàn"; khi gom chữ, dùng `palName`.

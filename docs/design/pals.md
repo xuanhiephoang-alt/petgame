@@ -61,15 +61,37 @@ Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) ca
 - Vì sao không bù khi T7 giảm đường cắn: trước T7 cú cắn tăng 15% mỗi cấp (16-42), người né được nửa số đòn vẫn chết 30-94% ở sa mạc, núi tuyết, núi lửa và đảo, tức không đạt mốc trên.
 - Nút chỉnh: `ALPHA.damageMultiplier` 1,25 làm trận gắt hơn (cùng điều kiện, né nửa số đòn: chết 18-43% ở sa mạc, núi tuyết, núi lửa; đảo 86%); 1,5 gần như trước T7.
 - Canh lãnh địa: tấn công ai lại gần (170 px), kể cả loài vốn hiền, không bỏ chạy. Bị kéo xa hơn 12 m khỏi chỗ ở thì bỏ trận, đi về, và hồi máu (4% mỗi giây) khi không ai làm phiền.
-- Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm (`ALPHA.xp`, thay cho kinh nghiệm hạ gục thường), cả thế giới được báo tin. Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; khi bóng khép, thú đi theo nhận một lần kinh nghiệm bắt theo cấp như mọi lần bắt (60-78) cộng 300; túi đầy thì không ném được.
+- Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm (`ALPHA.xp`, thay cho kinh nghiệm hạ gục thường), cả thế giới được báo tin, kể cả người hạ ("★ Hiệp đã hạ Voltmouse đầu đàn!"). Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; khi bóng khép, thú đi theo nhận một lần kinh nghiệm bắt theo cấp như mọi lần bắt (60-78) cộng 300; túi đầy thì không ném được.
+- **Tin khi bắt được** (đặt ra ở nhiệm vụ T8):
+  - Người bắt thấy "★ Bắt được Voltmouse đầu đàn! 🎉" lúc bóng khép (chữ của chính lần bắt).
+  - Mọi người khác trong thế giới thấy tin ★ "★ Hiệp đã bắt được Voltmouse đầu đàn!".
+  - Người bắt không nhận tin ★: trước T8, họ đọc hai tin cho cùng một việc, và tin thứ hai làm tin lên cấp phải chờ thêm 3 giây.
+  - Bóng không giữ được thì người bắt thấy "Voltmouse đầu đàn thoát ra rồi (33%)".
 - Quay lại chỗ ở sau 6 phút. Nhiệm vụ cuối chuỗi: "Hạ hoặc bắt một thú đầu đàn".
+
+### Thú đầu đàn đã bắt
+
+Đặt ra ở nhiệm vụ T8. Con thú đầu đàn bắt được mang dấu ★ mãi trong túi (lưu trong hồ sơ). Dấu hiện ở:
+- **Bảng 🐾 Thú:** thẻ có viền vàng bên trái, tên ghi "★ Voltmouse · Lv 15" (★ màu vàng đậm; rê chuột vào ★ thấy "Thú đầu đàn"). Ở chế độ 🕊️ Thả bớt, nút "Thả" đọc cho trình đọc màn hình là "Thả Voltmouse đầu đàn · Lv 15".
+- **Nhãn trên đầu** khi nó đi theo hay làm việc ở trại: "★ Lv 15 Voltmouse", chữ vàng trên nền tối như mọi nhãn thú đi theo. Mọi người trong thế giới đều thấy.
+  - Dấu ★ không đổi hạng nhãn (mục "Nhãn tên và thanh máu"): thú đi theo của mình vẫn là nhãn ghim hạng 3, của người khác vẫn hạng 6.
+  - Lý do: hạng xếp theo thứ người chơi cần thấy (của mình, mối nguy). Thú đầu đàn đã thuần không phải mối nguy.
+- **Hộp xác nhận thả:** thêm dòng "★ Thú đầu đàn" ngay dưới tên. Thả xong thì thông báo "Đã thả Voltmouse đầu đàn. Tạm biệt! 👋".
+
+**Không có lợi ích gì thêm.** Chỉ số, chiêu, sức làm việc giống thú thường cùng loài cùng cấp. Hình trong thế giới cũng bình thường: không to hơn, không có quầng vàng, vì hai thứ đó báo hiệu thú đầu đàn hoang đang canh lãnh địa. Lý do:
+- **Phần thưởng đã lớn.** Con bắt được ở cấp 15-22, tức 4.159-11.141 kinh nghiệm cộng dồn. Ở nhịp bình thường, nuôi một con lên cấp 15 mất 116 trận, khoảng 2,6 giờ. Thú đi theo còn nhận thêm 300 kinh nghiệm.
+- **Lợi ích gắn với dấu ★ sẽ cày được.** Thú đầu đàn quay lại sau 6 phút. Khi nó choáng ở 1 máu, mỗi lần ném bắt được khoảng 1/3 (33-35% ở cả 6 con; bóng xịn chỉ thêm chưa tới 1 điểm). Lợi ích sẽ cộng dồn tới 30 con trong túi.
+- **Không lệch cân bằng.** Cân bằng của T7 tính sức thú đi theo chỉ theo cấp.
+- **Không phá luật thả thú.** Thả không hoàn lại gì (mục "Túi thú và thả thú").
+
+**Hồ sơ lưu trước T8** không có dấu này: mọi thú đọc ra là thú thường, kể cả con từng là đầu đàn (server không còn cách biết).
 
 ## Túi thú và thả thú
 
 - Mỗi người chơi mang tối đa 30 thú (`MAX_PARTY`), tính cả con đang đi theo và các con làm việc ở trại.
 - **Túi đầy thì không ném bóng được**, với mọi thú hoang kể cả thú đầu đàn (trùm thì không bao giờ bắt được). Khi đó bóng không bay đi, bóng xịn không bị trừ, thú hoang không bị động tới, và người chơi thấy "Túi thú đầy (30/30): mở 🐾 Thú và bấm 🕊️ Thả bớt". Client báo ngay mà không gửi tin; server vẫn tự kiểm tra lại. Cả hai dùng chung `throwBlocker` (`capture.ts`). Không còn trường hợp bắt được rồi mất thú.
 - Khi túi đầy, nút 🐾 Thú hiện "🐾 Thú (30/30)" trên nền vàng. Nhờ vậy người chơi biết để thả bớt trước khi đánh choáng một con mới, vì choáng chỉ kéo dài 6 giây.
-- **Thả thú:** mở bảng 🐾 Thú, bấm "🕊️ Thả bớt" (mỗi thẻ thú chỉ còn nút "Thả"), chọn một con, rồi xác nhận trong hộp "Giữ lại" / "Thả". Nút "Thả" trong hộp mờ 0,5 giây đầu để chạm đúp nhầm không thả mất thú. Thả được mọi con: đang nghỉ, đang đi theo, đang làm việc ở trại, đang kiệt sức, và cả con cuối cùng (hộp xác nhận nhắc riêng). Đóng bảng thì chế độ thả tự tắt.
+- **Thả thú:** mở bảng 🐾 Thú, bấm "🕊️ Thả bớt" (mỗi thẻ thú chỉ còn nút "Thả"), chọn một con, rồi xác nhận trong hộp "Giữ lại" / "Thả". Nút "Thả" trong hộp mờ 0,5 giây đầu để chạm đúp nhầm không thả mất thú. Thả được mọi con: đang nghỉ, đang đi theo, đang làm việc ở trại, đang kiệt sức, và cả con cuối cùng (hộp xác nhận nhắc riêng). Thú đầu đàn đã bắt cũng thả được; hộp có thêm dòng "★ Thú đầu đàn" (mục "Thú đầu đàn đã bắt"). Đóng bảng thì chế độ thả tự tắt.
 - Thú được thả rời đi hẳn: không thành thú hoang, không rơi đồ, không hoàn lại gì. Lý do: bóng thường không giới hạn, và bắt một Leafkit cấp 1 gần lửa trại chỉ mất khoảng 3,5 giây (4 đòn, 96% bắt được khi choáng, bóng lắc 1,9 giây). Vì vậy phần thưởng nào khi thả cũng biến thành vòng lặp bắt rồi thả để kiếm đồ.
 
 ## Kinh nghiệm và lên cấp
@@ -122,25 +144,27 @@ Bánh có từ: chế ở trại (8 quả mọng, tức 5 kinh nghiệm mỗi qu
 
 ## Nhãn tên và thanh máu
 
-Trên đầu mỗi người chơi, thú và trại có một nhãn: tên (thú thì "Lv N Loài"), bên dưới là thanh máu khi bị thương. Chữ của thú hoang chỉ hiện khi nó bị thương, nổi giận hoặc choáng. Thanh máu của thú đầu đàn luôn hiện. Đặt ra ở nhiệm vụ T5; code ở `packages/client/src/game/labels.ts` và `labelLayout.ts`.
+Trên đầu mỗi người chơi, thú và trại có một nhãn: tên (thú thì "Lv N Loài"; thú đầu đàn đã bắt thì "★ Lv N Loài", chữ vàng), bên dưới là thanh máu khi bị thương. Chữ của thú hoang chỉ hiện khi nó bị thương, nổi giận hoặc choáng. Thanh máu của thú đầu đàn hoang luôn hiện. Đặt ra ở nhiệm vụ T5; code ở `packages/client/src/game/labels.ts` và `labelLayout.ts`.
 
 **Khi nhiều nhãn chen nhau** (hay gặp trên điện thoại: hình thú nhỏ đi còn chữ giữ nguyên cỡ), không nhãn nào được che nhãn khác. Nhãn quan trọng hơn giữ chỗ, theo thứ tự:
 
 1. Nhãn của chính mình.
 2. Thú đang nhắm: thú hoang gần nhất trong tầm ném bóng, tức con mà bóng sẽ bay tới khi bấm E hoặc Bắt.
 3. Thú đi theo của mình.
-4. Thú đầu đàn, trùm.
+4. Thú đầu đàn hoang, trùm.
 5. Người chơi khác.
 6. Thú của người khác, thú đang làm việc ở trại.
 7. Thú hoang khác.
 8. Trại.
+
+Thú đầu đàn đã bắt giữ hạng của thú đi theo hoặc thú của người khác (mục "Thú đầu đàn đã bắt"), dấu ★ không đổi hạng.
 
 Nhãn bị vướng lần lượt thử ba cách, dừng ở cách đầu tiên được:
 - **nâng lên** vừa đủ để thoát, tối đa 22 px;
 - **thu gọn**: ẩn chữ, chỉ giữ thanh máu;
 - **tạm ẩn**.
 
-Bốn loại đầu (mình, thú đang nhắm, thú đi theo, đầu đàn và trùm) là **nhãn ghim**:
+Bốn loại đầu (mình, thú đang nhắm, thú đi theo, đầu đàn hoang và trùm) là **nhãn ghim**:
 - không bao giờ bị ẩn, được nâng tới 48 px;
 - con đứng trước giữ chỗ, con phía sau nâng lên;
 - nên thanh máu của chúng luôn hiện.
