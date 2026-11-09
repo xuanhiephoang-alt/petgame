@@ -26,4 +26,14 @@ describe("wild combat", () => {
     expect(next.x).toBeCloseTo(120);
     expect(next.y).toBeCloseTo(100);
   });
+
+  it("walks to a waypoint at full speed, but measures its bite range to the target", () => {
+    const step = stepChase({ x: 0, y: 0 }, { x: 30, y: 0 }, 50, 1000, 10, undefined, 40, { x: 0, y: 100 });
+    expect(step.pos).toEqual({ x: 0, y: 50 });
+    expect(step.inRange).toBe(false);
+    const target = { x: 200, y: 0 };
+    expect(stepChase({ x: 0, y: 0 }, target, 50, 1000, 10, undefined, 40, target)).toEqual(
+      stepChase({ x: 0, y: 0 }, target, 50, 1000, 10, undefined, 40),
+    );
+  });
 });

@@ -34,10 +34,17 @@ export function stepToward(
   return obstacles ? obstacles.resolve(next, radius) : next;
 }
 
+/** How close counts as "there" for a companion: within hitting range of the wild pal it fights, or trailing distance of its owner. */
+export function companionReach(radius: number, attacking: boolean): number {
+  return attacking ? COMPANION_ATTACK_RANGE + radius : COMPANION_FOLLOW_DISTANCE;
+}
+
 /**
  * One tick of a following pal: chase and stand next to `target` if there is
  * one (the wild pal its owner is fighting), otherwise trail the owner.
  * Jumps back to the owner when left far behind (e.g. stuck behind trees).
+ * `via` (a waypoint around trees, ai/pathing.ts) is walked to at full speed instead of the goal;
+ * the attack range is still measured to the target.
  */
 export function stepCompanion(
   pos: Vec2,
@@ -46,6 +53,7 @@ export function stepCompanion(
   dtMs: number,
   radius: number,
   obstacles?: CollisionGrid,
+  via?: Vec2,
 ): CompanionStep {
   if (distance(pos, owner) > COMPANION_TELEPORT_DISTANCE) {
     const back = { x: owner.x - 24, y: owner.y + 24 };
@@ -53,7 +61,10 @@ export function stepCompanion(
   }
   const goal = target ?? owner;
   const stopAt = target ? COMPANION_ATTACK_RANGE * 0.8 + radius : COMPANION_FOLLOW_DISTANCE;
-  const next = stepToward(pos, goal, stopAt, dtMs, radius, obstacles);
-  const inAttackRange = !!target && distance(next, target) <= COMPANION_ATTACK_RANGE + radius;
+  const detour = via !== undefined && (via.x !== goal.x || via.y !== goal.y);
+  const next = detour
+    ? stepToward(pos, via, 0, dtMs, radius, obstacles)
+    : stepToward(pos, goal, stopAt, dtMs, radius, obstacles);
+  const inAttackRange = !!target && distance(next, target) <= companionReach(radius, true);
   return { pos: next, inAttackRange };
 }

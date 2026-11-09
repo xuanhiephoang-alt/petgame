@@ -33,7 +33,10 @@ export function findNearestTarget(from: Vec2, sight: number, targets: readonly C
   return best;
 }
 
-/** Chases a target and reports whether it is close enough to bite. */
+/**
+ * Chases a target and reports whether it is close enough to bite. `via` (a waypoint around trees,
+ * ai/pathing.ts) is walked to at full speed instead of the target; the bite range is still measured to the target.
+ */
 export function stepChase(
   pos: Vec2,
   target: Vec2,
@@ -42,8 +45,12 @@ export function stepChase(
   radius: number,
   obstacles?: CollisionGrid,
   range = WILD_ATTACK_RANGE,
+  via?: Vec2,
 ): { pos: Vec2; inRange: boolean } {
-  const next = stepToward(pos, target, range * 0.7, dtMs, radius, obstacles, speed);
+  const detour = via !== undefined && (via.x !== target.x || via.y !== target.y);
+  const next = detour
+    ? stepToward(pos, via, 0, dtMs, radius, obstacles, speed)
+    : stepToward(pos, target, range * 0.7, dtMs, radius, obstacles, speed);
   return { pos: next, inRange: distance(next, target) <= range };
 }
 

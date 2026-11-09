@@ -3,6 +3,11 @@ import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import { CloseCode, defineRoom, defineServer } from "colyseus";
 import {
   CLOSE_REPLACED,
+  COMPANION_FOLLOW_DISTANCE,
+  CollisionGrid,
+  NavGrid,
+  WILD_ATTACK_RANGE,
+  type Circle,
   ClientMessage,
   ROOM_NAME,
   ServerMessage,
@@ -77,6 +82,7 @@ import {
   type Vec2,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
+import { PathPlanner } from "../ai/pathing.ts";
 import { SqliteStore, emptyProfile, type Profile } from "../persistence/store.ts";
 
 // Profiles go to an in-memory database for tests (opened lazily on first join).
@@ -627,6 +633,87 @@ describe("combat", () => {
     await ticks(room, 20);
     expect(player.hp).toBeGreaterThan(before);
   });
+});
+
+/** A cup of overlapping trees open to the north: nothing fits inside, so only a detour leaves it. */
+function treeCup(c: Vec2): Circle[] {
+  const tree = (x: number, y: number): Circle => ({ x, y, r: 14 });
+  const out: Circle[] = [];
+  for (let x = c.x - 80; x <= c.x + 80; x += 20) out.push(tree(x, c.y + 40));
+  for (let y = c.y + 20; y >= c.y - 60; y -= 20) out.push(tree(c.x - 80, y), tree(c.x + 80, y));
+  return out;
+}
+
+/** Only `circles` stand in this room's world from now on (its real trees and rocks go), with paths around them. */
+function plantTrees(room: GameRoom, circles: Circle[]) {
+  const grid = new CollisionGrid(circles);
+  (room as any).obstacles = grid;
+  (room as any).paths = new PathPlanner(new NavGrid(grid, defaultWorld().layout.terrain));
+}
+
+describe("finding a way around trees", () => {
+  const C = { x: 3200, y: 2560 };
+
+  it("a wild pal walks out of a cup of trees and around it to the player behind it", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    plantTrees(room, treeCup(C));
+    player.x = C.x;
+    player.y = C.y + 120;
+    const id = placeWild(room, "emberpup", C, 0);
+    (room as any).skillGapUntil.set(`w:${id}`, Infinity); // walks only
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    const pal = room.state.pals.get(id)!;
+    let arrived = false;
+    for (let i = 0; i < 100 && !arrived; i++) {
+      await room.waitForNextTimestep();
+      arrived = distance(pal, player) <= WILD_ATTACK_RANGE;
+    }
+    expect(arrived).toBe(true);
+    (room as any).removePal(id);
+    expect((room as any).paths.has(`w:${id}`)).toBe(false);
+  }, 15_000);
+
+  it("a following pal walks around a cup of trees to its owner, without jumping", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup");
+    room.state.pals.clear();
+    plantTrees(room, treeCup(C));
+    player.x = C.x;
+    player.y = C.y + 120;
+    const companion = room.state.companions.get(owned.id)!;
+    companion.x = C.x;
+    companion.y = C.y;
+    let last = { x: companion.x, y: companion.y };
+    let arrived = false;
+    for (let i = 0; i < 80 && !arrived; i++) {
+      await room.waitForNextTimestep();
+      expect(distance(companion, last)).toBeLessThan(20);
+      last = { x: companion.x, y: companion.y };
+      arrived = distance(companion, player) <= COMPANION_FOLLOW_DISTANCE + 8;
+    }
+    expect(arrived).toBe(true);
+  }, 15_000);
+
+  it("a following pal goes around a cup of trees to the wild pal its owner fights", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup");
+    room.state.pals.clear();
+    plantTrees(room, treeCup(C));
+    player.x = C.x;
+    player.y = C.y - 150;
+    player.palAuto = false; // walks and bites only, no skills flying through the wall
+    const companion = room.state.companions.get(owned.id)!;
+    companion.x = C.x;
+    companion.y = C.y;
+    const hits = collect<HitMessage>(client, ServerMessage.Hit);
+    const id = placeWild(room, "leafkit", { x: C.x, y: C.y + 120 }, 0);
+    const control = (room as any).controls.get(client.sessionId);
+    control.targetPalId = id;
+    control.aggroUntil = room.clock.currentTime + 6000;
+    for (let i = 0; i < 80 && !hits.some((h) => h.companionId === owned.id && h.palId === id); i++) await room.waitForNextTimestep();
+    expect(hits.some((h) => h.companionId === owned.id && h.palId === id)).toBe(true);
+  }, 15_000);
 });
 
 describe("eating berries", () => {

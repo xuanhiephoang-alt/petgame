@@ -140,6 +140,7 @@ import {
   type FeedMessage,
   COMPANION_AGGRO_MS,
   COMPANION_ATTACK_COOLDOWN_MS,
+  COMPANION_SPEED,
   COMPANION_TELEPORT_DISTANCE,
   CLOSE_REPLACED,
   ClientMessage,
@@ -157,6 +158,7 @@ import {
   THROW_COOLDOWN_MS,
   THROW_RANGE,
   TICK_MS,
+  WILD_ATTACK_RANGE,
   WILD_PAL_TARGET,
   WORLD_HEIGHT,
   WORLD_WIDTH,
@@ -167,6 +169,7 @@ import {
   addXp,
   captureChance,
   companionDamage,
+  defaultNav,
   defaultWorld,
   distance,
   finishXp,
@@ -194,7 +197,8 @@ import {
   type Vec2,
 } from "@petgame/shared";
 import { newBrain, randomPoint, stepWander, type WanderBrain } from "../ai/wander.ts";
-import { stepCompanion, stepToward } from "../ai/companion.ts";
+import { companionReach, stepCompanion, stepToward } from "../ai/companion.ts";
+import { PathPlanner } from "../ai/pathing.ts";
 import { findNearestTarget, stepChase, stepFlee, type CombatTarget, type WildAggro } from "../ai/wildCombat.ts";
 import { chooseSkill } from "../ai/skillAi.ts";
 import { emptyProfile, isValidToken, openStore, type Profile, type ProfileStore } from "../persistence/store.ts";
@@ -332,6 +336,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private wasNight = false;
   /** Trees, rocks and the campfire; shared with the client for prediction. */
   private obstacles = defaultWorld().grid;
+  /** Ways around trees, rocks and water for chasing pals and companions (ai/pathing.ts), keyed "w:<wild id>" / "c:<owned id>". */
+  private paths = new PathPlanner(defaultNav());
   private terrain = defaultWorld().layout.terrain;
   private climateTimer = 0;
   /** Session id -> the climate hazard the player was last warned about. */
@@ -669,7 +675,9 @@ export class GameRoom extends Room<{ state: GameState }> {
           this.cancelWindup(id, pal);
           pal.angry = false;
         }
-        const step = stepChase(pos, home, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, radius, this.obstacles, 8);
+        const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
+        const via = this.paths.steer(`w:${id}`, pos, home, { radius, sea: false, goalRadius: ALPHA.roam * 0.5, step: (speed * dtMs) / 1000 }, now);
+        const step = stepChase(pos, home, speed, dtMs, radius, this.obstacles, 8, via);
         pal.x = step.pos.x;
         pal.y = step.pos.y;
         if (distance(pal, home) <= ALPHA.roam * 0.5 || step.inRange) this.alphaReturning.delete(id);
@@ -702,8 +710,10 @@ export class GameRoom extends Room<{ state: GameState }> {
           this.startCast("wild", id, pal, pal.boss ? BOSS.skillLevel : pal.alpha ? Math.min(pal.level, ALPHA.skillLevel) : wildSkillLevel(pal.level), skill, target);
           return;
         }
-        const reach = pal.boss ? BOSS.radius + 24 : undefined;
-        const step = stepChase(pos, target.pos, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, radius, this.obstacles, reach);
+        const range = pal.boss ? BOSS.radius + 24 : WILD_ATTACK_RANGE;
+        const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
+        const via = this.paths.steer(`w:${id}`, pos, target.pos, { radius, sea: false, goalRadius: range, step: (speed * dtMs) / 1000 }, now);
+        const step = stepChase(pos, target.pos, speed, dtMs, radius, this.obstacles, range, via);
         // Wild pals cannot swim: they stop at the shore.
         if (!isSea(this.terrain, step.pos.x, step.pos.y)) {
           pal.x = step.pos.x;
@@ -740,6 +750,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
 
     this.tickCompanions(dtMs);
+    // The searches asked for this tick, within its budget (the pals walk them from the next tick).
+    this.paths.run(now);
     this.tickCasts();
     this.tickExploration();
     this.tickClimate(dtMs);
@@ -800,7 +812,10 @@ export class GameRoom extends Room<{ state: GameState }> {
       // A dizzy pal is left for its owner to catch or knock out.
       const fighting = targetId ? this.state.pals.get(targetId) : undefined;
       const target = fighting && !fighting.dizzy && !this.inBall.has(targetId!) ? fighting : undefined;
-      const step = stepCompanion(companion, owner, target, dtMs, radius, this.obstacles);
+      // Within reach of its owner it walks around trees; farther, stepCompanion jumps it back next to them.
+      const via = distance(companion, owner) > COMPANION_TELEPORT_DISTANCE ? undefined : this.paths.steer(`c:${id}`, companion, target ?? owner,
+        { radius, sea: true, goalRadius: companionReach(radius, !!target), step: (COMPANION_SPEED * dtMs) / 1000 }, now);
+      const step = stepCompanion(companion, owner, target, dtMs, radius, this.obstacles, via);
       companion.x = step.pos.x;
       companion.y = step.pos.y;
 
@@ -1231,6 +1246,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.wildShieldUntil.delete(palId);
     this.cancelCasts("wild", palId);
     this.forgetSkills(`w:${palId}`);
+    this.paths.forget(`w:${palId}`);
     // A pack leader comes back to its lair a while later.
     if (this.alphaHome.delete(palId)) {
       this.alphaReturning.delete(palId);
@@ -2042,6 +2058,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.companionTimers.delete(id);
     this.cancelCasts("companion", id);
     this.forgetSkills(`c:${id}`);
+    this.paths.forget(`c:${id}`);
     this.lastDamagedAt.delete(`c:${id}`);
     this.calmPalsTargeting("companion", id);
   }

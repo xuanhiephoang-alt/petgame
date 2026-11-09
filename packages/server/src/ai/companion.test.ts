@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { COMPANION_FOLLOW_DISTANCE, COMPANION_SPEED, CollisionGrid, distance } from "@petgame/shared";
-import { stepCompanion } from "./companion.ts";
+import { COMPANION_FOLLOW_DISTANCE, COMPANION_SPEED, COMPANION_TELEPORT_DISTANCE, CollisionGrid, distance } from "@petgame/shared";
+import { companionReach, stepCompanion } from "./companion.ts";
 
 const run = (start: { x: number; y: number }, owner: { x: number; y: number }, target?: { x: number; y: number }, ticks = 40, grid?: CollisionGrid) => {
   let pos = start;
@@ -37,5 +37,23 @@ describe("stepCompanion", () => {
     const grid = new CollisionGrid([{ x: 150, y: 0, r: 30 }]);
     const { pos } = run({ x: 0, y: 0 }, { x: 300, y: 0 }, undefined, 60, grid);
     expect(grid.blocked(pos, 14)).toBe(false);
+  });
+
+  it("walks to a waypoint when given one, counting its attack range to the target", () => {
+    const target = { x: 100, y: 0 };
+    const via = { x: 0, y: 100 };
+    const step = stepCompanion({ x: 0, y: 0 }, { x: 0, y: -50 }, target, 250, 14, undefined, via);
+    expect(step.pos.x).toBeCloseTo(0);
+    expect(step.pos.y).toBeCloseTo((COMPANION_SPEED * 250) / 1000);
+    expect(step.inAttackRange).toBe(false);
+    // The target is within reach of the next position even though the waypoint lies elsewhere.
+    const close = stepCompanion({ x: 0, y: 0 }, { x: 0, y: -50 }, { x: 30, y: 0 }, 50, 14, undefined, via);
+    expect(close.inAttackRange).toBe(true);
+    // Too far behind its owner: jumps back, ignoring the waypoint.
+    const owner = { x: COMPANION_TELEPORT_DISTANCE + 100, y: 0 };
+    const jumped = stepCompanion({ x: 0, y: 0 }, owner, undefined, 50, 14, undefined, via);
+    expect(distance(jumped.pos, owner)).toBeLessThan(40);
+    expect(companionReach(14, true)).toBe(54);
+    expect(companionReach(14, false)).toBe(COMPANION_FOLLOW_DISTANCE);
   });
 });
