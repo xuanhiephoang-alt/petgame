@@ -1,6 +1,23 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+
+## Mở game: sảnh tải chậm hoặc hỏng
+
+Sảnh (ngoại hình, tên, nút "Vào chơi") chỉ dùng được khi script game đã tải và chạy xong. Trước đó ô tên và nút bị khoá, nút ghi "Đang tải..." (T1). Trang tự canh việc tải này bằng một đoạn script nhỏ nằm sẵn trong trang, nên đoạn này vẫn chạy khi chính script game hỏng (T15):
+
+| Tình huống | Người chơi thấy | Khi nào |
+|---|---|---|
+| Tải bình thường | "Đang tải..." rồi "Vào chơi" | khoảng 1 giây ở 4G tốt, 5 giây ở 4G chậm |
+| Mạng chậm, vẫn đang tải | dưới nút "Đang tải...": "Vẫn đang tải… Mạng có vẻ chậm. Chờ thêm chút, hoặc bấm Tải lại." cùng nút **Tải lại** phụ. Tải xong thì sảnh tự mở, thông báo biến mất | sau 15 giây chưa xong |
+| Tải hỏng: mất mạng giữa chừng, file thiếu (server vừa đổi bản) | thẻ "Không tải được game", dòng "Kiểm tra mạng rồi bấm Tải lại." và nút **Tải lại** đang có focus (Enter là tải lại); ô tên và nút "Đang tải..." ẩn đi | ngay khi trình duyệt báo lỗi tải |
+| Script chạy lỗi (thường do trình duyệt quá cũ) | như trên, dòng giữa là "Trình duyệt gặp lỗi khi mở game. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt." | ngay khi lỗi |
+| Trình duyệt tắt JavaScript | "Cần bật JavaScript để chơi PetGame." | luôn |
+
+- **Tải lại** mở lại đúng địa chỉ đang có, giữ `?room=` của link mời và mọi tham số khác. Có link mời thì thông báo ghi thêm "Link mời vẫn được giữ."
+- Thông báo "mạng chậm" không chặn gì, không đổi nút "Đang tải..." và không lấy focus. Chỉ khi trình duyệt báo lỗi thật mới hiện thẻ "Không tải được game".
+- Vì sao chờ 15 giây: script sảnh của bản build khoảng 960 kB (server chưa nén). Đo được sảnh sẵn sàng sau 5,3 giây ở 4G chậm (1,6 Mbps), 11,3 giây ở 3G (750 kbps), 20,7 giây ở 3G chậm (400 kbps). Với 15 giây, mạng từ 3G trở lên không bị làm phiền, còn người bị treo mạng không phải chờ quá lâu mới có nút Tải lại.
+- Phạm vi: chỉ lúc tải trang, trước khi sảnh dùng được. Lỗi khi bấm "Vào chơi" (thế giới đã đóng, đủ 5 người, server không chạy) hiện ở dòng lỗi của sảnh; việc T23 sẽ làm rõ các lỗi này, kèm nút "Tạo thế giới mới". Mất mạng khi đang chơi là màn che kết nối ở mục "Quay lại".
 
 ## Mỗi thiết bị một nhân vật
 

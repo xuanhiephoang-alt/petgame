@@ -1,701 +1,529 @@
-# PLAN: T9 Thú kẹt sau cây, đá khi đuổi theo
+# PLAN: T15 Sảnh báo lỗi khi tải hỏng
 
 ## Mục tiêu
 
-- **Vấn đề:** thú chỉ trượt dọc vật cản (`CollisionGrid.resolve`), không tìm đường.
-  - Khi đường thẳng tới mục tiêu bị cây, đá chắn, khoảng 1/6 số lần đuổi kẹt trong hốc giữa các vật cản tới hết 8 giây đuổi.
-  - Người chơi đứng sau cụm cây là "an toàn" trước thú tự vệ, thú hung dữ.
-  - Thú đi theo đứng ì sau cây trong khi chủ đánh thú hoang (12% số lần không tới được trong 6 giây).
-  - Số đo ở mục Thiết kế 2.
+- **Vấn đề:** từ T1, ô tên và nút "Vào chơi" khoá cho tới khi script sảnh (`src/main.ts` cùng mọi module nó import; bản build là `build/index-*.js` và 9 file `modulepreload`) chạy xong. Nếu script này không tải được (mất mạng giữa chừng, file thiếu sau khi server đổi bản), tải quá lâu (4G yếu, kết nối treo) hoặc ném lỗi lúc khởi động (trình duyệt cũ), người chơi chỉ thấy nút mờ "Đang tải..." mãi, không lời giải thích, không lối thoát.
+  - Nặng nhất khi chơi từ màn hình chính iPhone (`docs/choi-tren-iphone.md` khuyên làm vậy; `manifest.webmanifest` có `"display": "fullscreen"`): không có thanh địa chỉ hay nút tải lại của trình duyệt, nên người chơi phải tắt hẳn app.
 - **Sau nhiệm vụ:**
-  - Thú hoang (cả thú đầu đàn và trùm) đi vòng để tới kẻ nó đang đánh; thú đầu đàn đi vòng để về hang.
-  - Thú đi theo đi vòng để tới chủ hoặc tới con thú chủ đang đánh.
-  - Đường thẳng thông thì mọi thứ y như trước. Chi phí CPU có giới hạn cứng mỗi tick, kể cả khi khoảng 100 thú cùng cần đường.
-- **Luật** đã ghi trong `docs/design/pals.md`, mục mới "Đi vòng cây, đá", và một câu trong mục "Tính khí". Game-designer đã sửa file này trong nhiệm vụ.
+  - Tải hỏng hoặc script chạy lỗi: hiện ngay thẻ "Không tải được game" kèm nút **Tải lại**. Nút này mở lại đúng địa chỉ, giữ `?room=` của link mời và mọi tham số khác.
+  - Mạng chậm nhưng vẫn đang tải: sau 15 giây chỉ báo "Vẫn đang tải…" kèm nút Tải lại phụ, không chặn gì; tải xong thì sảnh tự mở như thường.
+  - Thao tác được bằng cảm ứng và bàn phím: nút ≥ 44 px, có focus sẵn khi lỗi.
+  - Test hồi quy `lobby:` kiểm thêm đường bàn phím: Enter lúc sảnh khoá không gửi gì, Enter lúc sảnh sẵn sàng thì vào được.
+- **Luật** đã ghi trong `docs/design/multiplayer.md`, mục mới "Mở game: sảnh tải chậm hoặc hỏng". Game-designer đã sửa file này trong nhiệm vụ.
 
 ## Phạm vi
 
 **Làm:**
-- **shared:** file mới `pathfind.ts` (lưới đi lại `NavGrid`, A* `findPath`, `lineClear`, `defaultNav`) + `pathfind.test.ts` (unit + benchmark nhẹ); export trong `index.ts`.
-- **server, `ai/`:**
-  - file mới `pathing.ts` (`PathPlanner`: khi nào tìm, đi theo điểm mốc, hàng đợi, ngân sách) + `pathing.test.ts`;
-  - tham số `via` cho `stepChase` (`wildCombat.ts`) và `stepCompanion` (`companion.ts`); hàm `companionReach`; test.
-- **`GameRoom.ts`:** trường `paths`; ba chỗ gọi (đuổi, về hang, thú đi theo); `paths.run(now)` mỗi tick; dọn trong `removePal`, `despawnCompanion`.
-- **`GameRoom.test.ts`:** 3 test tích hợp mới.
-- **`docs/architecture.md`:** 4 chỗ (bước 9).
+1. `packages/client/index.html`:
+   - khối thông báo `#load-status` và `<noscript>` trong form sảnh;
+   - CSS `.lobby-alert`, `.lobby-action`;
+   - **script inline cổ điển** canh việc tải (gọi tắt: *bộ canh tải*);
+   - sửa chú thích trên form.
+2. `packages/client/src/main.ts`: hằng `LOBBY_READY_EVENT` và một dòng bắn sự kiện ngay sau 3 dòng mở khoá của T1.
+3. `tests/e2e/multiplayer.spec.ts`:
+   - hằng `LOBBY_SCRIPT`, `LOBBY_SLOW_MS`;
+   - `enterLobby` thêm tham số `press`;
+   - sửa test hồi quy `lobby:` (bước bàn phím);
+   - 2 test mới.
+4. `docs/architecture.md`: mục `main.ts` và mục e2e.
 
 **KHÔNG làm:**
-- Không đổi client, schema, message, hồ sơ lưu. Thú chỉ đi khác ở server; client vẫn nội suy vị trí như cũ.
-- Không tìm đường cho:
-  - thú hiền chạy trốn (`stepFlee`, không có đích);
-  - lang thang (`stepWander` tự đổi đích khi bị chặn);
-  - thú làm việc đi tới chỗ làm ở trại;
-  - trùm lang thang về nhà khi đi quá `BOSS_LEASH`: nhánh lang thang, gắn với việc T21 (xem đề xuất cuối).
-- Không đổi luật đuổi: thời gian đuổi 8 giây (`WILD_AGGRO_MS`), tốc độ, tầm cắn, khoảng bám 56 px, nhảy về chủ khi cách quá 480 px (`COMPANION_TELEPORT_DISTANCE`). Không thêm luật "bỏ đuổi khi không có đường".
-- Không đổi `CollisionGrid` (client dùng chung để đoán chuyển động) và `worldgen.ts`.
-- Không sửa bán kính lang thang 20 của trùm (việc T21).
-- Không đổi số cân bằng: không cần balance-analyst (lý do ở Thiết kế 7).
+- Không đổi handler `submit`, `connect()`, chữ lỗi khi vào phòng ("Không vào được phòng (đầy 5 người hoặc server chưa chạy).", `#join-error`). Lỗi khi bấm "Vào chơi" là việc của T23 (xem Thiết kế 6).
+- Không tự tải lại, không tự thử lại, không tải lại khi có sự kiện `online`. Chỉ tải lại khi người chơi bấm nút.
+- Không xử lý lỗi **sau** khi sảnh đã sẵn sàng: ảnh tải hỏng, chunk động của PixiJS hỏng trong `startGame` sau `lobby.remove()`. Đề xuất thành việc riêng (cuối file).
+- Không bật nén gzip/brotli ở server (đề xuất riêng), không service worker (T13), không chạy e2e trên bản build (T16), không sửa cỡ nút có sẵn của sảnh (T18).
+- Không đổi màn che kết nối của T3 (`ui/connection.ts`, `.net-*`), không đổi `lobbyUrl`/`inviteLink`.
+- Bộ canh tải **không** đụng `disabled` hay chữ của `#join-btn`; nó chỉ ẩn/hiện `#name` và `#join-btn` bằng `hidden`.
+- Không thêm tham số URL hay hook chỉ dành cho test vào code sản phẩm: test dùng `page.route` và `page.clock`.
+- Không sửa `playwright.config.ts`, không tăng timeout, không thêm `retries`, không thêm `waitForTimeout`.
+- Không thêm unit test: không có logic dùng chung (lý do ở mục Test).
 
 ## Thiết kế
 
-### 1. Hiện trạng (HEAD `2fd24ba`)
+### 1. Hiện trạng (HEAD `c870cb7`)
 
-**Vòng tick** (`packages/server/src/rooms/GameRoom.ts`):
-- `setSimulationInterval(tick, TICK_MS)` ở dòng 475: 20 tick/giây, `dtMs` ≈ 50.
-- `tick` (dòng 638-757), lần lượt:
-  - người chơi;
-  - vòng thú hoang (dòng 650-740), mỗi con mỗi tick:
-    - bán kính `radius = pal.boss ? BOSS.radius : species.size` (dòng 662);
-    - thú đầu đàn bị kéo quá `ALPHA.leash` thì về hang: `stepChase(pos, home, …, 8)` (dòng 664-677);
-    - chạy trốn: `stepFlee` (dòng 678-688);
-    - đuổi: `stepChase(pos, target.pos, …, reach)` (dòng 705-706); bước rơi xuống biển thì bỏ (dòng 707-711);
-    - lang thang: `stepWander` (dòng 722-739);
-  - `tickCompanions` (dòng 742; định nghĩa dòng 759-839):
-    - thú làm việc: `stepToward` tới chỗ làm (dòng 773-795);
-    - thú đi theo: `stepCompanion(companion, owner, target, …)` (dòng 803).
+**Khoá sảnh (T1):**
+- `packages/client/index.html:390-392`: chú thích.
+- `:396`: `<input id="name" … disabled />`.
+- `:397`: `<button type="submit" id="join-btn" disabled autocomplete="off">Đang tải...</button>`.
+- CSS `:321-324`: nút `min-height: 44px`; khi khoá thì `opacity: 0.6; cursor: progress`.
+- `:402`: `<script type="module" src="/src/main.ts">` cuối `<body>`.
 
-**Hàm AI** (`packages/server/src/ai/`):
-- `stepChase` (`wildCombat.ts` dòng 37-48) gọi `stepToward(pos, target, range * 0.7, …)`: đi thẳng, dừng ở 70% tầm cắn, `inRange` khi ≤ `range`.
-- `stepToward` (`companion.ts` dòng 21-35): bước thẳng rồi `obstacles.resolve(next, radius)`.
-- `stepCompanion` (`companion.ts` dòng 42-59):
-  - cách chủ quá 480 px thì nhảy về cạnh chủ;
-  - không thì đi thẳng tới mục tiêu (dừng ở `COMPANION_ATTACK_RANGE * 0.8 + radius`) hoặc tới chủ (dừng ở 56).
-- `stepWander` (`wander.ts` dòng 42-76): tiến dưới 30% bước thì đổi đích.
+**Mở khoá:**
+- `packages/client/src/main.ts:73-77`: `nameInput.disabled = false; joinBtn.disabled = false; joinBtn.textContent = "Vào chơi";`.
+- Ba dòng này nằm ngay sau `form.addEventListener("submit", …)` (`:53-71`), cuối phần chạy đồng bộ của module (không có top-level await). Mọi thứ trước đó (`:1-51`) chạy lúc nạp module.
 
-**`CollisionGrid`** (`packages/shared/src/collision.ts`):
-- Ô băm 96 px trong một `Map<number, Circle[]>` (dòng 16-33, khoá băm dòng 74-76).
-- `query` tạo `Set` và mảng mới mỗi lần (dòng 36-43). `blocked` (dòng 45-47).
-- `resolve` (dòng 53-72): tối đa 3 lượt, đẩy thân ra theo pháp tuyến mỗi vòng tròn chạm.
-  - Lao thẳng vào tâm một thân cây thì lực đẩy triệt tiêu bước đi: đứng yên.
-  - Hai cây gần nhau tạo hốc: kẹt ở đáy hốc.
-- Vật cản sinh trong `worldgen.ts` (dòng 308-312), `defaultWorld()` dòng 336-342. Gồm 1.455 vòng tròn:
-  - lửa trại (27 px), núi lửa (112 px);
-  - 54 vòng hồ;
-  - 1.399 cây, đá: bán kính 5-59, trung vị 12,6, p90 22.
+**Bản build:**
+- Vite **dời** thẻ module lên `<head>` thành `<script type="module" crossorigin src="/build/index-*.js">`, kèm 9 thẻ `<link rel="modulepreload">` (`packages/client/dist/index.html`).
+- Thuộc tính tự thêm vào thẻ module (`data-*`, `onerror=`) **bị bỏ**, còn script inline cổ điển được giữ nguyên chỗ, nguyên chữ. Đã kiểm bằng `vite build` một project mẫu trong scratchpad.
+- Vậy không thể gắn bắt lỗi vào chính thẻ script.
 
-**Bán kính thân** (dùng cho va chạm):
+**Server** (`packages/server/src/index.ts:23-26`):
+- `/build` được cache vĩnh viễn (`immutable`), còn `index.html` luôn kiểm lại. Tải lại luôn lấy HTML mới (đúng tên file mới sau khi đổi bản), còn chunk đã tải xong thì dùng lại từ cache.
+- Không nén: script sảnh 10 file, 957 kB (gzip được 300 kB).
 
-| Ai | Bán kính |
-|---|---|
-| Thú thường, theo loài (`pals.json`) | Voltmouse 12, Mothlume 13, Leafkit 14, 15-16 phần lớn, Pebblet và Frostfang 17, Boulderhorn 20 |
-| Thú đầu đàn | `species.size` (hình to 1,6 lần chỉ là hình vẽ) |
-| Trùm khi đuổi, cắn | `BOSS.radius` 40 (`boss.ts` dòng 23) |
-| Trùm khi lang thang | 20 (lỗi T21, `GameRoom.ts` dòng 731) |
-| Thú đi theo | `species.size` |
+**Các cách script sảnh hỏng, và trình duyệt báo thế nào** (đo trên Chromium 153 bằng trang mẫu `page.route`, xem mục Thực nghiệm):
 
-**Tốc độ:**
-- Đuổi: `species.speed × 1,8` (`WILD_CHASE_SPEED_FACTOR`), tức 54-171 px/s.
-- Thú đi theo 190 px/s (`COMPANION_SPEED`).
-
-**Số thú mỗi phòng:**
-- `WILD_PAL_TARGET` 80, +3 ban đêm, + trùm + 6 thú đầu đàn: khoảng 90 thú hoang.
-- Tối đa 5 thú đi theo, cộng thú làm việc (không đuổi).
-
-### 2. Số đo "trước" (script chỉ đọc trên `defaultWorld()`)
-
-Script nằm trong scratchpad, ngoài repo; không file nào trong repo bị đổi khi đo.
-- Mô phỏng hàm thật `stepChase` / `stepCompanion` với `defaultWorld().grid`, 20 tick/giây.
-- Seed cố định.
-- Bản mẫu A* để so "sau" và đo chi phí.
-
-**A. Thú hoang đuổi mục tiêu đứng yên** cách 60-320 px. Mỗi loại thân 1.500 cặp; chỉ tính cặp có đường đi thật.
-
-| Thân | Đường thẳng bị chắn | Tới trong 8 giây khi bị chắn, trước | Sau (bản mẫu) | Tới trong 8 giây, mọi cặp, trước → sau |
-|---|---|---|---|---|
-| Emberpup (15, 126 px/s) | 38% | 84,0% | 99,3% | 93,9% → 99,7% |
-| Boulderhorn (20, 81 px/s) | 43% | 81,1% | 99,7% | 91,9% → 99,9% |
-| Trùm (40, 81 px/s, tầm 64) | 57% | 77,5% | 93,9% | 87,2% → 96,5% |
-
-- **Bao lâu:** 4.000 lần Emberpup đuổi khi bị chắn, 15,6% kẹt tới hết 8 giây: kẹt từ lúc chạm vật cản tới hết giờ, trung vị 7,1 giây, p90 7,7 giây.
-- **Kẹt vào gì:**
-  - 87% kẹt trong hốc chạm từ hai vật cản trở lên;
-  - theo loại vật cản: cây 57%, đá 23%, cây cùng đá 14%, hồ 2%, còn lại (lắc qua lại, bờ biển) 4%.
-- **Kẹt ở đâu** (tỉ lệ kẹt trong số lần đuổi bị chắn): đầm lầy 40%, đồng cỏ (rừng) 28%, núi tuyết 16%, núi lửa 11%, sa mạc 8%, đảo 4%.
-- **Trùm** sau T9 vẫn không tới khoảng 6%: phần lớn cần hơn 8 giây kể cả theo đường ngắn nhất, hoặc thân 80 px không lọt.
-
-**B. Người chơi bị đuổi chạy 1,5 giây rồi đứng:** trước T9 đã tới 100%, vì thú đi theo vết người chơi.
-- Vậy kẹt xảy ra khi vật cản nằm giữa ngay từ đầu cuộc đuổi:
-  - thú hung dữ thấy người trong 120 px;
-  - thú thoát bóng đuổi người ném (tới 180 px);
-  - đòn hay chiêu của thú đi theo;
-  - mục tiêu là thú đi theo.
-
-**C. Thú đi theo:**
-- Lao vào thú hoang đứng sau vật cản, cách 80-280 px (1.000 lần): tới trong 6 giây (`COMPANION_AGGRO_MS`) 88,0% → 99,7%.
-- Bám chủ đi đường bình thường (120 lượt, 52 phút đi): nhảy về chủ 0,06 lần/phút, xa chủ quá 150 px 0,8% thời gian. Sau T9 như cũ (0,02 lần/phút, 0,9%).
-- Chủ (thân 12) lách khe mà thú (thân 17) không lọt: còn xa chủ quá 120 px trong 5 giây cuối 1,8% → 0%.
-- Tóm lại: bám chủ vốn ít kẹt; lợi lớn ở lao vào đánh.
-
-**D. Cảnh test "chén cây"** (mục Test):
-- Trước T9 cả 4 trường hợp kẹt tới hết giờ.
-- Sau (bản mẫu):
-  - Emberpup tới tầm cắn sau 3,25 giây;
-  - Boulderhorn sau 5,25 giây;
-  - thú đi theo tới cạnh chủ sau 2,05 giây;
-  - thú đi theo tới đánh được thú hoang sau 2,10 giây.
-- Mỗi trường hợp 1 lần tìm, khoảng 125 ô.
-
-### 3. Lưới đi lại `NavGrid` (shared)
-
-**Ô 16 px** (`NAV_CELL = TERRAIN_CELL`): 400 × 300 = 120.000 ô, khớp đúng từng ô của `Terrain`.
-- Cờ biển của mỗi ô chính xác.
-- 16 px giữ được các khe 24-34 px giữa thân cây. Ô 32 px làm mất các khe đó, và tâm ô cách điểm thật tới 23 px.
-
-**Mỗi ô lưu khoảng trống** (`clearance`, `Uint8Array`):
-- Giá trị: khoảng cách từ tâm ô tới mép vật cản gần nhất, làm tròn xuống, kẹp trong [0, `NAV_MAX_CLEARANCE` = 64]. Bên trong vật cản là 0.
-- Một ô **mở cho một thân** bán kính `r` khi `clearance ≥ r`, và không phải biển trừ khi thân đó được qua biển.
-- Một lưới dùng cho mọi bán kính (12 tới 40), không cần một lưới cho mỗi cỡ thân.
-- Đã kiểm: với bán kính nguyên, "ô mở" trùng **tuyệt đối** với `!grid.blocked(tâm ô, r)` trên toàn thế giới. Đo 960.000 lần (8 bán kính × 120.000 ô): 0 lần lệch. Unit test giữ tính chất này.
-
-**Dựng một lần** từ `CollisionGrid.circles` và `Terrain`:
-- Với mỗi vòng tròn, duyệt các ô trong `c.r + 64` quanh nó, lấy `min`. Khoảng 110 nghìn phép, đo 14 ms.
-- Cờ biển: `isSea(terrain, tâm ô)` từng ô. Không có `terrain` thì không ô nào là biển (test).
-- Ngoài thế giới coi như đóng.
-- Đất liền bị đóng: thân 12 đóng 18%, thân 15 đóng 21%, thân 20 đóng 27%, thân 40 đóng 49%.
-
-**`clearanceAt(x, y)`:** nội suy song tuyến giữa 4 tâm ô quanh điểm; điểm ngoài lưới tính là 0.
-- Chọn nội suy thay vì lấy ô gần nhất: trên cùng bộ 1.500 cặp, cách lấy ô gần nhất báo "bị chắn" nhiều hơn 5-8% (tìm đường thừa) và tới đích ít hơn.
-- Ví dụ Boulderhorn: 98,3% thay vì 99,7%.
-
-**`lineClear(from, to, body, stopShort = 0)`:** đường thẳng có đủ rộng cho thân không.
-- Lấy mẫu mỗi 8 px (`NAV_CELL / 2`), gồm cả hai đầu, dừng `stopShort` px trước `to`.
-- Mỗi mẫu cần `clearanceAt ≥ radius`; nếu thân không qua biển thì ô dưới mẫu không phải biển.
-- Không tạo object. Viết chặt (không closure), bản mẫu đo 0,65 µs cho 300 px thông, 0,21 µs khi bị chắn (dừng sớm).
-
-**Bộ nhớ và chia sẻ:**
-- Lưới khoảng 240 KB. Mảng nháp A* khoảng 2 MB, cấp một lần ở lần tìm đầu.
-- `defaultNav()` dựng một lần mỗi process (như `defaultWorld()`), mọi phòng dùng chung.
-- An toàn vì `findPath` chạy đồng bộ, không nhường lượt.
-
-### 4. A* (`NavGrid.findPath`) và làm mượt
-
-**Truy vấn:** `findPath(from, to, { radius, sea, goalRadius, maxNodes, weight? })` trả `{ status: "found" | "none" | "limit", path: Vec2[], expanded }`.
-
-**Lưới và bước đi:**
-- 8 hướng; đi thẳng tốn 16, đi chéo tốn 16·√2.
-- Không cắt góc: đi chéo chỉ khi cả hai ô cạnh đều mở.
-- Thứ tự xét láng giềng cố định (Đ, T, N, B, rồi 4 góc), nên kết quả tất định.
-
-**Ô đầu:** ô chứa `from` (kẹp vào lưới), **luôn được nhận** dù không mở.
-- Thân có thể đứng sát cây hợp lệ trong khi tâm ô hẹp hơn thân.
-- Các ô sau phải mở.
-
-**Đích là một vùng:**
-- Thành công khi lấy ra một ô có tâm cách `to` không quá `max(goalRadius, NAV_CELL)`.
-- Mục tiêu đứng chỗ hẹp (người chơi thân 12 sát cây) vẫn tới được, vì chỉ cần một ô mở trong tầm.
-- Ô đầu thoả luôn thì `found` với `path` rỗng.
-
-**Heuristic:** khoảng cách octile từ tâm ô tới `to`, nhân `PATH_HEURISTIC_WEIGHT` = 1,2. So trên 2.000 cặp bị chắn (thân 15, 60-320 px):
-
-| Trọng số | Ô xét, trung vị | Ô xét, p90 | Đường dài hơn tối ưu, p99 |
+| Hỏng | Ví dụ | Trình duyệt báo | Bắt bằng |
 |---|---|---|---|
-| 1 | 30 | 94 | 0% |
-| 1,2 | 17 | 69 | 7,7% |
-| 1,5 | 16 | 50 | 10,6% |
+| Không tải được entry hoặc một module import tĩnh | mất mạng giữa chừng; 404 sau khi đổi bản; Vite dev trả 504; sai MIME; `modulepreload` hỏng | sự kiện `error` (không nổi bọt) trên **thẻ `<script type="module">` entry**, dù file hỏng là module con. Thẻ không bắn `load` | listener `error` **pha capture** trên `window`, lọc `HTMLScriptElement` có `src` cùng origin |
+| Chạy lỗi lúc khởi động | `throw` ở top-level; `SyntaxError` (trình duyệt cũ gặp cú pháp mới); import tên không được export | `ErrorEvent` ở `window`, `filename` là URL module (cùng origin). Thẻ script vẫn bắn `load` | cùng listener, lọc `ErrorEvent` có `filename` cùng origin |
+| Chậm hoặc treo | 3G yếu, TCP treo không đóng | không sự kiện nào | hẹn giờ |
+| Tắt JavaScript | | | `<noscript>` |
 
-Chọn 1,2: bớt 43% số ô ở trung vị, đường gần như tối ưu.
+### 2. Bộ canh tải
 
-**Giới hạn:**
-- Xét tối đa `maxNodes` ô. Hết mà chưa tới thì `"limit"`, khi đó `expanded === maxNodes`.
-- Hết ô để xét thì `"none"`: bị nhốt, ví dụ trong vòng cây kín.
-- `radius > NAV_MAX_CLEARANCE` thì `"none"` ngay với `expanded` 0 (không ô nào đủ rộng). Không ném lỗi trong tick.
+**Vì sao là script inline cổ điển trong `index.html`:**
+- Nó phải chạy khi chính script sảnh hỏng, nên không được nằm trong cây module của `main.ts`.
+- Không đặt trong file riêng (`public/boot.js`): mạng hỏng thì file đó cũng có thể không tới. HTML đã tới thì script inline chắc chắn chạy.
+- Không gắn `onerror` lên thẻ module: bản build bỏ thuộc tính đó (Thiết kế 1).
 
-**Mảng nháp** (cấp một lần, không xoá giữa các lần tìm):
-- Dấu lượt tìm: `Uint32Array` "đã gặp" và "đã đóng", so với số lượt tăng dần mỗi lần tìm.
-- `g: Float32Array`, `parent: Int32Array`.
-- Heap nhị phân trên `Int32Array` + `Float32Array`, sức chứa `maxNodes × 8 + 8`, nới khi truy vấn cần nhiều hơn. Cho phép trùng, bỏ ô đã đóng khi lấy ra.
-- **Không xoá 120.000 ô mỗi lần tìm.**
+**Vị trí:** cuối `<body>`, ngay sau `</div>` của `#lobby`, trước thẻ module.
+- Lúc nó chạy, các phần tử sảnh đã có.
+- Module luôn chạy sau khi HTML parse xong (`defer` mặc định, kể cả khi bản build dời thẻ lên `<head>`), nên sự kiện `error` của nó luôn tới sau khi listener đã gắn. Đã kiểm: module ở `<head>`, listener ở cuối `<body>`, module hỏng ngay lập tức, listener vẫn bắt được.
 
-**Làm mượt** ("kéo dây" tham lam bằng `lineClear` cùng thân):
-- Neo = `from`.
-- Từ neo, đi xa nhất có thể theo dãy tâm ô mà vẫn thấy được, lấy điểm đó làm điểm mốc và làm neo mới. Lặp tới hết.
-- Không có điểm nào xa hơn thấy được thì vẫn lấy điểm kế tiếp.
-- `path` không gồm `from`; điểm cuối là ô đích (trong `goalRadius` của `to`).
-- Đo: trung vị 25 ô thành 3 điểm mốc (p99: 48 ô thành 8 điểm), 395 mẫu (p99 1.200), khoảng 10-30 µs.
+**Trạng thái:** `loading` → `slow` (hẹn giờ) → `failed` (lỗi thật); từ bất kỳ trạng thái nào → `ready`.
 
-### 5. Khi nào tìm, đi theo điểm mốc, khi nào tính lại (`PathPlanner.steer`, server)
-
-**Mỗi tick, mỗi con đang đuổi** gọi `paths.steer(key, pos, goal, walker, now)` ngay trước bước đi.
-- Hàm trả điểm phải đi tới tick này: chính `goal` (đi thẳng như cũ) hoặc một điểm mốc.
-- `key` là `"w:<id thú hoang>"` hoặc `"c:<id OwnedPal>"`, như `skillReady`.
-- `walker = { radius, sea, goalRadius, step }`:
-  - `goalRadius`: cách bao nhiêu là "đã tới" (tầm cắn, tầm đánh, khoảng bám, vùng về hang);
-  - `step`: số px đi được tick này, để biết kẹt.
-
-**Trạng thái mỗi con** (`Track`, chỉ server, trong `Map` của planner):
-- `path`, `next`: điểm mốc và chỉ số điểm đang tới;
-- `pathGoal`: đích lúc tìm;
-- `lastPos`, `lastSteerAt`;
-- `stuck`: số tick liền gần như đứng yên;
-- `forced`: đường này có vì bị kẹt;
-- `nextSearchAt`;
-- `query`: `from`, `goal`, `walker` mới nhất, cho lần tìm.
-- Chép `x`, `y` vào object của `Track`, **không giữ tham chiếu tới object schema** (nó di chuyển).
-
-**Luật** (theo thứ tự, mỗi lần gọi):
-1. **Bị dời đi:** cách `lastPos` quá `jumpPx` (64 px) thì bỏ đường, `stuck = 0`.
-   - Ví dụ: nhảy về chủ, dịch chuyển thử nghiệm, chuyển chế độ.
-   - 64 lớn hơn mọi cú đẩy: dậm 44, chiêu tối đa 30.
-2. **Đếm kẹt:** ngược lại, nếu đi chưa tới 30% `step` từ lần gọi trước và chưa trong `goalRadius` thì `stuck += 1`; không thì `stuck = 0`. Ghi `lastPos`, `lastSteerAt`.
-3. **Đã trong `goalRadius`:** bỏ đường, trả `goal`.
-   - Thú đứng cắn qua thân cây như trước, nhịp cắn không đổi.
-   - Vì vậy `goalRadius` là **tầm** (cắn 40, trùm 64, thú đi theo đánh `40 + thân`), không phải khoảng dừng 70%.
-   - Đo: dùng tầm cho kết quả bằng hoặc tốt hơn khoảng dừng (bảng mục 2 là số với tầm).
-4. **Kẹt mà chưa có đường:** `stuck ≥ stuckTicks` (6 tick, 0,3 giây) và chưa có `path` thì đặt `forced = true`.
-5. **Đường thẳng thông:** nếu không `forced` và `lineClear(pos, goal, walker, goalRadius)` thì bỏ đường, trả `goal`.
-   - Đây là trường hợp thường gặp: hành vi y như trước T9.
-   - Kiểm tới điểm `goalRadius` trước mục tiêu, vì chỉ cần tới được tầm.
-6. **Đang có đường:**
-   - Bỏ qua các điểm mốc đã thấy được: tối đa `lookahead` (2) lần `lineClear(pos, path[next + 1])`.
-   - Bỏ qua điểm cách `pos` không quá `max(4, step)`.
-   - Hết điểm thì bỏ đường.
-7. **Cần tìm** khi:
-   - chưa có đường; hoặc
-   - đích đã dời quá `repathPx` (48 px, 3 ô; người chơi chạy 48 px mất 0,3 giây) khỏi `pathGoal`; hoặc
-   - `stuck ≥ stuckTicks` dù đang có đường (đường bị chặn hay kém).
-
-   Cần tìm và `now ≥ nextSearchAt` thì ghi `query` và xếp hàng (mỗi con tối đa 1 chỗ trong hàng).
-8. **Trả** `path[next]` nếu có đường. Không thì trả `goal`: trượt thẳng như cũ trong lúc chờ, hoặc khi không có đường.
-
-**Bỏ đường** = `path = undefined`, `next = 0`, `forced = false`.
-
-**Kết quả tìm** (trong `run`):
-- `stuck = 0`.
-- `found` có điểm mốc: gán `path`, `next = 0`, `pathGoal`, `nextSearchAt = now + retryMs` (500).
-  - `forced` giữ nguyên: đường có vì kẹt thì đi hết, không lấy lối tắt ở luật 5 (lối tắt chính là thứ đã làm nó kẹt).
-- `found` rỗng: bỏ đường, `nextSearchAt = now + retryMs`.
-- `none` / `limit`: bỏ đường, `nextSearchAt = now + failRetryMs` (2000). Thú trượt như cũ, 2 giây sau thử lại.
-
-### 6. Hàng đợi và ngân sách mỗi tick (`PathPlanner.run`)
-
-**Hàng đợi:** `Set<string>` các `key`, giữ thứ tự xếp đầu tiên (FIFO; thêm lại không đổi chỗ).
-
-**`run(now)`** gọi một lần mỗi tick, sau vòng thú hoang và `tickCompanions`. Duyệt hàng từ đầu:
-- Dừng khi đã chạy `searchesPerTick` (8) lần tìm, hoặc khi `đã xét + maxNodes > tickBudget`.
-  - Với `maxNodes` 1.500 và `tickBudget` 3.000: một lần tìm chỉ bắt đầu khi đã xét không quá 1.500 ô.
-  - Nên **một tick không bao giờ quá 3.000 ô**, và luôn chạy được ít nhất 1 lần tìm.
-- Mỗi `key` lấy ra thì xoá khỏi hàng.
-  - Không còn `Track`, hoặc không gọi `steer` trong `staleMs` (250 ms; đã thôi đuổi, đang choáng, đang gồng hay tung chiêu): bỏ, không tìm.
-  - Ngược lại tìm với `maxNodes`, áp kết quả (mục 5).
-- Ghi `lastRun = { searches, expanded }` cho test.
-
-**Hệ quả:**
-- Thường mỗi tick 0-2 lần tìm, mỗi lần khoảng 17 ô.
-- 100 con cùng cần đường một lúc thì con cuối được phục vụ ở tick 13 (0,65 giây). Trong lúc chờ nó trượt như cũ.
-- Một con tìm tối đa 2 lần mỗi giây; con không có đường tốn tối đa 1.500 ô mỗi 2 giây.
-
-### 7. Áp dụng cho ai
-
-| Ai | Chỗ gọi | `goal` | `goalRadius` | `radius` | `sea` | `step` |
-|---|---|---|---|---|---|---|
-| Thú hoang, thú đầu đàn đuổi | dòng 705-706 | `target.pos` | `range` (40) | `species.size` | false | `species.speed × 1,8 × dt` |
-| Trùm đuổi | cùng chỗ | `target.pos` | `range` = `BOSS.radius + 24` (64) | 40 | false | như trên |
-| Thú đầu đàn về hang | dòng 672 | `home` | `ALPHA.roam × 0,5` (64, đúng mốc kết thúc về hang ở dòng 675) | `species.size` | false | như trên |
-| Thú đi theo (bám chủ, lao vào đánh) | dòng 803 | `target ?? owner` | `companionReach(radius, !!target)`: `40 + radius` khi đánh, 56 khi bám | `species.size` | true (theo chủ đi bè như trước) | `COMPANION_SPEED × dt` |
-
-**Trùm có tìm đường**, với thân 40:
-- Lợi: 77,5% → 93,9% khi bị chắn.
-- Chi phí: thân 80 px ít lối đi, nên khoảng 28% lần tìm của trùm hết giới hạn hoặc không có đường. Mỗi lần như vậy tốn tối đa 1.500 ô mỗi 2 giây, chỉ một con.
-
-**Thú đi theo cách chủ quá 480 px** thì không gọi `steer`: `stepCompanion` nhảy nó về.
-- Lần gọi sau thấy nó bị dời quá 64 px, nên tự bỏ đường cũ (luật 1).
-
-**Không đổi cân bằng:**
-- Thời gian trụ của T7 tính người đứng yên, thú tới được. T9 chỉ làm cho điều đó đúng cả trong rừng.
-- Luật "chạy xa không cắt đuôi được" (Tính khí) nay đúng cả khi núp sau cây.
-- Không đổi sát thương, máu, tốc độ, nên không cần balance-analyst.
-
-### 8. Hiệu năng
-
-**Đo trên bản mẫu** (JavaScript chưa tối ưu, có closure; container 4 vCPU):
-- A* thân 15, cặp bị chắn 60-320 px: trung vị 17 ô, p90 69, p99 khoảng 1.000; trung bình 0,08-0,11 ms mỗi lần tìm (cả làm mượt).
-- Cặp 320-640 px: trung vị 41 ô, p90 140.
-- Một lần tìm chạm giới hạn 2.000 ô: 1,5 ms trung bình, 3,5 ms p99.
-- 100 con cùng đuổi mục tiêu bị chắn, 160 tick:
-  - mỗi tick trung bình 0,25-0,37 ms, p99 1,8-3,1 ms, cho **cả vòng** (gồm `stepChase`/`resolve` vốn có);
-  - nhiều nhất khoảng 1.800 ô mỗi tick;
-  - mọi con có đường trước tick 14;
-  - 97-99% tới tầm cắn trong 8 giây.
-
-**Xấu nhất mỗi tick, code thật, 100 con đuổi:**
-- `lineClear`: tối đa 3 lần mỗi con (thẳng + 2 nhìn trước) × 100 × khoảng 1 µs = 0,3 ms.
-- A*: tối đa 3.000 ô × khoảng 1 µs = 3 ms. Mục tiêu cho coder: không quá 1 µs mỗi ô; bản mẫu khoảng 0,7 µs khi chạm giới hạn.
-- Làm mượt: tối đa 8 lần × khoảng 0,05 ms = 0,4 ms.
-- Cộng lại khoảng 3,7 ms trên 50 ms của một tick (7%). Chỉ xảy ra khi nhiều lần tìm dài trùng một tick.
-- Thường (dưới 20 con đuổi): dưới 0,2 ms.
-
-**Cấp phát:**
-- Lưới và mảng nháp cấp một lần mỗi process.
-- Mỗi tick chỉ có object nhỏ: `walker` ở chỗ gọi (như `pos` vốn tạo mỗi tick).
-- Mỗi lần tìm: mảng điểm mốc, tối đa 8 lần mỗi tick.
-- `Track` dùng lại object `lastPos`, `query.from`, `query.goal` (gán `x`, `y`).
-
-### 9. Số liệu
-
-Không phải số cân bằng, nhưng để trong bảng hằng số, không rải trong logic:
-
-| Hằng số | Giá trị | Ở đâu | Lý do |
+| Từ | Sự kiện | Sang | Làm gì |
 |---|---|---|---|
-| `NAV_CELL` | `TERRAIN_CELL` (16) | `shared/pathfind.ts` | cờ biển đúng từng ô, giữ khe giữa cây |
-| `NAV_MAX_CLEARANCE` | 64 | như trên | lớn hơn thân to nhất tìm đường (trùm 40) |
-| `PATH_HEURISTIC_WEIGHT` | 1,2 | như trên | bảng mục 4 |
-| `PATHING.maxNodes` | 1.500 | `server/ai/pathing.ts` | thân 15 tìm thấy 99,0% (1.000: 98,8%; 3.000: 99,0%) |
-| `PATHING.tickBudget` | 3.000 | như trên | tối đa khoảng 3 ms mỗi tick |
-| `PATHING.searchesPerTick` | 8 | như trên | 100 yêu cầu xong trong 13 tick; giới hạn chi phí làm mượt (4/tick: 26 tick, 16/tick: 7 tick, cùng chi phí) |
-| `PATHING.retryMs` | 500 | như trên | tối đa 2 lần tìm mỗi giây mỗi con |
-| `PATHING.failRetryMs` | 2.000 | như trên | con không có đường tốn tối đa 1.500 ô mỗi 2 giây |
-| `PATHING.repathPx` | 48 | như trên | 3 ô; người chơi chạy 0,3 giây |
-| `PATHING.stuckTicks` | 6 | như trên | 0,3 giây tiến dưới 30% bước |
-| `PATHING.lookahead` | 2 | như trên | bỏ điểm mốc thừa khi đi |
-| `PATHING.jumpPx` | 64 | như trên | lớn hơn mọi cú đẩy (44), nhỏ hơn mọi cú nhảy |
-| `PATHING.staleMs` | 250 | như trên | 5 tick không gọi `steer` thì bỏ yêu cầu |
+| `loading` | hết `LOBBY_SLOW_MS` | `slow` | hiện thông báo "chậm"; không đụng ô tên, nút, focus |
+| `loading`, `slow` | `error` từ thẻ `<script>` cùng origin | `failed` (tải hỏng) | huỷ hẹn giờ; hiện thẻ lỗi; ẩn `#name`, `#join-btn`; focus nút Tải lại |
+| `loading`, `slow` | `ErrorEvent` có `filename` cùng origin | `failed` (chạy lỗi) | như trên, khác dòng giải thích |
+| `failed` | lỗi khác | `failed` | bỏ qua (giữ lời giải thích đầu tiên) |
+| mọi trạng thái | `petgame:lobby-ready` trên `document` | `ready` | huỷ hẹn giờ; gỡ listener `error`; ẩn thông báo; trả `#name`, `#join-btn` (bỏ `hidden`) |
+
+- **Sẵn sàng luôn thắng.** Nếu có báo lỗi nhầm (một lỗi cùng origin không đến từ script sảnh; hiện không có script nào như vậy), sảnh vẫn mở bình thường khi script sảnh chạy xong.
+- **Lọc cùng origin:** `url.indexOf(location.origin + "/") === 0`. Lỗi từ script tiện ích trình duyệt (`chrome-extension://…`) hay ảnh hỏng (không phải `<script>`) bị bỏ qua.
+- **Không nghe `unhandledrejection`.** Lỗi bất đồng bộ của `main.ts` (tải ảnh, `loadDollArt`) xảy ra sau phần chạy đồng bộ, nên không chặn việc mở khoá; chúng là lỗi lúc vào phòng (đề xuất riêng).
+- **`modulepreload` hỏng:** trình duyệt nhớ kết quả hỏng trong bản đồ module và không tải lại file đó, nên thẻ module entry cũng báo `error`. Lọc riêng `<script>` là đủ, không cần nghe `<link>`. Đã kiểm: 1 request, `LINK` rồi `SCRIPT` cùng báo lỗi.
+
+**Sự kiện `petgame:lobby-ready`:**
+- Ý nghĩa: "script sảnh đã tải và dựng xong sảnh". Nó **không** có nghĩa "nút đã mở khoá".
+- `main.ts` bắn nó trên `document` ngay sau 3 dòng mở khoá.
+- Tên sự kiện nằm ở hai nơi (`index.html` và `main.ts`) vì script inline không import được hằng TS. Test chậm (bước 3e) hỏng nếu hai tên lệch nhau.
+- Không dùng `MutationObserver` theo dõi `#join-btn` để biết sảnh sẵn sàng: nếu sau này T23 giữ sảnh khoá trong lúc chờ tự vào lại thế giới, bộ canh tải sẽ báo "mạng chậm" oan vì chờ server. Bắn sự kiện rõ ràng thì chỉ đo việc tải script.
+
+**Cú pháp:** JS thuần, cú pháp ES2015 (`var`/`function`, không `?.`, `??`, `async`, class field).
+- Vite không biên dịch script inline cổ điển, và `npm run typecheck` không kiểm nó.
+- Nó phải chạy được trên cả trình duyệt quá cũ để chạy game, để báo cho họ biết.
+- Bọc trong IIFE để không tạo biến toàn cục.
+
+### 3. Thời gian chờ: `LOBBY_SLOW_MS` = 15 000 ms
+
+**Đo** bản build hiện tại (`packages/client/dist`), phục vụ không nén như `express.static`, Chromium với `Network.emulateNetworkConditions`, không cache. Đo thời điểm `#join-btn` mở khoá:
+
+| Mạng | Băng thông, độ trễ | Sảnh sẵn sàng |
+|---|---|---|
+| không giới hạn | | 0,2 s |
+| 4G tốt | 10 Mbps, 50 ms | 1,0 s |
+| 4G chậm | 1,6 Mbps, 150 ms | 5,3 s |
+| 3G | 750 kbps, 300 ms | 11,3 s |
+| 3G chậm | 400 kbps, 400 ms | 20,7 s |
+| EDGE | 240 kbps, 800 ms | 34,8 s |
+
+- Cả 6 lần đều tải 985 kB trong 11 file trước khi sẵn sàng. Thời gian ≈ dung lượng / băng thông. Xong trong 15 s cần khoảng 510 kbps.
+
+**Vì sao 15 s:**
+- **Không 10 s:** ở 3G (11,3 s), thông báo sẽ hiện 1,3 s trước khi sảnh mở. Người chơi có thể bấm Tải lại oan và tải lại chunk chính 685 kB đang dở.
+- **Không 20 s trở lên:** khi mạng treo, 20 giây nhìn "Đang tải..." đứng im là quá lâu (giới hạn chú ý của người dùng khoảng 10 giây). Ở màn hình chính iPhone, nút này là lối thoát duy nhất. 15 s là điểm cân bằng giữa hai điều trên.
+- Thông báo ở trạng thái `slow` chỉ nói "vẫn đang tải", không chặn gì và tự biến mất, nên hiện ở 3G chậm/EDGE vẫn đúng sự thật.
+- Lỗi thật không chờ hẹn giờ: hiện ngay khi trình duyệt báo.
+- Nếu sau này server nén script (đề xuất cuối file), thời gian tải giảm khoảng 3 lần. Vẫn giữ 15 s (biên rộng hơn), không cần đổi.
+
+### 4. Giao diện
+
+**Markup** (trong `#join-form`, ngay sau `#join-btn`, trước `#room-hint`):
+```html
+<div id="load-status" class="lobby-alert" role="status" aria-live="polite" hidden>
+  <strong id="load-title"></strong>
+  <p id="load-detail"></p>
+  <p id="load-invite" hidden>Link mời vẫn được giữ.</p>
+  <button type="button" id="reload-btn" class="lobby-action" aria-describedby="load-title load-detail">Tải lại</button>
+</div>
+<noscript><p class="error" id="load-noscript">Cần bật JavaScript để chơi PetGame.</p></noscript>
+```
+
+`type="button"` là **bắt buộc**. `<button>` không ghi `type` trong form là nút gửi form, nên bấm vào sẽ khiến trình duyệt tự gửi form và tải lại trang ở `/?`, mất `?room=`: đúng lỗi của T1.
+
+**Chữ** (tiếng Việt):
+
+| Trạng thái | `#load-title` | `#load-detail` |
+|---|---|---|
+| `slow` | Vẫn đang tải… | Mạng có vẻ chậm. Chờ thêm chút, hoặc bấm Tải lại. |
+| `failed`, tải hỏng | Không tải được game | Kiểm tra mạng rồi bấm Tải lại. |
+| `failed`, chạy lỗi | Không tải được game | Trình duyệt gặp lỗi khi mở game. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt. |
+
+- `#load-invite` ("Link mời vẫn được giữ.") hiện ở cả hai trạng thái khi URL có `?room=`.
+- Nút: "Tải lại". Tắt JavaScript: "Cần bật JavaScript để chơi PetGame."
+- Chữ "Đang tải..." của T1 giữ nguyên (ba dấu chấm ASCII; test cũ kiểm đúng chuỗi này).
+
+**Hai trạng thái trông thế nào** (đã dựng thử trên `dist/index.html` thật, đo bằng Chromium; ảnh trong scratchpad của phiên):
+- **`slow`:**
+  - dòng chữ trắng trên nền sảnh, ngay dưới nút "Đang tải..." (nút vẫn hiện, vẫn khoá);
+  - nút Tải lại phụ: nền trong suốt, viền trắng 2 px;
+  - không lấy focus (Tab tới được);
+  - ở 844×390: khối 680×130, đáy nút ở 314 px, không tràn.
+- **`failed`:**
+  - thẻ sáng giống màn che kết nối của T3 (`.net-box`): nền `#fafcf6`, chữ `#253020`, bo 14 px, đổ bóng;
+  - rộng tối đa 420 px, giữa form, thay chỗ ô tên và nút (đã ẩn);
+  - nút Tải lại xanh `#7cb342` chữ trắng, **có focus** (Enter hoặc Space là tải lại);
+  - thẻ 340×160 (dòng "chạy lỗi" dài hơn: 180) ở 390×844 và 1280×720, 420×160-180 ở 844×390; không tràn ở cả 3 cỡ.
+- Nút Tải lại: 140×44 ở cả 3 cỡ (`min-height: 44px; min-width: 140px`).
+- Trạng thái chậm rồi tới lỗi thật: chuyển sang thẻ `failed`.
+
+**CSS** (thêm sau `#lobby .error`, `index.html:326`):
+```css
+/* The lobby's load notice (T15; the watchdog script at the end of <body> fills it). Slow: a quiet line under the locked
+   button, which keeps waiting. Failed: a card like the connection screen's, in place of the name box and the button. */
+.lobby-alert { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; font-size: 14px; line-height: 1.4; }
+.lobby-alert[hidden] { display: none; }
+.lobby-alert p { margin: 0; }
+.lobby-alert strong { font-size: 16px; }
+.lobby-alert.failed { width: 100%; max-width: 420px; align-self: center; box-sizing: border-box; padding: 14px 16px; border-radius: 14px;
+  background: #fafcf6; color: #253020; box-shadow: 0 8px 28px rgba(0,0,0,0.4); }
+.lobby-alert.failed strong { font-size: 18px; }
+.lobby-action { min-height: 44px; min-width: 140px; padding: 0 18px; box-sizing: border-box; border: 2px solid rgba(255,255,255,0.6); border-radius: 10px;
+  background: transparent; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; }
+.lobby-alert.failed .lobby-action { border: none; background: #7cb342; color: #fff; }
+.lobby-action:focus-visible { outline: 3px solid #1e88e5; outline-offset: 2px; }
+```
+- `.lobby-alert` có `display: flex` nên **phải** có dòng `[hidden] { display: none; }` (cùng kiểu `.party-panel[hidden]`).
+- `#name`, `#join-btn`, `#load-invite` không có luật `display` nên thuộc tính `hidden` tự có tác dụng. Đừng thêm `display` cho chúng.
+- Tên class chung (`lobby-alert`, `lobby-action`) để T23 dùng lại cho lỗi lúc vào phòng ("Tạo thế giới mới").
+
+**Bàn phím, cảm ứng, trợ năng:**
+- Nút Tải lại là `<button>` gốc: Enter, Space, chạm, chuột đều chạy.
+- Trong sảnh chưa có `keyboard.ts` của game (chỉ gắn khi vào thế giới), nên không cần tự bắt phím Space như nút "Về sảnh" của T3.
+- Khi lỗi: `role="alert"` và focus vào nút; `aria-describedby` đọc tiêu đề và lời giải thích khi nút nhận focus.
+- Khi chậm: `role="status"` (đọc nhẹ), không lấy focus.
+
+### 5. "Tải lại"
+
+`location.reload()`:
+- Giữ nguyên toàn bộ địa chỉ: `?room=`, `quality` và mọi tham số khác, cả `#…`.
+- Lấy `index.html` mới (server luôn kiểm lại), dùng lại các chunk `/build` đã tải xong (cache `immutable`).
+- Không tự gọi; chỉ khi người chơi bấm.
+
+### 6. Quan hệ với T1, T3, T23 (không chồng chéo)
+
+**T1:**
+- Giữ nguyên hợp đồng: sảnh sẵn sàng khi `#join-btn` mở khoá, e2e chờ `#join-btn:enabled`.
+- Bộ canh tải không đổi `disabled` hay chữ của nút. Ở trạng thái `failed` nó ẩn nút (`hidden`), nên `waitFor()` (mặc định chờ hiện) không bao giờ thấy nút cũ của trang hỏng.
+
+**T3** (màn che kết nối `ui/connection.ts`, `.net-overlay`, z-index 6 trong `#game`):
+- *Khác chỗ:* thông báo tải nằm trong `#lobby`.
+- *Khác lúc:* chỉ có trước khi script sảnh sẵn sàng. Màn che T3 chỉ được tạo trong `startGame`, sau `lobby.remove()` (`main.ts:64-65`).
+- Hai thứ không bao giờ cùng có mặt.
+- Nút "Về sảnh" của T3 mở một trang mới (`location.assign(lobbyUrl(…))`), nên lần tải đó cũng được bộ canh tải trông.
+- Giống nhau về hình (thẻ sáng, nút xanh 44 px, viền focus `#1e88e5`) nhưng CSS riêng, không dùng chung class `.net-*`.
+
+**T23** (vào lại đúng thế giới sau khi tải lại trang; "quyết định cùng T15"):
+- Ranh giới: **T15 = lỗi lúc tải trang**, trước khi script sảnh chạy xong. **T23 = lỗi lúc vào phòng** (thế giới đã đóng, đủ 5 người, server không chạy) và việc tự về đúng thế giới sau khi tải lại.
+- T15 để sẵn cho T23:
+  - "Tải lại" giữ nguyên URL: nếu T23 ghi `?room=<id>` lên thanh địa chỉ, Tải lại cũng về đúng thế giới;
+  - class `.lobby-alert`/`.lobby-action` dùng lại được cho thẻ "Thế giới này đã đóng" kèm nút "Tạo thế giới mới";
+  - sự kiện `petgame:lobby-ready` chỉ đo việc tải script.
+- **Ràng buộc cho T23:** nếu T23 tự vào lại lúc mở trang, `main.ts` vẫn phải bắn `petgame:lobby-ready` ngay khi dựng xong sảnh, trước khi chờ server. Nếu không, bộ canh tải báo "mạng chậm" oan.
+- **Đề xuất cho T23 (không ràng buộc):**
+  - Chọn hướng ghi `?room=<id>` bằng `history.replaceState`. Lý do: khớp luật hiện có "tải lại trang = rời chủ động" (`docs/design/multiplayer.md`; trang gửi tin rời trong `pagehide`). Khớp `inviteLink`, `lobbyUrl` và nút Tải lại của T15.
+  - Hướng `sessionStorage` + `client.reconnect` cần bỏ việc rời chủ động khi tải lại; mã nối lại cũng chỉ sống 20 giây.
+  - Khi thế giới trong URL đã đóng: thẻ lỗi kèm "Tạo thế giới mới" (bỏ `?room=`).
+
+### 7. Thực nghiệm đã làm (chỉ đọc; script trong scratchpad của phiên, `t15/`)
+
+1. **`vite build` một project mẫu:** script inline giữ nguyên chỗ; thẻ module bị dời lên `<head>`, mất `data-lobby` và `onerror`.
+2. **Sự kiện trên Chromium 153** (trang mẫu qua `page.route`; listener capture ở cuối `<body>`, module ở `<head>`):
+
+   | Trường hợp | Trình duyệt báo | Nút |
+   |---|---|---|
+   | module con bị abort | `error` trên SCRIPT entry | khoá |
+   | module con 404 | như trên | khoá |
+   | module con sai MIME | như trên | khoá |
+   | `modulepreload` hỏng một lần | `error` trên LINK rồi SCRIPT; chỉ 1 request | khoá |
+   | `throw` ở top-level | `ErrorEvent` ở window, `filename` = URL module; SCRIPT bắn `load` | khoá |
+   | lỗi cú pháp | như trên | khoá |
+   | import tên không export | như trên | khoá |
+   | bình thường | chỉ có `ready` | mở |
+
+3. **Đồng hồ giả của Playwright:**
+   - `page.clock.install()` rồi `pauseAt(…)` **trước** `goto`, script sảnh bị giữ: để 3 s thời gian thật trôi qua, `fastForward(14000)` vẫn chưa hiện, `fastForward(1000)` thì hiện;
+   - thả script thì sảnh mở và thông báo ẩn;
+   - `locator.waitFor` vẫn chạy khi đồng hồ dừng.
+4. **Đo thời gian tải** (Thiết kế 3).
+5. **Dựng thử giao diện** trên `dist/index.html` thật (Thiết kế 4).
+   - `page.screenshot` **treo** khi trang chưa tải xong (script bị giữ): Playwright chờ `document.fonts.ready`, mà promise này chỉ xong khi trang tải xong. Cần ảnh trạng thái chậm thì chụp qua CDP `Page.captureScreenshot`.
+   - `<noscript>` hiện đúng khi context có `javaScriptEnabled: false`. Dùng locator theo id (`getByText` trúng cả thẻ `noscript`).
+6. **Nút Tải lại thiếu `type="button"`** (bản mẫu, mọi script hỏng): cả Enter lẫn click đều đưa trang về `http://game.test/?`. Việc trình duyệt tự gửi form thắng `location.reload()`, nên mất `room` và `quality`. Có `type="button"` thì tải lại đúng `?room=abc&quality=low`.
+
+Đã tắt mọi thứ đã bật: server tĩnh cổng 4599 đóng, không còn Chromium chạy, cây làm việc không đổi (ngoài `PLAN.md` và `docs/design/multiplayer.md`).
 
 ## Kế hoạch triển khai
 
-Số dòng theo HEAD `2fd24ba`. Chú thích code bằng tiếng Anh (JSDoc cho hàm, class, trường không hiển nhiên). Không có chữ người chơi thấy.
-
-1. **`packages/shared/src/pathfind.ts`** (mới). Import `WORLD_WIDTH`, `WORLD_HEIGHT` (`constants.ts`), `type CollisionGrid` (`collision.ts`), `type Vec2` (`movement.ts`), `TERRAIN_CELL`, `isSea`, `type Terrain` (`terrain.ts`), `defaultWorld` (`worldgen.ts`; không tạo vòng import).
-   - Hằng số: `NAV_CELL`, `NAV_MAX_CLEARANCE`, `PATH_HEURISTIC_WEIGHT` (mục 9), mỗi cái có JSDoc nói vì sao.
-   - Kiểu:
-     ```ts
-     /** A body finding its way: how wide it is, and whether it may cross the sea (companions follow a rafting owner; wild pals cannot swim). */
-     export interface NavBody { radius: number; sea: boolean }
-     export interface PathQuery extends NavBody {
-       /** Any cell whose center is this close to the goal will do (at least NAV_CELL). */
-       goalRadius: number;
-       /** Cells it may expand before giving up ("limit"). */
-       maxNodes: number;
-       /** Heuristic weight (PATH_HEURISTIC_WEIGHT unless given). */
-       weight?: number;
-     }
-     export interface PathResult {
-       status: "found" | "none" | "limit";
-       /** Waypoints after smoothing, not including `from`; the last is within goalRadius of the goal. Empty unless found. */
-       path: Vec2[];
-       /** Cells expanded: the search's cost. */
-       expanded: number;
-     }
+1. **`packages/client/index.html`**
+   - a. Chú thích trên form (`:390-392`): giữ nội dung T1, thêm một câu: `#load-status` là thông báo của bộ canh tải (script inline sau `#lobby`, T15).
+   - b. Sau dòng `#join-btn` (`:397`): chèn đúng markup ở Thiết kế 4 (`#load-status` rồi `<noscript>`).
+   - c. Sau `#lobby .error` (`:326`): chèn đúng khối CSS ở Thiết kế 4.
+   - d. Giữa `</div>` của `#lobby` (`:401`) và thẻ module (`:402`): chèn script inline.
+     - Hành vi đúng bảng trạng thái ở Thiết kế 2, chữ đúng bảng ở Thiết kế 4.
+     - Chú thích đầu script bằng tiếng Anh, nói: vì sao inline/cổ điển; ba tín hiệu; sự kiện `petgame:lobby-ready` do `main.ts` bắn; "sẵn sàng luôn thắng"; vì sao 15 s (số 3G); ràng buộc ES2015.
+     - Bản phác tham khảo (coder được sắp lại, giữ hành vi):
+     ```html
+     <script>
+       (function () {
+         var LOBBY_SLOW_MS = 15000; // ready in 11 s on 3G (750 kbps), 21 s on slow 3G (400 kbps): docs/design/multiplayer.md
+         var box = document.getElementById("load-status");
+         var title = document.getElementById("load-title");
+         var detail = document.getElementById("load-detail");
+         var invite = document.getElementById("load-invite");
+         var reload = document.getElementById("reload-btn");
+         var nameInput = document.getElementById("name");
+         var joinBtn = document.getElementById("join-btn");
+         var state = "loading";
+         var timer;
+         invite.hidden = !new URLSearchParams(location.search).has("room");
+         function ours(url) { return typeof url === "string" && url.indexOf(location.origin + "/") === 0; }
+         function show(next, head, text) {
+           state = next;
+           box.className = "lobby-alert " + next;
+           title.textContent = head;
+           detail.textContent = text;
+           box.hidden = false;
+         }
+         function fail(text) {
+           if (state === "ready" || state === "failed") return;
+           clearTimeout(timer);
+           show("failed", "Không tải được game", text);
+           box.setAttribute("role", "alert");
+           nameInput.hidden = true;
+           joinBtn.hidden = true;
+           reload.focus();
+         }
+         function onError(event) {
+           var target = event.target;
+           if (target instanceof HTMLScriptElement) {
+             if (ours(target.src)) fail("Kiểm tra mạng rồi bấm Tải lại.");
+           } else if (event instanceof ErrorEvent && ours(event.filename)) {
+             fail("Trình duyệt gặp lỗi khi mở game. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt.");
+           }
+         }
+         timer = setTimeout(function () {
+           if (state === "loading") show("slow", "Vẫn đang tải…", "Mạng có vẻ chậm. Chờ thêm chút, hoặc bấm Tải lại.");
+         }, LOBBY_SLOW_MS);
+         window.addEventListener("error", onError, true);
+         reload.addEventListener("click", function () { location.reload(); });
+         document.addEventListener("petgame:lobby-ready", function () {
+           state = "ready";
+           clearTimeout(timer);
+           window.removeEventListener("error", onError, true);
+           box.hidden = true;
+           box.setAttribute("role", "status");
+           nameInput.hidden = false;
+           joinBtn.hidden = false;
+         }, { once: true });
+       })();
+     </script>
      ```
-   - `export class NavGrid`, đúng mục 3-4:
-     - `constructor(obstacles: Pick<CollisionGrid, "circles">, terrain?: Terrain)`: dựng `clearance`, `sea` (`Uint8Array`, riêng tư); `readonly cols`, `rows`.
-     - `clearanceAt(x: number, y: number): number`: song tuyến.
-     - `cellOpen(x: number, y: number, body: NavBody): boolean`: ô chứa điểm có mở cho thân không (theo tâm ô).
-     - `lineClear(from: Vec2, to: Vec2, body: NavBody, stopShort = 0): boolean`.
-     - `findPath(from: Vec2, to: Vec2, query: PathQuery): PathResult`: A* + làm mượt; mảng nháp riêng tư, cấp ở lần tìm đầu.
-     - JSDoc của class ghi: một lưới cho mọi cỡ thân; dùng chung giữa các phòng an toàn vì chạy đồng bộ.
-   - `export function defaultNav(): NavGrid`: cache cấp module, `new NavGrid(defaultWorld().grid, defaultWorld().layout.terrain)`.
-2. **`packages/shared/src/index.ts`:** thêm `export * from "./pathfind.ts";` (cuối file).
-3. **`packages/server/src/ai/wildCombat.ts`:** `stepChase` (dòng 36-48) thêm tham số cuối `via?: Vec2`.
-   - JSDoc: "`via` (a waypoint around trees, ai/pathing.ts) is walked to at full speed instead of the target; the bite range is still measured to the target."
-   - Thân hàm:
+2. **`packages/client/src/main.ts`**
+   - Sau các hằng phần tử (`:13-19`): thêm
      ```ts
-     const detour = via !== undefined && (via.x !== target.x || via.y !== target.y);
-     const next = detour
-       ? stepToward(pos, via, 0, dtMs, radius, obstacles, speed)
-       : stepToward(pos, target, range * 0.7, dtMs, radius, obstacles, speed);
-     return { pos: next, inRange: distance(next, target) <= range };
+     /** Dispatched on document once this script has loaded and set the lobby up; index.html's load watchdog (T15) listens for this exact name. */
+     const LOBBY_READY_EVENT = "petgame:lobby-ready";
      ```
-   - Không có `via`, hoặc `via` trùng `target`: y như cũ.
-4. **`packages/server/src/ai/companion.ts`:**
-   - Thêm hàm, đặt trước `stepCompanion`:
+   - Ngay sau `joinBtn.textContent = "Vào chơi";` (`:77`): `document.dispatchEvent(new Event(LOBBY_READY_EVENT));`.
+   - Sửa chú thích `:73-74` cho nói thêm: rồi báo bộ canh tải của `index.html` (nó ẩn thông báo, thôi chờ).
+   - Không đổi gì khác (thân handler, thứ tự các dòng trên).
+3. **`tests/e2e/multiplayer.spec.ts`**
+   - a. **Hằng**, đặt trước test `lobby:` (cạnh `openWithSwitch` là được), mỗi hằng có JSDoc:
      ```ts
-     /** How close counts as "there" for a companion: within hitting range of the wild pal it fights, or trailing distance of its owner. */
-     export function companionReach(radius: number, attacking: boolean): number {
-       return attacking ? COMPANION_ATTACK_RANGE + radius : COMPANION_FOLLOW_DISTANCE;
-     }
+     /** Where Vite dev serves the lobby script (index.html's module entry); on a build it is /build/index-<hash>.js (T16). */
+     const LOBBY_SCRIPT = /\/src\/main\.ts(\?.*)?$/;
+     /** How long index.html's load watchdog waits before it says the lobby is still loading (docs/design/multiplayer.md). */
+     const LOBBY_SLOW_MS = 15_000;
      ```
-   - `stepCompanion` (dòng 42-59) thêm tham số cuối `via?: Vec2`; JSDoc thêm câu như bước 3.
-     - Nhánh nhảy về chủ không đổi, bỏ qua `via`.
-     - Rồi `goal = target ?? owner`; `detour` tính như bước 3, so với `goal`.
-     - Có `detour`: `stepToward(pos, via, 0, dtMs, radius, obstacles)`. Không: như cũ (`stopAt` dòng 55 giữ nguyên).
-     - `inAttackRange = !!target && distance(next, target) <= companionReach(radius, true)`, thay biểu thức ở dòng 57 (cùng giá trị).
-5. **`packages/server/src/ai/pathing.ts`** (mới), đúng mục 5-6.
-   - `export const PATHING = { maxNodes: 1500, tickBudget: 3000, searchesPerTick: 8, retryMs: 500, failRetryMs: 2000, repathPx: 48, stuckTicks: 6, lookahead: 2, jumpPx: 64, staleMs: 250 } as const;`
-     - JSDoc từng trường (một dòng, nói vì sao).
-     - JSDoc của bảng trỏ tới `docs/design/pals.md`, mục "Đi vòng cây, đá".
-   - Kiểu walker:
-     ```ts
-     export interface Walker extends NavBody {
-       /** This close to its goal it is "there" (bite or hit range, trailing distance): no path, it walks straight as before. */
-       goalRadius: number;
-       /** Pixels it walks this tick (speed × dt): moving less than 30% of it counts toward being stuck. */
-       step: number;
-     }
-     ```
-   - `export type PathLimits = Readonly<Record<keyof typeof PATHING, number>>;` (`PATHING` là `as const` nên các số mang kiểu literal; kiểu này cho test truyền bảng khác, ví dụ `{ ...PATHING, searchesPerTick: 2 }`).
-   - `export class PathPlanner`:
-     - `constructor(nav: NavGrid, limits: PathLimits = PATHING)`.
-     - `steer(key: string, pos: Vec2, goal: Vec2, walker: Walker, now: number): Vec2`: luật 1-8 mục 5. Trả chính object `goal` khi đi thẳng.
-     - `run(now: number): void`: mục 6.
-     - `forget(key: string): void`: xoá `Track` và chỗ trong hàng.
-     - `has(key: string): boolean`, `waypoints(key: string): readonly Vec2[] | undefined` (cho test).
-     - `lastRun: { searches: number; expanded: number }` (đọc được từ ngoài).
-   - Không dùng `Math.random`, không hẹn giờ: thời gian là `now` truyền vào.
-6. **`packages/server/src/rooms/GameRoom.ts`:**
-   - **Import:**
-     - từ `@petgame/shared` thêm `COMPANION_SPEED`, `WILD_ATTACK_RANGE`, `defaultNav`;
-     - dòng 197: thêm `companionReach`;
-     - thêm `import { PathPlanner } from "../ai/pathing.ts";`.
-   - **Trường mới** sau `private obstacles = defaultWorld().grid;` (dòng 334):
-     ```ts
-     /** Ways around trees, rocks and water for chasing pals and companions (ai/pathing.ts), keyed "w:<wild id>" / "c:<owned id>". */
-     private paths = new PathPlanner(defaultNav());
-     ```
-   - **Về hang** (dòng 672), thay bằng:
-     ```ts
-     const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
-     const via = this.paths.steer(`w:${id}`, pos, home, { radius, sea: false, goalRadius: ALPHA.roam * 0.5, step: (speed * dtMs) / 1000 }, now);
-     const step = stepChase(pos, home, speed, dtMs, radius, this.obstacles, 8, via);
-     ```
-   - **Đuổi** (dòng 705-706), thay bằng:
-     ```ts
-     const range = pal.boss ? BOSS.radius + 24 : WILD_ATTACK_RANGE;
-     const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
-     const via = this.paths.steer(`w:${id}`, pos, target.pos, { radius, sea: false, goalRadius: range, step: (speed * dtMs) / 1000 }, now);
-     const step = stepChase(pos, target.pos, speed, dtMs, radius, this.obstacles, range, via);
-     ```
-     Biến `reach` cũ đổi thành `range`; giá trị như cũ, vì `stepChase` mặc định `WILD_ATTACK_RANGE`.
-   - **Thú đi theo** (dòng 803), thay bằng:
-     ```ts
-     // Within reach of its owner it walks around trees; farther, stepCompanion jumps it back next to them.
-     const via = distance(companion, owner) > COMPANION_TELEPORT_DISTANCE ? undefined : this.paths.steer(`c:${id}`, companion, target ?? owner,
-       { radius, sea: true, goalRadius: companionReach(radius, !!target), step: (COMPANION_SPEED * dtMs) / 1000 }, now);
-     const step = stepCompanion(companion, owner, target, dtMs, radius, this.obstacles, via);
-     ```
-   - **Sau** `this.tickCompanions(dtMs);` (dòng 742): `this.paths.run(now);`, chú thích `// The searches asked for this tick, within its budget (the pals walk them from the next tick).`
-   - **`removePal`** (dòng 1222-1243): thêm `this.paths.forget(\`w:${palId}\`);` cạnh `this.forgetSkills(...)`.
-   - **`despawnCompanion`** (dòng 2040-2047): thêm `this.paths.forget(\`c:${id}\`);`.
-   - Không đổi gì khác: nhánh chạy trốn, lang thang, thú làm việc, kiểm biển sau bước đuổi (dòng 707-711) giữ nguyên.
-7. **Test:** theo mục Test.
-8. Chạy `npm run typecheck` (`noUnusedLocals`, `noUnusedParameters`).
-9. **`docs/architecture.md`:**
-   - Bảng shared: thêm dòng sau dòng `movement.ts`, `collision.ts` (dòng 24):
-     `| pathfind.ts | Tìm đường (T9): NavGrid (lưới 16 px dẫn xuất từ CollisionGrid: khoảng trống tới vật cản gần nhất của mỗi ô, cờ biển), lineClear, findPath (A* 8 hướng, giới hạn số ô, làm mượt), defaultNav() |`
-   - Dòng `rooms/GameRoom.ts` (41): sau "thú hoang (lang thang, nổi giận, gồng rồi cắn, choáng, bỏ chạy)" thêm "; thú đuổi theo và thú đi theo đi vòng cây, đá qua `paths` (`PathPlanner`; `paths.run(now)` mỗi tick sau `tickCompanions`)".
-   - Dòng `ai/` (57): thêm "`pathing.ts` (`PathPlanner`: khi nào tìm đường, đi theo điểm mốc, hàng đợi và ngân sách mỗi tick; số liệu `PATHING`)".
-   - Mục Kiểm thử (84): thêm helper `plantTrees` vào danh sách helper của `GameRoom.test.ts`.
-
-**Tách bước (tuỳ chọn):** việc vừa một vòng coder. Nếu cần commit nhỏ hơn thì chia 2 commit:
-- (A) bước 1-2 + `pathfind.test.ts`;
-- (B) phần còn lại.
-
-Tester và reviewer vẫn chấm cả nhiệm vụ một lần.
+     Test `lobby:` cũ dùng `LOBBY_SCRIPT` thay biểu thức viết tay.
+   - b. **`enterLobby(page, name, press: "click" | "enter" = "click")`:**
+     - giữ 3 bước đầu (chờ `#join-btn:enabled`, `fill`, `toHaveValue`);
+     - `"enter"` thì `await page.locator("#name").press("Enter")`, ngược lại `page.click("#join-btn")` như cũ;
+     - JSDoc thêm: Enter trong ô tên là cách vào bằng bàn phím (form tự gửi, handler `submit` nhận).
+     - Mọi chỗ gọi hiện có không đổi.
+   - c. **Test hồi quy `lobby:`** (`:1237-1280`):
+     - Đổi tên thành `lobby: nothing is sent before the lobby script is ready, by click or by Enter; the invite and the name are kept`.
+     - Sau cú bấm `force` (`:1267`), thêm bước bàn phím lúc sảnh còn khoá:
+       ```ts
+       // The keyboard way, just as impatient: Tab, a name and Enter reach nothing while the lobby is locked.
+       await page.keyboard.press("Tab");
+       await page.keyboard.type("Early");
+       await page.keyboard.press("Enter");
+       await expect(page.locator("#name")).toHaveValue("");
+       await expect(page.locator("#join-btn")).toBeDisabled();
+       ```
+     - Thay `await enterLobby(page, "Early");` bằng `await enterLobby(page, "Early", "enter");`. Chú thích: đường bấm nút đã có ở mọi test khác qua `enterLobby`. Các kiểm tra sau giữ nguyên: lỗi "Không vào được", còn `?room=`, đúng 1 lần điều hướng, tên được lưu.
+     - Ngay trước `release()`: `await expect(page.locator("#load-status")).toBeHidden();`. Giữ script vài giây (ngắn hơn nhiều so với 15 s) mà không có lỗi thì bộ canh tải không được lên tiếng.
+     - Cuối test kiểm lại như vậy: sảnh đã sẵn sàng thì không còn thông báo nào.
+   - d. **Test mới 1** (đặt ngay sau test `lobby:`): `lobby: a script that cannot load or breaks while starting says so at once, and Tải lại brings the invite back`.
+     - **Phần 1: điện thoại, cảm ứng, script chạy lỗi.** Làm trước vì không tải thế giới WebGL.
+       1. Context `{ ...PHONE_SCREENS[0].options }` (đẩy vào `contexts`), `watch(page, "Phone")`.
+       2. `route(LOBBY_SCRIPT, (r) => r.fulfill({ contentType: "text/javascript", body: 'throw new Error("test: the lobby script broke while starting");' }))`.
+       3. `goto("/?quality=low")`.
+       4. Kiểm:
+          - `#load-status` `toBeVisible()` **trước** khi kiểm chữ (`toContainText` không tự chờ phần tử hiện);
+          - chứa "Không tải được game" và "Trình duyệt gặp lỗi";
+          - `#load-invite` ẩn (không có link mời);
+          - `#join-btn`, `#name` ẩn.
+       5. `unroute(LOBBY_SCRIPT)`, `#reload-btn` `.tap()`.
+       6. Chờ `#join-btn:enabled`; nút ghi "Vào chơi"; `#load-status` ẩn.
+     - **Phần 2: desktop, bàn phím, script không tải được, vào đúng thế giới được mời.**
+       1. Thế giới của người mời mở qua SDK: `const host = await new Client(SERVER).create("world", { name: "Host" }); observers.push(host);`. Chú thích: `"world"` là `ROOM_NAME` của shared; spec không import shared.
+       2. Context desktop mới, `watch(page, "Invited")`. Đếm điều hướng khung chính như test `lobby:`.
+       3. `route(LOBBY_SCRIPT, (r) => r.abort())`, `goto(\`/?room=${host.roomId}&quality=low\`)`.
+       4. Kiểm:
+          - `#load-status` hiện, chứa "Không tải được game" và "Kiểm tra mạng";
+          - `#load-invite` hiện;
+          - `#join-btn`, `#name` ẩn;
+          - `#reload-btn` `toBeFocused()`;
+          - Chú thích: `expect` mặc định chờ 5 s, ngắn hơn `LOBBY_SLOW_MS` nhiều, nên thẻ lỗi này đến từ báo lỗi của trình duyệt chứ không phải từ hẹn giờ.
+       5. Lần lượt 844×390, 390×844, 1280×720 (`setViewportSize`): `boundingBox` của `#reload-btn` cao ≥ 44 và rộng ≥ 44 (thông điệp kèm cỡ màn hình như test `lobby:`).
+       6. `unroute(LOBBY_SCRIPT)`, rồi `page.keyboard.press("Enter")` (nút đang có focus).
+       7. `enterLobby(page, "Invited")` (chờ nút của trang mới), `waitForWorld(page)`.
+       8. Kiểm:
+          - `__petgame.room.roomId === host.roomId`;
+          - đúng 2 lần điều hướng (mở trang, tải lại);
+          - URL còn `room=<host.roomId>` và `quality=low`. Trình duyệt tự gửi form sẽ thành `/?`.
+   - e. **Test mới 2:** `lobby: on a slow network it only says it is still loading, then opens by itself; without JavaScript it says so`.
+     1. Context `{ ...PHONE_SCREENS[1].options }` (844×390, chỗ chật nhất), `watch(page, "Slow")`. Giữ `LOBBY_SCRIPT` bằng promise như test `lobby:`.
+     2. **Trước `goto`:** `await page.clock.install({ time: start }); await page.clock.pauseAt(new Date(start.getTime() + 1000));` với `start` là một `Date` cố định.
+        - Chú thích: đồng hồ của trang đứng yên, chỉ test đẩy nó đi, nên mốc 15 s chính xác dù máy chậm.
+        - Không chụp ảnh trong test này: trang chưa tải xong thì `page.screenshot` chờ font mãi.
+     3. `goto("/?room=no-such-room&quality=low", { waitUntil: "commit" })`; `#join-btn` có chữ "Đang tải...".
+     4. `fastForward(LOBBY_SLOW_MS - 1000)`: `#load-status` ẩn.
+     5. `fastForward(1000)`: kiểm
+        - `#load-status` hiện, chứa "Vẫn đang tải", **không** chứa "Không tải được";
+        - `#load-invite` hiện;
+        - `#join-btn` hiện, khoá, chữ "Đang tải...";
+        - `#name` hiện, khoá;
+        - `#reload-btn` hiện, cao ≥ 44, **không** có focus.
+     6. Thả script: chờ `#join-btn:enabled`; chữ "Vào chơi"; `#load-status` ẩn. Đây là chỗ bắt lệch tên sự kiện giữa `index.html` và `main.ts`.
+     7. **Tắt JavaScript:** context `{ javaScriptEnabled: false }` (đẩy vào `contexts`), `goto("/?quality=low")`, `#load-noscript` hiện với đúng chữ "Cần bật JavaScript để chơi PetGame.".
+4. **`docs/architecture.md`**
+   - Dòng `main.ts` (mục packages/client), sửa câu "Sảnh sẵn sàng":
+     - sau khi mở khoá, `main.ts` bắn `petgame:lobby-ready` trên `document`;
+     - đổi "Bấm lúc chưa sẵn sàng thì…" thành "Nếu không khoá, bấm lúc chưa sẵn sàng thì…" (góp ý cũ của reviewer T1).
+   - Thêm câu **Canh tải sảnh (T15):**
+     - script inline cổ điển cuối `index.html` (vì sao inline; Vite giữ nguyên nó, còn thẻ module bị dời lên `<head>` và mất thuộc tính);
+     - listener `error` pha capture trên `window` cho thẻ `<script>` cùng origin và `ErrorEvent` cùng origin → thẻ "Không tải được game";
+     - quá `LOBBY_SLOW_MS` 15 s → "Vẫn đang tải…";
+     - sự kiện sẵn sàng luôn thắng; Tải lại = `location.reload()`;
+     - JS ES2015, không typecheck, e2e `lobby:` kiểm;
+     - luật ở `docs/design/multiplayer.md`.
+   - Mục Kiểm thử, dòng Helper:
+     - `enterLobby` thêm "bấm nút, hoặc Enter trong ô tên (`press: "enter"`)";
+     - thêm `LOBBY_SCRIPT` (đường Vite dev phục vụ script sảnh; chạy e2e trên bản build thì đổi) và `LOBBY_SLOW_MS`;
+     - thêm cách thử bộ canh tải: `route` `abort` (tải hỏng), `fulfill` module ném lỗi (chạy lỗi), giữ request (chậm);
+     - thời gian của trang: `page.clock.install` + `pauseAt` trước `goto`, rồi `fastForward`;
+     - không `page.screenshot` khi trang chưa tải xong (chờ `document.fonts.ready` mãi; dùng CDP `Page.captureScreenshot`).
+5. **Tự kiểm của coder:**
+   - `npm run typecheck`, `npm test`, `npm run build`;
+   - `grep -c "petgame:lobby-ready" packages/client/dist/index.html` ra 1: script inline có trong bản build;
+   - `npx playwright test -g "lobby:" --workers=1`;
+   - ghi `PROGRESS.md`.
 
 ## Giao thức
 
-- Không đổi `schema.ts`, `messages.ts`, `Profile`, hook debug.
-- Client không đổi: vẫn nội suy vị trí thú do server gửi.
-- Đổi chữ ký hai hàm chỉ server dùng: `stepChase`, `stepCompanion` thêm tham số cuối tuỳ chọn; mọi chỗ gọi cũ vẫn đúng.
-- Export mới từ `@petgame/shared`: `NavGrid`, `defaultNav`, `NAV_CELL`, `NAV_MAX_CLEARANCE`, `PATH_HEURISTIC_WEIGHT`, kiểu `NavBody`, `PathQuery`, `PathResult`.
+- Không đổi `schema.ts`, `messages.ts`, `Profile`, server. Không đổi khoá `localStorage` (`petgame:name`, `petgame:look`, `petgame:worn`, `petgame:token`). Hồ sơ cũ không bị ảnh hưởng.
+- Hợp đồng mới **trong client:**
+  - sự kiện DOM `petgame:lobby-ready` (`main.ts` bắn, `index.html` nghe);
+  - id `#load-status`, `#load-title`, `#load-detail`, `#load-invite`, `#reload-btn`, `#load-noscript`;
+  - class `.lobby-alert`, `.lobby-action`.
 
 ## Test
 
-**Cảnh "chén cây"** dùng chung (tâm `C`), như bản mẫu đã đo:
-- Cây bán kính 14, tâm cách nhau 20 px (chồng lên nhau, không thân nào lọt).
-- Hàng đáy từ `C.x - 80` tới `C.x + 80` ở `y = C.y + 40`.
-- Hai cánh ở `x = C.x ± 80`, từ `C.y + 20` lên `C.y - 60`.
-- Miệng chén quay lên bắc. Thú đứng ở `C` (trong chén), mục tiêu ở `(C.x, C.y + 120)` (sau đáy chén).
-- Helper `treeCup(c: Vec2): Circle[]` (khoảng 10 dòng) có trong cả 3 file: `pathfind.test.ts`, `pathing.test.ts`, `GameRoom.test.ts`.
-  - Chấp nhận chép vì repo chưa có module tiện ích dùng chung cho test.
-  - Import từ một file `.test.ts` khác thì Vitest chạy lại các `describe` của file đó.
-  - Không đưa hàm chỉ dành cho test vào `index.ts` của shared.
-
-**Unit, shared:** `packages/shared/src/pathfind.test.ts` (mới).
-1. `measures how far each cell's center is from the nearest obstacle's edge`:
-   - một cây `{ x: 1000, y: 1000, r: 20 }` (1000 là tâm ô);
-   - `clearanceAt(1000, 1000)` = 0, `clearanceAt(1048, 1000)` = 28, `clearanceAt(2000, 2000)` = `NAV_MAX_CLEARANCE`;
-   - giữa hai tâm ô thì nội suy: `clearanceAt(1040, 1000)` = 20, giữa 12 (tâm ô 1032) và 28 (tâm ô 1048).
-2. `opens a cell for a body exactly when the collision grid has room for it there`:
-   - thế giới thật, hai cửa sổ 48 × 48 ô quanh lãnh địa đồng cỏ (`alphaLairs().get("meadow")`) và quanh núi lửa;
-   - bán kính 12, 15, 17, 20, 40;
-   - `defaultNav().cellOpen(tâm, { radius: r, sea: true }) === !defaultWorld().grid.blocked(tâm, r)` mọi ô.
-3. `marks the sea from the terrain`:
-   - `defaultNav().cellOpen(8, 8, { radius: 12, sea: false })` là false, với `sea: true` là true;
-   - ô của lửa trại đóng với mọi thân (`radius: 1`);
-   - ô của cả 6 lãnh địa thú đầu đàn mở cho `{ radius: 17, sea: false }`.
-4. `checks a straight way for a body's width`:
-   - không vật cản: true;
-   - một cây giữa đường: false;
-   - hai hàng cây chừa khe 51 px (cảnh dưới, test 9): thân 15 qua, thân 40 không;
-   - đường từ `(1000, 1000)` tới tâm một cây `(1200, 1000, r 14)`: false; cùng đường với `stopShort: 40` (dừng ở 1160, khoảng trống 26): true;
-   - ra ngoài thế giới: false;
-   - dải biển (test 8): thân `sea: false` không qua, `sea: true` qua.
-5. `finds a way out of a cup of trees and around it`:
-   - chén ở `(1000, 1000)`, không terrain, thân `{ radius: 15, sea: false }`, `goalRadius: 40`, `maxNodes: 1500`;
-   - `found`, `expanded ≤ 400` (bản mẫu 129);
-   - độ dài đường (từ `from` qua các điểm mốc) trong khoảng 240-520 px: tối thiểu gấp đôi đường thẳng 120, bản mẫu 410-430;
-   - mọi điểm mốc `cellOpen`; mọi đoạn giữa hai điểm mốc liền nhau `lineClear`, kể cả đoạn từ `from` (tâm chén mở cho thân 15);
-   - điểm cuối cách đích ≤ 40;
-   - `lineClear(C, đích)` false (cảnh có ý nghĩa).
-6. `says when there is no way, and stops at its limit`:
-   - vòng cây kín bán kính 60 quanh `(1000, 1000)` (cây 14, tâm cách nhau khoảng 20 px theo vòng: 19 cây);
-   - từ `(1000, 1000)` ra `(1300, 1000)`: `"none"`, `path` rỗng, `expanded < 50` (bản mẫu 9);
-   - từ `(1300, 1000)` vào `(1000, 1000)` với `maxNodes: 300`: `"limit"`, `expanded === 300`.
-7. `starts from a tight spot`:
-   - một cây `(1000, 1000, r 14)`; thân 15 đứng ở `(1021, 1021)`, cách tâm cây 29,7 px (chỗ đứng hợp lệ);
-   - tâm ô của nó `(1016, 1016)` chỉ có khoảng trống 8, tức ô đầu đóng;
-   - tìm tới `(800, 800)` (sau cây): `found`.
-8. `keeps wild pals off the sea and lets companions cross it`:
-   - terrain tự dựng: `{ cols: 400, rows: 300, data }` toàn 1 (meadow), cột 100-109 là 0 (biển, x 1600-1760);
-   - từ `(1500, 1000)` tới `(1900, 1000)`, `maxNodes: 500`;
-   - `sea: false`: không `found`;
-   - `sea: true`: `found`, `expanded < 100`.
-9. `takes a narrow gap only when the body fits`:
-   - một hàng cây r 14 dọc `y = 1000`, tâm cách nhau 20 px: phần trái x = 700, 720, …, 960; phần phải x = 1039, 1059, …, 1299; khe giữa hai mép 974 và 1025 rộng 51 px;
-   - từ `(1000, 900)` tới `(1000, 1100)`, `goalRadius: 20`, `maxNodes: 3000`;
-   - thân 15: `found`, dài < 250 (qua khe; bản mẫu 180);
-   - thân 40: `found`, dài > 600 (vòng qua đầu hàng; bản mẫu 803).
-10. `gives the same path for the same question` (tất định), và `finds nothing for a body wider than it keeps clearance for` (`radius: 65`: `"none"`, `expanded` 0).
-11. `defaultNav is built once`: `defaultNav() === defaultNav()`.
-12. **Benchmark nhẹ:** `keeps searches on the real world cheap (benchmark)`.
-    - 200 cặp tạo bằng `mulberry32(9)`:
-      - điểm đầu `x = 32 + rand() × (WORLD_WIDTH − 64)`, `y` tương tự, giữ nếu không phải biển và `!grid.blocked(p, 20)`;
-      - đích ở góc `rand() × 2π`, cách `60 + rand() × 260`, giữ nếu không biển, `!grid.blocked(t, PLAYER_RADIUS)` và `!lineClear(p, t, thân)`.
-    - Thân `{ radius: 15, sea: false }`, `goalRadius: 40`, `maxNodes: 1500`.
-    - Kiểm:
-      - mọi `expanded ≤ 1500`;
-      - `found` ≥ 97% (bản mẫu 99%);
-      - p90 của `expanded` ≤ 150 (bản mẫu 69);
-      - cả lô < 1.000 ms (bản mẫu khoảng 20-40 ms; giới hạn rộng chỉ để bắt lỗi kiểu xoá 120.000 ô mỗi lần tìm).
-    - Không in gì ra console.
-
-**Unit, server:**
-- `packages/server/src/ai/wildCombat.test.ts`, thêm `walks to a waypoint at full speed, but measures its bite range to the target`:
-  - `stepChase({x:0,y:0}, {x:30,y:0}, 50, 1000, 10, undefined, 40, {x:0,y:100})`: vị trí `(0, 50)`, `inRange` false;
-  - `via` trùng `target` cho kết quả giống hệt khi không có `via`.
-- `packages/server/src/ai/companion.test.ts`, thêm `walks to a waypoint when given one, counting its attack range to the target`:
-  - có `target`, `via` khác: đi về `via` đủ tốc độ, `inAttackRange` tính tới `target`;
-  - cách chủ quá 480 px thì nhảy về chủ, bỏ qua `via`;
-  - `companionReach(14, true) === 54`, `companionReach(14, false) === COMPANION_FOLLOW_DISTANCE`.
-- `packages/server/src/ai/pathing.test.ts` (mới). Dùng `NavGrid` thật dựng từ cảnh tự tạo (không terrain) trừ test 11; `now` tăng 50 mỗi tick.
-  1. `walks straight when the way is clear`: `steer` trả `goal` (cùng toạ độ), `run` → `lastRun.searches` 0, `waypoints(key)` undefined.
-  2. `does not look for a way once within reach`: một cây giữa `pos` và `goal` cách 30 px, `goalRadius` 40: trả `goal`, không tìm.
-  3. `leads a pal out of a cup of trees to a player behind it, where sliding alone stays stuck`:
-     - chén ở `(1000, 1000)`; Emberpup (thân 15, 126 px/s, tầm 40); mỗi tick: `steer` → `stepChase(…, 40, via)` → `run`;
-     - tới tầm cắn trước tick 100 (bản mẫu 65);
-     - đối chứng: `stepChase` không `via`, 160 tick, không lần nào `inRange`.
-  4. `serves searches first come, first served, 8 a tick`:
-     - 30 thân ở `(1000 + 100i, 1000)`, mỗi thân một cây `(x, 1040, r 14)` chắn đích `(x, 1080)`;
-     - mỗi tick `steer` cả 30 theo thứ tự rồi `run`;
-     - sau tick k (k = 1..4) đúng các thân `0 … min(8k, 30) − 1` có `waypoints`;
-     - mỗi `run`: `searches ≤ 8`, `expanded ≤ 3000`.
-  5. `never expands more than its tick budget`:
-     - 5 thân có đích nằm trong 5 vòng cây kín (mỗi lần tìm chạm `maxNodes`);
-     - `run` đầu: `searches === 2`, `expanded === 3000`; `run` sau phục vụ 2 thân kế.
-  6. `waits before searching again`:
-     - cảnh chén như test 3, thân đi theo đường mỗi tick;
-     - lần tìm đầu `found`; tick sau dời đích sang `(C.x + 60, C.y + 120)` (vẫn sau đáy chén);
-     - mọi `run` trước 500 ms kể từ lần tìm đầu: `searches` 0; `run` đầu tiên từ 500 ms: `searches` 1;
-     - thân bị nhốt trong vòng kín, đích ở ngoài (`none`): gọi `steer` mỗi tick, không tìm lại trước 2.000 ms, tìm lại ở `run` đầu tiên từ 2.000 ms.
-  7. `keeps its path while the goal moves a little`:
-     - cảnh chén, thân đi theo đường; tick sau lần tìm đầu, dời đích 30 px (< 48);
-     - trong 20 tick sau đó: không `run` nào tìm, `steer` vẫn trả điểm mốc (khác toạ độ `goal`).
-  8. `searches when stuck even if the way looks clear, and walks that path`:
-     - không vật cản, gọi `steer` 7 lần với cùng `pos` (đích cách 200 px);
-     - lần thứ 7 xếp hàng; sau `run`, `steer` trả điểm mốc (khác toạ độ `goal`) dù đường thẳng thông.
-  9. `drops its path when moved far`: có đường rồi gọi `steer` với `pos` dời 100 px: `waypoints(key)` undefined.
-  10. `forgets`: `forget(key)` thì `has(key)` false và yêu cầu đang chờ không chạy. Thân không gọi `steer` quá 250 ms thì `run` bỏ yêu cầu (`searches` 0).
-  11. **Benchmark:** `keeps to its budget with 100 pals chasing around trees at once (benchmark)`.
-      - `defaultNav()`, `defaultWorld().grid`.
-      - 100 cặp như benchmark shared nhưng cách 100-400 px, tạo bằng `mulberry32(5150)` và `randomPoint(rand, grid, 20)` từ `./wander.ts`.
-      - Emberpup, 160 tick. Mỗi tick, mỗi thân chưa tới: `steer` → `stepChase(…, via)` → bỏ bước rơi xuống biển (như `GameRoom`); rồi `run`.
-      - Kiểm:
-        - mọi `run`: `searches ≤ 8`, `expanded ≤ 3000`;
-        - ≥ 95% tới tầm cắn trong 160 tick (bản mẫu 97-99%);
-        - thời gian trung bình mỗi tick < 5 ms (bản mẫu 0,25-0,37 ms).
-
-**Tích hợp:** `packages/server/src/rooms/GameRoom.test.ts`, `describe("finding a way around trees")` mới, đặt sau `describe("combat")` (sau dòng 630).
-- **Helper:**
-  ```ts
-  /** Only `circles` stand in this room's world from now on (its real trees and rocks go), with paths around them. */
-  function plantTrees(room: GameRoom, circles: Circle[]) {
-    const grid = new CollisionGrid(circles);
-    (room as any).obstacles = grid;
-    (room as any).paths = new PathPlanner(new NavGrid(grid, defaultWorld().layout.terrain));
-  }
-  ```
-- `C = { x: 3200, y: 2560 }`: đồng cỏ trống phía nam lửa trại; đã kiểm `C` và `(C.x, C.y + 120)` không phải biển.
-- Mỗi test đặt timeout `15_000` (tick chạy theo thời gian thật).
-
-1. `a wild pal walks out of a cup of trees and around it to the player behind it`:
-   - `room.state.pals.clear()`, `plantTrees(room, treeCup(C))`;
-   - người chơi ở `(C.x, C.y + 120)`;
-   - `placeWild(room, "emberpup", C, 0)`;
-   - `skillGapUntil.set(\`w:${id}\`, Infinity)`: không tung chiêu, chỉ đi;
-   - `provoke(id, { kind: "player", id: client.sessionId })`;
-   - chờ từng tick, tối đa 100 tick (5 giây; bản mẫu 3,25 giây; đuổi kéo dài 8 giây): khoảng cách ≤ `WILD_ATTACK_RANGE`;
-   - sau đó `removePal(id)` (qua `as any`) thì `paths.has(\`w:${id}\`)` false.
-2. `a following pal walks around a cup of trees to its owner, without jumping`:
-   - `giveCompanion(room, client, player, "emberpup")`, rồi `room.state.pals.clear()`, `plantTrees`;
-   - chủ ở `(C.x, C.y + 120)`, thú đi theo ở `C`;
-   - chờ tối đa 80 tick (bản mẫu 2,05 giây): cách chủ ≤ `COMPANION_FOLLOW_DISTANCE + 8`;
-   - mỗi tick dịch không quá 20 px so với tick trước, tính từ vị trí `C` vừa đặt (đi bộ 9,5 px/tick, không nhảy về chủ).
-3. `a following pal goes around a cup of trees to the wild pal its owner fights`:
-   - như test 2 nhưng chủ ở `(C.x, C.y − 150)` (phía miệng chén), `player.palAuto = false` (chỉ đi và cắn, không chiêu bay qua tường);
-   - thú hoang `placeWild(room, "leafkit", { x: C.x, y: C.y + 120 }, 0)`;
-   - `controls.get(sid).targetPalId = id`, `aggroUntil = clock.currentTime + 6000`;
-   - chờ tối đa 80 tick (bản mẫu 2,1 giây) tới `Hit` có `companionId === owned.id` và `palId === id`.
-
-**Giữ nguyên, phải vẫn qua** (đường thẳng thông nên đi y như cũ):
-- `attacks whoever comes close… walks home when led too far` (về hang);
-- `walks the boss back home when it strays` (lang thang, không đổi);
-- `companion attacks the wild pal its owner hit`;
-- các test né, choáng, chặt cây.
-
-**E2E:** không thêm (chỉ hành vi server, không có giao diện mới).
-
-**Tester chạy:**
-1. `npm run typecheck`, `npm test`: toàn bộ qua.
-2. Lặp 5 lần `npx vitest run packages/server/src/rooms/GameRoom.test.ts -t "finding a way around trees"`; lặp 3 lần `npx vitest run packages/shared/src/pathfind.test.ts packages/server/src/ai/pathing.test.ts`. Tất cả qua.
-3. `npm run build`.
-4. `npm run test:e2e` một lượt (thú đuổi tới được sau cây nhiều hơn; xác nhận không test nào phụ thuộc vào thú kẹt).
+- **Unit (shared):** không có.
+  - Bộ canh tải là script inline trong HTML: không thuộc `packages/shared`, không import được từ test.
+  - Vitest chạy môi trường Node, không có DOM.
+  - Tách nó ra module TS để unit test thì phải nhân đôi code: một bản inline, một bản để test. e2e kiểm nó trong trình duyệt thật.
+- **Tích hợp server:** không có (server không đổi).
+- **E2E** (`tests/e2e/multiplayer.spec.ts`, bước 3):
+  - sửa `enterLobby` (thêm `press`) và test `lobby:` (bàn phím lúc khoá, vào bằng Enter, không báo nhầm);
+  - thêm 2 test:
+    - lỗi tải và chạy lỗi, Tải lại bằng chạm và bằng Enter, vào đúng thế giới được mời;
+    - mạng chậm bằng đồng hồ giả, tắt JS.
+  - Cả 3 test bắt đầu bằng `lobby:` nên `-g "lobby:"` chạy đủ.
+  - Ước thời gian: test 1 khoảng 10-20 s (vào thế giới WebGL một lần), test 2 và test `lobby:` vài giây.
+- **Lệnh cho tester** (tắt server dev trước, cổng 2567 và 5173 phải trống):
+  - `npm run typecheck`, `npm test`, `npm run build`, rồi `grep -c "petgame:lobby-ready" packages/client/dist/index.html` (= 1);
+  - `npx playwright test -g "lobby:" --repeat-each=5 --workers=1`;
+  - `npm run test:e2e` một lần (cả bộ, như CI).
+- **Kiểm chứng test bắt được lỗi** (tester, không commit; đổi file **trước** khi bật e2e, vì Vite dev tải lại trang khi file đổi; xong thì trả lại và kiểm `git diff`):
+  - bỏ dòng `dispatchEvent` trong `main.ts`: test 2 phải hỏng ở bước thả script (thông báo không ẩn);
+  - bỏ `type="button"` của `#reload-btn`: test 1 phải hỏng ở phần 2. Trang tự gửi form về `/?` (đã thấy trên bản mẫu, Thiết kế 7 mục 6), nên vào một thế giới mới thay vì `host.roomId`, và URL mất `room`.
+- **Xem bằng mắt** (tester, không commit): ảnh thẻ lỗi ở 3 cỡ. `page.screenshot` được vì trang hỏng vẫn tải xong. Ảnh trạng thái chậm ở 844×390 chụp qua CDP `Page.captureScreenshot`.
+- **Lưu ý đọc log:**
+  - nhật ký trang của các test mới có `requestfailed script …/src/main.ts` và `pageerror test: the lobby script broke while starting`: do test cố ý gây ra, chỉ in khi test hỏng;
+  - terminal `[WebServer]` có thể in lỗi trang do Vite chuyển tiếp (như `MatchMakeError` trong T1): không phải lỗi thật.
 
 ## Tiêu chí hoàn thành
 
-- [ ] **`pathfind.ts` (shared):**
-  - `NavGrid` lưu khoảng trống `Uint8Array` theo ô 16 px và cờ biển; một lưới cho mọi bán kính;
-  - `clearanceAt` nội suy song tuyến; `lineClear` lấy mẫu mỗi 8 px, có `stopShort`, không tạo object;
-  - `findPath`: A* 8 hướng không cắt góc, ô đầu luôn nhận, đích là vùng `max(goalRadius, 16)`, trọng số 1,2, `limit` với `expanded === maxNodes`, `none` khi hết ô, làm mượt bằng `lineClear`;
-  - mảng nháp cấp một lần, dấu lượt tìm, không xoá cả lưới mỗi lần tìm;
-  - `defaultNav()` cache; export trong `index.ts`.
-- [ ] **`pathing.ts` (server):**
-  - `PATHING` đúng bảng mục 9;
-  - `PathPlanner.steer` đúng luật 1-8, trả chính `goal` khi đi thẳng hoặc đã trong tầm;
-  - `run` theo FIFO, tối đa 8 lần tìm và 3.000 ô mỗi lần gọi, bỏ yêu cầu cũ hơn 250 ms;
-  - `forget`, `has`, `waypoints`, `lastRun`;
-  - không `Math.random`, không giữ tham chiếu object schema.
-- [ ] **`stepChase` và `stepCompanion`:** nhận `via` tuỳ chọn; không có `via` (hoặc trùng đích) thì kết quả y hệt trước; tầm đo tới mục tiêu thật. `companionReach` thay biểu thức tầm đánh.
-- [ ] **`GameRoom`:**
-  - trường `paths`;
-  - ba chỗ gọi `steer` đúng bảng mục 7: `goalRadius` là tầm, thú hoang `sea: false`, thú đi theo `sea: true`, không gọi khi thú đi theo cách chủ quá 480;
-  - `paths.run(now)` sau `tickCompanions`;
-  - `forget` trong `removePal` và `despawnCompanion`;
-  - không đổi nhánh chạy trốn, lang thang, thú làm việc, kiểm biển.
-- [ ] **Test:**
-  - đủ test ở mục Test (unit shared 12, server: `wildCombat` 1, `companion` 1, `pathing` 11; tích hợp 3);
-  - đối chứng "chỉ trượt thì kẹt" có trong `pathing.test.ts`;
-  - không test cũ nào bị nới hay bỏ;
-  - typecheck, `npm test`, build, `npm run test:e2e` qua; lặp như mục "Tester chạy" đều qua.
-- [ ] **Hiệu năng:** benchmark trong test giữ đúng ngân sách (`expanded ≤ 3000`, `searches ≤ 8` mỗi tick); reviewer xác nhận không có vòng lặp theo cả 120.000 ô trong một lần tìm và không có cấp phát lớn mỗi tick.
-- [ ] **Tài liệu:**
-  - `docs/architecture.md` đủ 4 chỗ ở bước 9;
-  - code khớp `docs/design/pals.md`, mục "Đi vòng cây, đá". Nếu code buộc phải khác thì báo lại, không tự sửa thiết kế.
+- [ ] `index.html`:
+  - có markup `#load-status` (`role="status"`, `aria-live="polite"`, `hidden`), `#load-title`, `#load-detail`, `#load-invite` (`hidden`), `#reload-btn` **`type="button"`** có `aria-describedby`;
+  - có `<noscript>` với `#load-noscript`;
+  - đúng chữ ở Thiết kế 4;
+  - có khối CSS `.lobby-alert`/`.lobby-action`, gồm cả `.lobby-alert[hidden] { display: none; }`.
+- [ ] Script inline cổ điển (không `type="module"`) nằm sau `#lobby`, trước thẻ module:
+  - IIFE, cú pháp ES2015 (không `?.`, `??`, `async`);
+  - `LOBBY_SLOW_MS = 15000`;
+  - hành vi đúng bảng trạng thái (Thiết kế 2), "sẵn sàng luôn thắng";
+  - không đổi `disabled` hay chữ của `#join-btn`.
+- [ ] `main.ts`: có `LOBBY_READY_EVENT = "petgame:lobby-ready"` và đúng một `document.dispatchEvent(new Event(LOBBY_READY_EVENT))` ngay sau 3 dòng mở khoá. Thân handler `submit` không đổi.
+- [ ] `npm run build`: `dist/index.html` chứa script inline (grep `petgame:lobby-ready` = 1).
+- [ ] Spec:
+  - `LOBBY_SCRIPT`, `LOBBY_SLOW_MS` có JSDoc;
+  - `enterLobby` có `press`;
+  - test `lobby:` có bước bàn phím lúc khoá, vào bằng Enter, kiểm `#load-status` ẩn ngay trước khi thả script và ở cuối;
+  - 2 test mới đúng các bước 3d, 3e;
+  - `force: true` vẫn chỉ ở test `lobby:`;
+  - không thêm `waitForTimeout`, không tăng timeout, không `retries`;
+  - `page.clock` chỉ ở test chậm, cài và dừng trước `goto`.
+- [ ] E2E chứng minh đủ:
+  - lỗi tải (abort) và chạy lỗi (module ném lỗi) đều hiện thẻ lỗi ngay (trong thời gian `expect` mặc định, ngắn hơn 15 s);
+  - nút Tải lại ≥ 44 px ở 3 cỡ, có focus khi lỗi;
+  - Tải lại bằng Enter giữ `?room=` và `quality`, vào đúng thế giới được mời;
+  - Tải lại bằng chạm mở được sảnh;
+  - mạng chậm: chưa hiện ở 14 s, hiện ở 15 s mà không nói "Không tải được", không lấy focus, sảnh tự mở và thông báo ẩn khi script tới;
+  - tắt JS thì hiện câu `<noscript>`.
+- [ ] `npm run typecheck`, `npm test`, `npm run build` sạch; `-g "lobby:" --repeat-each=5 --workers=1` qua 15/15; `npm run test:e2e` qua cả bộ.
+- [ ] Tester đã làm 2 kiểm chứng "test bắt được lỗi" (mục Test) và xem ảnh 3 cỡ; ghi kết quả vào `PROGRESS.md`.
+- [ ] `docs/architecture.md` cập nhật theo bước 4. `docs/design/multiplayer.md` có mục "Mở game: sảnh tải chậm hoặc hỏng" (game-designer đã viết; coder sửa nếu số hay chữ đổi khi làm).
 
 ## Rủi ro, câu hỏi mở
 
-- **Test tích hợp chạy theo thời gian thật:** 3 test, mỗi test 2-5 giây, làm `npm test` lâu thêm khoảng 10 giây. Mỗi test có timeout 15 giây; số tick tối đa gấp khoảng 1,5 lần số đo bản mẫu.
-- **Giới hạn thời gian trong benchmark:** gấp 15-50 lần số đo, nên máy CI chậm vẫn qua. Phần chấm chính là bộ đếm (`expanded`, `searches`), tất định.
-- **Ngưỡng tỉ lệ trong benchmark** (≥ 97% tìm thấy, ≥ 95% tới nơi) có lề 2-4 điểm so với bản mẫu.
-  - Hai test tất định (seed cố định, thế giới cố định): nếu bản của coder thấp hơn thì luôn thấp. Khi đó tìm nguyên nhân (thường do `lineClear` hay đích), không hạ ngưỡng.
-- **Đường thẳng tính bằng nội suy** có thể lệch vài px sát thân cây.
-  - Thân có thể cọ vào cây rồi được `resolve` đẩy trượt qua.
-  - Kẹt thật thì luật đếm kẹt tìm lại sau 0,3 giây.
-- **Trùm** (thân 40) ít lối: khoảng 28% lần tìm hết giới hạn hoặc không có đường. Khi đó trượt như cũ, tốn tối đa 1.500 ô mỗi 2 giây.
-- **Lối chơi đổi có chủ đích:** núp sau cụm cây hết cắt đuôi được thú (đã ghi trong `pals.md`).
-  - E2E có thể bị ảnh hưởng nếu một test vô tình dựa vào việc thú kẹt; tester chạy cả bộ.
-  - Các test e2e đã chỉ nhắm thú debug theo id (T36, T37).
-- **Không có quyết định nào cần người dùng; không có dòng chặn:** không đổi giao thức, hồ sơ, không xoá tính năng; chỉ hành vi AI ở server, quay lại được bằng cách bỏ `via`.
-- **Đề xuất cho `TASKS.md`** (ghép vào việc có sẵn, không tạo việc mới):
-  - **T21:** khi thống nhất bán kính trùm, cho trùm về nhà (vượt `BOSS_LEASH`) bằng `PathPlanner` như thú đầu đàn về hang. Hiện `stepWander` bỏ đích khi bị chặn, còn dây giới hạn đặt lại đích mỗi tick, nên trùm có thể lắc qua lại sau vật cản.
-  - **T27:** khi kẹp tốc độ bỏ chạy, cân nhắc cho thú hiền chạy về phía thoáng (`NavGrid.clearanceAt`) thay vì thẳng vào cây; T9 không đo việc này.
-  - **T10:** khi tách `GameRoom.ts`, để `paths` cùng module di chuyển của thú hoang và thú đi theo.
+Không có CHẶN.
+
+- **Chỉ đo trên Chromium.** Safari và Firefox chưa thử được ở đây. Theo đặc tả HTML: module tải hỏng thì thẻ script bắn `error`, chạy lỗi thì báo ở `window.onerror` với `filename` cùng origin (thẻ module có `crossorigin`, cùng origin nên có đủ chi tiết lỗi). Nếu một trình duyệt không báo, hẹn giờ 15 s vẫn đưa ra nút Tải lại, nên chỉ chậm hơn chứ không kẹt.
+- **Báo lỗi nhầm:** một `ErrorEvent` cùng origin không đến từ script sảnh. Hiện trang không có script nào khác ngoài `/@vite/client` ở dev. Luật "sẵn sàng luôn thắng" trả sảnh về bình thường.
+- **Vite dev trả 504 "Outdated Optimize Dep"** khi khởi động lạnh: có thể thoáng hiện thẻ lỗi rồi Vite tự tải lại trang. Chỉ ở dev; trước T15 trang khi đó cũng kẹt ở "Đang tải...".
+- **Tên sự kiện nằm ở hai file.** Test 2 (bước thả script) hỏng nếu lệch.
+- **Script inline không được typecheck.** Giữ ngắn (khoảng 50 dòng), e2e phủ mọi nhánh: tải hỏng, chạy lỗi, chậm, sẵn sàng sau khi chậm.
+- **CSP:** project chưa có Content-Security-Policy. Nếu sau này thêm thì phải cho phép script inline này (hash), nếu không bộ canh tải mất tác dụng.
+- **T13 (service worker):** SW phải lấy `index.html` từ mạng trước (network-first) hoặc kiểm phiên bản. Nếu không, Tải lại có thể lấy lại đúng bản HTML cũ trỏ tới chunk đã mất.
+- **T16 (e2e trên bản build):** `LOBBY_SCRIPT` phải đổi thành chunk entry của bản build (`/build/index-*.js`). Ba test `lobby:` dùng chung hằng này nên chỉ sửa một chỗ.
+- **Tải lại lúc mạng chậm** làm mất phần chunk đang tải dở (chunk đã xong vẫn ở cache). Chữ của trạng thái `slow` khuyên chờ trước.
+- Ở 844×390, sảnh đầy đủ (có khung chọn ngoại hình) vốn đã cuộn được (có từ trước, không do T15; việc cỡ sảnh thuộc T18). Thông báo tải chỉ hiện khi khung chọn ngoại hình chưa có, nên không làm sảnh dài thêm.
+
+## Đề xuất việc mới cho `TASKS.md`
+
+- **P2, mới: "Vào thế giới hỏng sau sảnh thì màn hình trống."**
+  - Hiện trạng: `startGame` chạy sau `lobby.remove()` (`main.ts:64-65`). Nếu chunk động của PixiJS (`browserAll-*.js`, `init-*.js`, tải trong `app.init`) hoặc `Game.create` hỏng, handler ghi chữ lỗi vào sảnh đã bị gỡ: người chơi thấy màn hình tối, không chữ, không nút.
+  - Kèm: ảnh (`loadPalSprites`, `loadPictures`, `loadDollArt`) hỏng làm `assets` hỏng, sảnh báo sai "đầy 5 người hoặc server chưa chạy".
+  - Gợi ý: chỉ gỡ sảnh sau khi `Game.create` xong, hoặc hiện màn che kiểu T3 với nút Tải lại; phân biệt chữ lỗi. Dùng lại `.lobby-alert`.
+- **P3, mới: "Server nén script."**
+  - Express không nén: script sảnh 957 kB qua mạng; gzip còn 300 kB, brotli 257 kB.
+  - Ở 3G chậm, sảnh sẵn sàng sau 20,7 s; nén thì còn khoảng 7 s.
+  - Cách làm: middleware nén, hoặc tạo sẵn `.br`/`.gz` lúc build rồi phục vụ theo `Accept-Encoding`. Cân nhắc thêm dependency.
+  - Đo lại theo cách ở Thiết kế 3: phục vụ `dist` như server thật, Chromium với `Network.emulateNetworkConditions`, đo lúc `#join-btn` mở khoá. Script đo của T15 nằm trong scratchpad, có thể đã mất.
+- **Cập nhật mô tả T23:**
+  - T15 đã làm lỗi lúc tải trang;
+  - T23 làm lỗi lúc vào phòng (thế giới đã đóng → "Tạo thế giới mới") bằng `.lobby-alert`/`.lobby-action`;
+  - phải bắn `petgame:lobby-ready` trước khi chờ server nếu tự vào lại;
+  - đề xuất hướng `history.replaceState` `?room=` (lý do ở Thiết kế 6).
+- **Ghi chú cho T13:** `index.html` network-first (rủi ro ở trên).
+- **Ghi chú cho T16:** đổi `LOBBY_SCRIPT`.
