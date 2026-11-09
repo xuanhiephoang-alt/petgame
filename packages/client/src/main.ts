@@ -18,6 +18,9 @@ const errorBox = document.getElementById("join-error")!;
 const roomHint = document.getElementById("room-hint")!;
 const lookBox = document.getElementById("look")!;
 
+/** Dispatched on document once this script has loaded and set the lobby up; index.html's load watchdog (T15) listens for this exact name. */
+const LOBBY_READY_EVENT = "petgame:lobby-ready";
+
 /** Canvas pixels per CSS pixel: phones' 3x screens are drawn at 2x to save battery. */
 const resolution = Math.min(window.devicePixelRatio || 1, 2);
 // Art is drawn as sharp as it will appear on this screen.
@@ -72,9 +75,11 @@ form.addEventListener("submit", async (event) => {
 
 // The lobby is ready from here on. index.html keeps the name box and the button locked until the handler above
 // exists (a press before that would make the browser submit the form itself); the e2e tests wait for the button.
+// Then the load watchdog of index.html is told, so it hides its notice and stops waiting.
 nameInput.disabled = false;
 joinBtn.disabled = false;
 joinBtn.textContent = "Vào chơi";
+document.dispatchEvent(new Event(LOBBY_READY_EVENT));
 
 async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets) {
   const container = document.getElementById("game")!;

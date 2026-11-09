@@ -324,6 +324,19 @@
       #lobby input:disabled { opacity: 0.6; }
       #lobby .hint { font-size: 14px; opacity: 0.7; text-align: center; }
       #lobby .error { color: #ff8a80; text-align: center; min-height: 1em; }
+      /* The lobby's load notice (T15; the watchdog script at the end of <body> fills it). Slow: a quiet line under the locked
+         button, which keeps waiting. Failed: a card like the connection screen's, in place of the name box and the button. */
+      .lobby-alert { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; font-size: 14px; line-height: 1.4; }
+      .lobby-alert[hidden] { display: none; }
+      .lobby-alert p { margin: 0; }
+      .lobby-alert strong { font-size: 16px; }
+      .lobby-alert.failed { width: 100%; max-width: 420px; align-self: center; box-sizing: border-box; padding: 14px 16px; border-radius: 14px;
+        background: #fafcf6; color: #253020; box-shadow: 0 8px 28px rgba(0,0,0,0.4); }
+      .lobby-alert.failed strong { font-size: 18px; }
+      .lobby-action { min-height: 44px; min-width: 140px; padding: 0 18px; box-sizing: border-box; border: 2px solid rgba(255,255,255,0.6); border-radius: 10px;
+        background: transparent; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; }
+      .lobby-alert.failed .lobby-action { border: none; background: #7cb342; color: #fff; }
+      .lobby-action:focus-visible { outline: 3px solid #1e88e5; outline-offset: 2px; }
       .lobby-look { display: flex; flex-direction: column; align-items: center; gap: 10px; }
       .lobby-look[hidden] { display: none; }
       .lobby-look .look-picker { width: 100%; }
@@ -389,16 +402,87 @@
     <div id="lobby">
       <!-- The name box and the button are locked until src/main.ts has attached the submit handler (it unlocks them).
            A press before that would make the browser submit the form itself and reload the page: the typed name and
-           the ?room= of an invite link would be lost. The end-to-end tests wait for the button to be enabled. -->
+           the ?room= of an invite link would be lost. The end-to-end tests wait for the button to be enabled.
+           #load-status is the notice of the load watchdog (the inline script after #lobby, T15): slow or broken loading. -->
       <form id="join-form">
         <h1>🐾 PetGame</h1>
         <div id="look" class="lobby-look"></div>
         <input id="name" placeholder="Tên của bạn" maxlength="16" autocomplete="nickname" disabled />
         <button type="submit" id="join-btn" disabled autocomplete="off">Đang tải...</button>
+        <div id="load-status" class="lobby-alert" role="status" aria-live="polite" hidden>
+          <strong id="load-title"></strong>
+          <p id="load-detail"></p>
+          <p id="load-invite" hidden>Link mời vẫn được giữ.</p>
+          <button type="button" id="reload-btn" class="lobby-action" aria-describedby="load-title load-detail">Tải lại</button>
+        </div>
+        <noscript><p class="error" id="load-noscript">Cần bật JavaScript để chơi PetGame.</p></noscript>
         <div class="hint" id="room-hint"></div>
         <div class="error" id="join-error"></div>
       </form>
     </div>
+    <!-- Load watchdog (T15). A classic inline script on purpose: it must run when the lobby script (src/main.ts and every
+         module it imports) fails, so it cannot live in that module tree, nor in a file that the same bad network may not
+         deliver; and Vite keeps inline scripts as they are while it moves the module tag to <head> and drops its attributes.
+         Three signals: a capturing "error" listener on window sees a <script> of this origin that failed to load (an
+         "error" event on the entry tag, even when a child module is the one missing) or a script of this origin that threw
+         (an ErrorEvent); a timer says "still loading" after LOBBY_SLOW_MS. src/main.ts dispatches the lobby-ready event when
+         the lobby is set up, and that always wins: the notice goes away whatever was reported before. Plain ES2015 on
+         purpose (Vite does not compile this and typecheck does not see it): it must run on browsers too old for the game. -->
+    <script>
+      (function () {
+        var LOBBY_SLOW_MS = 15000; // the lobby is ready in 11 s on 3G (750 kbps) and 21 s on slow 3G (400 kbps): docs/design/multiplayer.md
+        var box = document.getElementById("load-status");
+        var title = document.getElementById("load-title");
+        var detail = document.getElementById("load-detail");
+        var invite = document.getElementById("load-invite");
+        var reload = document.getElementById("reload-btn");
+        var nameInput = document.getElementById("name");
+        var joinBtn = document.getElementById("join-btn");
+        var state = "loading";
+        var timer;
+        invite.hidden = !new URLSearchParams(location.search).has("room");
+        function ours(url) { return typeof url === "string" && url.indexOf(location.origin + "/") === 0; }
+        function show(next, head, text) {
+          state = next;
+          box.className = "lobby-alert " + next;
+          title.textContent = head;
+          detail.textContent = text;
+          box.hidden = false;
+        }
+        function fail(text) {
+          if (state === "ready" || state === "failed") return;
+          clearTimeout(timer);
+          show("failed", "Không tải được game", text);
+          box.setAttribute("role", "alert");
+          nameInput.hidden = true;
+          joinBtn.hidden = true;
+          reload.focus();
+        }
+        function onError(event) {
+          var target = event.target;
+          if (target instanceof HTMLScriptElement) {
+            if (ours(target.src)) fail("Kiểm tra mạng rồi bấm Tải lại.");
+          } else if (event instanceof ErrorEvent && ours(event.filename)) {
+            fail("Trình duyệt gặp lỗi khi mở game. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt.");
+          }
+        }
+        timer = setTimeout(function () {
+          if (state === "loading") show("slow", "Vẫn đang tải…", "Mạng có vẻ chậm. Chờ thêm chút, hoặc bấm Tải lại.");
+        }, LOBBY_SLOW_MS);
+        window.addEventListener("error", onError, true);
+        // Reloading keeps the whole address (?room= of an invite and the rest).
+        reload.addEventListener("click", function () { location.reload(); });
+        document.addEventListener("petgame:lobby-ready", function () {
+          state = "ready";
+          clearTimeout(timer);
+          window.removeEventListener("error", onError, true);
+          box.hidden = true;
+          box.setAttribute("role", "status");
+          nameInput.hidden = false;
+          joinBtn.hidden = false;
+        }, { once: true });
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

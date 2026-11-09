@@ -58,12 +58,15 @@ async function openPage(browser: Browser, path = "/", tag = "page", options: Bro
  * Types the name and presses "Vào chơi". The lobby is ready when the button is enabled: index.html keeps it locked
  * until main.ts has attached the submit handler, and a press before that would make the browser submit the form
  * itself (the page reloads with an empty name box and the world is never entered).
+ * `press` is how to go in: the button, or Enter in the name box (the keyboard way: the form submits itself and the
+ * `submit` handler takes it).
  */
-async function enterLobby(page: Page, name: string) {
+async function enterLobby(page: Page, name: string, press: "click" | "enter" = "click") {
   await page.locator("#join-btn:enabled").waitFor();
   await page.fill("#name", name);
   await expect(page.locator("#name")).toHaveValue(name);
-  await page.click("#join-btn");
+  if (press === "enter") await page.locator("#name").press("Enter");
+  else await page.click("#join-btn");
 }
 
 async function join(browser: Browser, name: string, path = "/", options: BrowserContextOptions = {}): Promise<Page> {
@@ -1234,8 +1237,13 @@ test("levels: a big XP gain over several levels still announces the skill learne
   await expect(page.locator(".party-card.follow .skill-chip").nth(1)).not.toHaveClass(/locked/);
 });
 
+/** Where Vite dev serves the lobby script (index.html's module entry); on a build it is /build/index-<hash>.js (T16). */
+const LOBBY_SCRIPT = /\/src\/main\.ts(\?.*)?$/;
+/** How long index.html's load watchdog waits before it says the lobby is still loading (docs/design/multiplayer.md). */
+const LOBBY_SLOW_MS = 15_000;
+
 // No WebGL world is loaded here (the invited room does not exist), so this one is quick.
-test("lobby: nothing is sent before the lobby script is ready; the invite and the name are kept", async ({ browser }) => {
+test("lobby: nothing is sent before the lobby script is ready, by click or by Enter; the invite and the name are kept", async ({ browser }) => {
   const context = await browser.newContext();
   contexts.push(context);
   const page = await context.newPage();
@@ -1246,7 +1254,7 @@ test("lobby: nothing is sent before the lobby script is ready; the invite and th
   // A slow network: the lobby script (Vite serves it at /src/main.ts) is held back until the test lets go.
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route(/\/src\/main\.ts(\?.*)?$/, async (route) => {
+  await page.route(LOBBY_SCRIPT, async (route) => {
     await held;
     await route.continue();
   });
@@ -1265,11 +1273,20 @@ test("lobby: nothing is sent before the lobby script is ready; the invite and th
   // An impatient press on the locked button (the only forced click in this file): without the lock the
   // browser would submit the form itself and load the page again.
   await page.locator("#join-btn").click({ force: true });
+  // The keyboard way, just as impatient: Tab, a name and Enter reach nothing while the lobby is locked.
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("Early");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#name")).toHaveValue("");
+  await expect(page.locator("#join-btn")).toBeDisabled();
+  // A few seconds of waiting with no error is nothing for the load watchdog to report.
+  await expect(page.locator("#load-status")).toBeHidden();
 
   release();
   await page.locator("#join-btn:enabled").waitFor();
   await expect(page.locator("#join-btn")).toHaveText("Vào chơi");
-  await enterLobby(page, "Early");
+  // The button way is in every other test (through enterLobby); here the lobby is entered with Enter.
+  await enterLobby(page, "Early", "enter");
 
   // The handler ran and tried the invited room, which does not exist: with ?room= lost it would have
   // created a new world and gone in. The page was never loaded a second time.
@@ -1277,6 +1294,122 @@ test("lobby: nothing is sent before the lobby script is ready; the invite and th
   expect(new URL(page.url()).searchParams.get("room")).toBe("no-such-room");
   expect(navigations).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem("petgame:name"))).toBe("Early");
+  // The lobby was ready: no notice is left.
+  await expect(page.locator("#load-status")).toBeHidden();
+});
+
+test("lobby: a script that cannot load or breaks while starting says so at once, and Tải lại brings the invite back", async ({ browser }) => {
+  test.slow();
+
+  // Part 1, a phone, touch: the lobby script throws while it starts.
+  const phoneContext = await browser.newContext({ ...PHONE_SCREENS[0].options });
+  contexts.push(phoneContext);
+  const phone = await phoneContext.newPage();
+  watch(phone, "Phone");
+  await phone.route(LOBBY_SCRIPT, (route) =>
+    route.fulfill({ contentType: "text/javascript", body: 'throw new Error("test: the lobby script broke while starting");' }),
+  );
+  await phone.goto("/?quality=low");
+  // Visible first: toContainText does not wait for an element to show.
+  await expect(phone.locator("#load-status")).toBeVisible();
+  await expect(phone.locator("#load-status")).toContainText("Không tải được game");
+  await expect(phone.locator("#load-status")).toContainText("Trình duyệt gặp lỗi");
+  await expect(phone.locator("#load-invite")).toBeHidden();
+  await expect(phone.locator("#join-btn")).toBeHidden();
+  await expect(phone.locator("#name")).toBeHidden();
+  await phone.unroute(LOBBY_SCRIPT);
+  await phone.locator("#reload-btn").tap();
+  await phone.locator("#join-btn:enabled").waitFor();
+  await expect(phone.locator("#join-btn")).toHaveText("Vào chơi");
+  await expect(phone.locator("#load-status")).toBeHidden();
+
+  // Part 2, a desktop, keyboard: the lobby script cannot be fetched, and the invited world is entered after Tải lại.
+  // "world" is ROOM_NAME of shared (the spec does not import shared).
+  const host = await new Client(SERVER).create("world", { name: "Host" });
+  observers.push(host);
+  const context = await browser.newContext();
+  contexts.push(context);
+  const page = await context.newPage();
+  watch(page, "Invited");
+  let navigations = 0;
+  page.on("framenavigated", (frame) => frame === page.mainFrame() && navigations++);
+  await page.route(LOBBY_SCRIPT, (route) => route.abort());
+  await page.goto(`/?room=${host.roomId}&quality=low`);
+  // expect waits 5 s by default, far less than LOBBY_SLOW_MS: this card comes from the browser's error, not from the timer.
+  await expect(page.locator("#load-status")).toBeVisible();
+  await expect(page.locator("#load-status")).toContainText("Không tải được game");
+  await expect(page.locator("#load-status")).toContainText("Kiểm tra mạng");
+  await expect(page.locator("#load-invite")).toBeVisible();
+  await expect(page.locator("#join-btn")).toBeHidden();
+  await expect(page.locator("#name")).toBeHidden();
+  await expect(page.locator("#reload-btn")).toBeFocused();
+  for (const size of [{ width: 844, height: 390 }, { width: 390, height: 844 }, { width: 1280, height: 720 }]) {
+    await page.setViewportSize(size);
+    const box = await page.locator("#reload-btn").boundingBox();
+    expect(box?.height, `Tải lại height at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+    expect(box?.width, `Tải lại width at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+  }
+  await page.unroute(LOBBY_SCRIPT);
+  await page.keyboard.press("Enter");
+  await enterLobby(page, "Invited");
+  await waitForWorld(page);
+  expect(await page.evaluate(() => (window as any).__petgame.room.roomId as string)).toBe(host.roomId);
+  // Two loads (opening the page, Tải lại). A browser-submitted form would have gone to /? and a new world.
+  expect(navigations).toBe(2);
+  const url = new URL(page.url());
+  expect(url.searchParams.get("room")).toBe(host.roomId);
+  expect(url.searchParams.get("quality")).toBe("low");
+});
+
+test("lobby: on a slow network it only says it is still loading, then opens by itself; without JavaScript it says so", async ({ browser }) => {
+  const context = await browser.newContext({ ...PHONE_SCREENS[1].options });
+  contexts.push(context);
+  const page = await context.newPage();
+  watch(page, "Slow");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(LOBBY_SCRIPT, async (route) => {
+    await held;
+    await route.continue();
+  });
+  // The page's clock stands still and only the test moves it, so the 15 s mark is exact however slow the machine is.
+  // (No screenshot here: while the page has not finished loading, page.screenshot waits for the fonts for ever.)
+  const start = new Date("2030-01-01T00:00:00Z");
+  await page.clock.install({ time: start });
+  await page.clock.pauseAt(new Date(start.getTime() + 1000));
+  await page.goto("/?room=no-such-room&quality=low", { waitUntil: "commit" });
+  await expect(page.locator("#join-btn")).toHaveText("Đang tải...");
+
+  await page.clock.fastForward(LOBBY_SLOW_MS - 1000);
+  await expect(page.locator("#load-status")).toBeHidden();
+  await page.clock.fastForward(1000);
+  await expect(page.locator("#load-status")).toBeVisible();
+  await expect(page.locator("#load-status")).toContainText("Vẫn đang tải");
+  await expect(page.locator("#load-status")).not.toContainText("Không tải được");
+  await expect(page.locator("#load-invite")).toBeVisible();
+  await expect(page.locator("#join-btn")).toBeVisible();
+  await expect(page.locator("#join-btn")).toBeDisabled();
+  await expect(page.locator("#join-btn")).toHaveText("Đang tải...");
+  await expect(page.locator("#name")).toBeVisible();
+  await expect(page.locator("#name")).toBeDisabled();
+  await expect(page.locator("#reload-btn")).toBeVisible();
+  const box = await page.locator("#reload-btn").boundingBox();
+  expect(box?.height).toBeGreaterThanOrEqual(44);
+  await expect(page.locator("#reload-btn")).not.toBeFocused();
+
+  // The script arrives at last: the lobby opens and the notice goes (this also catches two different event names).
+  release();
+  await page.locator("#join-btn:enabled").waitFor();
+  await expect(page.locator("#join-btn")).toHaveText("Vào chơi");
+  await expect(page.locator("#load-status")).toBeHidden();
+
+  // No JavaScript: the page can only say so.
+  const plain = await browser.newContext({ javaScriptEnabled: false });
+  contexts.push(plain);
+  const bare = await plain.newPage();
+  await bare.goto("/?quality=low");
+  await expect(bare.locator("#load-noscript")).toBeVisible();
+  await expect(bare.locator("#load-noscript")).toHaveText("Cần bật JavaScript để chơi PetGame.");
 });
 
 /**
