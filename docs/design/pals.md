@@ -69,6 +69,25 @@ Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) ca
   - Bóng không giữ được thì người bắt thấy "Voltmouse đầu đàn thoát ra rồi (33%)".
 - Quay lại chỗ ở sau 6 phút. Nhiệm vụ cuối chuỗi: "Hạ hoặc bắt một thú đầu đàn".
 
+## Trùm Vua Đá: thân và đường về nhà
+
+Đặt ra ở nhiệm vụ T21. Số liệu: bảng `BOSS` (`packages/shared/src/boss.ts`); luật ở `GameRoom.ts`.
+
+- **Thân 40 px trong mọi việc** (`BOSS.radius`): xuất hiện, lang thang, đuổi, về nhà, cắn, trúng chiêu. Trước T21, lúc lang thang trùm dùng thân 20 px của Boulderhorn thường, nên lấn vào đá và lọt khe 40-80 px, rồi kẹt ở đó khi đổi sang thân 40 để đuổi.
+- **Nhà** là chỗ trùm xuất hiện ở chân núi lửa. Khi không đánh ai mà cách nhà quá 8 m (256 px, `BOSS.leash`), trùm đi về bằng tìm đường (mục "Đi vòng cây, đá") với tốc độ đuổi (81 px/s, chậm hơn người chơi), tới khi cách nhà 4 m (128 px, `BOSS.homeRadius`) thì lang thang lại.
+- Khác thú đầu đàn: trùm đang về **vẫn đánh** ai lại gần trong 120 px hoặc đánh nó; đánh xong, còn xa nhà thì lại về. Trùm không có dây giới hạn lúc đánh (như trước T21): người chơi vẫn dụ được nó đi xa, nhưng hết 8 giây giận là nó về.
+- Không hồi máu khi về (khác thú đầu đàn).
+- **Vì sao** (mô phỏng 400 lần, trùm bị dụ xa nhà 300-1.200 px quanh núi lửa, hầu hết bị núi hay cây chắn đường thẳng; tính tới khi cách nhà 128 px trong 60 giây):
+
+  | Cách về | Về tới | Thời gian trung bình |
+  |---|---|---|
+  | Trước T21: lang thang, thân 20 | 67% | 21 giây |
+  | Chỉ sửa thân thành 40, vẫn lang thang | 37% | 22 giây |
+  | Tìm đường, tốc độ lang thang 45 px/s | 91% | 17 giây |
+  | Tìm đường, tốc độ đuổi 81 px/s (chọn) | 92% | 10 giây |
+
+  Sửa thân mà không tìm đường làm trùm kẹt nhiều hơn, nên hai việc làm cùng nhau. Số còn lại cần đường dài hơn giới hạn 1.500 ô một lần tìm: trùm trượt dần và thử lại mỗi 2 giây.
+
 ### Thú đầu đàn đã bắt
 
 Đặt ra ở nhiệm vụ T8. Con thú đầu đàn bắt được mang dấu ★ mãi trong túi (lưu trong hồ sơ). Dấu hiện ở:
@@ -187,6 +206,7 @@ Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì
   - **Thú tự vệ** đuổi theo kẻ đánh nó sau cùng trong 8 giây (`WILD_AGGRO_MS`), tính lại sau mỗi đòn, **bất kể người chơi chạy xa bao nhiêu** (Emberpup đuổi 126 px/s). Không có dây giới hạn, nên chạy ra xa không cắt đuôi được; núp sau cây, đá cũng không, vì thú tìm đường vòng (mục "Đi vòng cây, đá"). Lướt chỉ làm trượt cú cắn đang gồng. Mỗi cú cắn đẩy người chơi lùi 16 px, ra xa con thú.
 - Thú đang choáng (6 giây) hoặc đang trong bóng thì đứng yên, không cắn. Thú hiền bị đánh tới choáng thì thôi chạy trốn.
 - Thú đầu đàn không theo bảng này: canh lãnh địa, tấn công cả khi là loài hiền, không bỏ chạy, có dây giới hạn (mục "Thú đầu đàn").
+- Trùm Vua Đá hung dữ như Boulderhorn, nhưng hết đánh mà ở xa nhà thì đi về (mục "Trùm Vua Đá: thân và đường về nhà").
 
 **Đòn đánh và bóng trúng con nào:**
 - **Đánh** (Space, nút Đánh): server cho trúng thú hoang **gần nhất trong tầm vũ khí** (tay không 48 px). Người chơi không chọn được con nào. Chỉ khi không có thú nào trong tầm thì đòn mới hái quả, chặt cây hay đập đá.
@@ -207,14 +227,16 @@ Trường `spawn.biomes` (`meadow`, `lake`, `snow`, `desert`, `swamp`, `volcano`
 | Thú đầu đàn đuổi trong lãnh địa | như trên | 40 px | theo loài | không |
 | Thú đầu đàn bị kéo quá xa, đi về hang | chỗ ở | 64 px (nửa vùng dạo) | theo loài | không |
 | Trùm Vua Đá đuổi | kẻ nó đang đánh | tầm cắn 64 px | 40 px | không |
+| Trùm Vua Đá về nhà (không đánh ai mà cách nhà quá 8 m) | chỗ nó xuất hiện | 128 px (4 m) | 40 px | không |
 | Thú đi theo bám chủ | chủ | 56 px (khoảng bám) | theo loài | được |
 | Thú đi theo lao vào thú hoang chủ đang đánh | con thú đó | tầm đánh, 40 px cộng thân nó | theo loài | được |
 
-Không tìm đường (giữ như cũ): thú hiền chạy trốn (chạy thẳng, không có đích), lang thang (đã tự đổi đích khi bị chặn), thú làm việc đi tới chỗ làm ở trại, trùm lang thang về nhà khi đi quá xa (việc T21).
+Không tìm đường (giữ như cũ): thú hiền chạy trốn (chạy thẳng, không có đích), lang thang (đã tự đổi đích khi bị chặn), thú làm việc đi tới chỗ làm ở trại.
 
 **Cách đi:**
 - Đường thẳng tới mục tiêu đủ rộng cho thân nó thì đi thẳng, y như trước T9.
-- Bị cây, đá, hồ hay núi lửa chắn thì tìm một đường vòng rồi đi theo các điểm mốc. Với thú hoang, biển cũng là vật chắn. Thấy lại mục tiêu là đi thẳng ngay.
+- Bị cây, đá, hồ hay núi lửa chắn thì tìm một đường vòng rồi đi theo các điểm mốc. Với thú hoang, biển cũng là vật chắn. Thấy lại mục tiêu là đi thẳng ngay, trừ đường tìm vì bị kẹt (dưới đây): đường đó đi tới hết rồi mới đi thẳng.
+- **Trùm không đi vòng quá xa** (T21): khi đuổi, đường vòng dài hơn `min(648, max(3 × d, d + 160))` px (d là khoảng cách thẳng tới mục tiêu lúc tìm; 648 px là quãng trùm đuổi được trong 8 giây giận) thì coi như không có đường: trùm đứng ép vào vật cản phía mục tiêu, vẫn dậm đất được nếu mục tiêu trong 102 px, 2 giây sau thử lại. Thú khác không có giới hạn này.
 - Đường tính theo đúng bề rộng thân: thú to không chui khe hẹp; trùm (thân 40 px) chỉ đi lối rộng từ 80 px.
 - Mục tiêu chạy xa hơn 48 px khỏi chỗ đường dẫn tới thì tìm lại. Mỗi con tìm nhiều nhất 2 lần mỗi giây.
 - Đang đuổi mà gần như đứng yên 0,3 giây (kẹt) thì tìm đường, kể cả khi đường thẳng trông có vẻ thông.
@@ -230,6 +252,7 @@ Không tìm đường (giữ như cũ): thú hiền chạy trốn (chạy thẳn
 | Trùm (thân 40) | 78% | 94% (phần lớn số còn lại cần hơn 8 giây kể cả theo đường ngắn nhất) |
 | Thú đi theo lao vào thú hoang, trong 6 giây | 88% | 99,7% |
 
+- Giới hạn đường vòng của trùm (T21), mô phỏng 600 lần đuổi bị chắn (mục tiêu đứng yên cách 60-320 px, 8 giây) trên cả thế giới / quanh núi lửa: tới tầm cắn 82,8% / 88,8% khi chưa có giới hạn, 83,7% / 90,7% khi có; tới tầm dậm 87,0% / 91,2% thành 88,5% / 93,5%. Số lần trùm đi ra xa mục tiêu hơn 150 px so với lúc bắt đầu: 27 / 13 thành 0 / 0. Quãng đi trung bình 237 thành 201 px.
 - Con kẹt thì kẹt tới hết 8 giây (trung vị 7,1 giây). 87% kẹt trong hốc giữa hai vật cản trở lên: cụm cây, cây với đá.
 - Kẹt nhiều nhất ở đầm lầy (40% số lần đuổi bị chắn), rừng đồng cỏ (28%) và núi tuyết (16%).
 - Thú đi theo bám chủ vốn ít kẹt, vì nó đi theo vết chủ: nhảy về chủ 0,06 lần mỗi phút. Tìm đường giúp chủ yếu khi chủ lách qua khe mà thú to hơn không lọt.
