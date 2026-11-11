@@ -34,6 +34,47 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 - **Nút ⚪/🔵 Bóng** (T18): trên cảm ứng nằm sát bên trái nút Bắt, trên nút Đánh, ở nửa phải cả khi cầm dọc lẫn ngang. Trước đó, khi cầm dọc nó nằm đúng chỗ ngón cái trái đặt cần điều khiển, nên chạm nhầm là đổi bóng. Chọn bóng gắn với việc ném, nên đặt cạnh nút Bắt. Nhãn ngắn trên cảm ứng: "⚪ Thường" / "🔵 Xịn (N)" (trình đọc màn hình đọc tên đầy đủ); desktop giữ "⚪ Bóng thường" / "🔵 Bóng xịn (N)" ở góc phải dưới. Bàn phím: R.
 - **Desktop** không có vùng cần điều khiển; các ô của cột vẫn nhận chuột như cũ, nên link mời trong ô trạng thái vẫn chọn và bấm được.
 
+## Bàn phím khi hộp thoại hoặc bảng giữ focus
+
+Đặt ra ở nhiệm vụ T19. Trước đó mọi phím của thế giới chạy bất kể focus ở đâu:
+- hộp xác nhận thả thú đang mở mà Shift+Tab làm nhân vật lướt, W/A/S/D vẫn đi sau lớp mờ;
+- Space trên nút có focus là đánh chứ không bấm nút.
+
+**Phím của thế giới:**
+- W, A, S, D và mũi tên;
+- Space (đánh), Shift (lướt), E (ném bóng), B (đặt trại), R (đổi bóng), H (ăn), M (tắt tiếng), N (bản đồ), 1-3 (chiêu).
+
+**Chúng tạm dừng khi:**
+1. **Hộp xác nhận thả thú đang mở**, focus ở đâu cũng vậy. Hộp là hộp thoại chặn (`aria-modal`), mọi chạm đã bị chặn, nên phím cũng thế.
+2. **Bàn phím đưa focus vào một bảng đang mở** (Thú, Chế tạo, Tủ đồ). Gồm hai cách:
+   - người chơi Tab vào bảng;
+   - bảng tự trả focus về một nút của nó sau một phím, ví dụ Escape đóng hộp xác nhận thì focus về "🕊️ Thả bớt".
+
+**Lúc tạm dừng:**
+- Nhân vật đứng lại ngay.
+- Phím thế giới không gửi gì, và trình duyệt làm việc của nó:
+  - Space hoặc Enter bấm nút đang có focus;
+  - Tab, Shift+Tab chuyển focus (trong hộp chỉ đổi qua lại giữa "Giữ lại" và "Thả");
+  - mũi tên cuộn danh sách.
+- Phím đang giữ khi tạm dừng bắt đầu bị quên: hết tạm dừng phải nhấn lại mới đi, giống khi cửa sổ mất focus.
+
+**Phím luôn chạy:**
+- Escape: đóng hộp trước, lần sau đóng bảng.
+- Q, C, T: mở và đóng bảng.
+
+Bảng đóng (bằng bất kỳ cách nào) thì focus rời bảng, phím thế giới chạy lại ngay.
+
+**Bấm chuột hay chạm vào nút trong bảng không làm tạm dừng**, dù trình duyệt vẫn để focus trên nút đó.
+- Mở bảng bằng chuột rồi vẫn đi, đánh như thường. Space sau cú bấm chuột vẫn là đánh, không bấm lại nút vừa bấm.
+- Lý do: người chơi desktop hay mở Chế tạo hay Tủ đồ trong lúc đi tới trại. Nếu cú bấm chuột làm dừng phím thì họ phải bấm ra thế giới mới đi tiếp được.
+- Người dùng bàn phím thì cần Tab, Space, Enter cho bảng. Vì vậy chỉ focus do bàn phím mới dừng phím. Cách nhận biết thao tác gần nhất là phím hay `pointerdown`, không dùng `:focus-visible`: Chromium bật nó khi bấm bất kỳ phím nào, kể cả W.
+
+**Ngoài phạm vi, giữ như cũ:**
+- Nút HUD ngoài bảng (🔊, 🫐 Ăn, nút cột phải, thanh chiêu) không làm tạm dừng.
+- Đang ở thế giới mà bấm Shift+Tab thì vẫn lướt một lần: Shift xuống trước Tab, lúc đó chưa biết Tab sẽ theo sau.
+- Màn mất kết nối cũng không làm tạm dừng: hành động đã bị chặn khi mất mạng, và phím đang giữ được giữ qua lúc kết nối lại.
+- Mở bảng bằng phím (Q, C, T) không đưa focus vào bảng, để phím đi không dừng giữa chừng.
+
 ## Cỡ chạm
 
 Đặt ra ở nhiệm vụ T18 (số đo trong `PLAN.md` của commit kế hoạch T18).
