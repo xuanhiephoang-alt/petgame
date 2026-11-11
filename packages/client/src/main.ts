@@ -7,19 +7,27 @@ import { loadPictures } from "./game/art/pictures.ts";
 import { loadDollArt } from "./game/art/doll.ts";
 import { DollPreview, LookPicker } from "./ui/wardrobe.ts";
 import { ConnectionOverlay } from "./ui/connection.ts";
-import { connect, lobbyUrl, type GameRoom } from "./net/connection.ts";
+import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
+import { INVITE_HINT, RETURN_HINT, joinCard, type JoinCard } from "./ui/joinStatus.ts";
 import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
 
 const lobby = document.getElementById("lobby")!;
 const form = document.getElementById("join-form") as HTMLFormElement;
 const nameInput = document.getElementById("name") as HTMLInputElement;
 const joinBtn = document.getElementById("join-btn") as HTMLButtonElement;
-const errorBox = document.getElementById("join-error")!;
+const joinStatus = document.getElementById("join-status")!;
+const joinTitle = document.getElementById("join-title")!;
+const joinDetail = document.getElementById("join-detail")!;
+const retryBtn = document.getElementById("retry-btn") as HTMLButtonElement;
+const newWorldBtn = document.getElementById("new-world-btn") as HTMLButtonElement;
 const roomHint = document.getElementById("room-hint")!;
 const lookBox = document.getElementById("look")!;
 
 /** Dispatched on document once this script has loaded and set the lobby up; index.html's load watchdog (T15) listens for this exact name. */
 const LOBBY_READY_EVENT = "petgame:lobby-ready";
+
+/** sessionStorage key of the world this tab joined last: only used to pick the lobby's words (coming back or invited). */
+const ROOM_KEY = "petgame:room";
 
 /** Canvas pixels per CSS pixel: phones' 3x screens are drawn at 2x to save battery. */
 const resolution = Math.min(window.devicePixelRatio || 1, 2);
@@ -51,15 +59,49 @@ const dollArt = loadDollArt().then((ok) => {
 });
 const assets: Promise<GameAssets> = Promise.all([loadPalSprites(), loadPictures(), dollArt]).then(([pals]) => ({ pals }));
 
-if (new URLSearchParams(location.search).has("room")) roomHint.textContent = "Bạn được mời vào thế giới của bạn bè";
+// Opened at ?room=X: coming back (this tab joined X) or invited (anything else). Runs before the lobby unlocks and must not throw.
+const invited = new URLSearchParams(location.search).get("room");
+const returning = invited !== null && safeStorage(() => sessionStorage.getItem(ROOM_KEY)) === invited;
+roomHint.textContent = returning ? RETURN_HINT : invited ? INVITE_HINT : "";
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
+/** Changes the address bar without loading the page. */
+function setAddress(url: string) {
+  if (url !== location.href) safeStorage(() => history.replaceState(history.state, "", url));
+}
+
+/** The world in the address is gone: the next join creates a new one. */
+function dropWorldFromAddress() {
+  const room = new URLSearchParams(location.search).get("room");
+  if (room) setAddress(lobbyUrl(room, false));
+  roomHint.textContent = "";
+}
+
+function showJoinCard(card: JoinCard) {
+  joinTitle.textContent = card.title;
+  joinDetail.textContent = card.detail;
+  retryBtn.hidden = !card.retry;
+  newWorldBtn.hidden = !card.newWorld;
+  retryBtn.classList.toggle("quiet", card.primary !== "retry");
+  newWorldBtn.classList.toggle("quiet", card.primary !== "newWorld");
+  joinStatus.hidden = false;
+  joinBtn.hidden = true;
+  // The lobby may scroll on short screens; the reason must show.
+  joinStatus.scrollIntoView({ block: "nearest" });
+  (card.primary === "retry" ? retryBtn : newWorldBtn).focus({ preventScroll: true });
+}
+
+let joining = false;
+
+async function enter() {
+  if (joining) return;
+  joining = true;
   const name = nameInput.value.trim();
   safeStorage(() => localStorage.setItem("petgame:name", name));
   safeStorage(() => localStorage.setItem("petgame:look", JSON.stringify(look)));
+  joinStatus.hidden = true;
+  joinBtn.hidden = false;
   joinBtn.disabled = true;
-  errorBox.textContent = "";
+  joinBtn.textContent = "Đang vào...";
   try {
     // The connection is watched from the moment the room is joined, so a drop while the pictures still load is not missed.
     const joined = connect({ name, look }).then((room) => ({ room, watch: new ConnectionWatch(room) }));
@@ -68,25 +110,53 @@ form.addEventListener("submit", async (event) => {
     await startGame(room, watch, art);
   } catch (err) {
     console.error(err);
-    errorBox.textContent = "Không vào được phòng (đầy 5 người hoặc server chưa chạy).";
-    // The lobby may scroll on short screens; the reason must show.
-    errorBox.scrollIntoView({ block: "nearest" });
+    const failure = joinFailure(err);
+    // The address tells the truth: the world is gone, so a reload opens a new one instead of meeting this card again.
+    if (failure === "closed") dropWorldFromAddress();
     joinBtn.disabled = false;
+    joinBtn.textContent = "Vào chơi";
+    showJoinCard(joinCard(failure, returning));
+  } finally {
+    joining = false;
   }
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void enter();
+});
+retryBtn.addEventListener("click", () => void enter());
+newWorldBtn.addEventListener("click", () => {
+  dropWorldFromAddress();
+  void enter();
 });
 
 // The lobby is ready from here on. index.html keeps the name box and the button locked until the handler above
 // exists (a press before that would make the browser submit the form itself); the e2e tests wait for the button.
-// Then the load watchdog of index.html is told, so it hides its notice and stops waiting.
+// Then the load watchdog of index.html is told, so it hides its notice and stops waiting (still only about loading the
+// script, never about the server: T23 added no request before it).
 nameInput.disabled = false;
 joinBtn.disabled = false;
 joinBtn.textContent = "Vào chơi";
+if (returning) joinBtn.focus({ preventScroll: true });
 document.dispatchEvent(new Event(LOBBY_READY_EVENT));
 
 async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets) {
   const container = document.getElementById("game")!;
   // Expose for debugging and end-to-end tests (the room first: tests poll it).
   (window as any).__petgame = { room };
+  safeStorage(() => sessionStorage.setItem(ROOM_KEY, room.roomId));
+  // The address is where the next page load takes the player. With friends that is this world; alone the world closes
+  // when the player leaves, so there is no `room` (a new world opens on the same map).
+  let shared: boolean | undefined; // whether the address names this world
+  const syncAddress = () => {
+    const size = room.state.players?.size ?? 0;
+    if (size === 0 || size > 1 === shared) return;
+    shared = size > 1;
+    setAddress(lobbyUrl(room.roomId, shared));
+  };
+  room.onStateChange(syncAddress);
+  syncAddress();
   // Closing the page is leaving on purpose: the server frees the place at once instead of holding it for a reconnection.
   window.addEventListener("pagehide", () => watch.leave());
 
@@ -97,6 +167,7 @@ async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets
     if (previous.state === "online") withFriends = room.state.players.size > 1;
     // A server that went down took every world with it: there is nothing to rejoin.
     if (status.state === "lost" && status.reason === "shutdown") withFriends = false;
+    if (status.state === "lost") setAddress(lobbyUrl(room.roomId, withFriends));
     overlay.show(status);
   };
   watch.onChange(react);

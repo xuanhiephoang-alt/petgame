@@ -1,4 +1,4 @@
-import { Client, type Room } from "@colyseus/sdk";
+import { Client, ErrorCode, type Room } from "@colyseus/sdk";
 import { GameState, ROOM_NAME, type JoinOptions } from "@petgame/shared";
 
 export type GameRoom = Room<any, GameState>;
@@ -23,6 +23,26 @@ export async function connect(options: JoinOptions): Promise<GameRoom> {
   const roomId = new URLSearchParams(location.search).get("room");
   if (roomId) return client.joinById(roomId, options, GameState);
   return client.create(ROOM_NAME, options, GameState);
+}
+
+/** Why joining a world failed, as the lobby explains it. */
+export type JoinFailure = "closed" | "full" | "unreachable" | "failed";
+
+/**
+ * Sorts what the SDK threw when joining into what the lobby tells the player. A full world is told from a closed one by
+ * the "is locked" text of Colyseus' `MatchMaker.joinById` (it locks a room at `maxClients`); both are error 522. A `code`
+ * that is not a number (a failed `fetch` has none; Node gives "ECONNREFUSED") or 503 (server shutting down) means the
+ * server could not be reached. Matches by shape, not `instanceof`, so plain objects work in tests.
+ */
+export function joinFailure(err: unknown): JoinFailure {
+  if (typeof err !== "object" || err === null) return "failed";
+  const code = (err as { code?: unknown }).code;
+  if (typeof code !== "number" || code === 503) return "unreachable";
+  if (code === ErrorCode.MATCHMAKE_INVALID_ROOM_ID) {
+    const message = (err as { message?: unknown }).message;
+    return typeof message === "string" && message.includes("is locked") ? "full" : "closed";
+  }
+  return "failed";
 }
 
 export function inviteLink(roomId: string): string {

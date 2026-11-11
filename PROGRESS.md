@@ -1,24 +1,21 @@
-# PROGRESS: T21 (thân trùm 40, đường về nhà, giới hạn đường vòng)
+# PROGRESS: T23 Vào lại đúng thế giới sau khi tải lại trang; thẻ lỗi khi vào
 
 ## Vòng 1: coder
-- [x] Bước 1: `BOSS` thêm `leash`, `homeRadius`, `chaseDetourFactor`, `chaseDetourExtra`, sửa chú thích `radius` (`packages/shared/src/boss.ts`)
-- [x] Bước 2: `Walker.maxPath`, `pathLength`, `detourLimit`, `lastRun.refused`, từ chối đường quá dài trong `run` (`packages/server/src/ai/pathing.ts`)
-- [x] Bước 3: `bossHeadHome`, `bossReturning` (tắt ở `spawnBoss`, `removePal` của trùm), `maxPath` cho trùm ở nhánh đuổi, `stepWander` dùng `radius`, bỏ `BOSS_LEASH`, thêm `BOSS_DETOUR` (`packages/server/src/rooms/GameRoom.ts`)
-- [x] Bước 4: 3 test unit (`detourLimit` x2 nhóm, từ chối `maxPath`, tường dài) (`packages/server/src/ai/pathing.test.ts`)
-- [x] Bước 5: `describe("boss movement")` 3 test tích hợp (`packages/server/src/rooms/GameRoom.test.ts`); test cũ "walks the boss back home when it strays" giữ nguyên
-- [x] Bước 6: `docs/architecture.md` 2 chỗ
-- Ghi chú: `BOSS_DETOUR` tính ở cấp module bằng `getSpecies` được, không lỗi thứ tự nạp. Test (c) có thêm `provoke` để chắc trùm giận người chơi đứng sau tường. Chưa chạy 3 đột biến và lặp 5 lần (việc của tester).
-- Lệch kế hoạch: không có.
-- Lệnh đã chạy: typecheck ✓, test ✓ (345 test), build ✓, test:e2e ✓ (37 test)
+- [x] Bước 1: `joinFailure` + kiểu `JoinFailure` (`packages/client/src/net/connection.ts`)
+- [x] Bước 2: unit test `joinFailure` (`packages/client/src/net/connection.test.ts`)
+- [x] Bước 3: `ui/joinStatus.ts` (`joinCard`, `RETURN_HINT`, `INVITE_HINT`) + `ui/joinStatus.test.ts`
+- [x] Bước 4: `#join-status` thay `#join-error`, CSS `.lobby-actions`, `.lobby-action.quiet`, chú thích HTML (`packages/client/index.html`)
+- [x] Bước 5: `main.ts`: `enter()` + cờ `joining`, `showJoinCard`, `setAddress`/`dropWorldFromAddress`, gợi ý "Quay lại…" + focus nút, `sessionStorage` `petgame:room`, `syncAddress` trong lúc chơi, địa chỉ khi mất hẳn kết nối (`packages/client/src/main.ts`)
+- [x] Bước 6: e2e (`tests/e2e/multiplayer.spec.ts`): sửa `waitForWorld`, test "6th" (thử lại khi có chỗ), test `lobby:` T15 (thẻ "đã đóng"), test "let the player go" (địa chỉ có `room` ngay khi mất, chờ `load`, gợi ý "Quay lại…"), thêm test `lobby:` mới (tải lại, thế giới đóng, server không tới được, nút ≥ 44×44, một lần tải trang)
+- [x] Bước 7: `docs/architecture.md` (2 chỗ)
+- Lệch kế hoạch: đếm "số lần tải trang" trong e2e bằng sự kiện `load` của trang, không phải `framenavigated`. `framenavigated` của Playwright cũng bắn cho `history.replaceState` (điều hướng cùng tài liệu), nên giá trị là 2 dù trang chỉ tải một lần. Đã đổi ở test `lobby:` của T15 (chỉ phần đếm) và ở test mới; test "connection: one device…" (dòng ~1613) không đụng.
+- Lệnh đã chạy: typecheck ✓, test ✓ (353 test), build ✓, e2e đầy đủ: 36 qua, 2 test `lobby:` lỗi do đếm `framenavigated` ở trên; sau khi sửa chạy lại `-g "lobby:"` ✓ (4/4). Chưa chạy lại cả bộ sau sửa này.
 
 ## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (345, 28 file)   build ✓   e2e ✓ (37)   photo3d (không chạy, không đụng)
-- Lặp: `GameRoom.test.ts -t "boss"` 5/5 lần qua (10 test mỗi lần); `pathing.test.ts` 3/3 lần qua (15 test). Không chập chờn.
-- Đột biến (mỗi lần lưu bản gốc, khôi phục, `cmp` giống hệt):
-  - dòng `stepWander` của `GameRoom.ts` về `radius: species.size`: test (a) "wanders with its whole body..." hỏng, các test khác qua.
-  - thay lời gọi `bossHeadHome` bằng `if (pal.boss && false) return;` (không về nhà): (b) "walks the boss home around a wall..." và test cũ "walks the boss back home when it strays" hỏng.
-  - nhánh đuổi `maxPath: undefined` trong `GameRoom.ts`: (c) "the boss stays and stomps..." hỏng. Test unit tường dài KHÔNG hỏng với đột biến này (đúng thiết kế: unit tự truyền `maxPath` cho planner, không đi qua GameRoom; PLAN.md ghi nhầm là nó hỏng theo).
-  - bổ sung: `pathing.ts` `w.maxPath = undefined` (bỏ chép khi xếp hàng): hỏng cả "refuses a path longer than maxPath..." và "keeps the boss pressing on..." (unit).
-- Tiêu chí hoàn thành: [x] BOSS 4 trường + JSDoc, radius sửa, không còn `BOSS_LEASH`/`8 * 32`/`256` rời  [x] stepWander dùng `radius`  [x] PathPlanner `maxPath`/`refused`  [x] `detourLimit` có test  [x] chỉ trùm nhận `maxPath` từ `BOSS_DETOUR`  [x] `bossHeadHome` (cờ tắt ở `spawnBoss`, `removePal`)  [x] test + đột biến + lặp  [x] `architecture.md` 2 chỗ
-- Lỗi: không có lỗi chặn. Lưu ý nhỏ (không chặn): ở `GameRoom.ts` ~dòng 1612 JSDoc "The giant Boulderhorn appears at the foot of the volcano." của `spawnBoss` nằm trơ trên `bossHeadHome` (phương thức mới chèn giữa JSDoc và `spawnBoss`); nên chuyển lại xuống trên `spawnBoss`.
-- Test đã thêm: không (đủ theo PLAN.md; không sửa file test).
+- typecheck ✓   test ✓ (353, thêm 1 sau đó = 354)   build ✓   e2e ✓ (38/38 cả bộ)   photo3d (không chạy, không đụng)
+- Lặp `-g "lobby:|6th" --repeat-each=3 --workers=1`: 15/15 qua, không chập chờn.
+- Độ lệch "đếm bằng `load` thay `framenavigated`": hợp lý. Đã kiểm bằng spec tạm (đã xoá): `replaceState` làm `framenavigated` tăng nhưng `load` không đổi (1); `location.assign` và `page.reload()` làm `load` tăng (2, 3). Nên bộ đếm `load` vẫn bắt được tải trang thật và không bị `replaceState` làm sai. Test "connection: one device..." còn dùng `framenavigated` nhưng không bị ảnh hưởng (qua).
+- Tiêu chí hoàn thành: [x] joinFailure + unit  [x] joinCard + unit (MAX_PLAYERS)  [x] `#join-error` và chữ lỗi cũ không còn (grep sạch)  [x] thẻ `.lobby-alert.failed`, nút `type="button"`, `.quiet`, ≥ 44×44 ở 3 cỡ (e2e)  [x] vào hỏng/đang vào/chống chồng  [x] closed bỏ `room` bằng replaceState (load = 1)  [x] full giữ `room`, Thử lại vào được (6th)  [x] địa chỉ theo `players.size` (e2e poll) và `#fragment`/tham số khác (unit mới)  [x] mất hẳn = URL nút Về sảnh (e2e "let the player go")  [x] tải lại khi có bạn: gợi ý, focus, Enter (e2e)  [x] `lobby-ready` đồng bộ sau mở khoá (3 test `lobby:` T15 qua; đọc diff: không có await trước)  [x] sessionStorage/replaceState qua `safeStorage`  [x] không đổi server/shared/script canh tải (git status sạch ở đó)  [x] docs/architecture.md cập nhật  [x] mọi lệnh sạch
+- Không có lỗi.
+- Test đã thêm: `packages/client/src/net/connection.test.ts`: "keeps the #fragment of the address" (lobbyUrl giữ `#…`).
+- Lưu ý nhỏ: log Vite "Unhandled error: test: the lobby script broke" là chủ ý của test T15, không phải lỗi.

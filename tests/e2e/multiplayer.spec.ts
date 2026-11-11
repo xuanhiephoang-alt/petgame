@@ -75,11 +75,12 @@ async function join(browser: Browser, name: string, path = "/", options: Browser
   return page;
 }
 
-/** Waits until the player is in the world; fails at once if the lobby shows an error instead. */
+/** Waits until the player is in the world; fails at once if the lobby shows the join card (#join-status) instead. */
 async function waitForWorld(page: Page) {
   const state = await page.waitForFunction(() => {
     if ((window as any).__petgame?.room?.state?.players?.size > 0) return "ok";
-    return document.getElementById("join-error")?.textContent || false;
+    const card = document.getElementById("join-status");
+    return card && !card.hidden ? card.textContent : false;
   });
   const value = await state.jsonValue();
   if (value !== "ok") throw new Error(`Still in the lobby: ${value}`);
@@ -88,7 +89,7 @@ async function waitForWorld(page: Page) {
 const playerCount = (page: Page) =>
   page.evaluate(() => (window as any).__petgame.room.state.players.size as number);
 
-test("5 players share one world and a 6th is turned away", async ({ browser }) => {
+test("5 players share one world and a 6th is turned away, and gets in once a place is free", async ({ browser }) => {
   const host = await join(browser, "Host");
   await waitForWorld(host);
   const roomId = await host.evaluate(() => (window as any).__petgame.room.roomId as string);
@@ -102,8 +103,20 @@ test("5 players share one world and a 6th is turned away", async ({ browser }) =
   for (const guest of guests) await expect.poll(() => guest.state.players.size).toBe(5);
 
   const sixth = await join(browser, "TooMany", `/?room=${roomId}`);
-  await expect(sixth.locator("#join-error")).toContainText("Không vào được");
-  await Promise.all(guests.map((g) => g.leave()));
+  await expect(sixth.locator("#join-status")).toContainText("đủ 5 người");
+  await expect(sixth.locator("#retry-btn")).toBeFocused();
+  await expect(sixth.locator("#new-world-btn")).toBeVisible();
+  await expect(sixth.locator("#new-world-btn")).toHaveClass(/quiet/);
+  await expect(sixth.locator("#join-btn")).toBeHidden();
+  expect(new URL(sixth.url()).searchParams.get("room")).toBe(roomId);
+
+  // A place is free: Enter on the focused "Thử lại" gets in, and the address keeps naming the world (friends are in it).
+  await guests[0].leave();
+  await sixth.keyboard.press("Enter");
+  await waitForWorld(sixth);
+  expect(await sixth.evaluate(() => (window as any).__petgame.room.roomId as string)).toBe(roomId);
+  await expect.poll(() => new URL(sixth.url()).searchParams.get("room")).toBe(roomId);
+  await Promise.all(guests.slice(1).map((g) => g.leave()));
 });
 
 test("movement is synced to other players", async ({ browser }) => {
@@ -1421,8 +1434,9 @@ test("lobby: nothing is sent before the lobby script is ready, by click or by En
   contexts.push(context);
   const page = await context.newPage();
   watch(page, "lobby");
+  // "load" fires once per page load; "framenavigated" would also count the replaceState of the address.
   let navigations = 0;
-  page.on("framenavigated", (frame) => frame === page.mainFrame() && navigations++);
+  page.on("load", () => navigations++);
 
   // A slow network: the lobby script (Vite serves it at /src/main.ts) is held back until the test lets go.
   let release!: () => void;
@@ -1461,14 +1475,105 @@ test("lobby: nothing is sent before the lobby script is ready, by click or by En
   // The button way is in every other test (through enterLobby); here the lobby is entered with Enter.
   await enterLobby(page, "Early", "enter");
 
-  // The handler ran and tried the invited room, which does not exist: with ?room= lost it would have
-  // created a new world and gone in. The page was never loaded a second time.
-  await expect(page.locator("#join-error")).toContainText("Không vào được");
-  expect(new URL(page.url()).searchParams.get("room")).toBe("no-such-room");
+  // The handler ran and tried the invited room, which does not exist (only joinById("no-such-room") can give this
+  // card): with ?room= lost it would have created a new world and gone in. The address drops the dead world with
+  // replaceState, so the page was never loaded a second time.
+  await expect(page.locator("#join-status")).toContainText("Thế giới này đã đóng");
+  await expect(page.locator("#join-status")).toContainText("link mời mới");
+  await expect(page.locator("#new-world-btn")).toBeFocused();
+  await expect(page.locator("#retry-btn")).toBeHidden();
+  await expect(page.locator("#room-hint")).toHaveText("");
+  const address = new URL(page.url());
+  expect(address.searchParams.has("room")).toBe(false);
+  expect(address.searchParams.get("quality")).toBe("low");
   expect(navigations).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem("petgame:name"))).toBe("Early");
   // The lobby was ready: no notice is left.
   await expect(page.locator("#load-status")).toBeHidden();
+});
+
+test("lobby: a reload goes back to the world friends are in; a closed world or an unreachable server says so, with a way on", async ({ browser }) => {
+  test.slow();
+  // Part 1: desktop, keyboard.
+  const page = await join(browser, "Back");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
+  const param = (target: Page, key: string) => new URL(target.url()).searchParams.get(key);
+
+  // Alone, the world closes when the player leaves, so the address names no world.
+  await expect.poll(() => param(page, "room")).toBeNull();
+  expect(param(page, "quality")).toBe("low");
+  const friend = await observer(roomId, "Friend");
+  await expect.poll(() => param(page, "room")).toBe(roomId);
+
+  await page.reload();
+  await expect(page.locator("#room-hint")).toHaveText("Quay lại thế giới bạn đang chơi cùng bạn bè");
+  await page.locator("#join-btn:enabled").waitFor();
+  await expect(page.locator("#join-btn")).toBeFocused();
+  await expect(page.locator("#name")).toHaveValue("Back");
+  await page.keyboard.press("Enter");
+  await waitForWorld(page);
+  expect(await page.evaluate(() => (window as any).__petgame.room.roomId as string)).toBe(roomId);
+  expect(await playerCount(page)).toBe(2);
+  await expect.poll(() => friend.state.players.size).toBe(2);
+
+  // The friend leaves: alone again, the address drops the world.
+  await friend.leave();
+  await expect.poll(() => param(page, "room")).toBeNull();
+
+  // The world closes while the player is away (same tab): the way back says so.
+  const friend2 = await observer(roomId, "Friend2");
+  await expect.poll(() => param(page, "room")).toBe(roomId);
+  const back = page.url();
+  await page.goto("about:blank");
+  await expect.poll(() => friend2.state.players.size).toBe(1);
+  await friend2.leave();
+  await page.goto(back);
+  await enterLobby(page, "Back");
+  await expect(page.locator("#join-status")).toContainText("Thế giới này đã đóng");
+  await expect(page.locator("#join-status")).toContainText("vẫn còn");
+  await expect(page.locator("#new-world-btn")).toBeFocused();
+  expect(param(page, "room")).toBeNull();
+
+  // Part 2: a phone upright, touch.
+  const gone = await new Client(SERVER).create("world", { name: "Gone" });
+  const closedId = gone.roomId;
+  await gone.leave();
+  const context = await browser.newContext({ ...PHONE_SCREENS[0].options });
+  contexts.push(context);
+  const phone = await context.newPage();
+  watch(phone, "phone");
+  let navigations = 0;
+  phone.on("load", () => navigations++);
+  await phone.route(/:2567\/matchmake\//, (route) => route.abort());
+  await phone.goto(`/?room=${closedId}&quality=low`);
+  await expect(phone.locator("#room-hint")).toHaveText("Bạn được mời vào thế giới của bạn bè");
+  await enterLobby(phone, "Phone");
+  await expect(phone.locator("#join-status")).toContainText("Không kết nối được server");
+  await expect(phone.locator("#retry-btn")).toBeFocused();
+  await expect(phone.locator("#new-world-btn")).toBeHidden();
+  expect(param(phone, "room")).toBe(closedId);
+
+  await phone.unroute(/:2567\/matchmake\//);
+  await phone.locator("#retry-btn").tap();
+  await expect(phone.locator("#join-status")).toContainText("Thế giới này đã đóng");
+  await expect(phone.locator("#join-status")).toContainText("link mời mới");
+  expect(param(phone, "room")).toBeNull();
+  for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+    await phone.setViewportSize(size);
+    const box = (await phone.locator("#new-world-btn").boundingBox())!;
+    expect(box.width, `button width at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+    expect(box.height, `button height at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+  }
+
+  await phone.locator("#new-world-btn").tap();
+  await waitForWorld(phone);
+  expect(await phone.evaluate(() => (window as any).__petgame.room.roomId as string)).not.toBe(closedId);
+  expect(param(phone, "room")).toBeNull();
+  expect(param(phone, "quality")).toBe("low");
+  // Only the opening loaded the page; every address change was replaceState.
+  expect(navigations).toBe(1);
 });
 
 test("lobby: a script that cannot load or breaks while starting says so at once, and Tải lại brings the invite back", async ({ browser }) => {
@@ -1815,11 +1920,15 @@ test("connection: when the world has let the player go, the screen says so and t
   }
 
   // A tap takes them to the lobby of the same world (a friend is still in it), and their pal is still theirs.
+  // The address already named the world when it was lost (T23), so the tap is what loads the page.
+  expect(new URL(page.url()).searchParams.get("room")).toBe(roomId);
+  const loaded = page.waitForEvent("load");
   await page.locator(".net-lobby").tap();
-  await page.waitForURL(/[?&]room=/, { timeout: 15_000 });
+  await loaded;
   const lobby = new URL(page.url());
   expect(lobby.searchParams.get("room")).toBe(roomId);
   expect(lobby.searchParams.get("quality")).toBe("low");
+  await expect(page.locator("#room-hint")).toHaveText("Quay lại thế giới bạn đang chơi cùng bạn bè");
   await enterLobby(page, "Phone");
   await waitForWorld(page);
   expect(await page.evaluate(() => (window as any).__petgame.room.roomId as string)).toBe(roomId);

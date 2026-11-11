@@ -1,55 +1,45 @@
 PASS
-# REVIEW: T21 Thân trùm 40, đường về nhà bằng tìm đường, giới hạn đường vòng khi đuổi, vòng 1
+# REVIEW: T23 Vào lại đúng thế giới sau khi tải lại trang; thẻ lỗi khi vào, vòng 1
 
 ## Kết luận
-Thay đổi làm đủ 6 bước và mọi tiêu chí hoàn thành trong PLAN.md, khớp `docs/design/pals.md` (mục "Trùm Vua Đá: thân và đường về nhà", gạch "Trùm không đi vòng quá xa"), không làm gì ngoài phạm vi. Không thấy lỗi logic, lỗ gian lận hay chi phí tick đáng kể. Tôi đã chạy lại `typecheck` và 14 test liên quan (pathing, boss), tất cả qua. Còn một chú thích JSDoc đặt sai chỗ: chỉ là góp ý, không làm FAIL.
+Thay đổi làm đủ các bước 1-7 và mọi tiêu chí hoàn thành trong PLAN.md, không đụng server, shared hay script canh tải. Phần phân loại lỗi khớp đúng cách SDK 0.18.5 ném lỗi (đã đọc `HTTP.ts`, `Client.createMatchMakeRequest`, `core/Room._onLeave`). Đồng bộ địa chỉ, cờ `joining`, thứ tự `lobby-ready` và test đều đúng. Không còn lỗi phải sửa.
 
-## Lỗi phải sửa
+Đã kiểm lại: `npx vitest run` hai file test mới (13/13 qua), `npm run typecheck` sạch. Tester đã chạy cả bộ e2e (38/38) và lặp 15/15.
+
+## Lỗi phải sửa (FAIL khi còn mục này)
 (không có)
 
-## Đã kiểm
-- **Cờ `bossReturning`:**
-  - Bật khi trùm không đánh ai mà cách nhà quá `BOSS.leash`. Tắt khi về tới nơi: lúc đó trùm còn được não lang thang mới (`newBrain(pal)`), và vì hàm `return true` nên biến `brain` cũ trong tick không bị dùng tiếp.
-  - Tắt cả trong `spawnBoss`, và trong `removePal` khi `palId === this.bossId`. `defeatBoss` gọi `removePal(bossId)` trước `this.bossId = undefined` (GameRoom.ts:1703-1704), nên cờ được tắt đúng.
-  - Bị khiêu khích lúc đang về: nhánh đánh (`wildTarget`) chạy trước nên trùm vẫn đánh, đánh xong còn cờ thì về tiếp, đúng thiết kế ("vẫn đánh", về tới 128 px).
-  - Chạy tick sau khi trùm đã mất: không sao, vì `state.pals.forEach` không còn trùm và cờ đã tắt.
-- **Đuổi, dây giới hạn, lang thang:**
-  - `bossHeadHome` chặn trước `stepWander`. Thú đầu đàn không bị đụng: `home` là `undefined` với trùm.
-  - `stepWander` giờ dùng `radius`. Với thú thường và thú đầu đàn, `radius === species.size`, nên không đổi gì.
-  - Không bước xuống biển: giống nhánh đuổi.
-  - `stepChase` không có đường vòng thì dừng ở `0,7 × 128 ≈ 90` px, mà `inRange` tính ở 128 px, nên lúc tới nơi cờ luôn tắt.
-- **`PathPlanner`:**
-  - `maxPath` được chép vào `query` mỗi lần xếp hàng, nên lần gọi về nhà (không có `maxPath`) xoá giới hạn của lần đuổi trước.
-  - Lần bị từ chối vẫn tính vào `searches` và `expanded`, rồi `drop` và chờ `failRetryMs` (2 s), nên không chiếm ngân sách liên tục và không làm đói các thú khác.
-  - Nhánh `else` cũ (đường `found` nhưng rỗng thì chờ `retryMs`) giữ nguyên hành vi.
-  - `pathLength` không cấp phát; `detourLimit` O(1); chỉ một con trùm. Chi phí tick không đáng kể.
-- **Hằng số:**
-  - `BOSS` có đủ 4 trường, mỗi trường có JSDoc tiếng Anh, chú thích `radius` đã sửa.
-  - `BOSS_LEASH` và `8 * 32` đã bỏ.
-  - `BOSS_DETOUR.max` suy ra từ tốc độ loài × `WILD_CHASE_SPEED_FACTOR` × `WILD_AGGRO_MS`, không ghi số cứng.
-  - Thú khác nhận `maxPath: undefined`.
-- **Test:**
-  - 3 test unit và 3 test tích hợp kiểm đúng hành vi: có đối chứng không giới hạn (đi xa hơn 150 px), có kiểm mốc thử lại theo `failRetryMs`, có kiểm không lấn vật cản ở mọi tick.
-  - Tester chạy 3 đột biến, đều làm đúng test tương ứng hỏng. Riêng đột biến thứ ba không làm hỏng test unit "tường dài", vì test đó tự truyền `maxPath`; PLAN.md ghi nhầm chỗ này, không phải lỗi của test.
-  - Không có test cũ nào bị nới.
-- Không đổi giao thức, schema, hồ sơ hay client. Không có `debug:*` mới.
+## Đã rà soát, đạt
+- **`joinFailure`** (`packages/client/src/net/connection.ts:37`): lỗi `fetch` được SDK gói thành `ServerError(err.cause?.code || err.code, …)`. Trên trình duyệt `code` là `undefined`, trên Node là `"ECONNREFUSED"`; cả hai thành `unreachable` (e2e `route.abort()` xác nhận trên Chromium). Trả HTTP không ok thì ra `ServerError(raw.status, …)`, kể cả khi thân trả về không phải JSON, nên không crash. Nhận diện theo cấu trúc, không dùng `instanceof`. Giá trị ném không phải object thì thành `failed`. Các bộ nạp `assets` tự bắt lỗi nên không ném `Error` không có `code` vào nhánh này.
+- **Đầy hay đóng:** Colyseus mở khoá phòng (`#_decrementClientCount`) trước khi đóng socket của người rời (`_onLeave(...).then(leave)`). Vì vậy `await guests[0].leave()` rồi Thử lại trong test "6th" không đua.
+- **Địa chỉ:**
+  - `setAddress` chỉ gọi `replaceState` khi URL đổi, có bọc `safeStorage`.
+  - `syncAddress` không tạo object mỗi tick, chỉ gọi `lobbyUrl` khi `shared` đổi.
+  - Lúc `lost`, địa chỉ bằng đúng URL của nút Về sảnh. SDK kết nối lại trên cùng `Room`, nên `onStateChange` vẫn sống sau khi kết nối lại.
+  - Gặp `closed` thì bỏ `room` trước khi hiện thẻ.
+  - `?room=` rỗng nhất quán với `connect` (tạo thế giới mới, không có gợi ý).
+  - `#fragment` được giữ (có unit test mới).
+- **Gợi ý quay lại hay được mời:** đọc `sessionStorage` một lần, đồng bộ, bọc `safeStorage`. Khoá chỉ dùng để chọn chữ.
+- **`lobby-ready`:** vẫn bắn đồng bộ ngay sau ba dòng mở khoá, sau `joinBtn.focus`. Không có `await` hay yêu cầu server nào trước nó.
+- **Chống gọi chồng:** cờ `joining` đặt đồng bộ. Trong lúc vào, `#join-btn` bị khoá (nên Enter trong ô tên không gửi được form) và thẻ bị ẩn (nên không bấm được Thử lại hay Tạo thế giới mới).
+- **Thẻ lỗi:**
+  - `role="alert"`, nút `type="button"`.
+  - Focus vào nút chính (`preventScroll`) sau khi `scrollIntoView`; nút phụ có class `quiet`.
+  - `.lobby-alert[hidden]` có sẵn; `.lobby-action` và `#join-btn` không đặt `display`, nên `hidden` có tác dụng.
+  - e2e đo nút ≥ 44×44 ở 3 cỡ màn hình.
+- **Đổi bộ đếm `framenavigated` sang `load`:** hợp lý, vì `replaceState` cũng làm `framenavigated` bắn. Tester đã chứng minh `load` vẫn đếm được `reload` và `location.assign`. Test "let the player go" chờ `load` thay cho `waitForURL`, đúng.
+- **Tài liệu:** `docs/architecture.md` (2 chỗ) và `docs/design/multiplayer.md` khớp hành vi.
 
 ## Góp ý không bắt buộc
-- `packages/server/src/rooms/GameRoom.ts:1612`: JSDoc của `spawnBoss` ("The giant Boulderhorn appears at the foot of the volcano.") nằm trơ phía trên JSDoc của `bossHeadHome`, nên `spawnBoss` mất chú thích. Nên chuyển dòng đó xuống ngay trên `private spawnBoss()`. Có thể sửa khi commit nhiệm vụ sau đụng tới file này, hoặc ghép vào T41.
-- **Cùng key `w:${id}` cho lúc đuổi và lúc về nhà:**
-  - Khi trùm đổi từ đuổi sang về nhà, nếu còn đường cũ thì `steer` trả điểm mốc của đường đuổi trong tối đa 0,5 s (`retryMs`).
-  - Nếu lần đuổi vừa bị từ chối, trùm đi thẳng về nhà trong tối đa 2 s rồi mới được tìm đường.
-  - Thú đầu đàn cũng vậy, và lỗi này cùng nhóm với các mục của T41 ("bỏ đường cũ"). Đề xuất ghi vào T41: khi đích đổi hẳn (đổi chế độ), gọi `drop` và đặt lại `nextSearchAt`.
-- **Test chưa có (không bắt buộc theo PLAN.md):**
-  - trùm đang về nhà bị khiêu khích, đánh xong lại về tiếp, kể cả khi đã ở trong 256 px;
-  - `bossReturning` tắt sau `defeatBoss` và khi trùm xuất hiện lại.
-  Có thể thêm khi làm T41.
-- Test unit "keeps the boss pressing on..." ghi cứng `max: 648`. Có thể dựng như `BOSS_DETOUR` (đã có câu kiểm 648 ở test "matches the boss table"), để khi đổi tốc độ loài chỉ một chỗ hỏng.
+- **`packages/client/src/main.ts:170` (Về sảnh khi địa chỉ có `#…`):** từ T23, địa chỉ lúc `lost` đã bằng đúng `lobbyUrl(...)`, nên `location.assign` sang cùng URL đó. URL không có `#` thì trình duyệt tải lại (e2e chứng minh). URL có `#frag` thì theo chuẩn HTML đó chỉ là điều hướng tới fragment, trang không tải lại, nên nút Về sảnh không làm gì. Trước T23 lỗi này đã có khi chơi một mình; giờ thêm cả trường hợp có bạn bè. Game hiện không tạo `#` nào, nên chưa ai gặp. Cách sửa: trong callback của overlay, nếu `url === location.href` thì `location.reload()`, không thì `location.assign(url)`.
+- **`joinFailure`:** proxy của Render/Fly trả 502/504 khi server đang deploy. Hiện các mã này rơi vào `failed` ("Có lỗi khi vào…"). Có thể xếp 502/504 vào `unreachable` cho đúng nghĩa hơn; hai thẻ đều có nút Thử lại nên không gấp.
+- **`main.ts:150`:** `size > 1 === shared` đúng nhờ thứ tự ưu tiên toán tử, nhưng thêm ngoặc `(size > 1) === shared` (như PLAN viết) sẽ dễ đọc hơn.
+- **`showJoinCard`, `enter`, `joining`:** thiếu JSDoc ngắn. Theo quy ước, nên có ít nhất `enter()` (dùng chung cho submit, Thử lại, Tạo thế giới mới) và `joining` (chống gọi chồng).
+- **Điện thoại ngang (form dạng lưới):** khi thẻ lỗi hiện, `#join-btn` bị ẩn nên cột 2 cạnh `#name` để trống. Chỉ là thẩm mỹ: có thể cho `#name` trải hai cột khi nút ẩn.
+- **Test mới, Phần 1:** bước "một mình thì địa chỉ không có `room`" luôn đúng ngay từ đầu, vì trang mở ở `/`. Bước có giá trị thật là khi bạn rời thì `room` bị bỏ, và bước đó đã có.
 
-## Việc tiếp theo đề xuất cho TASKS.md
-- **T41:**
-  - bỏ ý cuối (sửa câu về đường tìm khi bị kẹt trong `pals.md`), vì game-designer đã sửa trong T21;
-  - thêm: bỏ đường và đặt lại thời điểm tìm khi một thú đổi đích (đuổi sang về nhà);
-  - thêm: chuyển JSDoc `spawnBoss` về đúng chỗ;
-  - tuỳ chọn: đo xem `Walker.maxPath` có giúp thú thường không.
-- **Việc mới, ưu tiên thấp:** trùm về nhà quá 60 giây thì hiện lại ở nhà. Chỉ làm nếu chơi thử thấy trùm lạc mãi (khoảng 8% lần bị dụ sang phía bên kia núi lửa).
+## Việc tiếp theo đề xuất cho `TASKS.md`
+- P2: giữ thế giới trống thêm 30-60 giây (theo PLAN.md, Rủi ro 2).
+- P2: app ở Màn hình chính quay lại thế giới vừa chơi, gắn với T13 (theo PLAN.md, Rủi ro 4).
+- P3: nút Về sảnh tải lại trang khi URL đích trùng địa chỉ hiện tại có `#…` (góp ý thứ nhất ở trên).
+- P3: xếp HTTP 502/504 vào `unreachable` trong `joinFailure`.

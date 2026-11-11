@@ -347,6 +347,8 @@
       .lobby-action { min-height: 44px; min-width: 140px; padding: 0 18px; box-sizing: border-box; border: 2px solid rgba(255,255,255,0.6); border-radius: 10px;
         background: transparent; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; }
       .lobby-alert.failed .lobby-action { border: none; background: #7cb342; color: #fff; }
+      .lobby-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+      .lobby-alert.failed .lobby-action.quiet { background: #e0e0e0; color: #263238; }
       .lobby-action:focus-visible { outline: 3px solid #1e88e5; outline-offset: 2px; }
       .lobby-look { display: flex; flex-direction: column; align-items: center; gap: 10px; }
       .lobby-look[hidden] { display: none; }
@@ -418,12 +420,21 @@
       <!-- The name box and the button are locked until src/main.ts has attached the submit handler (it unlocks them).
            A press before that would make the browser submit the form itself and reload the page: the typed name and
            the ?room= of an invite link would be lost. The end-to-end tests wait for the button to be enabled.
+           #join-status is the card for a failed join (T23): world closed or full, server unreachable.
            #load-status is the notice of the load watchdog (the inline script after #lobby, T15): slow or broken loading. -->
       <form id="join-form">
         <h1>🐾 PetGame</h1>
         <div id="look" class="lobby-look"></div>
         <input id="name" placeholder="Tên của bạn" maxlength="16" autocomplete="nickname" disabled />
         <button type="submit" id="join-btn" disabled autocomplete="off">Đang tải...</button>
+        <div id="join-status" class="lobby-alert failed" role="alert" hidden>
+          <strong id="join-title"></strong>
+          <p id="join-detail"></p>
+          <div class="lobby-actions">
+            <button type="button" id="retry-btn" class="lobby-action">Thử lại</button>
+            <button type="button" id="new-world-btn" class="lobby-action">Tạo thế giới mới</button>
+          </div>
+        </div>
         <div id="load-status" class="lobby-alert" role="status" aria-live="polite" hidden>
           <strong id="load-title"></strong>
           <p id="load-detail"></p>
@@ -432,7 +443,6 @@
         </div>
         <noscript><p class="error" id="load-noscript">Cần bật JavaScript để chơi PetGame.</p></noscript>
         <div class="hint" id="room-hint"></div>
-        <div class="error" id="join-error"></div>
       </form>
     </div>
     <!-- Load watchdog (T15). A classic inline script on purpose: it must run when the lobby script (src/main.ts and every
