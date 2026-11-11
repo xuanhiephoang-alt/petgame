@@ -406,6 +406,179 @@ for (const screen of PHONE_SCREENS) {
   });
 }
 
+/**
+ * Every touch target a finger can reach under `scope` (buttons, links, inputs, the minimap, the explorer preview) and
+ * its hit area: how far from its centre, left-right and up-down, a tap still lands on it (`elementFromPoint`), so an
+ * invisible hit area (::before) counts and whatever lies on top does not. A target in a scrolling panel or the lobby
+ * is scrolled into view inside it first ("nearest": a panel that fits the screen never scrolls the page).
+ */
+const touchTargets = (page: Page, scope: string) =>
+  page.evaluate((scope) => {
+    const targets: { name: string; text: string; box: number[]; onTop: boolean; under: string; hit: { width: number; height: number } }[] = [];
+    for (const el of document.querySelectorAll<HTMLElement>(`${scope} :is(button, a[href], input, .minimap, canvas.doll-preview)`)) {
+      if (!el.checkVisibility({ checkVisibilityCSS: true })) continue;
+      if (el.closest(".party-panel, #lobby")) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const r = el.getBoundingClientRect();
+      const cx = Math.round(r.left + r.width / 2);
+      const cy = Math.round(r.top + r.height / 2);
+      const isMe = (x: number, y: number) => {
+        const top = document.elementFromPoint(x, y);
+        return !!top && (top === el || el.contains(top));
+      };
+      const top = document.elementFromPoint(cx, cy);
+      const onTop = isMe(cx, cy);
+      // Counts the pixels from the centre along one axis while a tap would still land on the element (at most 60 a side).
+      const reach = (dx: number, dy: number) => {
+        let n = 0;
+        while (n < 60 && isMe(cx + dx * (n + 1), cy + dy * (n + 1))) n++;
+        return n;
+      };
+      const name = el.id ? `#${el.id}` : el.classList[0] ? `.${el.classList[0]}` : el.tagName.toLowerCase();
+      targets.push({
+        name,
+        text: (el.textContent ?? "").trim().slice(0, 24),
+        box: [r.left, r.top, r.width, r.height].map(Math.round),
+        onTop,
+        under: onTop ? "" : `${top?.tagName.toLowerCase()}.${top?.className}`,
+        hit: onTop ? { width: reach(-1, 0) + reach(1, 0) + 1, height: reach(0, -1) + reach(0, 1) + 1 } : { width: 0, height: 0 },
+      });
+    }
+    return { targets, scrolled: document.scrollingElement!.scrollTop, width: innerWidth, height: innerHeight };
+  }, scope);
+
+/** Checks every touch target under `scope` takes a 44×44 px tap and the page itself did not scroll; returns the target names. */
+async function expectTouchable(page: Page, scope: string, where: string): Promise<string[]> {
+  const found = await touchTargets(page, scope);
+  expect(found.targets.length, `${where}: touch targets found`).toBeGreaterThan(0);
+  const small = found.targets
+    .filter((t) => t.hit.width < 44 || t.hit.height < 44)
+    .map((t) => `${t.name} "${t.text}" ${t.hit.width}x${t.hit.height}${t.onTop ? "" : ` under ${t.under}`}`);
+  expect(small, `${where} (${found.width}x${found.height}): touch targets under 44 px`).toEqual([]);
+  expect(found.scrolled, `${where}: the page scrolled`).toBe(0);
+  return found.targets.map((t) => t.name);
+}
+
+/** Whether a panel lies wholly on screen and has no sideways overflow. */
+const panelFits = (page: Page, selector: string) =>
+  page.evaluate((selector) => {
+    const el = document.querySelector<HTMLElement>(selector)!;
+    const r = el.getBoundingClientRect();
+    return { inside: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth, sideways: el.scrollWidth > el.clientWidth, box: [r.left, r.top, r.right, r.bottom].map(Math.round) };
+  }, selector);
+
+for (const screen of PHONE_SCREENS) {
+  test(`touch targets (${screen.name}): every button in the lobby, the HUD, the panels and the dialog takes a 44×44 px tap; the party panel fits with 8 pals`, async ({ browser }) => {
+    test.slow();
+    const sideways = screen.options.viewport.width > screen.options.viewport.height;
+    const page = await openPage(browser, "/", "Ngón to", { ...screen.options });
+    await page.locator("#join-btn:enabled").waitFor();
+    await page.locator(".lobby-look:not([hidden]) .doll-preview").waitFor();
+    expect(await expectTouchable(page, "#lobby", "lobby")).toEqual(expect.arrayContaining([".style-btn", ".swatch", "#name", "#join-btn"]));
+    await enterLobby(page, "Ngón to");
+    await waitForWorld(page);
+    await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+
+    // The scene: a camp, a snack and a great ball, and eight pals (two pack leaders, the last one follows).
+    const me = () => page.evaluate(() => {
+      const { room } = (window as any).__petgame;
+      const p = room.state.players.get(room.sessionId);
+      return { hasBase: p.hasBase as boolean, snacks: p.snacks as number, greatBalls: p.greatBalls as number, pals: p.pals.length as number, ids: p.pals.map((x: any) => x.id) as string[] };
+    });
+    await sendFrom(page, "debug:give");
+    await sendFrom(page, "debug:give");
+    await sendFrom(page, "placeBase");
+    await expect.poll(async () => (await me()).hasBase).toBe(true);
+    await sendFrom(page, "craft", { recipeId: "berry_snack" });
+    await sendFrom(page, "craft", { recipeId: "great_ball" });
+    await expect.poll(async () => (await me()).snacks).toBeGreaterThanOrEqual(1);
+    await expect.poll(async () => (await me()).greatBalls).toBeGreaterThanOrEqual(1);
+    const pals: [string, number, boolean][] = [
+      ["leafkit", 3, false], ["emberpup", 8, false], ["bubbloon", 7, false], ["pebblet", 11, false],
+      ["ripplefin", 5, false], ["frostfang", 19, true], ["scorchtail", 22, false], ["voltmouse", 15, true],
+    ];
+    for (const [species, level, alpha] of pals) await sendFrom(page, "debug:givePal", { species, level, ...(alpha ? { alpha } : {}) });
+    await expect.poll(async () => (await me()).pals).toBe(8);
+    await sendFrom(page, "assign", { palId: (await me()).ids[1], assignment: "work" });
+    await expect(page.locator(".skill-bar")).toBeVisible();
+    await expect(page.locator(".hud-quest")).toContainText(/\S/);
+
+    // The HUD, and the ball button in the right half (where the right thumb is), eaten by a second finger.
+    const hudNames = await expectTouchable(page, ".hud", "HUD");
+    expect(hudNames).toEqual(expect.arrayContaining([".eat-btn", ".sound-btn", ".invite-btn", ".ball-btn", ".party-btn", ".base-btn", ".craft-btn", ".wardrobe-btn", ".action-btn", ".skill-btn", ".skill-auto", ".minimap"]));
+    const ball = page.locator(".ball-btn");
+    await expect(ball).toHaveText("⚪ Thường");
+    await expect(ball).toHaveAttribute("aria-label", "⚪ Bóng thường");
+    const ballBox = (await ball.boundingBox())!;
+    expect(ballBox.x + ballBox.width / 2).toBeGreaterThanOrEqual(screen.options.viewport.width / 2);
+    const finger = await fingers(page);
+    const w = screen.options.viewport.width;
+    const h = screen.options.viewport.height;
+    const spot = { x: Math.round(w / 4), y: Math.round(h * 0.75) };
+    await finger("touchStart", [{ ...spot, id: 0 }]);
+    await finger("touchStart", [{ ...spot, id: 0 }, { x: ballBox.x + ballBox.width / 2, y: ballBox.y + ballBox.height / 2, id: 1 }]);
+    await finger("touchMove", [{ ...spot, id: 0 }]);
+    await finger("touchEnd");
+    await expect(ball).toHaveText("🔵 Xịn (1)");
+
+    // The party panel: fits on screen, the cards are as tall as planned and "Lv" stays with its number.
+    await page.locator(".party-btn").tap();
+    await expectTouchable(page, ".pals-panel", "party panel");
+    expect(await panelFits(page, ".pals-panel")).toMatchObject({ inside: true, sideways: false });
+    const cards = await page.evaluate(() => {
+      const panel = document.querySelector(".pals-panel")!.getBoundingClientRect();
+      const out = { overflowRight: 0, maxHeight: 0, wrapped: [] as string[], whole: 0 };
+      for (const card of document.querySelectorAll<HTMLElement>(".pals-panel .party-card")) {
+        const r = card.getBoundingClientRect();
+        out.overflowRight = Math.max(out.overflowRight, r.right - panel.right);
+        out.maxHeight = Math.max(out.maxHeight, r.height);
+        if (r.top >= panel.top && r.bottom <= panel.bottom) out.whole++;
+        const name = card.querySelector<HTMLElement>(".party-info > strong")!;
+        const text = name.lastChild as Text;
+        const at = text.data.indexOf("Lv");
+        const range = document.createRange();
+        range.setStart(text, at);
+        range.setEnd(text, text.length);
+        const lines = new Set([...range.getClientRects()].map((q) => Math.round(q.top)));
+        if (lines.size !== 1) out.wrapped.push(text.data);
+      }
+      return out;
+    });
+    expect(cards.overflowRight).toBeLessThanOrEqual(0);
+    expect(cards.wrapped).toEqual([]);
+    expect(cards.maxHeight).toBeLessThanOrEqual(sideways ? 136 : 176);
+    if (sideways) expect(cards.whole).toBeGreaterThanOrEqual(2);
+    await expect(page.locator(".party-card.alpha .party-info", { hasText: "Voltmouse" })).toContainText("★ Voltmouse · Lv 15");
+
+    // Letting go: the mode, and the dialog that asks first.
+    await page.locator(".party-release-toggle").tap();
+    await expectTouchable(page, ".pals-panel", "release mode");
+    await page.locator(".party-card.alpha .party-action.release").first().tap();
+    await expectTouchable(page, ".party-confirm", "release dialog");
+    await page.locator(".confirm-keep").tap();
+    await page.locator(".party-release-toggle").tap();
+    await page.locator(".pals-panel .party-close").tap();
+    await expect(page.locator(".pals-panel")).toBeHidden();
+
+    // Crafting.
+    await page.locator(".craft-btn").tap();
+    await expectTouchable(page, ".craft-panel", "crafting");
+    expect((await panelFits(page, ".craft-panel")).inside).toBe(true);
+    await page.locator(".craft-panel .party-close").tap();
+    await expect(page.locator(".craft-panel")).toBeHidden();
+
+    // The wardrobe, every tab.
+    await sendFrom(page, "debug:wardrobe");
+    await page.locator(".wardrobe-btn").tap();
+    for (const tab of ["look", "outfit", "hat", "weapon"]) {
+      await page.locator(`.wardrobe-tab[data-tab="${tab}"]`).tap();
+      await expectTouchable(page, ".wardrobe-panel", `wardrobe ${tab}`);
+      expect((await panelFits(page, ".wardrobe-panel")).inside).toBe(true);
+    }
+    await page.locator(".wardrobe-panel .party-close").tap();
+    await expect(page.locator(".wardrobe-panel")).toBeHidden();
+  });
+}
+
 test("exploring: quest tracker, minimap and opening a treasure chest", async ({ browser }) => {
   const page = await join(browser, "Explorer");
   await waitForWorld(page);

@@ -69,6 +69,8 @@ form.addEventListener("submit", async (event) => {
   } catch (err) {
     console.error(err);
     errorBox.textContent = "Không vào được phòng (đầy 5 người hoặc server chưa chạy).";
+    // The lobby may scroll on short screens; the reason must show.
+    errorBox.scrollIntoView({ block: "nearest" });
     joinBtn.disabled = false;
   }
 });

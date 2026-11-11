@@ -1,72 +1,34 @@
 PASS
-# REVIEW: T15 Sảnh báo lỗi khi tải hỏng, vòng 1
+# REVIEW: T18 Nút cảm ứng dưới 44 px (sảnh, HUD, các bảng), vòng 1
 
 ## Kết luận
-Làm đủ và đúng PLAN.md: markup và CSS, bộ canh tải inline, sự kiện `petgame:lobby-ready` trong `main.ts`, 3 test `lobby:`, tài liệu. Bảng trạng thái đúng (sẵn sàng luôn thắng, hẹn giờ được huỷ, listener được gỡ) và bộ lọc chỉ nhận lỗi của script cùng origin. Mình đã kiểm lại hành vi trên Chromium với cả `index.html` dev lẫn `dist/` thật. Không còn lỗi phải sửa.
-
-## Lỗi phải sửa (FAIL khi còn mục này)
-Không có.
+Thay đổi làm đủ và đúng các bước 1-6 của PLAN.md, không làm thừa (không đụng server, shared, schema, hồ sơ; 🔊 và 🔗 vẫn `click`; `aria-label` nút Thả giữ nguyên). Nút Bóng chuyển sang `onPress` không bắn hai lần và chạy được bằng ngón thứ hai. Test e2e mới đo vùng chạm thật bằng `elementFromPoint` và bắt được các lỗi hồi quy chính (coder đã thử cả 4 kiểu làm hỏng). Không còn lỗi phải sửa.
 
 ## Đã kiểm
-- **Bộ canh tải** (`packages/client/index.html:431-485`):
-  - Script cổ điển, bọc IIFE, không phụ thuộc cây module của sảnh.
-  - Cú pháp chỉ ES5 (`var`, `function`). API cần có: `URLSearchParams`, `location.origin`, `{ once: true }`; trình duyệt cũ coi tham số này là `capture`, vẫn chạy.
-  - Listener gắn trong lúc parse. Module, kể cả khi bản build dời nó lên `<head>`, chỉ chạy sau khi parse xong, nên không lỡ sự kiện nào.
-  - `petgame:lobby-ready` thắng dù đến sau "slow" hay sau "failed": huỷ hẹn giờ, gỡ listener `error`, ẩn thông báo, trả lại ô tên và nút.
-  - Không đụng `disabled` hay chữ của `#join-btn`. `main.ts:76-82` bắn sự kiện ngay sau 3 dòng mở khoá; thân handler `submit` không đổi.
-- **Thử trực tiếp** bằng script riêng trong scratchpad (không commit). Script phục vụ `index.html` và `dist/` thật qua `page.route` trên một origin giả:
-
-  | Trường hợp | Kết quả |
-  |---|---|
-  | `main.ts` bị chặn (abort) | thẻ "Không tải được game / Kiểm tra mạng…", focus ở Tải lại; Enter → `/?room=abc&quality=low` (giữ nguyên) |
-  | như trên nhưng bỏ `type="button"` | Enter → `/?`, mất `room`: phần 2 của test 1 bắt được (so `roomId` và `room`). Mục này bù cho kiểm chứng thứ 2 trong mục Test của PLAN, tester đã thay bằng phép thử khác |
-  | module ném lỗi; module lỗi cú pháp | `ErrorEvent`, `filename` = URL module → thẻ "Trình duyệt gặp lỗi…" |
-  | script khác origin ném lỗi (ngay, và trong hẹn giờ) | `filename` rỗng → bỏ qua |
-  | script inline do tiện ích chèn (`textContent`), ném ngay hoặc trong hẹn giờ; init script | `filename` rỗng → bỏ qua |
-  | `<script>` cùng origin trả 404 (báo nhầm cố ý), rồi `petgame:lobby-ready` | hiện thẻ lỗi rồi ẩn, ô tên và nút hiện lại |
-  | bản build, chặn một chunk `modulepreload` (CanvasPool) | thẻ "Không tải được game"; chunk đó chỉ bị yêu cầu 1 lần |
-  | bản build, chặn chunk entry | thẻ "Không tải được game" |
-  | bản build, bình thường | không có thông báo, nút "Vào chơi" |
-
-- **Test:**
-  - Đồng hồ giả được cài và dừng trước `goto`, nên mốc 14 s / 15 s chính xác.
-  - Không thêm `waitForTimeout` hay `retries`. `force: true` vẫn chỉ có trong test `lobby:` đầu.
-  - Bước Enter lúc sảnh khoá có tác dụng thật. Nếu bỏ khoá, Tab vào được `#name`, Enter gửi form, trang về `/?`, và các kiểm tra `room`, `navigations` sẽ hỏng.
-- **Test `lobby: nothing is sent…` qua cả trên HEAD** (tester ghi chú): chấp nhận, không bắt buộc siết. Dòng kiểm `#load-status` ẩn ở đó chỉ canh "không báo nhầm khi giữ script vài giây", và chỉ có nghĩa khi bộ canh tải tồn tại. Tester đã thử: hai test mới hỏng trên HEAD. Cách siết rẻ ở mục góp ý.
-- **Tài liệu:** `docs/design/multiplayer.md` khớp chữ và số với code. `docs/architecture.md` khớp code, trừ một chỗ câu chữ (xem góp ý).
-- Không đổi schema, message, `Profile` hay server. Không có gì chạy mỗi khung hình.
+- **CSS so với kế hoạch (mục 1a-1l):** có đủ. `.sound-btn` 44×44 và đã xoá `min-height: 28px` của điện thoại; luật `::before` chung cho 4 nút cột phải và `.invite-btn` (có `position: relative`); cột phải đặt top 12/60/108/156, đã xoá 3 luật top riêng khi dọc; bản đồ nhỏ và bảng ở 204/196; `.party-panel` dùng `border-box`, rộng 340 (bề ngoài không đổi so với 320 + 20 padding cũ), `max-height` đúng; Tủ đồ ngang rộng 490 bề ngoài (đúng như 470 + 20 trước); lưới 2 cột cho `.party-buttons` chỉ áp khi cầm ngang; sảnh gộp luật input/nút, form 420 px từ 601 px, `zoom: 0.8` cho điện thoại dọc thấp, lưới 2 cột khi cầm ngang.
+- **Lưới sảnh khi cầm ngang:** `#name` và `#join-btn` đứng liền nhau trong DOM (`index.html:425-426`), nên chắc chắn chung một hàng. `#load-status[hidden]` và `<noscript>` không chiếm ô lưới.
+- **`.party-buttons > :nth-child(3):last-child`:** thẻ có nhiều nhất 3 nút (`party.ts:315-318`); chế độ Thả có 1 nút. Không có trường hợp 4 nút làm vỡ lưới. `.party-buttons` chỉ có ở thẻ thú.
+- **`.hud-actions`:** `div` này nhận `pointer-events: none` từ `.hud.touch .hud-health`; nút bên trong vẫn được bật lại nhờ `.hud.touch .hud-left button`. Cần điều khiển vẫn nhận chạm qua phần trống. `gap: inherit` lấy 8/5 px của hàng máu, đúng ý.
+- **Nút Bóng `pointerdown` (`hud.ts:89`, `onPress` ở `hud.ts:256`):**
+  - Không bắn hai lần: bộ nghe `click` đã bỏ, `preventDefault` trên `pointerdown` chặn cả mousedown lẫn việc lấy focus. Test sẽ hỏng nếu bắn hai lần (bóng đổi hai lần thì quay về "⚪ Thường").
+  - Đa chạm: mỗi ngón có `pointerdown` riêng. Nút giờ nằm ở nửa phải, không chung chỗ với `.joystick-zone` (đang giữ ngón đầu bằng pointer capture). Test lái hai ngón thật qua CDP.
+  - Bàn phím: Enter/Space trên nút đang focus không còn đổi bóng, phím R vẫn dùng được (`Game.ts:314`, có trong `title`). Đúng quyết định trong kế hoạch, giống T39. Có thêm lợi: trước đây Space (đánh) trên nút Bóng đang focus còn đổi bóng.
+  - Chuột phải/chuột giữa cũng đổi bóng: để T40 lo, đúng phạm vi.
+  - `setBall` đặt `aria-label` sau phép so sánh sớm. Lần gọi đầu và mỗi lần chữ đổi đều cập nhật; nhãn ngắn chỉ dùng khi `isTouch`.
+- **NBSP ở "Lv":** chỉ dùng ở tên thẻ và tiêu đề hộp xác nhận, `aria-label` không đổi. Các test cũ dùng chuỗi so khớp vẫn qua (Playwright chuẩn hoá khoảng trắng); cả bộ e2e đã qua.
+- **`main.ts`:** chỉ có một chỗ ghi lỗi vào phòng, và `scrollIntoView` nằm đúng chỗ đó.
+- **Test mới:** đo đúng điều cần đo. Vùng `::before` được tính, phần bị che không được tính. Phần tử trong bảng hoặc sảnh được `scrollIntoView` trước khi đo, kèm điều kiện trang không cuộn, nên nếu bảng tràn thì test bắt được. Test kiểm danh sách tên phần tử bắt buộc (một phần tử biến mất cũng làm hỏng), chiều cao thẻ, số thẻ trọn khi ngang, "Lv N" nằm trên một dòng, bảng nằm trọn màn hình. Không có `waitForTimeout`; repeat-each=3 qua 6/6.
+- **Tài liệu:** `docs/architecture.md` (dòng `ui/` và helper e2e) đã cập nhật; `docs/design/hud.md` (mục "Cỡ chạm", bảng Bố cục, nút Bóng) đã vào commit kế hoạch `13d2ec5` và khớp với code.
+- **Quy ước:** chú thích tiếng Anh có ghi T18, chữ người chơi thấy bằng tiếng Việt, typecheck sạch.
 
 ## Góp ý không bắt buộc
-- `docs/architecture.md:93`: phần T15 chèn vào giữa `enterLobby` và `join` (hai cái trước), nên "hai cái trước" giờ trỏ nhầm sang `LOBBY_SCRIPT` / `LOBBY_SLOW_MS`. Cách sửa: đưa phần bộ canh tải ra sau `fingers (…)` thành câu riêng, hoặc ghi `join` (`openPage` + `enterLobby`).
-- `tests/e2e/multiplayer.spec.ts:1302`: PLAN không có `test.slow()` (PLAN ghi "không tăng timeout"). Test chỉ vào thế giới một lần, nên 180 s mặc định là đủ. Nó không che lỗi nào, chỉ làm test bị treo lâu hơn mới báo. Nên bỏ, hoặc ghi lý do.
-- `tests/e2e/multiplayer.spec.ts:1283` và `:1381-1383`: thêm `await expect(page.locator("#load-invite")).not.toHaveAttribute("hidden")` (trước dòng kiểm ẩn, và trước `fastForward` đầu tiên). URL có `?room=` nên dòng này chứng minh bộ canh tải đã chạy. Được hai điều:
-  - test `lobby:` đầu hết qua suông trên HEAD;
-  - bỏ khe hở lý thuyết: `fastForward` có thể chạy trước khi script inline đặt hẹn giờ. Nếu xảy ra thì test hỏng chứ không qua nhầm, và gần như không xảy ra vì parser chạy một mạch.
-- `index.html:412`: `aria-live="polite"` ghi rõ trong markup sẽ đè mức `assertive` ngầm định của `role="alert"` khi lỗi. Nên bỏ `aria-live`, vì `role="status"` vốn đã ngầm là `polite`. Không gấp: người dùng trình đọc màn hình vẫn nghe được nội dung nhờ focus và `aria-describedby`.
-- `index.html:475-483`: sau một lần báo nhầm, `ready` ẩn nút Tải lại đang giữ focus, nên focus rơi về `body`. Nếu `document.activeElement === reload` thì chuyển focus sang `#name`.
-- `index.html:443`: trong bộ canh tải, `URLSearchParams` là API duy nhất mà trình duyệt rất cũ có thể thiếu (iOS 10.0-10.2, Edge 16). Thiếu nó thì script dừng trước khi đặt hẹn giờ. Thay bằng `/[?&]room=/.test(location.search)`.
-- Ở 390 px dọc, chữ "lại" bị xuống dòng một mình (tester đã ghi). Sửa bằng `Tải lại` trong chữ `detail`.
+- Test vùng chạm chỉ chạy ở 2 khung hình điện thoại (đúng kế hoạch), còn quy tắc ≥ 44 áp cho cả desktop (laptop cảm ứng). Tester mới đo 1280×720 bằng bản sao tạm rồi xoá. Nên thêm một khung hình "laptop cảm ứng 1280×720" vào vòng lặp của test này để giữ quy tắc lâu dài (việc mới bên dưới).
+- Ảnh "trước" không được chụp lại; số đo trước trong PLAN.md mục 1 là đủ để so, nên không chặn.
+- `onPress` làm mọi nút dùng nó (giờ có cả Bóng) bỏ qua Enter/Space khi nút đang focus. Nếu muốn giữ khả năng dùng bàn phím mà không bắn hai lần: thêm bộ nghe `click` chỉ chạy khi `e.detail === 0` (click do bàn phím). Có thể gộp vào T40.
+- `index.html:142`, `.party-btn` thiếu thụt đầu dòng. Lỗi có từ trước, không thuộc diff này.
 
-## Việc mới nên đưa vào TASKS.md
-- **P2, mới: "Vào thế giới hỏng sau sảnh thì màn hình trống"** (từ PLAN):
-  - `startGame` chạy sau `lobby.remove()` (`main.ts:67-68`). Nếu chunk động của PixiJS (`app.init`) hoặc `Game.create` hỏng, chữ lỗi được ghi vào sảnh đã bị gỡ, nên người chơi chỉ thấy màn hình tối, không chữ, không nút.
-  - Ảnh (`loadPalSprites`, `loadPictures`, `loadDollArt`) hỏng thì sảnh báo sai "đầy 5 người hoặc server chưa chạy".
-  - Gợi ý: chỉ gỡ sảnh khi `Game.create` xong, hoặc hiện màn che kèm nút Tải lại; dùng lại `.lobby-alert` / `.lobby-action`; phân biệt chữ lỗi.
-- **P3, mới: "Server nén script"** (từ PLAN):
-  - Express không nén, nên script sảnh 957 kB đi nguyên qua mạng (gzip còn 300 kB, brotli 257 kB). Ở 3G chậm sảnh mất 20,7 s, có nén thì khoảng 7 s.
-  - Cách làm: middleware nén, hoặc tạo sẵn `.br`/`.gz` lúc build. Cân nhắc dependency mới.
-  - Đo lại theo PLAN T15, Thiết kế 3.
-- **P3, mới (nhỏ): "Trình duyệt không chạy được module"**:
-  - Trình duyệt không hỗ trợ `type="module"` bỏ qua thẻ module mà không báo lỗi gì, nên người chơi chỉ thấy "Vẫn đang tải… Mạng có vẻ chậm" sau 15 s, sai nguyên nhân.
-  - Gợi ý: `<script nomodule>` hiện ngay thẻ "cập nhật trình duyệt". Làm chung với việc bỏ `URLSearchParams` (góp ý ở trên).
-- **Cập nhật mô tả T23:**
-  - T15 đã làm lỗi lúc tải trang. T23 làm lỗi lúc vào phòng (thế giới đã đóng → "Tạo thế giới mới"), dùng `.lobby-alert` / `.lobby-action`.
-  - Nếu T23 tự vào lại khi mở trang, `main.ts` vẫn phải bắn `petgame:lobby-ready` ngay khi dựng xong sảnh, trước khi chờ server. Nếu không, bộ canh tải báo "mạng chậm" oan.
-  - Đề xuất ghi `?room=` lên địa chỉ bằng `history.replaceState`, lý do ở PLAN T15, Thiết kế 6.
-- **Ghi chú cho T13 (service worker):**
-  - `index.html` phải lấy từ mạng trước (network-first). Nếu không, Tải lại có thể lấy lại HTML cũ trỏ tới chunk đã mất.
-  - Nếu sau này có Content-Security-Policy (header hay SW), phải cho phép bộ canh tải inline bằng hash `sha256-…`; nếu không nó mất tác dụng mà không báo gì.
-- **Ghi chú cho T16 (e2e trên bản build):**
-  - Đổi `LOBBY_SCRIPT` thành chunk entry `/build/index-*.js` (một chỗ, cả 3 test `lobby:` dùng chung).
-  - Thêm ca chặn một chunk `modulepreload`. Reviewer T15 mới kiểm tay ca này: hiện thẻ lỗi, chỉ 1 request.
-- **Dọn nhỏ**, làm kèm việc sau nào có đụng các file này: các góp ý ở trên (`architecture.md:93`, `test.slow()`, siết test bằng `#load-invite`, `aria-live`, focus sau khi báo nhầm, `Tải lại`).
+## Việc mới đề xuất cho TASKS.md
+- **T30 (ghi chú):** bảng (`.party-panel`) khi dọc và bản đồ nhỏ dùng top cố định 196, chưa cộng `env(safe-area-inset-top)` như cột nút phải. Trên iPhone có tai thỏ (inset ~47 px), vùng chạm của 👕 Tủ đồ xuống tới ~y 232, nên bảng mở ra có thể đè lên nó.
+- **T40 (ghi chú):** nút Bóng giờ cũng đi qua `onPress`, nên e2e chuột phải của T40 cần kiểm cả nút Bóng; tiện thì xem luôn chuyện kích hoạt bằng bàn phím (`e.detail === 0`).
+- **T20 (ghi chú):** `tests/e2e/multiplayer.spec.ts:1058, :1295` có thể đổi `.party-panel:has(.party-release-toggle)` thành `.pals-panel`.
+- **Mới, ưu tiên thấp:** thêm khung hình laptop cảm ứng 1280×720 (`hasTouch: true`) vào test `touch targets (...)`, để quy tắc ≥ 44 ở desktop có test giữ.

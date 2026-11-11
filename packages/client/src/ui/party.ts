@@ -88,7 +88,7 @@ export class PartyPanel {
     this.button.addEventListener("click", () => this.toggle());
 
     this.panel = document.createElement("div");
-    this.panel.className = "party-panel";
+    this.panel.className = "party-panel pals-panel";
     this.panel.hidden = true;
     const header = document.createElement("div");
     header.className = "party-header";
@@ -274,7 +274,8 @@ export class PartyPanel {
       star.title = "Thú đầu đàn";
       name.append(star, " ");
     }
-    name.append(`${species.name} · Lv ${entry.level}`);
+    // No-break space: a long name wraps before "Lv", never between it and the number (T18).
+    name.append(`${species.name} · Lv\u00A0${entry.level}`);
     const detail = document.createElement("small");
     const status = entry.assignment === "follow" ? "Đang đi theo" : entry.assignment === "work" ? `Đang làm ${output.icon}` : `Làm ra ${output.icon}`;
     const strong = ELEMENT_INFO[strongAgainst(species.element)];
@@ -336,7 +337,7 @@ export class PartyPanel {
   private fillConfirm() {
     const entry = this.party.find((p) => p.id === this.confirmId);
     if (!entry) return;
-    this.confirmTitle.textContent = `Thả ${getSpecies(entry.speciesId).name} · Lv ${entry.level}?`;
+    this.confirmTitle.textContent = `Thả ${getSpecies(entry.speciesId).name} · Lv\u00A0${entry.level}?`;
     this.confirmHead.replaceChildren(this.swatch(entry), this.confirmTitle);
     this.confirmAlpha.hidden = !entry.alpha;
     this.confirmStatus.hidden = entry.assignment === "";

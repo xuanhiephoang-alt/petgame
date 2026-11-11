@@ -52,12 +52,14 @@ export class Hud {
     this.eatSecs = this.eatButton.querySelector<HTMLSpanElement>(".eat-secs")!;
     this.eatButton.title = `Ăn 1 quả mọng: hồi ${BERRY_HEAL} máu, rồi chờ ${EAT_COOLDOWN_MS / 1000} giây mới ăn tiếp (phím H)`;
     onPress(this.eatButton, actions.eat);
-    this.health.append(this.eatButton);
     this.soundButton = document.createElement("button");
     this.soundButton.className = "sound-btn";
     this.soundButton.title = "Bật/tắt âm thanh (phím M)";
     this.soundButton.addEventListener("click", () => this.setMuted(actions.toggleSound()));
-    this.health.append(this.soundButton);
+    // The two buttons wrap to the second line together, so the health row keeps its height (T18).
+    const actionsRow = div("hud-actions");
+    actionsRow.append(this.eatButton, this.soundButton);
+    this.health.append(actionsRow);
     this.bossBar = div("boss-bar");
     this.bossBar.innerHTML = `<strong></strong><div class="boss-hp"><div></div></div>`;
     this.bossBar.hidden = true;
@@ -84,7 +86,7 @@ export class Hud {
     this.ballButton = document.createElement("button");
     this.ballButton.className = isTouch ? "ball-btn touch" : "ball-btn";
     this.ballButton.title = "Đổi loại bóng (phím R)";
-    this.ballButton.addEventListener("click", actions.toggleBall);
+    onPress(this.ballButton, actions.toggleBall);
     this.root.append(this.ballButton);
 
     if (isTouch) {
@@ -162,9 +164,12 @@ export class Hud {
 
   /** Shows which ball the next throw uses. */
   setBall(great: boolean, greatCount: number) {
-    const text = great ? `🔵 Bóng xịn (${greatCount})` : `⚪ Bóng thường`;
+    const name = great ? `🔵 Bóng xịn (${greatCount})` : "⚪ Bóng thường";
+    // Touch screens: a short label, so the button fits left of Bắt in the right half (T18); the full name is read out.
+    const text = !this.isTouch ? name : great ? `🔵 Xịn (${greatCount})` : "⚪ Thường";
     if (this.ballButton.textContent === text) return;
     this.ballButton.textContent = text;
+    this.ballButton.setAttribute("aria-label", name);
     this.ballButton.classList.toggle("great", great);
   }
 

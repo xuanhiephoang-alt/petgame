@@ -60,7 +60,7 @@
       .label.pal.alpha span { opacity: 1; font-size: 13px; background: rgba(214,140,0,0.85); color: #fff8e1; }
       .label.pal.alpha.angry span { background: rgba(198,40,40,0.85); }
       .label.pal.alpha .hp-bar { display: block; width: 52px; height: 6px; }
-      .sound-btn { border: none; background: rgba(255,255,255,0.2); border-radius: 8px; min-width: 34px; min-height: 30px; cursor: pointer; font-size: 15px; }
+      .sound-btn { border: none; background: rgba(255,255,255,0.2); border-radius: 8px; min-width: 44px; min-height: 44px; cursor: pointer; font-size: 15px; }
       .boss-bar { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
         width: min(420px, 60vw); text-align: center; color: #fff; font-size: 14px; text-shadow: 0 1px 2px #000; }
       .boss-bar[hidden] { display: none; }
@@ -78,6 +78,8 @@
       .hud-health {
         display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: rgba(0,0,0,0.45); padding: 5px 10px; border-radius: 10px;
         font-size: 14px; font-weight: 600; pointer-events: auto; }
+      /* Ăn and 🔊 wrap to the second line together, so the health row has the same height at every time of day (T18). */
+      .hud-actions { display: flex; align-items: center; gap: inherit; }
       .hud-hp { width: 120px; height: 10px; background: rgba(255,255,255,0.25); border-radius: 5px; overflow: hidden; }
       .hud-hp div { height: 100%; background: #ef5350; transition: width 0.2s; }
       .hud-hp div.low { background: #ff1744; animation: pulse 0.8s infinite alternate; }
@@ -108,12 +110,12 @@
       .hud-quest small { color: #ffe0a3; font-size: 12px; }
       .hud-quest .quest-count { color: #ffca28; font-weight: 700; }
       .hud-quest .quest-reward { color: #c5e1a5; }
-      .minimap { position: absolute; top: max(190px, calc(env(safe-area-inset-top) + 178px)); right: max(12px, env(safe-area-inset-right));
+      .minimap { position: absolute; top: max(204px, calc(env(safe-area-inset-top) + 192px)); right: max(12px, env(safe-area-inset-right));
         width: 160px; pointer-events: auto; cursor: pointer; border: 2px solid rgba(255,255,255,0.75); border-radius: 10px;
         overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.35); line-height: 0; }
       .minimap canvas { width: 100%; height: auto; image-rendering: auto; }
       .minimap.big { top: 50%; left: 50%; right: auto; transform: translate(-50%, -50%); width: min(92vw, 120vh); z-index: 4; }
-      .invite-btn { border: none; border-radius: 8px; padding: 3px 8px; margin-left: 4px; font-weight: 600; background: #29b6f6; color: #fff; }
+      .invite-btn { position: relative; border: none; border-radius: 8px; padding: 3px 8px; margin-left: 4px; font-weight: 600; background: #29b6f6; color: #fff; }
       .hud-status a { color: #b3e5fc; }
       /* Toasts (ui/toastQueue.ts): at most two, under the quest tracker in the HUD column, above the panels (3). */
       .hud-toasts { order: 10; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: min(100%, 420px);
@@ -142,19 +144,20 @@
         background: rgba(255,255,255,0.92); color: #2b3a24; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
       /* A full party (MAX_PARTY): yellow, so the player lets a pal go before stunning another one. */
       .party-btn.full { background: #ffd54f; color: #4e342e; }
-      .party-panel { position: absolute; top: 188px; right: max(12px, env(safe-area-inset-right)); width: min(320px, calc(100vw - 24px));
-        max-height: calc(100% - 200px); overflow-y: auto; pointer-events: auto; background: rgba(250,252,246,0.97); color: #253020;
+      /* border-box: max-height counts the padding, so a long panel ends 12 px above the bottom edge instead of 8 px below it (T18). */
+      .party-panel { position: absolute; top: 204px; right: max(12px, env(safe-area-inset-right)); box-sizing: border-box; width: min(340px, calc(100vw - 24px));
+        max-height: calc(100% - 216px); overflow-y: auto; pointer-events: auto; background: rgba(250,252,246,0.97); color: #253020;
         border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.3); padding: 10px; }
       .party-panel[hidden] { display: none; }
       .party-header { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 2px 4px 8px; font-size: 16px; }
       .party-title { flex: 1; min-width: 0; }
-      .party-close { border: none; background: none; font-size: 18px; cursor: pointer; width: 44px; height: 32px; }
+      .party-close { border: none; background: none; font-size: 18px; cursor: pointer; width: 44px; height: 44px; }
       /* Letting pals go: the mode button in the panel's header, a red "Thả" on each card, and the dialog that asks first. */
       .party-release-toggle { min-height: 44px; min-width: 44px; padding: 0 12px; border: none; border-radius: 10px; background: #ffebee; color: #b71c1c;
         font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; }
       .party-release-toggle.on { background: #b71c1c; color: #fff; }
       .party-release-toggle[hidden] { display: none; }
-      .party-action.release { background: #e53935; min-height: 44px; }
+      .party-action.release { background: #e53935; }
       .party-hint.release { color: #b71c1c; }
       /* Over the whole HUD (the panel is 3, the big minimap 4): it dims and blocks everything behind, joystick and buttons too. */
       .party-confirm { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; padding: 16px;
@@ -216,32 +219,35 @@
         background-position: center; align-items: flex-end; justify-content: flex-end; font-size: 11px; padding: 0 3px 1px 0; box-sizing: border-box; }
       .party-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
       .party-info small { color: #66735c; }
-      .party-action { border: none; border-radius: 8px; padding: 6px 10px; min-height: 36px; min-width: 76px; font-weight: 600; cursor: pointer;
+      .party-action { border: none; border-radius: 8px; padding: 6px 10px; min-height: 44px; min-width: 76px; font-weight: 600; cursor: pointer;
         background: #7cb342; color: #fff; }
       .label.companion span { font-size: 11px; font-weight: 500; }
       /* A caught pack leader (★): gold text on the usual dark tag (a gold tag is mine or a wild leader's). */
       .label.companion.alpha span { color: #ffe082; font-weight: 600; }
       .float-text { font-size: 15px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000; animation: float-up 1.2s ease-out forwards; }
       @keyframes float-up { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-36px); opacity: 0; } }
-      .base-btn { position: absolute; top: max(56px, calc(env(safe-area-inset-top) + 44px)); right: max(12px, env(safe-area-inset-right));
+      .base-btn { position: absolute; top: max(60px, calc(env(safe-area-inset-top) + 48px)); right: max(12px, env(safe-area-inset-right));
         pointer-events: auto; border: none; border-radius: 20px; padding: 8px 14px; font-size: 15px; font-weight: 600;
         background: rgba(255,224,178,0.95); color: #4e342e; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
       .party-panel { z-index: 3; }
-      .craft-btn { position: absolute; top: max(100px, calc(env(safe-area-inset-top) + 88px)); right: max(12px, env(safe-area-inset-right));
+      .craft-btn { position: absolute; top: max(108px, calc(env(safe-area-inset-top) + 96px)); right: max(12px, env(safe-area-inset-right));
         pointer-events: auto; border: none; border-radius: 20px; padding: 8px 14px; font-size: 15px; font-weight: 600;
         background: rgba(207,216,220,0.95); color: #263238; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
-      .wardrobe-btn { position: absolute; top: max(144px, calc(env(safe-area-inset-top) + 132px)); right: max(12px, env(safe-area-inset-right));
+      .wardrobe-btn { position: absolute; top: max(156px, calc(env(safe-area-inset-top) + 144px)); right: max(12px, env(safe-area-inset-right));
         pointer-events: auto; border: none; border-radius: 20px; padding: 8px 14px; font-size: 15px; font-weight: 600;
         background: rgba(248,187,208,0.95); color: #4a1d33; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
       .wardrobe-btn.fresh::after { content: ""; position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%;
         background: #ff5252; box-shadow: 0 0 0 2px #fff; }
+      /* An invisible 44 px tall hit area centred on a small button (T18): the look stays, a finger gets 44 px. */
+      .party-btn::before, .base-btn::before, .craft-btn::before, .wardrobe-btn::before, .invite-btn::before {
+        content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 44px; margin-top: -22px; }
       /* The explorer and the tabs stay put while the list scrolls. */
       .wardrobe-panel { display: flex; flex-direction: column; overflow: hidden; }
       .wardrobe-panel .party-list { overflow-y: auto; min-height: 0; flex: 1 1 auto; padding: 0 2px 2px; }
       .wardrobe-stage { display: flex; justify-content: center; margin: 0 0 6px; flex: none; }
       .doll-preview { cursor: pointer; border-radius: 12px; touch-action: manipulation; background: radial-gradient(circle at 50% 45%, #fff8e1, #e3efd6 70%); }
       .wardrobe-tabs { display: flex; gap: 4px; margin: 0 0 8px; flex: none; }
-      .wardrobe-tab { flex: 1; border: none; border-radius: 8px; padding: 7px 2px; min-height: 34px; font-size: 13px; font-weight: 600;
+      .wardrobe-tab { flex: 1; border: none; border-radius: 8px; padding: 7px 2px; min-height: 44px; font-size: 13px; font-weight: 600;
         background: #e8eee2; color: #3d4a35; cursor: pointer; }
       .wardrobe-tab.active { background: #7cb342; color: #fff; }
       .wear-card.worn { border-color: #7cb342; background: #f1f8e9; }
@@ -251,10 +257,10 @@
       .look-picker { display: flex; flex-direction: column; gap: 10px; padding: 2px 2px 4px; }
       .look-row small { display: block; margin: 0 0 4px; font-size: 13px; font-weight: 600; color: inherit; opacity: 0.8; }
       .look-options { display: flex; flex-wrap: wrap; gap: 6px; }
-      .style-btn { border: 2px solid transparent; border-radius: 8px; padding: 6px 8px; min-height: 34px; font-size: 13px; font-weight: 600;
+      .style-btn { border: 2px solid transparent; border-radius: 8px; padding: 6px 8px; min-height: 44px; font-size: 13px; font-weight: 600;
         background: #fff; color: #3d4a35; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.15); }
       .style-btn.active { border-color: #7cb342; background: #f1f8e9; }
-      .swatch { width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 3px solid rgba(255,255,255,0.9); cursor: pointer;
+      .swatch { width: 44px; height: 44px; padding: 0; border-radius: 50%; border: 3px solid rgba(255,255,255,0.9); cursor: pointer;
         box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
       .swatch.active { outline: 3px solid #7cb342; outline-offset: 1px; }
       .craft-icon { font-size: 26px; width: 34px; text-align: center; flex: none; }
@@ -264,10 +270,11 @@
       .craft-cost .short { color: #c62828; }
       .craft-blocker { color: #c62828 !important; }
       .ball-btn { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
-        pointer-events: auto; border: none; border-radius: 18px; padding: 6px 12px; font-size: 14px; font-weight: 600;
+        pointer-events: auto; border: none; border-radius: 18px; padding: 6px 12px; min-height: 44px; font-size: 14px; font-weight: 600;
         background: rgba(255,255,255,0.9); color: #263238; box-shadow: 0 2px 6px rgba(0,0,0,0.25); cursor: pointer; }
       .ball-btn.great { background: #bbdefb; }
-      .ball-btn.touch { right: max(150px, calc(env(safe-area-inset-right) + 150px)); bottom: 120px; }
+      /* Right half, left of Bắt: the left half is where the left thumb holds the joystick (T18). */
+      .ball-btn.touch { right: max(104px, calc(env(safe-area-inset-right) + 104px)); bottom: 120px; }
       .party-action.feed { background: #8d6e63; }
       .action-btn { position: absolute; width: 76px; height: 76px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.6);
         color: #fff; font-size: 16px; font-weight: bold; pointer-events: auto; touch-action: none; }
@@ -301,7 +308,7 @@
       .skill-btn.nope { animation: skill-nope 0.3s; }
       @keyframes skill-ordered { from { box-shadow: 0 0 0 0 rgba(255,236,64,0.95); } to { box-shadow: 0 0 0 7px rgba(255,236,64,0); } }
       @keyframes skill-nope { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
-      .skill-auto { pointer-events: auto; border: none; border-radius: 12px; padding: 6px 10px; font-size: 12px; font-weight: 700; white-space: nowrap;
+      .skill-auto { pointer-events: auto; border: none; border-radius: 12px; padding: 6px 10px; min-height: 44px; font-size: 12px; font-weight: 700; white-space: nowrap;
         background: rgba(110,110,110,0.88); color: #fff; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3); touch-action: none; }
       .skill-auto.on { background: rgba(67,160,71,0.92); }
       /* Phones: round buttons above the attack and catch buttons, the switch over them. */
@@ -316,9 +323,13 @@
         font-family: system-ui, sans-serif; color: #fff; background: #1b2a1b;
       }
       #lobby form { display: flex; flex-direction: column; gap: 12px; width: min(340px, 92vw); margin: auto; padding: 16px 0; }
+      /* Tablets and desktops: wide enough for the 8 hair colours (44 px each) in one row (T18). */
+      @media (min-width: 601px) { #lobby form { width: min(420px, 92vw); } }
+      /* Short portrait phones: tighter form and a smaller explorer so the join button stays on screen (T18). */
+      @media (max-width: 600px) and (max-height: 760px) { #lobby form { gap: 8px; padding: 8px 0; } .lobby-look .doll-preview { zoom: 0.8; } }
       #lobby h1 { margin: 0 0 4px; text-align: center; }
-      #lobby input, #join-btn { font-size: 18px; padding: 12px; border-radius: 8px; border: none; }
-      #join-btn { min-height: 44px; box-sizing: border-box; background: #7cc35a; color: #10200f; font-weight: bold; cursor: pointer; }
+      #lobby input, #join-btn { font-size: 18px; padding: 12px; border-radius: 8px; border: none; min-height: 44px; box-sizing: border-box; }
+      #join-btn { background: #7cc35a; color: #10200f; font-weight: bold; cursor: pointer; }
       /* Locked while the lobby script loads (see the comment on the form). */
       #join-btn:disabled { opacity: 0.6; cursor: progress; }
       #lobby input:disabled { opacity: 0.6; }
@@ -343,7 +354,10 @@
       .lobby-look .style-btn { padding: 5px 7px; }
       /* Phones held sideways: the explorer beside the picker. */
       @media (max-height: 560px) and (min-width: 560px) {
-        #lobby form { width: min(680px, 94vw); gap: 8px; padding: 8px 0; }
+        #lobby form { width: min(680px, 94vw); gap: 8px; padding: 8px 0; display: grid; grid-template-columns: 1fr 200px; column-gap: 8px; }
+        #lobby form > * { grid-column: 1 / -1; }
+        #lobby form > #name { grid-column: 1; }
+        #lobby form > #join-btn { grid-column: 2; }
         #lobby h1 { font-size: 22px; margin: 0; }
         .lobby-look { flex-direction: row; align-items: center; gap: 16px; }
         #lobby input, #join-btn { padding: 9px 12px; }
@@ -355,16 +369,12 @@
         .hud-hp { width: 64px; }
         .hud-hp-text { font-size: 11px; }
         .eat-btn, .sound-btn { padding: 2px 6px; font-size: 12px; }
-        .sound-btn { min-height: 28px; }
         .hud-status { font-size: 12px; padding: 4px 8px; line-height: 1.6; }
         .hud-quest { font-size: 12px; padding: 4px 8px; }
         .hud-quest small { font-size: 11px; }
         .party-btn, .base-btn, .craft-btn, .wardrobe-btn { padding: 6px 10px; font-size: 13px; }
-        .base-btn { top: max(52px, calc(env(safe-area-inset-top) + 40px)); }
-        .craft-btn { top: max(92px, calc(env(safe-area-inset-top) + 80px)); }
-        .wardrobe-btn { top: max(132px, calc(env(safe-area-inset-top) + 120px)); }
-        .minimap { width: 112px; top: max(174px, calc(env(safe-area-inset-top) + 162px)); }
-        .party-panel { top: 172px; max-height: calc(100% - 184px); }
+        .minimap { width: 112px; top: max(196px, calc(env(safe-area-inset-top) + 184px)); }
+        .party-panel { top: 196px; max-height: calc(100% - 208px); }
         .toast { font-size: 13px; padding: 5px 10px; }
         .toast.high { padding-left: 8px; }
       }
@@ -389,11 +399,16 @@
         /* The minimap and the panels beside the buttons, clear of the touch buttons below. */
         .minimap { width: 112px; top: max(12px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + 140px); }
         .party-panel { top: max(8px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + 130px); max-height: calc(100% - 16px); }
-        .wardrobe-panel { width: min(470px, calc(100vw - 170px)); height: calc(100% - 16px); display: grid;
+        .wardrobe-panel { width: min(490px, calc(100vw - 150px)); height: calc(100% - 16px); display: grid;
           grid-template-columns: auto 1fr; grid-template-rows: auto auto 1fr; column-gap: 10px; }
         .wardrobe-panel .party-header { grid-column: 1 / -1; padding-bottom: 4px; }
         .wardrobe-stage { grid-column: 1; grid-row: 2 / 4; align-items: flex-start; }
         .wardrobe-tabs, .wardrobe-panel .party-list { grid-column: 2; }
+        /* The party panel as wide as the wardrobe's, its buttons in two columns (a third one across both): cards stay
+           about 120 px tall, so two fit in the 374 px panel (T18). */
+        .pals-panel { width: min(490px, calc(100vw - 150px)); }
+        .party-buttons { display: grid; grid-template-columns: repeat(2, auto); }
+        .party-buttons > :nth-child(3):last-child { grid-column: 1 / -1; }
       }
     </style>
   </head>
