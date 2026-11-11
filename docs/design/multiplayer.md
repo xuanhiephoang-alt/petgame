@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -17,7 +17,40 @@ Sảnh (ngoại hình, tên, nút "Vào chơi") chỉ dùng được khi script 
 - **Tải lại** mở lại đúng địa chỉ đang có, giữ `?room=` của link mời và mọi tham số khác. Có link mời thì thông báo ghi thêm "Link mời vẫn được giữ."
 - Thông báo "mạng chậm" không chặn gì, không đổi nút "Đang tải..." và không lấy focus. Chỉ khi trình duyệt báo lỗi thật mới hiện thẻ "Không tải được game".
 - Vì sao chờ 15 giây: script sảnh của bản build khoảng 960 kB (server chưa nén). Đo được sảnh sẵn sàng sau 5,3 giây ở 4G chậm (1,6 Mbps), 11,3 giây ở 3G (750 kbps), 20,7 giây ở 3G chậm (400 kbps). Với 15 giây, mạng từ 3G trở lên không bị làm phiền, còn người bị treo mạng không phải chờ quá lâu mới có nút Tải lại.
-- Phạm vi: chỉ lúc tải trang, trước khi sảnh dùng được. Lỗi khi bấm "Vào chơi" (thế giới đã đóng, đủ 5 người, server không chạy) hiện ở dòng lỗi của sảnh; việc T23 sẽ làm rõ các lỗi này, kèm nút "Tạo thế giới mới". Mất mạng khi đang chơi là màn che kết nối ở mục "Quay lại".
+- Phạm vi: chỉ lúc tải trang, trước khi sảnh dùng được. Lỗi khi bấm "Vào chơi" là mục "Vào thế giới: lỗi và cách đi tiếp" (T23). Mất mạng khi đang chơi là màn che kết nối ở mục "Quay lại".
+
+## Tải lại trang: về đúng thế giới (T23)
+
+Trong lúc chơi, thanh địa chỉ luôn ghi nơi mà lần mở trang sau sẽ đưa người chơi tới (đổi tại chỗ, không tải lại trang):
+
+| Lúc | Địa chỉ |
+|---|---|
+| Có người khác trong thế giới (kể cả người đang mất kết nối mà còn được giữ chỗ) | có `?room=<thế giới>`, như link mời |
+| Chỉ còn mình | không có `room` |
+| Mất hẳn kết nối | đúng địa chỉ mà nút **Về sảnh** mở (luật ở mục "Quay lại") |
+
+- Vì vậy tải lại trang, hay Safari mở lại một tab mà iOS đã dỡ ở nền, đưa người chơi về đúng thế giới đang có bạn bè.
+- Chơi một mình thì không ghi `room`, vì người cuối cùng rời là thế giới đóng ngay (tải lại là rời chủ động). Lần sau mở một thế giới mới cùng bản đồ; thú, đồ và trại luôn còn vì theo thiết bị.
+- Vẫn qua sảnh: người chơi bấm "Vào chơi" một lần. Khi quay lại, sảnh ghi "Quay lại thế giới bạn đang chơi cùng bạn bè" và nút "Vào chơi" có sẵn focus (Enter là vào). Sảnh không tự vào, vì link mời cũng có `?room=` mà người được mời cần chọn tên, ngoại hình trước.
+- Vào lại từ sảnh là phiên mới: bắt đầu ở giữa bản đồ, đầy máu (như mục "Quay lại").
+- Trang nhớ (trong `sessionStorage` của tab) thế giới vừa chơi, chỉ để chọn chữ "Quay lại…" hay "Bạn được mời…". Địa chỉ mới là thứ quyết định vào đâu.
+- Giới hạn: app mở từ Màn hình chính (PWA) luôn mở lại từ `/`, nên chưa về được thế giới cũ.
+
+## Vào thế giới: lỗi và cách đi tiếp (T23)
+
+Vào hỏng thì nút "Vào chơi" nhường chỗ cho một thẻ (cùng kiểu thẻ "Không tải được game"), nút chính có sẵn focus; ô tên và ngoại hình vẫn sửa được. Trong lúc đang vào, nút ghi "Đang vào...".
+
+| Tình huống | Tiêu đề | Dòng giải thích | Nút |
+|---|---|---|---|
+| Thế giới đã đóng, người chơi đang quay lại | Thế giới này đã đóng | Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn. | **Tạo thế giới mới** |
+| Thế giới đã đóng (link mời cũ hoặc sai) | Thế giới này đã đóng | Mọi người đã rời đi. Xin bạn bè link mời mới, hoặc tạo thế giới mới. | **Tạo thế giới mới** |
+| Đủ 5 người (tính cả chỗ đang giữ 20 giây cho người rớt mạng) | Thế giới đã đủ 5 người | Chờ chút rồi bấm Thử lại, hoặc tạo thế giới mới. | **Thử lại**, Tạo thế giới mới (phụ) |
+| Mất mạng, server không chạy hoặc đang khởi động lại | Không kết nối được server | Kiểm tra mạng rồi bấm Thử lại. | **Thử lại** |
+| Lỗi khác | Không vào được thế giới | Có lỗi khi vào. Chờ giây lát rồi bấm Thử lại. | **Thử lại** |
+
+- **Tạo thế giới mới** bỏ `room` khỏi địa chỉ rồi vào ngay một thế giới mới (cùng bản đồ).
+- Biết thế giới đã đóng thì địa chỉ bỏ `room` ngay, nên tải lại ở thẻ này cũng ra thế giới mới, không gặp lại lỗi cũ.
+- **Thử lại** vào lại đúng địa chỉ đang có (vẫn giữ link mời).
 
 ## Mỗi thiết bị một nhân vật
 
@@ -62,3 +95,5 @@ Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server
 
 - Cắt mạng để thoát một trận đánh: được tối đa 20 giây an toàn, nhưng không làm gì được và không được lợi gì về đồ (ngất vốn không mất đồ). Chấp nhận vì game hợp tác, không có PvP.
 - Phòng đủ 5 người mà một người đang được giữ chỗ: người khác (kể cả chính họ vào lại từ sảnh) phải chờ hết 20 giây. Họ quay lại tự động thì vẫn vào được.
+- Tải lại trang không dùng mã kết nối lại (T23): mã chỉ sống 20 giây và dùng một lần, mà muốn dùng thì phải bỏ luật "tải lại = rời chủ động" (chỗ bị giữ 20 giây mỗi lần đóng tab). Ghi thế giới lên địa chỉ thì sống đến khi thế giới đóng, đổi lại vị trí và máu không được giữ.
+- Người chơi một mình tải lại thì thế giới cũ đóng, nên link mời họ vừa gửi không dùng được nữa (bạn bè thấy "Thế giới này đã đóng"). Giữ thế giới trống thêm một lúc là việc riêng.

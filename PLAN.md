@@ -1,347 +1,401 @@
-# PLAN: T21 Trùm lang thang va chạm với bán kính 20 thay vì 40 (kèm đường về nhà và giới hạn đường vòng)
+# PLAN: T23 Vào lại đúng thế giới sau khi tải lại trang hoặc iOS đóng tab
+
+Đọc code ở HEAD `7e8c487`. Kèm các ghi chú "Sau T15" của T23 trong `TASKS.md` và mục Thiết kế 6 của kế hoạch T15 (`git show 478c8a7:PLAN.md`).
 
 ## Mục tiêu
 
-Đọc code ở HEAD `f319a8f`. Ba lỗi của trùm Vua Đá (cùng một con, cùng nhánh code trong `GameRoom.tick`):
+Hiện tại, khi đang chơi cùng bạn bè mà người chơi tải lại trang (hoặc iOS dỡ tab ở nền rồi mở lại), trang về sảnh với địa chỉ ban đầu. Người tạo thế giới có địa chỉ không có `?room=`, nên bấm "Vào chơi" là **tạo thế giới mới**, tách khỏi bạn bè. Kết nối lại của T3 chỉ chạy khi trang còn mở.
 
-1. **Thân lúc lang thang sai cỡ.** `GameRoom.ts` dòng 741 gọi `stepWander(..., { grid: this.obstacles, radius: species.size })`. Với trùm, `species.size` là 20 (Boulderhorn thường), trong khi xuất hiện (`spawnBoss`), đuổi, cắn, chiêu đều dùng `BOSS.radius` = 40. Hậu quả: trùm lấn vào đá, lọt khe rộng 40-80 px. Sau đó khi đổi sang đuổi (thân 40), `resolve` đẩy nó bật ra hoặc nó kẹt trong khe.
-   - Đo (bản mẫu trong scratchpad): bức tường cây có khe 52 px, trùm lang thang hướng qua khe. Thân 20: 50/50 lần lọt qua, 1.600 tick chồng lên cây. Thân 40: 0/50 lần lọt, 0 tick chồng.
-2. **Về nhà kẹt sau vật cản.** Dây giới hạn (dòng 735) đặt `brain.target = bossHome` **mỗi tick**. `stepWander` thấy bị chặn thì đổi sang đích ngẫu nhiên, nhưng tick sau đích lại bị đặt về nhà, nên trùm ép vào cây, đá hay núi lửa mãi.
-   - Đo: 400 lần trùm bị dụ xa nhà 300-1.200 px quanh núi lửa (388/400 lần đường thẳng bị chắn). Tỉ lệ về tới trong 60 giây:
+Sau T23:
+1. **Tải lại là về đúng thế giới đang chơi cùng bạn bè.** Trong lúc chơi, thanh địa chỉ luôn ghi nơi mà lần mở trang sau sẽ đưa người chơi tới (`history.replaceState`). Có bạn bè trong thế giới thì địa chỉ có `?room=<id>`. Chơi một mình thì địa chỉ không có `room`: thế giới đó đóng ngay khi người chơi rời, nên lần sau mở thế giới mới cùng bản đồ, giống nút "Về sảnh" của T3.
+2. **Sảnh nói rõ vì sao không vào được và cho cách đi tiếp.** Bỏ dòng lỗi chung "Không vào được phòng (đầy 5 người hoặc server chưa chạy)." Thay bằng thẻ lỗi (dùng lại `.lobby-alert` / `.lobby-action` của T15) cho bốn trường hợp:
+   - thế giới đã đóng: nút **Tạo thế giới mới**;
+   - thế giới đủ 5 người: nút **Thử lại** và **Tạo thế giới mới**;
+   - không kết nối được server: nút **Thử lại**;
+   - lỗi khác: nút **Thử lại**.
 
-     | Cách về | Về tới | Thời gian trung bình |
-     |---|---|---|
-     | Hiện tại (thân 20) | 67% | 21 giây |
-     | Chỉ sửa thân thành 40 | 37% | 22 giây |
-     | Tìm đường, tốc độ lang thang | 91% | 17 giây |
-     | Tìm đường, tốc độ đuổi | 92% | 10 giây |
-
-   - Kết luận: **sửa thân mà không thêm tìm đường thì tệ hơn hiện tại**, nên hai việc làm cùng một nhiệm vụ.
-3. **Đuổi thì đi vòng quá xa khi mục tiêu ở gần.** Đây là góp ý trong `REVIEW.md` của commit T9: mục tiêu cách 78 px, trùm đi vòng 933 px. Người chơi đứng ngay sau bức tường thấy trùm quay lưng bỏ đi.
-   - Đo: 600 lần đuổi bị chắn (mục tiêu cách 60-320 px, 8 giây), trên cả thế giới / quanh núi lửa. Số lần trùm đi ra xa mục tiêu hơn 150 px so với lúc bắt đầu là 27 / 13.
-
-**Sau nhiệm vụ, người chơi thấy:**
-- Trùm to bao nhiêu thì chiếm chỗ bấy nhiêu: không chui khe hẹp, không đứng lẫn vào đá.
-- Bị dụ đi xa rồi hết giận, trùm đi vòng cây, núi về chân núi lửa.
-- Người chơi đứng sát sau bức tường thì trùm đứng ép vào tường phía người chơi và dậm đất (tầm 102 px), không bỏ đi vòng.
+Vì sao cần: chơi cùng bạn bè trên điện thoại là cách chơi chính. iOS Safari hay dỡ tab ở nền, và người chơi hay kéo xuống để tải lại. Mỗi lần như vậy họ rơi vào một thế giới trống mà không biết vì sao.
 
 ## Phạm vi
 
 **Làm:**
-1. `packages/shared/src/boss.ts`: thêm 4 trường vào `BOSS`, sửa chú thích `radius`.
-2. `packages/server/src/ai/pathing.ts`: trường tuỳ chọn `Walker.maxPath`, từ chối đường dài hơn trong `PathPlanner.run`, hàm thuần `detourLimit`, `lastRun.refused`.
-3. `packages/server/src/rooms/GameRoom.ts`:
-   - thân trùm khi lang thang;
-   - trùm về nhà bằng `paths` (phương thức mới `bossHeadHome`, cờ `bossReturning`);
-   - giới hạn đường vòng khi trùm đuổi;
-   - bỏ hằng `BOSS_LEASH`.
-4. Test:
-   - `packages/server/src/ai/pathing.test.ts`: 3 test;
-   - `packages/server/src/rooms/GameRoom.test.ts`: 3 test, sửa 1 test có sẵn (chỉ đổi cách đọc dây giới hạn);
-   - Không có `packages/shared/src/boss.test.ts`; các câu kiểm số liệu `BOSS` nằm trong test `detourLimit` của `pathing.test.ts` (bước 4).
-5. `docs/architecture.md`: 2 chỗ (bước 6). `docs/design/pals.md`: game-designer đã sửa trong nhiệm vụ này (mục "Trùm Vua Đá: thân và đường về nhà", bảng "Ai tìm đường", câu "Thấy lại mục tiêu..."). Coder không sửa `pals.md`; code khác thiết kế thì báo lại.
+- `packages/client/src/net/connection.ts`: hàm thuần `joinFailure(err)` phân loại lỗi khi vào phòng; có unit test.
+- `packages/client/src/ui/joinStatus.ts` (mới): bảng chữ của thẻ lỗi, hàm thuần `joinCard(failure, returning)`; có unit test.
+- `packages/client/src/main.ts`:
+  - gom việc vào phòng thành hàm `enter()`, dùng cho submit, Thử lại và Tạo thế giới mới;
+  - hiện thẻ lỗi;
+  - đồng bộ `?room=` lên thanh địa chỉ trong lúc chơi;
+  - ghi dấu "đang chơi ở thế giới nào" vào `sessionStorage`;
+  - chữ gợi ý khi quay lại.
+- `packages/client/index.html`:
+  - thêm thẻ `#join-status` vào sảnh, bỏ `#join-error`;
+  - thêm CSS `.lobby-actions` và `.lobby-action.quiet`.
+- E2E: sửa 3 test có sẵn, thêm 1 test `lobby:`; sửa helper `waitForWorld`.
+- Tài liệu: `docs/design/multiplayer.md` (designer đã cập nhật cùng commit kế hoạch này) và `docs/architecture.md` (coder sửa 2 dòng, xem bước 7).
 
 **KHÔNG làm:**
-- Không thêm dây giới hạn lúc **đánh**. Trùm vẫn đuổi kẻ nó giận bao xa cũng được, như trước. Không đổi `wildTarget`, `provoke`, `WILD_AGGRO_MS`, `AGGRESSIVE_SIGHT`.
-- Không cho trùm hồi máu khi về nhà. Không đổi luật thú đầu đàn (`alphaReturning`, `ALPHA`).
-- Không áp giới hạn đường vòng (`maxPath`) cho thú nào khác ngoài trùm: thú đầu đàn về hang, thú thường, thú đi theo giữ y nguyên.
-- Không đổi `PATHING`, `pathfind.ts`, `NavGrid`, `stepChase`, `stepWander`, `wander.ts`.
-- Không làm các mục của T41: bỏ yêu cầu khi `steer` trả sớm, bỏ đường cũ khi im lặng, `maxNodes > tickBudget`, thoát hốc hẹp, câu kiểm luôn đúng ở `pathing.test.ts:158`.
-- Không đổi schema, message, hồ sơ, client, sprite.
+- **Không tự vào lại khi mở trang.** Người chơi vẫn bấm "Vào chơi" một lần, vì:
+  - link mời cũng có `?room=` mà người được mời cần chọn tên và ngoại hình trước;
+  - tự vào sẽ phá hợp đồng T1 "sảnh sẵn sàng = `#join-btn:enabled`" mà mọi e2e dùng (sau `page.reload()` test sẽ đua với lần tự vào);
+  - T3 đã định "vào lại từ sảnh là một phiên mới".
+
+  Bù lại: khi quay lại, nút "Vào chơi" có sẵn focus (Enter là vào) và sảnh ghi rõ "Quay lại thế giới bạn đang chơi cùng bạn bè".
+- Không dùng `sessionStorage` + `client.reconnect` (lý do ở Thiết kế 1).
+- Không sửa server, schema, message, `Profile`. Không đổi `RECONNECT_GRACE_MS`, không giữ thế giới trống sống thêm (đề xuất việc riêng ở cuối).
+- Không đổi bộ canh tải T15 (script inline trong `index.html`), `#load-status`, `#reload-btn`, tên sự kiện `petgame:lobby-ready`.
+- Không đổi `lobbyUrl`, `inviteLink`, `ConnectionWatch`, màn che kết nối `ui/connection.ts`.
+- Không xử lý lỗi sau `lobby.remove()` (`startGame` hỏng: việc T42). Không gỡ phiên bị treo khi `assets` hỏng sau khi đã vào phòng (server đã tự thay phiên cũ theo token khi vào lại; ghi ở Rủi ro).
+- Không làm phần PWA "Thêm vào MH chính": app mở lại từ `start_url` `/` nên không giữ `?room=` (ghi ở Rủi ro, đề xuất việc riêng).
+- Không thêm hook `debug:*` hay tham số URL chỉ dành cho test; test dùng `page.route`, SDK `Client` và helper `observer` có sẵn.
+- Không sửa `playwright.config.ts`, không tăng timeout chung, không `retries`, không thêm `waitForTimeout`.
 
 ## Thiết kế
 
-Luật đầy đủ ở `docs/design/pals.md`: mục "Trùm Vua Đá: thân và đường về nhà", và mục "Đi vòng cây, đá" (dòng trong bảng "Ai tìm đường", gạch đầu dòng "Trùm không đi vòng quá xa").
+### 1. Chọn hướng: ghi `?room=` lên địa chỉ (không dùng mã nối lại)
 
-### 1. Thân 40 ở mọi chỗ di chuyển
-
-`radius` (dòng 668, đã là `pal.boss ? BOSS.radius : species.size`) được dùng cho cả `stepWander`. Thú thường và thú đầu đàn không đổi gì, vì với chúng `radius === species.size`.
-
-Các chỗ khác còn dùng `species.size` không ảnh hưởng tới trùm:
-- `push` (dòng 1275) không bao giờ chạy cho trùm: dòng 886 có `!pal.boss`, dòng 1515 có `pal.boss` return ở dòng 1513.
-- Thú đi theo, thú làm việc không phải trùm.
-
-### 2. Trùm về nhà
-
-Khi trùm **không đánh ai** (nhánh sau `wildTarget` trả `undefined`):
-- Cách nhà (`bossHome`, chỗ xuất hiện) quá `BOSS.leash` (256 px, giữ giá trị của `BOSS_LEASH` cũ) thì bật `bossReturning`.
-- Đang `bossReturning`:
-  - đi về bằng `this.paths.steer` + `stepChase`, giống thú đầu đàn về hang;
-  - đích `bossHome`, `goalRadius` = `BOSS.homeRadius` (128 px, nửa dây giới hạn, như `ALPHA.roam * 0.5`), thân `BOSS.radius`, `sea: false`;
-  - tốc độ đuổi: `species.speed * WILD_CHASE_SPEED_FACTOR` = 81 px/s.
-- Không bước xuống biển: giữ vị trí cũ nếu bước mới là biển, như nhánh đuổi.
-- Tới trong `BOSS.homeRadius` (theo `step.inRange` hoặc `distance <= BOSS.homeRadius`): tắt `bossReturning` và đặt `this.brains.set(id, newBrain(pal))` (đích gần ngẫu nhiên, nghỉ 0-2 giây). Từ đó lang thang như thường.
-- Lúc về nhà vẫn đặt `pal.angry = false`, `pal.windup = ""` như nhánh lang thang hiện nay.
-
-**Khác thú đầu đàn, có chủ ý:**
-- Trùm đang về **vẫn đánh** ai lại gần trong 120 px hoặc đánh nó. Nhánh đánh chạy trước nhánh về nhà, đúng thứ tự hiện có.
-- Đánh xong, nếu `bossReturning` còn bật thì lại về tiếp, kể cả khi đang trong 256 px. Như vậy trùm luôn về tới 128 px, không dừng giữa chừng.
-- Lý do:
-  - giữ luật trùm hung dữ như cũ;
-  - trùm không có dây lúc đánh (không đổi lối chơi đánh trùm);
-  - người chơi đứng chặn đường về vẫn bị đánh, đúng chất trùm.
-
-**Tốc độ đuổi thay vì tốc độ lang thang:**
-- giống thú đầu đàn;
-- về nhanh gần gấp đôi (10 so với 17 giây trung bình);
-- vẫn chậm hơn người chơi (160 px/s), nên không thành mối đe doạ mới.
-
-**`bossReturning` tắt khi:** tới nhà; `spawnBoss` (trùm mới); `removePal` của chính trùm (`palId === this.bossId`, gồm cả lúc `defeatBoss`).
-
-### 3. Giới hạn đường vòng khi trùm đuổi
-
-Khi trùm đuổi, đường A* tìm được dài hơn ngưỡng sau thì coi như **không có đường**:
-
-```
-maxPath = min(chaseMax, max(chaseDetourFactor × d, d + chaseDetourExtra))
-        = min(648, max(3 × d, d + 160))
-```
-
-- `d`: khoảng cách thẳng từ trùm tới mục tiêu lúc gọi `steer`.
-- `chaseMax` = `species.speed × WILD_CHASE_SPEED_FACTOR × WILD_AGGRO_MS / 1000` = 45 × 1,8 × 8 = 648 px: quãng trùm đi được trong một lần giận 8 giây. Đường dài hơn thì hết giận trước khi tới.
-- `3 × d` và `d + 160`: mục tiêu ở gần (d nhỏ) thì cho phép vòng thêm tối đa 160 px (5 m). Mục tiêu xa hơn thì cho tới 3 lần khoảng cách thẳng.
-
-"Không có đường" đi đúng đường thất bại sẵn có của `PathPlanner`:
-- bỏ đường cũ (`drop`);
-- `nextSearchAt = now + failRetryMs` (2 giây);
-- trùm trượt thẳng về phía mục tiêu như trước T9: ép vào vật cản phía mục tiêu, vẫn dậm đất được nếu mục tiêu trong 102 px (`BOSS.stompRadius`).
-
-Lần tìm bị từ chối vẫn tính vào `searches` và `expanded` của tick đó (đã tốn CPU).
-
-Độ dài đường tính từ chỗ trùm đứng lúc yêu cầu (`query.from`) qua mọi điểm mốc (`result.path`).
-
-**Chọn công thức nào: số đo** (scratchpad, 600 lần đuổi bị chắn mỗi bộ, seed cố định). Cột "tệ hơn trượt": số lần trượt thẳng tới được mà cách này tới chậm hơn 2 giây hoặc không tới. Cột "đi xa > 150": số lần trùm ra xa mục tiêu hơn 150 px so với lúc bắt đầu.
-
-| Cách | Tới tầm cắn (cả thế giới / núi lửa) | Tới tầm dậm | Tệ hơn trượt (cắn) | Đi xa > 150 |
-|---|---|---|---|---|
-| Chỉ trượt (trước T9) | 63,3% / 68,2% | 74,2% / 76,8% | | 0 / 0 |
-| Hiện tại (T9) | 82,8% / 88,8% | 87,0% / 91,2% | 17 / 26 | 27 / 13 |
-| Trần 648 | 83,8% / 91,0% | 88,7% / 93,5% | 11 / 13 | 0 / 0 |
-| max(3d, d+160) | 83,8% / 89,7% | 88,8% / 92,7% | 8 / 19 | 0 / 0 |
-| **min(648, max(3d, d+160))** (chọn) | 83,7% / 90,7% | 88,5% / 93,5% | 7 / 13 | 0 / 0 |
-| d + 320 | 82,0% / 90,5% | 87,3% / 93,0% | 7 / 12 | 0 / 0 |
-| Đích tìm đường = tầm dậm 102 px | 79,3% / 84,5% | 89,7% / 93,2% | 11 / 24 | 20 / 11 |
-
-**Lý do chọn:**
-- Bỏ hết các lần trùm đi xa bỏ mục tiêu: 27 → 0.
-- Tỉ lệ tới tầm cắn không giảm mà còn tăng nhẹ, vì trùm không phí 8 giây vào đường vòng vô vọng.
-- Số lần tệ hơn trượt thấp nhất hoặc gần thấp nhất ở cả hai bộ.
-- Hai số đều có nghĩa dễ giải thích: quãng đi trong một lần giận, và vòng thêm tối đa 5 m.
-- Phương án "đích tìm đường = tầm dậm" làm tụt tầm cắn và vẫn đi xa 20 lần, nên bỏ.
-
-**Chi phí CPU:** số lần tìm tăng khoảng 10% (844 → 948 trên 600 lần đuổi), vì đường bị từ chối sẽ thử lại sau 2 giây. Chỉ có một con trùm, ngân sách mỗi tick không đổi (`maxExp` vẫn 1.500).
-
-### 4. Hằng số (bảng `BOSS` trong `packages/shared/src/boss.ts`)
-
-| Trường | Giá trị | Ý nghĩa |
+| | `history.replaceState` `?room=` (chọn) | `sessionStorage` + `client.reconnect` |
 |---|---|---|
-| `leash` | `8 * PIXELS_PER_UNIT` (256) | Không đánh ai mà xa nhà hơn chừng này thì về. Chuyển từ `BOSS_LEASH` trong `GameRoom.ts`, cùng giá trị |
-| `homeRadius` | `4 * PIXELS_PER_UNIT` (128) | Về tới trong chừng này thì lang thang lại |
-| `chaseDetourFactor` | `3` | Đường vòng khi đuổi dài tối đa gấp 3 lần đường thẳng... |
-| `chaseDetourExtra` | `5 * PIXELS_PER_UNIT` (160) | ...hoặc đường thẳng cộng 160 px, lấy số lớn hơn; không quá quãng đi trong một lần giận |
+| Khớp luật T3 "tải lại = rời chủ động" (`pagehide` → `watch.leave()`) | có | không: phải bỏ việc rời chủ động khi tải lại, nên chỗ bị giữ 20 giây mỗi lần đóng tab |
+| Sống được bao lâu | đến khi thế giới đóng | mã nối lại hết hạn sau 20 giây (`RECONNECT_GRACE_MS`), dùng một lần |
+| iOS dỡ tab ở nền hàng phút | về đúng thế giới nếu bạn bè còn ở đó | mã đã hết hạn |
+| Dùng lại thứ có sẵn | `lobbyUrl`, `inviteLink`, nút Tải lại T15 (giữ địa chỉ), nút Về sảnh T3 | không |
+| Tiến trình | hồ sơ theo token thiết bị nên vào lại đủ thú, đồ, trại | như bên trái |
 
-Chú thích `radius` đổi thành: "Body radius for every move (spawn, wander, chase, way home), collisions and melee reach (pixels)."
+Mất đi khi chọn hướng này: vị trí đứng và máu không được giữ (vào lại từ sảnh bắt đầu ở giữa bản đồ, đầy máu). Đây đúng là luật hiện có của "vào lại từ sảnh", không thành mẹo được (`docs/design/multiplayer.md`).
 
-Không có chữ hiển thị mới, không đổi giao diện; điện thoại và bàn phím không ảnh hưởng.
+### 2. Địa chỉ trong lúc chơi
+
+Luật: **địa chỉ = nơi lần mở trang sau đưa người chơi tới**. Tính bằng chính `lobbyUrl(room.roomId, withFriends)` mà nút "Về sảnh" đang dùng, nên hai đường luôn khớp.
+
+| Lúc | `withFriends` | Địa chỉ |
+|---|---|---|
+| Đang chơi, `room.state.players.size > 1` (kể cả bạn đang mất kết nối mà còn được giữ chỗ) | có | `?room=<roomId>`, giữ mọi tham số khác (`quality`...) và `#…` |
+| Đang chơi, chỉ còn mình (`size === 1`) | không | bỏ `room` |
+| `size === 0` (trạng thái chưa tới) | | không đổi |
+| Mất hẳn (`status.state === "lost"`) | theo luật T3: số người lúc còn online cuối; `shutdown` thì không | `lobbyUrl(room.roomId, withFriends)`, đúng URL mà nút Về sảnh mở |
+
+- **Vì sao chơi một mình thì bỏ `room`:** người cuối cùng rời (tải lại là rời chủ động) thì Colyseus đóng thế giới ngay (`autoDispose`). Giữ `room` thì người chơi một mình lần nào tải lại cũng gặp thẻ "Thế giới này đã đóng", vô ích. Thế giới mới dùng cùng bản đồ (`defaultWorld()`), và thú, đồ, trại theo token. Với người chơi một mình, hai thế giới như nhau.
+- **Người được mời vào thế giới chỉ còn mình họ** (chủ đã rời): `size === 1` nên `room` bị bỏ. Đúng: họ rời là thế giới đóng.
+- **Chi phí:** cập nhật trong `room.onStateChange` (20 lần/giây), nhưng chỉ gọi `replaceState` khi `withFriends` đổi giá trị (so với biến nhớ), nên không tạo object mỗi tick. Safari giới hạn khoảng 100 lần `replaceState` trong 30 giây; ở đây chỉ vài lần mỗi phiên. Vẫn bọc `try` (`safeStorage`).
+- **`sessionStorage` `petgame:room` = `room.roomId`**, ghi ngay khi vào phòng. Theo tab, sống qua tải lại và qua lúc Safari khôi phục tab. Chỉ dùng để biết trang này là **quay lại** (`?room=` trùng dấu) hay **được mời** (khác hoặc không có), từ đó chọn chữ. Không dùng để quyết định vào phòng nào: địa chỉ mới là thứ quyết định.
+
+### 3. Sảnh khi mở trang
+
+| Địa chỉ | `#room-hint` | Focus |
+|---|---|---|
+| không có `room` | (trống) | như cũ |
+| `?room=X`, `sessionStorage` `petgame:room` = X (quay lại) | **"Quay lại thế giới bạn đang chơi cùng bạn bè"** | `#join-btn` (Enter hoặc Space là vào; trên điện thoại focus nút không bật bàn phím) |
+| `?room=X`, khác hoặc không có dấu (được mời) | "Bạn được mời vào thế giới của bạn bè" (như cũ) | như cũ |
+
+**Ràng buộc T15:** `main.ts` vẫn bắn `petgame:lobby-ready` đồng bộ, ngay sau ba dòng mở khoá, trước mọi `await` và mọi yêu cầu tới server. Phần đọc `sessionStorage`, gán gợi ý và focus đều chạy đồng bộ trước đó, bọc `safeStorage` để không thể ném lỗi (một lỗi ở đây sẽ làm bộ canh tải báo "Trình duyệt gặp lỗi").
+
+### 4. Vào phòng và thẻ lỗi
+
+**Trong lúc vào** (submit, Thử lại, Tạo thế giới mới đều gọi `enter()`):
+- ẩn thẻ lỗi;
+- hiện `#join-btn`, khoá nó, chữ **"Đang vào..."** (ba dấu chấm ASCII, giống "Đang tải...");
+- có cờ `joining` chống gọi chồng.
+
+**Vào hỏng:** `#join-btn` bị ẩn (`hidden`), chữ trả về "Vào chơi" và mở khoá. Thẻ `#join-status` hiện ngay chỗ nút (ngay sau nút trong form), cuộn vào tầm nhìn (`scrollIntoView({ block: "nearest" })`), focus vào nút chính (`preventScroll`). Ô tên và ngoại hình vẫn hiện và sửa được.
+
+**Phân loại lỗi** (`joinFailure(err)`; số liệu đo bằng `@colyseus/testing` + SDK 0.18.5 ở HEAD, xem Thiết kế 7):
+
+| SDK ném | Ví dụ | Loại |
+|---|---|---|
+| `code === ErrorCode.MATCHMAKE_INVALID_ROOM_ID` (522), message có `"is locked"` | thế giới đủ 5 người, kể cả người đang được giữ chỗ 20 giây (Colyseus tự khoá phòng ở `maxClients`) | `full` |
+| 522, message khác (`room "X" not found`) | mọi người đã rời, thế giới đã đóng; link mời sai | `closed` |
+| `code` là `503` (server đang tắt), hoặc `code` không phải số (`undefined` khi `fetch` hỏng trên trình duyệt, `"ECONNREFUSED"` trên Node) | mất mạng, server không chạy hoặc đang khởi động lại | `unreachable` |
+| còn lại: `code` số khác (525, mã đóng socket 4xxx/1006 khi vào giữa chừng), giá trị ném không phải object | | `failed` |
+
+- Nhận diện theo cấu trúc (`typeof err === "object" && err !== null && "code" in err`), không `instanceof`, để test bằng object thường.
+- Phân biệt đầy/đóng dựa vào chữ `"is locked"` của Colyseus (`MatchMaker.joinById`). Nếu chữ này đổi ở bản Colyseus sau: unit test giữ đúng chuỗi hiện tại, còn e2e "6th is turned away" sẽ hỏng (thấy "đã đóng" thay vì "đủ 5 người"). Không âm thầm sai.
+
+**Chữ hiển thị** (`joinCard(failure, returning)`):
+
+| Loại | Tiêu đề (`<strong>`) | Dòng giải thích | Nút (nút chính đứng trước, có focus) |
+|---|---|---|---|
+| `closed`, quay lại | **Thế giới này đã đóng** | Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn. | **Tạo thế giới mới** |
+| `closed`, được mời | **Thế giới này đã đóng** | Mọi người đã rời đi. Xin bạn bè link mời mới, hoặc tạo thế giới mới. | **Tạo thế giới mới** |
+| `full` | **Thế giới đã đủ 5 người** | Chờ chút rồi bấm Thử lại, hoặc tạo thế giới mới. | **Thử lại**, Tạo thế giới mới (phụ) |
+| `unreachable` | **Không kết nối được server** | Kiểm tra mạng rồi bấm Thử lại. | **Thử lại** |
+| `failed` | **Không vào được thế giới** | Có lỗi khi vào. Chờ giây lát rồi bấm Thử lại. | **Thử lại** |
+
+- `returning` là giá trị lúc mở trang (Thiết kế 3), tính một lần; không phụ thuộc việc `room` bị bỏ sau đó.
+- Chữ "5" lấy từ `MAX_PLAYERS` của shared (`` `Thế giới đã đủ ${MAX_PLAYERS} người` ``), không viết số cứng.
+- `full` vẫn có Tạo thế giới mới: nếu người đang được giữ chỗ không quay lại, người chơi phải chờ hết 20 giây; nút phụ cho họ một lối khác.
+
+**Hành động:**
+- **Thử lại:** `enter()` với địa chỉ hiện tại (vẫn `?room=` nếu có).
+- **Tạo thế giới mới:**
+  1. bỏ `room` khỏi địa chỉ (`replaceState`, không tải lại trang);
+  2. xoá `#room-hint`;
+  3. `enter()`, tức `client.create`, rồi vào ngay (không bắt bấm thêm "Vào chơi").
+- **Khi phát hiện `closed`:** bỏ `room` khỏi địa chỉ và xoá gợi ý **ngay**, trước khi hiện thẻ. Địa chỉ phản ánh sự thật (thế giới không còn), nên tải lại ở thẻ này hay Enter trong ô tên cũng ra thế giới mới, không gặp lại cùng lỗi. Bước 1 của "Tạo thế giới mới" vì thế làm lại cũng không sao.
+- Enter trong ô tên khi thẻ đang hiện (nút submit đang ẩn): trình duyệt có thể gửi form hoặc không. Nếu gửi thì handler `submit` gọi `enter()`, tức Thử lại. Không sai đường nào; cờ `joining` chặn gọi chồng.
+
+**Giao diện thẻ** (`index.html`): dùng lại `.lobby-alert.failed` (thẻ sáng, bo 14 px) và `.lobby-action` (≥ 44 px cao, ≥ 140 px rộng, viền focus `#1e88e5`).
+
+```html
+<div id="join-status" class="lobby-alert failed" role="alert" hidden>
+  <strong id="join-title"></strong>
+  <p id="join-detail"></p>
+  <div class="lobby-actions">
+    <button type="button" id="retry-btn" class="lobby-action">Thử lại</button>
+    <button type="button" id="new-world-btn" class="lobby-action">Tạo thế giới mới</button>
+  </div>
+</div>
+```
+
+- `type="button"` **bắt buộc**: thiếu thì nút trong form sẽ gửi form và tải lại trang (bài học T15, Thiết kế 7.6).
+- CSS mới:
+  - `.lobby-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }`
+  - `.lobby-alert.failed .lobby-action.quiet { background: #e0e0e0; color: #263238; }` (nút phụ, cùng màu với `.net-overlay.reconnecting .net-lobby`).
+- Hai nút 140 px + 8 px vừa form 340 px, nên ở điện thoại dọc chúng nằm một hàng. Ở điện thoại ngang (form dạng lưới), thẻ trải hết hai cột (`#lobby form > * { grid-column: 1 / -1 }` có sẵn).
+- Nút nào không dùng thì `hidden`. Nút phụ có class `quiet`, nút chính thì không. Nút chính luôn đứng trước trong DOM (thứ tự có sẵn: Thử lại trước Tạo thế giới mới; với `closed` thì Thử lại bị ẩn, nên Tạo thế giới mới là nút chính duy nhất).
+- `#join-error` bị bỏ khỏi HTML và `main.ts`. CSS `#lobby .error` giữ lại (thẻ `noscript` của T15 còn dùng).
+
+### 5. Các tình huống, đầu cuối
+
+| Tình huống | Kết quả |
+|---|---|
+| A và B chơi chung, A tải lại | `pagehide` → A rời chủ động. Địa chỉ của A có `?room=`, sảnh ghi "Quay lại…", nút có focus, Enter → cùng thế giới, đủ thú. B thấy A rời rồi vào lại |
+| A chơi một mình, tải lại | Địa chỉ không có `room` → thế giới mới cùng bản đồ, như hiện nay (các e2e tải lại có sẵn vẫn đúng) |
+| iOS dỡ tab của A ở nền, B còn ở trong; A mở lại sau 5 phút | Safari mở lại địa chỉ có `?room=`, sảnh "Quay lại…", vào lại đúng thế giới |
+| như trên, nhưng B cũng đã rời | Thẻ "Thế giới này đã đóng / Thú, đồ và trại của bạn vẫn còn" → Tạo thế giới mới |
+| iOS dỡ tab, tin rời không kịp gửi, A mở lại trong 20 giây | Chỗ của A còn được giữ. Nếu thế giới chưa đủ thì vào được, server thay phiên cũ theo token. Nếu đủ 5 người (tính cả chỗ đang giữ của chính A): thẻ "đủ 5 người", Thử lại sau 20 giây (luật có sẵn ở `multiplayer.md`, "Đã cân nhắc") |
+| Server khởi động lại (deploy) | Màn che T3 "Server đang khởi động lại", địa chỉ bỏ `room`. Nếu tải lại trong lúc server chưa lên: thẻ "Không kết nối được server", Thử lại |
+| Link mời cũ của thế giới đã đóng | "Thế giới này đã đóng / Xin bạn bè link mời mới…" |
+
+### 6. Bàn phím và cảm ứng
+
+- Thẻ lỗi: focus vào nút chính, nên Enter/Space bấm nó; Tab sang nút phụ. Viền focus có sẵn.
+- Cảm ứng: mọi nút ≥ 44×44 ở 390×844, 844×390, 1280×720 (e2e đo). Focus một nút không bật bàn phím ảo; nếu bàn phím đang mở vì ô tên, chuyển focus sẽ đóng nó, để thẻ không bị che.
+- Thẻ có `role="alert"`, nên trình đọc màn hình đọc ngay khi hiện.
+
+### 7. Đã kiểm chứng (chỉ đọc; script trong scratchpad, không ghi file của repo)
+
+- Chạy `npx tsx -e` với `boot()` của `@colyseus/testing` (`PETGAME_DB=:memory:`):
+  - `joinById("nope")` → `MatchMakeError`, `code` 522, message `room "nope" not found`;
+  - server không có ở cổng → `MatchMakeError`, `code` `"ECONNREFUSED"`, message `fetch failed` (Node). Trên trình duyệt `fetch` ném `TypeError` không có `cause.code`, nên `code` là `undefined`; cả hai thuộc `unreachable`.
+- Đọc nguồn `@colyseus/core` 0.18.18 `MatchMaker.joinById`: phòng khoá → `ServerError(522, 'room "X" is locked')`. Route matchmake trả 503 khi server đang tắt.
+- Đọc nguồn `@colyseus/sdk` 0.18.5:
+  - `createMatchMakeRequest` gói mọi `ServerError` (kể cả lỗi mạng và lỗi socket khi tiêu thụ chỗ) thành `MatchMakeError(message, code)`;
+  - `ErrorCode` được export từ `@colyseus/sdk`.
+- E2E "6th is turned away" có sẵn chứng minh trên trình duyệt rằng thế giới đầy bị từ chối.
 
 ## Kế hoạch triển khai
 
-1. **`packages/shared/src/boss.ts`**
-   - Thêm 4 trường ở mục Thiết kế 4 vào `BOSS`, mỗi trường có JSDoc tiếng Anh ngắn. Ví dụ `chaseDetourFactor`: "A chase path longer than max(factor × straight, straight + extra), and than what it walks in one 8 s anger, is not worth walking: it presses on straight instead (see ai/pathing.ts detourLimit)".
-   - Sửa chú thích `radius` như trên.
-   - Bảng vẫn `as const`.
+1. **`packages/client/src/net/connection.ts`**
+   - `import { Client, ErrorCode, type Room } from "@colyseus/sdk";`
+   - Thêm:
+     ```ts
+     /** Why joining a world failed, as the lobby explains it. */
+     export type JoinFailure = "closed" | "full" | "unreachable" | "failed";
+     export function joinFailure(err: unknown): JoinFailure
+     ```
+     Luật theo bảng ở Thiết kế 4. JSDoc nói rõ dựa vào `"is locked"` của `MatchMaker.joinById`, và vì sao `code` không phải số nghĩa là `fetch` hỏng.
+   - Không đổi `connect`, `inviteLink`, `lobbyUrl`.
 
-2. **`packages/server/src/ai/pathing.ts`**
-   - `Walker`: thêm trường tuỳ chọn `maxPath?: number`.
-     - JSDoc: "Longest path (px, from where it stands through every waypoint) worth walking; a longer one counts as no way: it walks straight as before and asks again after failRetryMs. No limit when absent."
-   - `Track.query.walker` khởi tạo trong `steer` thêm `maxPath: undefined`. Khi xếp hàng thêm dòng `w.maxPath = walker.maxPath;` cạnh `w.step = walker.step;`.
-   - `lastRun`: thêm `refused: 0` (số lần tìm thấy đường mà bị từ chối vì quá dài, trong lần `run` cuối, cho test). Đặt lại ở cuối `run` như hai trường kia.
-   - Trong `run`, ngay sau `findPath`:
-     ```ts
-     const tooLong = result.status === "found" && q.walker.maxPath !== undefined && pathLength(q.from, result.path) > q.walker.maxPath;
-     ```
-     - `tooLong` thì đi nhánh thất bại với `failRetryMs`: `this.drop(t); t.nextSearchAt = now + lim.failRetryMs;` và `refused++`.
-     - Không thì giữ nguyên hai nhánh hiện có.
-     - Viết sao cho nhánh `else` hiện tại (`found` mà đường rỗng thì `retryMs`) không đổi hành vi.
-   - Hàm module (không export cũng được; export nếu test cần) `pathLength(from: Vec2, path: readonly Vec2[]): number`: tổng `distance` các đoạn. Không cấp phát.
-   - Hàm export thuần:
-     ```ts
-     /** Longest chase path worth walking toward a goal `straight` px away (see BOSS.chaseDetourFactor). */
-     export function detourLimit(straight: number, rule: { factor: number; extra: number; max: number }): number
-     ```
-     Trả `Math.min(rule.max, Math.max(straight * rule.factor, straight + rule.extra))`.
+2. **`packages/client/src/net/connection.test.ts`**: thêm `describe("joinFailure")`, dùng object thường và `new MatchMakeError(...)` của SDK:
+   - 522 + `room "abc" not found` → `closed`; 522 + `room "abc" is locked` → `full`;
+   - `code` `undefined` (message "Failed to fetch") → `unreachable`; `"ECONNREFUSED"` → `unreachable`; 503 → `unreachable`;
+   - 525 → `failed`; 4002 → `failed`;
+   - `new Error("x")` (không có `code`) → `unreachable`;
+   - `"boom"` và `null` → `failed`.
 
-3. **`packages/server/src/rooms/GameRoom.ts`**
-   - Import thêm `detourLimit` từ `../ai/pathing.ts` (cùng chỗ import `PathPlanner`). `newBrain` đã import. `WILD_AGGRO_MS`, `WILD_CHASE_SPEED_FACTOR` đã import.
-   - Xoá `const BOSS_LEASH = 8 * 32;` (dòng 260-261) và chú thích của nó. Thay bằng hằng module:
-     ```ts
-     /** The boss's limit on detours while chasing: at most what it walks in one anger (45 × 1.8 × 8 s = 648 px). */
-     const BOSS_DETOUR = {
-       factor: BOSS.chaseDetourFactor,
-       extra: BOSS.chaseDetourExtra,
-       max: (getSpecies(BOSS.speciesId).speed * WILD_CHASE_SPEED_FACTOR * WILD_AGGRO_MS) / 1000,
-     };
-     ```
-     Nếu gọi `getSpecies` ở cấp module gây lỗi thứ tự nạp, tính trong constructor hoặc lười lần đầu. Ghi lại trong `PROGRESS.md`.
-   - Trường mới, cạnh `bossHome`:
-     ```ts
-     /** The boss is on its way home (strayed past BOSS.leash while calm); cleared within BOSS.homeRadius. */
-     private bossReturning = false;
-     ```
-   - **Nhánh đuổi** (dòng 713-716): thêm `maxPath` vào walker khi là trùm:
-     ```ts
-     maxPath: pal.boss ? detourLimit(distance(pos, target.pos), BOSS_DETOUR) : undefined
-     ```
-     Thú khác không đổi: `maxPath` là `undefined`.
-   - **Nhánh lang thang** (dòng 732-749):
-     - Thay dòng 734-735 (dây giới hạn cũ đặt `brain.target`) bằng:
+3. **`packages/client/src/ui/joinStatus.ts`** (mới, không DOM):
+   ```ts
+   /** What the lobby's join card says and offers. `primary` gets the focus and comes first. */
+   export interface JoinCard { title: string; detail: string; retry: boolean; newWorld: boolean; primary: "retry" | "newWorld" }
+   export function joinCard(failure: JoinFailure, returning: boolean): JoinCard
+   ```
+   - Chữ đúng bảng Thiết kế 4; dùng `MAX_PLAYERS` từ `@petgame/shared`.
+   - Thêm hằng `RETURN_HINT = "Quay lại thế giới bạn đang chơi cùng bạn bè"` và `INVITE_HINT = "Bạn được mời vào thế giới của bạn bè"` (chuyển từ `main.ts`).
+
+   **`packages/client/src/ui/joinStatus.test.ts`**:
+   - mỗi loại có tiêu đề, dòng giải thích không rỗng;
+   - `closed`: chỉ `newWorld`, `primary` = `newWorld`, chữ khác nhau theo `returning` ("vẫn còn" và "link mời mới");
+   - `full`: cả hai nút, `primary` = `retry`, tiêu đề chứa `String(MAX_PLAYERS)`;
+   - `unreachable` và `failed`: chỉ `retry`;
+   - mọi card có `primary` trỏ tới một nút đang bật.
+
+4. **`packages/client/index.html`**
+   - Thay `<div class="error" id="join-error"></div>` bằng thẻ `#join-status` (Thiết kế 4), đặt **ngay sau `#join-btn`**, trước `#load-status`.
+   - Thêm 2 luật CSS (`.lobby-actions`, `.lobby-alert.failed .lobby-action.quiet`) cạnh khối `.lobby-action`.
+   - Cập nhật chú thích HTML phía trên form: một dòng về `#join-status` (thẻ lỗi lúc vào thế giới, T23).
+   - Không đụng script canh tải.
+
+5. **`packages/client/src/main.ts`**
+   - Bỏ `errorBox`. Lấy `joinStatus`, `joinTitle`, `joinDetail`, `retryBtn`, `newWorldBtn`.
+   - Hằng `ROOM_KEY = "petgame:room"` (khoá `sessionStorage`, JSDoc: chỉ dùng để chọn chữ).
+   - Lúc nạp (đồng bộ, trước khi mở khoá):
+     - `const invited = new URLSearchParams(location.search).get("room");`
+     - `const returning = invited !== null && safeStorage(() => sessionStorage.getItem(ROOM_KEY)) === invited;`
+     - `roomHint.textContent = returning ? RETURN_HINT : invited ? INVITE_HINT : "";`
+   - Hàm `setAddress(url: string)`: nếu `url !== location.href` thì `safeStorage(() => history.replaceState(history.state, "", url))`.
+   - Hàm `dropWorldFromAddress()`: lấy `room` hiện có trong địa chỉ; nếu có thì `setAddress(lobbyUrl(room, false))`; rồi `roomHint.textContent = ""`.
+   - Hàm `showJoinCard(card: JoinCard)`:
+     - gán chữ;
+     - `retryBtn.hidden = !card.retry`, `newWorldBtn.hidden = !card.newWorld`;
+     - `classList.toggle("quiet", …)` cho nút không phải `primary`;
+     - `joinStatus.hidden = false`, `joinBtn.hidden = true`;
+     - `joinStatus.scrollIntoView({ block: "nearest" })`, rồi focus nút chính với `{ preventScroll: true }`.
+   - `let joining = false;` và `async function enter()`, thân lấy từ handler `submit` hiện tại:
+     - `if (joining) return; joining = true;`
+     - lưu tên và ngoại hình;
+     - `joinStatus.hidden = true; joinBtn.hidden = false; joinBtn.disabled = true; joinBtn.textContent = "Đang vào...";`
+     - `try` như cũ (`connect` + `ConnectionWatch` + `assets`, `lobby.remove()`, `await startGame(...)`);
+     - `catch (err)`: `console.error(err)`; `const failure = joinFailure(err)`; nếu `closed` thì `dropWorldFromAddress()`; `joinBtn.disabled = false; joinBtn.textContent = "Vào chơi";` rồi `showJoinCard(joinCard(failure, returning))`;
+     - `finally { joining = false; }`.
+   - Gắn handler:
+     - `form` `submit`: `event.preventDefault(); void enter();`
+     - `retryBtn` `click`: `void enter()`
+     - `newWorldBtn` `click`: `dropWorldFromAddress(); void enter();`
+
+     Gắn **trước** ba dòng mở khoá, như handler `submit` hiện nay.
+   - Ba dòng mở khoá giữ nguyên. Ngay sau chúng: `if (returning) joinBtn.focus({ preventScroll: true });` rồi `document.dispatchEvent(new Event(LOBBY_READY_EVENT));`. Không `await` nào trước dòng này. Cập nhật chú thích có sẵn (nhắc T23: sự kiện vẫn chỉ đo việc tải script, không chờ server).
+   - Trong `startGame`, sau khi gán `window.__petgame`:
+     - `safeStorage(() => sessionStorage.setItem(ROOM_KEY, room.roomId));`
+     - đồng bộ địa chỉ:
        ```ts
-       if (pal.boss && this.bossHeadHome(id, pal, pos, radius, species, dtMs, now)) return;
+       let shared: boolean | undefined; // whether the address names this world (friends are in it)
+       const syncAddress = () => {
+         const size = room.state.players?.size ?? 0;
+         if (size === 0 || (size > 1) === shared) return;
+         shared = size > 1;
+         setAddress(lobbyUrl(room.roomId, shared));
+       };
+       room.onStateChange(syncAddress);
+       syncAddress();
        ```
-       Đặt ngay sau `pal.angry = false; pal.windup = "";` và trước khối `if (home)` của thú đầu đàn.
-     - Dòng 741: `radius: species.size` thành `radius` (biến đã có ở dòng 668).
-   - **Phương thức mới** đặt gần `spawnBoss`:
-     ```ts
-     /**
-      * Walks a calm boss back toward its home (around trees and the volcano) once it strayed past BOSS.leash,
-      * until it is within BOSS.homeRadius. Returns true when it handled this tick's move.
-      */
-     private bossHeadHome(id: string, pal: WildPal, pos: Vec2, radius: number, species: PalSpecies, dtMs: number, now: number): boolean
-     ```
-     Thân hàm theo đúng luật ở mục Thiết kế 2:
-     - chưa `bossReturning` và `distance(pos, this.bossHome) <= BOSS.leash` thì `return false`;
-     - bật cờ, tính `speed`, gọi `steer` với key `` `w:${id}` `` (cùng key với nhánh đuổi, như thú đầu đàn), rồi `stepChase(pos, this.bossHome, speed, dtMs, radius, this.obstacles, BOSS.homeRadius, via)`;
-     - không phải biển thì gán `pal.x`, `pal.y`;
-     - tới nơi thì tắt cờ và `this.brains.set(id, newBrain(pal))`;
-     - `return true`.
-   - `spawnBoss`: thêm `this.bossReturning = false;` cạnh `this.bossHome = { ...pos };`.
-   - `removePal`: thêm `if (palId === this.bossId) this.bossReturning = false;` (trước hay sau `paths.forget` đều được).
-   - Không đổi gì khác trong `tick`: thứ tự nhánh (về hang của đầu đàn, chạy trốn, đánh, lang thang) giữ nguyên.
+       JSDoc hoặc chú thích: địa chỉ là nơi lần mở trang sau đưa tới; một mình thì thế giới đóng khi rời, nên không ghi `room`.
+     - trong `react`, sau khi tính `withFriends`: `if (status.state === "lost") setAddress(lobbyUrl(room.roomId, withFriends));`. `syncAddress` không chạy nữa vì không còn bản vá trạng thái.
+     - Nút Về sảnh giữ `location.assign(lobbyUrl(...))`.
 
-4. **`packages/server/src/ai/pathing.test.ts`** (thêm vào `describe("PathPlanner")`, hoặc một `describe` mới cho `detourLimit`)
-   - **`detourLimit`**:
-     - `detourLimit(30, { factor: 3, extra: 160, max: 648 })` = 190;
-     - `(94, …)` = 282;
-     - `(400, …)` = 648.
-     - Kèm câu kiểm cho bảng thật: `max` dựng như `BOSS_DETOUR` (tốc độ Boulderhorn × `WILD_CHASE_SPEED_FACTOR` × `WILD_AGGRO_MS` / 1000) bằng 648; `BOSS.chaseDetourFactor` là 3, `BOSS.chaseDetourExtra` là 160; `BOSS.leash` là 256, `BOSS.homeRadius` là 128.
-   - **"refuses a path longer than maxPath, walks straight and asks again after failRetryMs"**:
-     - Dùng `treeCup(c)`, walker Emberpup như các test sẵn có.
-     - Lần 1, planner A không `maxPath`: `steer` + `run` ở `TICK`. Lấy `waypoints`, tính độ dài `L` từ `c` (tự cộng trong test).
-     - Planner B, walker `{ ...walker(), maxPath: L - 1 }`, gọi đúng như A:
-       - sau `run`: `lastRun.searches === 1`, `lastRun.refused === 1`, `waypoints` là `undefined`;
-       - `steer` ở tick sau trả chính `goal` (đi thẳng);
-       - lặp tới `failRetryMs`: không lần tìm nào trước `TICK + failRetryMs`, đúng 1 lần tại mốc đó (mẫu giống phần "Shut in a ring" của test "waits before searching again").
-     - Planner C với `maxPath: L + 1`: có `waypoints`, `refused === 0`.
-   - **"keeps the boss pressing on toward a target close behind a long wall instead of walking far round it"** (unit, chạy nhanh):
-     - Cảnh: tường cây `r 14` mỗi 20 px, `x` từ 800 đến 1200, `y = 1050`.
-     - Trùm ở `(1000, 990)` với thân `BOSS.radius`, tốc độ 45 × 1,8, `goalRadius` `BOSS.radius + 24`. Mục tiêu đứng yên ở `(1000, 1090)`.
-     - Mỗi tick `maxPath = detourLimit(distance(pos, goal), { factor: BOSS.chaseDetourFactor, extra: BOSS.chaseDetourExtra, max: 648 })`, 60 tick `steer` + `stepChase` + `run`.
-     - Kiểm: trùm không bao giờ cách chỗ đầu quá 40 px; cuối cùng cách mục tiêu ≤ `BOSS.stompRadius`.
-     - Đối chứng trong cùng test, không `maxPath`: trùm đi xa chỗ đầu hơn 150 px. Số đo bản mẫu: 239 px, còn có giới hạn thì 7 px.
+6. **`tests/e2e/multiplayer.spec.ts`** (chi tiết ở mục Test).
 
-5. **`packages/server/src/rooms/GameRoom.test.ts`**: một `describe("boss movement")` mới, đặt sau `describe("finding a way around trees")`, dùng `plantTrees`, `C = { x: 3200, y: 2560 }` (đất liền, đã kiểm `isSea` = false).
-   - Helper trong `describe`:
-     ```ts
-     calmBoss(room, player, at: Vec2, home: Vec2): [string, WildPal]
-     ```
-     - Xoá mọi thú hoang khác khỏi `room.state.pals`.
-     - Đưa người chơi ra xa `{ x: at.x + 1500, y: at.y }` (ngoài tầm nhìn 120).
-     - Đặt trùm ở `at`, `bossHome = home`, `bossReturning = false`, xoá `wildAggro` của trùm.
-     - Trả `[id, boss]`.
-   - Hàm nhỏ tạo tường: `wall(y, x0, x1)`, cây `r 14` mỗi 20 px.
-   - **(a) "the boss wanders with its whole body and does not squeeze through a gap narrower than itself"**
-     - Cây: `wall(C.y + 60, C.x - 400, C.x - 40)` và `wall(C.y + 60, C.x + 40, C.x + 400)`. Hai tâm cây cạnh khe cách nhau 80 px, khe rộng 52 px: thân 20 lọt, thân 40 không.
-     - `calmBoss(room, player, C, C)`; `brain.target = { x: C.x, y: C.y + 180 }`, `brain.idleMs = 0`.
-     - 100 tick (5 giây; trùm lang thang 45 px/s không ra quá dây 256 px). Mỗi tick kiểm:
-       - `boss.y < C.y + 60` (không qua tường);
-       - `!obstacles.blocked(boss, BOSS.radius - 1)`;
-     - Cuối cùng: trùm đã đi ít nhất 20 px khỏi `C` (test không trống).
-     - Bản mẫu trước sửa: lọt 50/50 lần.
-   - **(b) "walks the boss home around a wall in its way, at its own size"**
-     - Cây: `wall(C.y + 60, C.x - 100, C.x + 100)`.
-     - `calmBoss(room, player, C, { x: C.x, y: C.y + 290 })`: cách nhà 290 > 256, tường nằm thẳng giữa.
-     - Lặp tối đa 160 tick tới khi `distance(boss, home) <= BOSS.homeRadius`. Mỗi tick kiểm:
-       - `!obstacles.blocked(boss, BOSS.radius - 1)`;
-       - `boss.angry === false`.
-     - Kiểm đã tới, và sau đó `(room as any).bossReturning === false`.
-     - Timeout 15 s. Bản mẫu: 87 tick. Code cũ kẹt 30/30 lần.
-   - **(c) "the boss stays and stomps a player just behind a long wall instead of walking far round"**
-     - Cây: `wall(C.y + 50, C.x - 200, C.x + 200)`.
-     - Thiết lập:
-       - `calmBoss(room, player, { x: C.x, y: C.y - 10 }, { x: C.x, y: C.y - 10 })`;
-       - đặt người chơi ở `P = { x: C.x, y: C.y + 90 }`;
-       - `(room as any).skillGapUntil.set(\`w:${id}\`, Infinity)`;
-       - `(room as any).bossLastStompAt = -Infinity`;
-       - `collect<BossStompMessage>(client, ServerMessage.BossStomp)`.
-     - 60 tick. Mỗi tick đặt lại người chơi về `P` (cú dậm đẩy lùi 44 px; người chơi coi như đứng yên) và `player.hp = PLAYER_MAX_HP`. Ghi lại khoảng cách xa nhất của trùm tới chỗ đầu.
-     - Kiểm:
-       - khoảng cách xa nhất ≤ 40 px;
-       - có ít nhất một `BossStomp` với `bossId === id`.
-     - Code hiện tại: sau cú dậm, trùm đi theo đường vòng khoảng 450 px, ra xa chỗ đầu hơn 100 px.
-   - **Test có sẵn "walks the boss back home when it strays"** (dòng 1748): vẫn phải qua mà không nới. Nếu tester muốn, đổi chú thích `STRAY = 600; // beyond the boss's leash` sang dựa vào `BOSS.leash`. Không bắt buộc.
-
-6. **`docs/architecture.md`**
-   - Dòng `rooms/GameRoom.ts`: thêm `bossHeadHome` vào danh sách phần trùm (`spawnBoss`, `bossStomp`, `defeatBoss`, `bossHeadHome`). Thêm ý: trùm về nhà qua `paths` khi không đánh mà xa quá `BOSS.leash`, đường vòng lúc đuổi giới hạn bởi `detourLimit`.
-   - Dòng `ai/`: `pathing.ts` thêm `Walker.maxPath` (đường dài hơn thì coi như không có đường) và `detourLimit`.
+7. **`docs/architecture.md`**
+   - Dòng `main.ts` (khoảng dòng 64): thêm một câu về T23:
+     - địa chỉ đồng bộ `?room=` bằng `history.replaceState` qua `lobbyUrl` khi có bạn bè;
+     - `sessionStorage` `petgame:room` chỉ để chọn chữ "Quay lại…";
+     - thẻ `#join-status` theo `joinFailure` (`net/connection.ts`) và `joinCard` (`ui/joinStatus.ts`);
+     - luật ở `docs/design/multiplayer.md`.
+   - Dòng helper e2e (khoảng dòng 93): `waitForWorld` báo lỗi khi sảnh hiện `#join-status` (thay `#join-error`).
 
 ## Giao thức
 
-Không đổi `schema.ts`, `messages.ts`, `Profile`. `bossReturning` chỉ ở server (`GameRoom`), không đồng bộ. Client không đổi: trùm vẫn chỉ là `WildPal` có `boss = true`, client nội suy vị trí như cũ.
+- Không đổi `schema.ts`, `messages.ts`, `JoinOptions`, `Profile`, server. Không ảnh hưởng dữ liệu đã lưu.
+- Client:
+  - địa chỉ trang có thể mang `?room=` sau khi vào. Đây đúng là dạng link mời đã có, nên địa chỉ chép từ thanh địa chỉ cũng là link mời;
+  - khoá `sessionStorage` mới `petgame:room`;
+  - bỏ phần tử `#join-error`, thêm `#join-status`, `#join-title`, `#join-detail`, `#retry-btn`, `#new-world-btn`. `scripts/shots.mjs` không dùng `#join-error` (đã kiểm), không cần sửa.
 
 ## Test
 
-**Unit (server `ai/`):** 3 test mới trong `pathing.test.ts` (bước 4). Không có logic shared mới ngoài bảng số `BOSS`, đã được các câu kiểm số liệu canh.
+**Unit (Vitest, chạy trong `npm test`):** bước 2 (`joinFailure`) và bước 3 (`joinCard`). Đây là logic thuần của client, đặt cạnh file như `connection.test.ts`, `keyboard.test.ts`. Server không dùng nên không nằm ở shared.
 
-**Tích hợp:** 3 test mới trong `GameRoom.test.ts` (bước 5). Phải còn qua:
-- `describe("boss")`, cả nhóm;
-- "walks the boss back home when it strays";
-- "puts the boss at the foot of the volcano and wild pals on land";
-- `describe("finding a way around trees")`;
-- `describe("pack leaders")`, vì có đi về hang cùng key `w:`.
+**Tích hợp server:** không (server không đổi).
 
-**E2E:** không thêm, vì chỉ đổi hành vi server, không có giao diện mới. Tester vẫn chạy cả bộ một lượt.
+**E2E** (`tests/e2e/multiplayer.spec.ts`):
 
-**Tester chạy:**
-1. `npm run typecheck`, `npm test`: toàn bộ qua.
-2. Lặp 5 lần `npx vitest run packages/server/src/rooms/GameRoom.test.ts -t "boss"`, vì test (a) dùng `Math.random` của `stepWander`. Lặp 3 lần `npx vitest run packages/server/src/ai/pathing.test.ts`. Tất cả qua.
-3. Đột biến để chắc test bắt được lỗi, rồi trả lại code:
-   - trả dòng 741 về `species.size`: (a) phải hỏng;
-   - bỏ lời gọi `bossHeadHome`, dùng lại dây cũ: (b) phải hỏng;
-   - bỏ `maxPath` ở nhánh đuổi: (c) và test unit tường dài phải hỏng.
-   Ghi kết quả vào `PROGRESS.md`.
-4. `npm run build`, `npm run test:e2e` một lượt.
+a. **Helper `waitForWorld`**: thay đọc `#join-error` bằng: `const card = document.getElementById("join-status"); return card && !card.hidden ? card.textContent : false;`. Sửa JSDoc của nó.
+
+b. **"5 players share one world and a 6th is turned away"** (sửa):
+   - Sau `join(…"TooMany"…)`:
+     - `#join-status` hiện, chứa "đủ 5 người";
+     - `#retry-btn` có focus; `#new-world-btn` hiện và có class `quiet`;
+     - `#join-btn` ẩn;
+     - địa chỉ vẫn `room=roomId`.
+   - Rồi `await guests[0].leave()`, `sixth.keyboard.press("Enter")` (Thử lại), `waitForWorld(sixth)`:
+     - `roomId` của sixth bằng `roomId`;
+     - `expect.poll` địa chỉ của sixth có `room=roomId` (có bạn bè, đồng bộ địa chỉ).
+   - Phần còn lại giữ nguyên.
+   - Tên test có thể thêm ", and gets in once a place is free".
+
+c. **"lobby: nothing is sent before the lobby script is ready…"** (sửa phần cuối, sau `enterLobby(page, "Early", "enter")`):
+   - `#join-status` hiện, chứa "Thế giới này đã đóng" và "link mời mới" (được mời, không có dấu `sessionStorage`);
+   - `#new-world-btn` có focus; `#retry-btn` ẩn;
+   - `#room-hint` rỗng;
+   - `room` **bị bỏ** khỏi địa chỉ, `quality` vẫn `low`, `navigations` vẫn 1. Đổi chú thích: thẻ "đã đóng" chỉ có thể đến từ `joinById("no-such-room")` của handler, và địa chỉ đổi bằng `replaceState` chứ không tải trang;
+   - giữ kiểm tra tên trong `localStorage` và `#load-status` ẩn.
+   - Không bấm Tạo thế giới mới (test này cố ý không nạp WebGL).
+
+d. **"connection: when the world has let the player go…"** (sửa nhỏ):
+   - Địa chỉ đã có `room=roomId` trước khi chạm Về sảnh (đồng bộ lúc có bạn và lúc mất), nên `page.waitForURL(/[?&]room=/)` xong ngay mà chưa tải trang.
+   - Đổi thành: `const loaded = page.waitForEvent("load"); await page.locator(".net-lobby").tap(); await loaded;`, giữ kiểm tra `room` và `quality`.
+   - Thêm trước khi chạm: `expect(new URL(page.url()).searchParams.get("room")).toBe(roomId)` (địa chỉ đã đúng ngay khi mất).
+   - Sau khi vào sảnh mới: `#room-hint` là "Quay lại thế giới bạn đang chơi cùng bạn bè" (cùng tab nên `sessionStorage` còn).
+
+e. **Test mới** `"lobby: a reload goes back to the world friends are in; a closed world or an unreachable server says so, with a way on"`, `test.slow()`:
+   - **Phần 1, desktop, bàn phím:**
+     - `join(browser, "Back")`, `waitForWorld`, lấy `roomId`. Chờ `game.frames > 0`.
+     - Một mình: `expect.poll` `room` của địa chỉ là `null`, `quality` là `low`.
+     - `const friend = await observer(roomId, "Friend")`: `expect.poll` địa chỉ có `room=roomId`.
+     - `page.reload()`:
+       - `#room-hint` là "Quay lại thế giới bạn đang chơi cùng bạn bè";
+       - chờ `#join-btn:enabled`; `#join-btn` có focus; `#name` có tên cũ;
+       - `page.keyboard.press("Enter")`, `waitForWorld`;
+       - `roomId` bằng cũ; `playerCount` là 2; `friend.state.players.size` là 2.
+     - Bạn rời (`void friend.leave()`, bỏ khỏi `observers`, hoặc `friend.leave()` có await): `expect.poll` `room` của địa chỉ thành `null`.
+     - Thế giới đóng khi đang ở ngoài, cùng tab:
+       - `const friend2 = await observer(roomId, "Friend2")`, `expect.poll` địa chỉ có `room`, lưu `const back = page.url()`;
+       - `page.goto("about:blank")` (rời chủ động); `expect.poll(() => friend2.state.players.size).toBe(1)`; `friend2.leave()` (thế giới đóng);
+       - `page.goto(back)`, `enterLobby(page, "Back")`;
+       - `#join-status` chứa "Thế giới này đã đóng" và "vẫn còn" (quay lại);
+       - `#new-world-btn` có focus; `room` bị bỏ khỏi địa chỉ.
+       - Không vào thế giới mới ở phần này (đỡ một lần nạp WebGL).
+   - **Phần 2, điện thoại dọc (`PHONE_SCREENS[0].options`), cảm ứng:**
+     - Một thế giới đã đóng: `const gone = await new Client(SERVER).create("world", { name: "Gone" }); const closedId = gone.roomId; await gone.leave();`
+     - `page.route(/:2567\/matchmake\//, (route) => route.abort())`; mở `/?room=${closedId}&quality=low`:
+       - `#room-hint` "Bạn được mời…";
+       - `enterLobby` rồi `#join-status` "Không kết nối được server"; `#retry-btn` có focus; `#new-world-btn` ẩn; địa chỉ vẫn có `room=closedId`.
+     - `page.unroute(...)`, `#retry-btn` `.tap()`:
+       - `#join-status` "Thế giới này đã đóng" và "link mời mới";
+       - `room` bị bỏ;
+       - kích thước `#new-world-btn` ≥ 44×44 ở 390×844, 844×390, 1280×720 (rồi trả về 390×844).
+     - `#new-world-btn` `.tap()`, `waitForWorld`: `roomId` khác `closedId`; địa chỉ không có `room`; `quality` là `low`.
+     - Đếm `framenavigated` của khung chính: đúng 1 (chỉ lần mở; mọi đổi địa chỉ là `replaceState`).
+
+f. Không có e2e tải lại nào khác bị ảnh hưởng: các test "Tamer", "Stylist" tải lại khi chơi một mình nên vẫn vào thế giới mới. Test "Thuần" tải lại khi có `observer` "Bạn" nên giờ về đúng thế giới đó; kiểm tra của nó vẫn đúng. Coder chạy cả bộ để chắc.
+
+**Lệnh:** `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` (cả bộ; khi sửa thì chạy riêng `-g "lobby:"`, `-g "6th"`, `-g "let the player go"`).
 
 ## Tiêu chí hoàn thành
 
-- [ ] `BOSS` có `leash` (256), `homeRadius` (128), `chaseDetourFactor` (3), `chaseDetourExtra` (160), mỗi trường có JSDoc; chú thích `radius` nói rõ mọi lần di chuyển. `BOSS_LEASH` không còn trong `GameRoom.ts`; không còn số `8 * 32` hay `256` rời trong logic trùm.
-- [ ] Trùm lang thang với `BOSS.radius`: lời gọi `stepWander` dùng biến `radius`. Thú thường và thú đầu đàn không đổi.
-- [ ] `PathPlanner`:
-  - `Walker.maxPath` tuỳ chọn; được chép vào `query` khi xếp hàng;
-  - đường `found` dài hơn thì `drop`, `nextSearchAt = now + failRetryMs`, `lastRun.refused` tăng;
-  - không có `maxPath` thì hành vi y hệt trước (mọi test `pathing.test.ts` cũ qua không sửa);
-  - không cấp phát thêm trong `run` ngoài những gì đã có.
-- [ ] `detourLimit` thuần, export, có test, đúng `min(max, max(factor × d, d + extra))`.
-- [ ] Nhánh đuổi chỉ truyền `maxPath` cho trùm, tính từ `BOSS_DETOUR` (trần 648 suy ra từ tốc độ loài, `WILD_CHASE_SPEED_FACTOR`, `WILD_AGGRO_MS`, không ghi số cứng).
-- [ ] `bossHeadHome`:
-  - bật khi không đánh và xa nhà hơn `BOSS.leash`;
-  - đi bằng `paths.steer` + `stepChase` với thân `BOSS.radius`, `sea: false`, `goalRadius` `BOSS.homeRadius`, tốc độ đuổi;
-  - không bước xuống biển;
-  - tới nơi thì tắt cờ và có não lang thang mới;
-  - nhánh đánh vẫn chạy trước;
-  - cờ tắt trong `spawnBoss` và `removePal` của trùm.
-- [ ] Test: 3 unit mới + 3 tích hợp mới qua; không test cũ nào bị nới hay bỏ; 3 đột biến ở mục Test đều làm đúng test tương ứng hỏng (ghi trong `PROGRESS.md`); typecheck, `npm test`, build, e2e qua; lặp ở mục "Tester chạy" đều qua.
-- [ ] `docs/architecture.md` cập nhật 2 chỗ (bước 6). Code khớp `docs/design/pals.md`, mục "Trùm Vua Đá: thân và đường về nhà" và gạch đầu dòng "Trùm không đi vòng quá xa".
+- [ ] `joinFailure` trong `net/connection.ts` theo đúng bảng Thiết kế 4; unit test đủ các ca ở bước 2.
+- [ ] `joinCard` trong `ui/joinStatus.ts` có đúng chữ tiếng Việt ở bảng Thiết kế 4 (số người lấy từ `MAX_PLAYERS`); unit test ở bước 3.
+- [ ] `#join-error` không còn trong `index.html`, `main.ts`, e2e. Chữ "Không vào được phòng (đầy 5 người hoặc server chưa chạy)." không còn.
+- [ ] Thẻ `#join-status` dùng `.lobby-alert.failed`; các nút có `type="button"` và class `.lobby-action`; nút phụ có class `quiet`. Nút đạt ≥ 44×44 ở 390×844, 844×390, 1280×720 (e2e).
+- [ ] Vào hỏng: `#join-btn` ẩn, thẻ hiện, nút chính có focus. Lúc đang vào: nút ghi "Đang vào..." và bị khoá. Không gọi `enter()` chồng.
+- [ ] `closed`: `room` bị bỏ khỏi địa chỉ bằng `replaceState` (không tải trang), `#room-hint` rỗng. "Tạo thế giới mới" vào ngay một thế giới mới.
+- [ ] `full`: địa chỉ giữ `room`; Thử lại vào được khi có chỗ.
+- [ ] Trong lúc chơi, địa chỉ có `?room=<roomId>` đúng khi `players.size > 1`, không có khi `size === 1`. Các tham số khác và `#…` được giữ. `replaceState` chỉ gọi khi giá trị đổi.
+- [ ] Mất hẳn kết nối: địa chỉ bằng đúng URL của nút Về sảnh.
+- [ ] Tải lại khi có bạn bè: về đúng thế giới. Sảnh ghi "Quay lại thế giới bạn đang chơi cùng bạn bè", `#join-btn` có focus, Enter vào được (e2e).
+- [ ] `petgame:lobby-ready` vẫn bắn đồng bộ ngay sau ba dòng mở khoá, không có `await` hay yêu cầu server nào trước nó. 3 test `lobby:` của T15 vẫn qua không sửa phần canh tải.
+- [ ] Đọc, ghi `sessionStorage` và `history.replaceState` đều bọc `safeStorage`.
+- [ ] Không có thay đổi ở `packages/server`, `packages/shared`, script canh tải inline.
+- [ ] `docs/architecture.md` cập nhật 2 chỗ ở bước 7; `docs/design/multiplayer.md` khớp hành vi.
+- [ ] `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` đều sạch; không nới lỏng test có sẵn ngoài các sửa ghi ở mục Test.
 
 ## Rủi ro, câu hỏi mở
 
-- **Không có dòng chặn.** Không đổi giao thức, hồ sơ; không xoá tính năng. Chỉ hành vi AI của một con trùm ở server; quay lại được bằng cách bỏ `maxPath` và `bossHeadHome`.
-- **Trùm có thể nằm sẵn trong khe hẹp hoặc lấn vào đá** (từ lúc lang thang với thân 20) ngay khi server mới lên bản này. Không sao: trùm xuất hiện lại mỗi khi khởi động phòng (`spawnBoss` kiểm `blocked(pos, BOSS.radius)`), và `resolve` đẩy nó ra ở bước đầu tiên.
-- **Khoảng 8% lần về nhà vẫn không tới trong 60 giây.** Đó là khi trùm bị dụ sang phía bên kia núi lửa xa hơn khoảng 1.000 px: đường cần hơn 1.500 ô, quá giới hạn một lần tìm.
-  - Khi đó trùm trượt dần, cứ 2 giây thử tìm lại từ chỗ mới; phần lớn tới sau đó.
-  - Thử nâng `maxNodes` lên 3.000 chỉ tăng từ 91% lên 95%, lại tốn gấp đôi mỗi lần tìm của mọi thú. Không làm.
-  - Nếu chơi thử thấy trùm lạc mãi, việc sau có thể thêm "về quá 60 giây thì hiện lại ở nhà".
-- **Người chơi dụ trùm vào trại.** Trùm không có dây lúc đánh, nên điều này vẫn làm được như trước T21. T21 chỉ làm trùm tự về sau khi hết giận. Nếu muốn cấm hẳn, cần một quyết định thiết kế riêng: thêm dây lúc đánh như thú đầu đàn. Không thuộc T21, không chặn.
-- **Test tích hợp chạy theo thời gian thật:** 3 test, tổng khoảng 11 giây (100 + 87 + 60 tick), làm `npm test` lâu thêm chừng đó. Test (a) dựa vào `Math.random` của `stepWander`, nhưng hình học khiến kết quả không phụ thuộc may rủi: khe 52 px không lọt thân 40, tường dài ±400 px mà trùm chỉ đi được 225 px trong 5 giây.
-- **Đề xuất cho `TASKS.md`:**
-  - **T41:** bỏ ý cuối ("sửa câu trong `docs/design/pals.md` (mục tìm đường) về đường tìm khi bị kẹt"). Game-designer đã sửa câu đó trong T21.
-  - **T41** (ghép, tuỳ chọn): đo xem giới hạn đường vòng (`Walker.maxPath`) có giúp thú thường không. Bản mẫu T21 chỉ đo trùm.
+Không có "CHẶN:". Quyết định đã tự chọn (kèm lý do ở trên):
+- hướng `replaceState`, không `reconnect`;
+- không tự vào lại khi mở trang;
+- một mình thì không ghi `room`;
+- phân biệt đầy/đóng bằng chữ `"is locked"`.
+
+Rủi ro:
+1. **Chữ lỗi của Colyseus đổi** (`"is locked"`) khi nâng cấp: đầy sẽ bị báo thành "đã đóng". Unit test ghim chuỗi, e2e "6th" bắt được.
+2. **Người chơi một mình tải lại thì link mời họ vừa gửi chết**, vì thế giới đóng ngay khi người cuối rời. Đã có từ trước T23, không tệ hơn. Đề xuất việc riêng: giữ thế giới trống sống khoảng 30-60 giây.
+3. **Hai người cùng tải lại một lúc** (chỉ có hai người): cả hai rời, thế giới đóng, cả hai gặp thẻ "đã đóng" → Tạo thế giới mới, rồi mỗi người một thế giới. Hiếm; thẻ nói rõ và gợi ý xin link mời mới.
+4. **PWA ở Màn hình chính** (`display: fullscreen`, `start_url: "/"`): iOS mở lại app từ `start_url`, mất `?room=` và `sessionStorage`. T23 chỉ chữa trường hợp tab Safari. Đề xuất việc riêng (gắn với T13): lưu thế giới gần nhất (id + thời điểm) vào `localStorage` và cho sảnh hiện nút "Quay lại thế giới vừa chơi" khi còn mới.
+5. **`assets` hỏng sau khi đã vào phòng:** phiên vừa vào còn treo đến khi Thử lại; khi đó server tự thay phiên cũ theo token. Không thành hai bản người chơi. Để T42 xử lý chung phần lỗi sau khi vào.
+6. **Safari giới hạn `replaceState`:** chỉ gọi khi đổi giá trị, và bọc `try`.
+7. Enter trong ô tên khi nút submit ẩn: hành vi tuỳ trình duyệt, cả hai đường đều đúng (Thiết kế 4); không viết test cho nó.
+
+## Đề xuất việc mới cho `TASKS.md`
+
+- **P2 – Giữ thế giới trống thêm một lúc.** Người cuối rời thì Colyseus đóng thế giới ngay, nên người chơi một mình tải lại là mất thế giới, và link mời vừa gửi bạn bè chết. Giữ phòng trống khoảng 30-60 giây (`autoDispose = false` + hẹn giờ trong `GameRoom`). Khi đó địa chỉ của T23 có thể ghi `room` cả khi chơi một mình. Cần test tích hợp và cân nhắc tài nguyên server.
+- **P2 – App ở Màn hình chính quay lại thế giới vừa chơi** (gắn T13). `start_url` làm mất `?room=` khi iOS mở lại app: lưu id thế giới gần nhất kèm thời điểm vào `localStorage`, sảnh hiện nút phụ "Quay lại thế giới vừa chơi" nếu chưa quá vài phút; thế giới đã đóng thì dùng thẻ của T23.
