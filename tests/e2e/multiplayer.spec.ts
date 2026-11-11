@@ -2085,3 +2085,158 @@ test("toasts: the catch and the quest it finishes show together; small notices d
   expect(shown.join("|")).not.toContain("Chưa có 🔵 Bóng xịn");
   expect(shown.join("|")).not.toContain("🔒");
 });
+
+test("keys: a dialog or a panel the keyboard is in keeps the world's keys, a click does not", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Keys");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const me = () => page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const p = room.state.players.get(room.sessionId);
+    return { x: p.x as number, y: p.y as number };
+  });
+  const hold = async (key: string) => {
+    await page.keyboard.down(key);
+    await page.waitForTimeout(400);
+    await page.keyboard.up(key);
+  };
+  // What the keys decide is what the client sends (a wild pal's bite can push the player, so the position proves nothing).
+  const inputs = async () => (await sent()).filter((type) => type === "input").length;
+  const focused = (selector: string) => expect(page.locator(selector)).toBeFocused();
+
+  const sent = await recordSends(page);
+  await sendFrom(page, "debug:teleport", { x: 3150, y: 2500 });
+  await expect.poll(async () => Math.round((await me()).x)).toBe(3150);
+  await sendFrom(page, "debug:givePal", { species: "leafkit", level: 3 });
+  await sendFrom(page, "debug:givePal", { species: "pebblet", level: 2 });
+  await expect.poll(async () => (await partyOf(page)).species).toHaveLength(2);
+
+  // The release dialog: Shift+Tab only moves the focus; walking, skills, camp and Space do nothing.
+  await page.locator(".party-btn").click();
+  await page.locator(".party-release-toggle").click();
+  await page.locator(".party-card.follow .party-action.release").click();
+  await focused(".confirm-keep");
+  await expect(page.locator(".confirm-release")).toBeEnabled();
+  await page.keyboard.press("Shift+Tab");
+  await focused(".confirm-release");
+  await page.keyboard.press("Shift+Tab");
+  await focused(".confirm-keep");
+  await hold("d");
+  await page.keyboard.press("1");
+  await page.keyboard.press("b");
+  const quiet = ["dash", "attack", "palSkill", "placeBase", "input"];
+  expect((await sent()).filter((t) => quiet.includes(t))).toEqual([]);
+  // Space presses "Giữ lại" instead of attacking.
+  await page.keyboard.press(" ");
+  await expect(page.locator(".party-confirm")).toBeHidden();
+  expect(await sent()).not.toContain("attack");
+  expect((await partyOf(page)).ids).toHaveLength(2);
+  await focused(".party-release-toggle");
+
+  // The party panel with the focus put there by a key.
+  await page.keyboard.press("Shift");
+  await page.waitForTimeout(300);
+  expect(await sent()).not.toContain("dash");
+  await page.keyboard.press(" ");
+  await expect(page.locator(".party-release-toggle")).toHaveAttribute("aria-pressed", "false");
+  expect(await sent()).not.toContain("attack");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".party-panel:has(.party-release-toggle)")).toBeHidden();
+
+  // Out of the panel the keys run again.
+  const before = await me();
+  await page.keyboard.down("d");
+  await page.keyboard.press("Shift");
+  await page.waitForTimeout(250);
+  await page.keyboard.up("d");
+  await page.waitForTimeout(300);
+  await expect.poll(async () => (await me()).x - before.x).toBeGreaterThan(75);
+  const dashedAt = Date.now();
+
+  // A spot with no wild pal within reach, so the Space below cannot anger one (an angry pal bites back).
+  const clear = await page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    const pals: { x: number; y: number }[] = [];
+    room.state.pals.forEach((pal: any) => pals.push({ x: pal.x, y: pal.y }));
+    let best = { x: 3150, y: 2500, far: -1 };
+    for (let x = 2550; x <= 3750; x += 100) {
+      for (let y = 1900; y <= 3100; y += 100) {
+        if (Math.hypot(x - 3150, y - 2500) < 200) continue;
+        const far = Math.min(...pals.map((pal) => Math.hypot(pal.x - x, pal.y - y)));
+        if (far > best.far) best = { x, y, far };
+      }
+    }
+    return best;
+  });
+  await sendFrom(page, "debug:teleport", { x: clear.x, y: clear.y });
+  // The server moves a spot inside an obstacle out of it, so only wait until the player has left the old place.
+  await expect.poll(async () => {
+    const now = await me();
+    return Math.hypot(now.x - 3150, now.y - 2500) > 100;
+  }).toBe(true);
+
+  // The wardrobe, focus put there by a click: the keys stay on.
+  await page.locator(".wardrobe-btn").click();
+  await page.locator('.wardrobe-tab[data-tab="hat"]').click();
+  await focused('.wardrobe-tab[data-tab="hat"]');
+  await page.keyboard.press(" ");
+  await expect.poll(async () => (await sent()).includes("attack")).toBe(true);
+  await expect(page.locator('.wardrobe-tab[data-tab="hat"]')).toHaveClass(/active/);
+  // Back on open ground (the spot above may stand against an obstacle), where walking is known to be free.
+  await sendFrom(page, "debug:teleport", { x: 3150, y: 2500 });
+  await expect.poll(async () => {
+    const now = await me();
+    return Math.hypot(now.x - 3150, now.y - 2500) < 40;
+  }).toBe(true);
+
+  // The same panel with Tab: the keys pause.
+  await page.keyboard.press("Tab");
+  await focused('.wardrobe-tab[data-tab="weapon"]');
+  const dashes = async () => (await sent()).filter((t) => t === "dash").length;
+  const n = await dashes();
+  const walks = await inputs();
+  await hold("d");
+  const wait = 1000 - (Date.now() - dashedAt);
+  if (wait > 0) await page.waitForTimeout(wait); // let the dash cooldown pass, so "no dash" proves something
+  await page.keyboard.press("Shift");
+  await page.keyboard.press(" ");
+  await expect(page.locator('.wardrobe-tab[data-tab="weapon"]')).toHaveClass(/active/);
+  expect(await dashes()).toBe(n);
+  expect(await inputs()).toBe(walks);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".wardrobe-panel")).toBeHidden();
+
+  // The crafting panel: Tab into the close button, walking pauses; closing it gives the keys back.
+  await page.keyboard.press("c");
+  await expect(page.locator(".craft-panel")).toBeVisible();
+  await page.locator(".craft-btn").focus();
+  await page.keyboard.press("Tab");
+  await focused(".craft-panel .party-close");
+  const walksInPanel = await inputs();
+  await hold("d");
+  expect(await inputs()).toBe(walksInPanel);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".craft-panel")).toBeHidden();
+  const at = await me();
+  await hold("d");
+  await expect.poll(async () => (await me()).x - at.x).toBeGreaterThan(20);
+
+  // A key held down repeats its keydown: a click made meanwhile is still a click, so the keys run again after it.
+  await page.locator(".party-btn").click();
+  await page.locator(".party-release-toggle").click();
+  await page.locator(".party-card.follow .party-action.release").click();
+  await focused(".confirm-keep");
+  await page.keyboard.down("d");
+  // Press the mouse, then let the held key repeat before the button is released: the repeat must not count as a new key.
+  const box = (await page.locator(".confirm-keep").boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.keyboard.down("d"); // a repeat keydown (the key is already down)
+  await page.mouse.up();
+  await expect(page.locator(".party-confirm")).toBeHidden();
+  await page.keyboard.up("d");
+  const again = await me();
+  await hold("d");
+  await expect.poll(async () => (await me()).x - again.x).toBeGreaterThan(20);
+});

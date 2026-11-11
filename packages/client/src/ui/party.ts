@@ -174,6 +174,16 @@ export class PartyPanel {
     return !this.panel.hidden;
   }
 
+  /** The panel element, so the keyboard can tell whether the focus is inside it. */
+  get element(): HTMLElement {
+    return this.panel;
+  }
+
+  /** The release confirmation is open (it holds the focus and the world's keys). */
+  get dialogOpen(): boolean {
+    return this.confirmId !== "";
+  }
+
   toggle(force?: boolean) {
     const open = force ?? this.panel.hidden;
     this.panel.hidden = !open;

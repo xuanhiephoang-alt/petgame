@@ -230,6 +230,11 @@ export class WardrobePanel {
     this.render();
   }
 
+  /** The panel element, so the keyboard can tell whether the focus is inside it. */
+  get element(): HTMLElement {
+    return this.panel;
+  }
+
   get open(): boolean {
     return !this.panel.hidden;
   }

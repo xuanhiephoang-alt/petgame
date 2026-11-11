@@ -319,6 +319,10 @@ export class Game {
       "1": () => this.watch.online && this.skillBar.press(0),
       "2": () => this.watch.online && this.skillBar.press(1),
       "3": () => this.watch.online && this.skillBar.press(2),
+    }, {
+      // The release dialog and the panels the keyboard is in keep the world's keys (see docs/design/hud.md).
+      dialogOpen: () => this.party.dialogOpen,
+      panels: panels.map((panel) => panel.element),
     });
 
     this.stage.app.renderer.on("resize", () => this.stage.resize());

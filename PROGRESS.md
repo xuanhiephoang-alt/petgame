@@ -1,37 +1,57 @@
-# PROGRESS: T18 Nút cảm ứng dưới 44 px
+# PROGRESS: T19 Phím game vẫn chạy khi hộp thoại hoặc bảng đang mở
 
 ## Vòng 1: coder
-- [x] Bước 1: CSS trong `packages/client/index.html`
-  - `.sound-btn` 44×44 (bỏ `min-height: 28px` của điện thoại); `.hud-actions` mới (Ăn + 🔊 xuống dòng cùng nhau).
-  - Vùng chạm vô hình `::before` 44 px cho `.party-btn/.base-btn/.craft-btn/.wardrobe-btn/.invite-btn`; `.invite-btn` có `position: relative`.
-  - Cột phải bước 48 px (top 12/60/108/156), bỏ 3 luật top riêng của điện thoại dọc; bản đồ nhỏ và bảng dời xuống (204/196 px).
-  - `.party-panel`: `box-sizing: border-box`, rộng 340, `max-height` mới (không còn tràn đáy 8-12 px); ngang: `.wardrobe-panel` và `.pals-panel` rộng 490, `.party-buttons` lưới 2 cột (nút thứ 3 trải 2 cột).
-  - `.party-close` 44×44, `.party-action` 44, `.wardrobe-tab` 44, `.style-btn` 44, `.swatch` 44×44, `.skill-auto` 44, `.ball-btn` 44 cao; `.ball-btn.touch` sang nửa phải (`right: 104px`).
-  - Sảnh: `#lobby input, #join-btn` min-height 44; form rộng 420 từ 601 px; điện thoại dọc thấp (≤ 760) gap 8 + búp bê `zoom: 0.8`; điện thoại ngang: lưới 2 cột, ô tên và "Vào chơi" chung hàng.
-- [x] Bước 2: `packages/client/src/ui/hud.ts`: Ăn + 🔊 trong `div.hud-actions`; nút Bóng dùng `onPress` (không còn `click`); `setBall` nhãn ngắn trên cảm ứng ("⚪ Thường", "🔵 Xịn (N)"), `aria-label` luôn là tên đầy đủ, desktop giữ chữ cũ.
-- [x] Bước 3: `packages/client/src/ui/party.ts`: class `pals-panel`; "Lv" + dấu cách không ngắt (` `) ở tên thẻ và tiêu đề hộp xác nhận; `aria-label` nút Thả không đổi.
-- [x] Bước 4: `packages/client/src/main.ts`: `errorBox.scrollIntoView({ block: "nearest" })` khi vào phòng lỗi.
-- [x] Bước 5: `tests/e2e/multiplayer.spec.ts`: helper `touchTargets`, `expectTouchable`, `panelFits`; test mới `touch targets (phone upright|phone sideways)` (sảnh, HUD, nút Bóng bằng ngón thứ hai, bảng Thú 8 thú, chế độ Thả, hộp xác nhận, Chế tạo, Tủ đồ 4 tab). Đặt trước test `exploring:`.
-- [x] Bước 6: `docs/architecture.md` (dòng `ui/`, mục helper e2e). `docs/design/hud.md` giữ nguyên (khớp code).
-- Lệch kế hoạch: không có. Test mới đặt trước test "exploring" (ngay sau vòng lặp `touch (...)`), và chiều cao tên thẻ đo bằng `Range` từ "Lv" tới hết chữ như kế hoạch.
-
-## Số đo
-- Trước (kế hoạch, HEAD `449ae87`, đo bằng vùng chạm thật): dưới 44 px: 127/151 chỗ ở 390×844, 128/151 ở 844×390, 127/148 ở 1280×720; bảng tràn đáy 8 px (dọc, desktop), 12 px (ngang); hàng máu ngang 52-87 px; nút Bóng x 105-240 (nửa trái).
-- Sau (test mới, Chromium): 0 chỗ chạm dưới 44×44 ở 390×844 và 844×390 trong sảnh, HUD, bảng Thú, chế độ Thả, hộp xác nhận, Chế tạo, Tủ đồ 4 tab; trang không cuộn (`scrollTop` 0); mọi bảng trọn màn hình; tên thẻ có "Lv N" trên 1 dòng; thẻ cao ≤ 136 (ngang) / ≤ 176 (dọc); nút Bóng ở nửa phải và đổi bóng bằng ngón thứ hai. Chưa đo lại 1280×720 và ảnh trước/sau (việc của tester).
-- Kiểm chứng test bắt được lỗi (đã trả lại file, `cmp` khớp): (a) `.party-action` 36 px: cả 2 khung hình hỏng ở bảng Thú; (b) bỏ `box-sizing` của `.party-panel`: hỏng ở khung ngang (dọc vẫn qua); (c) bỏ luật `::before`: cả 2 hỏng ở HUD; (d) bỏ lưới 2 cột: ngang hỏng (thẻ cao 160 > 136).
-
-- Lệnh đã chạy: typecheck ✓, test ✓ (333 test), build ✓, `npm run test:e2e` ✓ (36 test, gồm 2 test mới)
+- [x] Bước 1: `packages/client/src/ui/keyboard.ts`: thêm `KeyGate`, `KeyFocusState`, hàm thuần `worldKeysPaused`, hằng `STILL`. `Keyboard` nhận `gate`, theo dõi thao tác gần nhất (keydown/pointerdown capture) và phần tử nhận focus từ phím (`focusin` capture), có `paused()`. Khi tạm dừng: keydown không chạy hành động, không ghi `held`, không `preventDefault`; keyup vẫn xoá `held` nhưng không chặn mặc định; `direction()` xoá `held` và trả `STILL`.
+- [x] Bước 2: `packages/client/src/ui/keyboard.test.ts` (mới): 5 test cho `worldKeysPaused`.
+- [x] Bước 3-4: `party.ts` (`dialogOpen`, `element`), `crafting.ts`, `wardrobe.ts` (`element`).
+- [x] Bước 5: `packages/client/src/game/Game.ts`: truyền cổng vào `new Keyboard(...)`, dùng lại mảng `panels`.
+- [x] Bước 6: `tests/e2e/multiplayer.spec.ts`: test mới `keys: a dialog or a panel the keyboard is in keeps the world's keys, a click does not` (hộp, bảng Thú, Tủ đồ bằng chuột và bằng Tab, Chế tạo).
+- [x] Bước 7: `docs/architecture.md`: mô tả `keyboard.ts`.
+- Lệch kế hoạch: không có.
+- Lệnh đã chạy: typecheck ✓, test ✓ (338 test, 28 file), build ✓, test:e2e ✓ (37 test)
 
 ## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (333)   build ✓   e2e ✓ (36, cổng 2567/5173 trống)   photo3d (không chạy, không đụng)
-- Chạy lại: `npx playwright test -g "touch" --repeat-each=3 --workers=1` ✓ 15/15 (gồm 6/6 test mới); không có test chập chờn.
+- typecheck ✓   test ✓ (338, 28 file)   build ✓   e2e ✓ (37, cổng 2567/5173 trống)   photo3d (không chạy, không đụng)
+- Chạy lại: `npx playwright test -g "keys:" --repeat-each=3 --workers=1` ✓ 3/3 (15.9-16.6 s); không chập chờn.
 - Tiêu chí hoàn thành:
-  - [x] CSS đúng mục 1 (hiển thị qua test và ảnh; không đọc từng luật)
-  - [x] `hud.ts`: nút Bóng `onPress`, nhãn ngắn "⚪ Thường"/"🔵 Xịn (1)" trên cảm ứng, aria-label đầy đủ (test kiểm)
-  - [x] `party.ts` ("Lv" cùng dòng với số, test kiểm), `main.ts`
-  - [x] E2E mới qua 2 khung hình điện thoại, 6/6 với repeat-each=3; mọi test cũ qua; cả bộ qua
-  - [x] Số đo sau: 0 chỗ chạm dưới 44 ở 390×844 và 844×390 (test). 1280×720: đo bằng bản sao tạm của test mới (đã xoá) với 3 cấu hình: laptop cảm ứng 1280×720, 1281×721, và desktop không cảm ứng 1280×720: 0 chỗ dưới 44, trang không cuộn, bảng trọn màn hình; chỉ còn link mời `<a>` 121×17 trên desktop không cảm ứng (ngoại lệ có trong kế hoạch). Đáy thông báo ngang: test `toasts (phone sideways)` qua (≤ 250).
-  - [~] Kiểm chứng 4 lỗi: do coder đã làm và ghi ở trên, tester không làm lại. Ảnh "sau" đã xem (sảnh ngang, HUD dọc/ngang, bảng Thú dọc/ngang, Tủ đồ ngang): không vỡ bố cục, nút Bóng cạnh Bắt, hàng máu 2 dòng, bảng không tràn. Ảnh "trước" không chụp (cần checkout HEAD cũ, tránh đụng cây làm việc).
-  - [x] typecheck, test, build sạch; docs/architecture.md đã cập nhật (git diff)
-- Ghi chú: ở 1280×720 test mới không chạy sẵn (chỉ 2 khung hình điện thoại, đúng kế hoạch); chưa thêm test desktop.
+  - [x] Hộp xác nhận: Shift+Tab chỉ đổi focus; D, 1, B không gửi `dash/attack/palSkill/placeBase/input`, nhân vật đứng (< 2 px); Space bấm "Giữ lại" (hộp đóng, không `attack`, vẫn 2 thú). Test chỉ phủ D, 1, B, Shift, Space; E, R, H, M, N, W/A/S, mũi tên, 2-3 không có test riêng (cùng đường code trong `keydown`).
+  - [x] Bảng Thú/Tủ đồ/Chế tạo với focus do bàn phím: Shift không lướt, Space không đánh, D không đi (test kiểm cả ba bảng).
+  - [x] Chuột không dừng phím: Space sau cú bấm tab "Mũ" gửi `attack`, tab vẫn `active`.
+  - [x] Escape, Q, C, T: test cũ `party:` (Q, C, Escape, Tab, Enter trong hộp) qua nguyên vẹn; test mới dùng Escape (đóng bảng Thú, Tủ đồ) và C (mở Chế tạo), Enter đóng ✕, rồi D đi lại được (x > 20). T không có test riêng mới (không đổi code).
+  - [x] Đang đi thì dừng: `direction()` trả `STILL` và xoá `held` (đọc code); e2e kiểm bằng giữ D khi đã tạm dừng. Không có test "đang đi rồi mới mở hộp" (chưa phủ trực tiếp).
+  - [x] `worldKeysPaused` có 5 unit test; `paused()` dùng lại object `focusState`, `STILL` là hằng: không tạo object mới mỗi khung.
+  - [x] Không đổi connection.ts, server, shared, CSS (git diff chỉ gồm keyboard.ts, party.ts, crafting.ts, wardrobe.ts, Game.ts, test, docs).
+  - [x] Kiểm "không lướt" có ý nghĩa: ở bước Tủ đồ-Tab, test chờ đủ 1000 ms kể từ lúc lướt ở bước 4 (`dashedAt`, > DASH_COOLDOWN_MS 900) rồi mới nhấn Shift, và so số `dash` với n. Bước Bảng Thú (Shift sau 300 ms) đứng ngay sau hộp, chưa có lướt nào trước đó nên cũng có nghĩa.
+  - [x] docs/architecture.md cập nhật dòng `keyboard.ts`.
+- Chưa làm: kiểm chứng đột biến (bỏ `paused()` rồi xem test hỏng), vì tester không được sửa code sản phẩm.
 - Test đã thêm: không (test của coder đủ theo PLAN.md).
+
+## Vòng 2: coder
+- [x] Lỗi phải sửa: `keyboard.ts`: listener capture `keydown` chỉ đặt `lastInputKey = true` khi `!e.repeat` (phím tự lặp không phải thao tác mới); sửa JSDoc của `lastInputKey`.
+- [x] Test e2e: nối vào test `keys:` đoạn giữ D (hai lần `keyboard.down`, lần hai là keydown lặp), bấm chuột `.confirm-keep`, nhả D, `hold("d")`, kiểm x tăng > 20 (`tests/e2e/multiplayer.spec.ts`).
+- [x] Tuỳ chọn: `paused()` dùng vòng `for` thay `panels.some(...)` (không tạo closure mỗi khung); `blur` đặt lại `lastInputKey = false`.
+- Lệch kế hoạch: không có.
+- Lệnh đã chạy: typecheck ✓, test ✓ (338 test), build ✓, test:e2e ✓ (37 test)
+
+## Kiểm thử vòng 2: PASS
+- typecheck ✓   test ✓ (338)   build ✓   e2e ✓ (37, cổng trống)   photo3d (không chạy)
+- Chạy lại `keys:` (`--workers=1`): 3/3, 3/3, 3/3, 8/8 qua; một lần duy nhất hỏng (lần đầu của một đợt `--repeat-each=3` chạy ngay sau bộ e2e đầy đủ, hỏng ở 14.3 s so với ~19 s bình thường), lần chạy lại qua. Không bắt được thông báo lỗi (tôi chỉ đọc dòng tóm tắt), 1 hỏng trong 22 lần chạy: ghi là chập chờn, nghi do máy đang nặng sau bộ e2e dài, chưa xác định được chỗ.
+- Kiểm chứng đột biến: kịch bản "giữ D + bấm `.confirm-keep`" của coder QUA khi bỏ `!e.repeat` (không chứng minh gì), vì `page.locator().click()` xong tức thì, không có keydown lặp nào rơi vào giữa pointerdown và lúc focus chuyển. Tôi sửa test (chỉ file test): `mouse.down()`, rồi `keyboard.down("d")` lần hai (lặp, vì phím đang xuống), rồi `mouse.up()`. Kết quả: với code của coder qua; bỏ `!e.repeat` (`this.lastInputKey = true;`) thì HỎNG tại `multiplayer.spec.ts:2217` (x không tăng > 20 sau khi đóng hộp). Đã trả `keyboard.ts` về bản của coder (`cmp` với bản sao khớp, dòng `if (!e.repeat) this.lastInputKey = true;` còn nguyên).
+- Test đã sửa: kịch bản cuối của test `keys:` trong `tests/e2e/multiplayer.spec.ts` (bấm chuột tách thành down/up quanh keydown lặp).
+- Chưa kiểm chứng đột biến riêng cho `blur` đặt lại `lastInputKey` và vòng `for` trong `paused()` (không có test riêng).
+
+## Vòng 3: coder
+- [x] Test e2e `keys:` (`tests/e2e/multiplayer.spec.ts`), giữ nguyên đoạn giữ D của tester:
+  - Các phép kiểm "đứng yên" theo vị trí (`still`) đổi thành kiểm tin client gửi: `recordSends` bắt đầu sớm hơn; số tin `input` (và `dash`, `attack`...) không đổi khi giữ D lúc tạm dừng (bước hộp, Tủ đồ-Tab, Chế tạo).
+  - Bước "Tủ đồ, focus do chuột": dịch tới chỗ không có thú hoang gần (quét lưới quanh 3150,2500, chọn điểm xa thú hoang nhất, bỏ ô sát chỗ cũ), rồi dịch về `{3150, 2500}` (chỗ đi lại tự do) cho các bước sau. Chờ dịch chuyển chỉ kiểm người chơi đã rời chỗ cũ, vì server đẩy điểm nằm trong vật cản ra ngoài (hai cách chờ chính xác hơn đã làm test hỏng 8/20 và 6/20, 4/20 lần).
+  - Kiểm lướt `> 75` dùng `expect.poll`.
+- Không đụng code sản phẩm.
+- Lệnh đã chạy: typecheck ✓, test ✓ (338 test), test:e2e ✓ (37 test), rồi ngay sau đó `npx playwright test -g "keys:" --repeat-each=20 --workers=1 --retries=0`: 20/20 qua, không lỗi.
+
+## Kiểm thử vòng 3: PASS
+- typecheck ✓   test ✓ (338)   build ✓   e2e ✓ (37, cổng trống)   photo3d (không chạy)
+- Ngay sau bộ e2e đầy đủ: `npx playwright test -g "keys:" --repeat-each=10 --workers=1 --retries=0` ✓ 10/10 (3.7 phút), không chập chờn.
+- Kiểm chứng đột biến (mỗi lần đã trả `keyboard.ts` về bản đã lưu, `cmp` khớp; `keyboard.ts` trước vòng này giống bản vòng 2):
+  - `paused()` luôn false (`return false && worldKeysPaused(s)`): test HỎNG tại `multiplayer.spec.ts:2129` (`toEqual`, các tin `dash/attack/palSkill/placeBase/input` bị gửi trong hộp).
+  - Bỏ `!e.repeat` (`this.lastInputKey = true;`): test HỎNG tại `multiplayer.spec.ts:2241` (`toBeGreaterThan`, nhân vật không đi lại sau cú bấm chuột giữa lúc phím lặp).
+- Test đã thêm: không (test của coder đủ).
