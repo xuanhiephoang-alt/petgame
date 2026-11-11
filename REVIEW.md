@@ -1,30 +1,55 @@
 PASS
-# REVIEW: T19 Tạm dừng phím thế giới khi hộp thoại hoặc bảng giữ focus, vòng 3
+# REVIEW: T21 Thân trùm 40, đường về nhà bằng tìm đường, giới hạn đường vòng khi đuổi, vòng 1
 
 ## Kết luận
-Vòng 3 chỉ sửa test e2e `keys:` và sửa đúng lỗi vòng 2. Các phép kiểm lúc tạm dừng giờ đếm tin client gửi (`input`, `dash`, `attack`, `palSkill`, `placeBase`) thay vì vị trí server, nên cú cắn đẩy lùi của thú hoang không còn làm test hỏng. Bước Space bằng chuột chạy ở chỗ xa thú hoang. Kiểm quãng lướt dùng `expect.poll`. Kiểm chứng đột biến cho thấy test bắt đúng hai lỗi chính:
-- `paused()` luôn false thì hỏng ở dòng 2129;
-- bỏ `!e.repeat` thì hỏng ở dòng 2241.
+Thay đổi làm đủ 6 bước và mọi tiêu chí hoàn thành trong PLAN.md, khớp `docs/design/pals.md` (mục "Trùm Vua Đá: thân và đường về nhà", gạch "Trùm không đi vòng quá xa"), không làm gì ngoài phạm vi. Không thấy lỗi logic, lỗ gian lận hay chi phí tick đáng kể. Tôi đã chạy lại `typecheck` và 14 test liên quan (pathing, boss), tất cả qua. Còn một chú thích JSDoc đặt sai chỗ: chỉ là góp ý, không làm FAIL.
 
-Code sản phẩm (`keyboard.ts`, `party.ts`, `crafting.ts`, `wardrobe.ts`, `Game.ts`) không đổi so với vòng 2, vốn đã đạt. Đủ các tiêu chí của PLAN.md.
-
-## Lỗi phải sửa (FAIL khi còn mục này)
-Không còn.
+## Lỗi phải sửa
+(không có)
 
 ## Đã kiểm
-- **`recordSends` bắt đầu trước `debug:teleport` và `debug:givePal`:** trước bước hộp không có thao tác nào gửi `input`, `dash`, `attack`, `palSkill` hay `placeBase`. Client chỉ gửi `input` khi hướng đổi so với `lastSentInput = {0, 0}`, và các cú bấm chuột vào nút bảng không gửi gì. Vì vậy `toEqual([])` ở bước hộp có nghĩa.
-- **Bước Tủ đồ-Tab và Chế tạo:** đếm tin `input` trước và sau khi giữ D 400 ms. Nếu không có cổng, `keydown` của D làm khung hình kế tiếp gửi `input` trong 400 ms đó, nên phép kiểm hỏng thật. Phép kiểm "không lướt" vẫn chờ hết `DASH_COOLDOWN_MS`.
-- **Bước "chỗ không có thú":** trường hợp `pals` rỗng cho `Math.min()` = `Infinity`, không lỗi. Lúc chờ dịch chuyển chỉ đòi người chơi rời chỗ cũ > 100 px. Cách chờ này hợp lý, vì server đẩy điểm đích nằm trong vật cản ra ngoài. Sau đó người chơi về lại `{3150, 2500}`, nơi đã biết đi lại tự do.
-- **Các phép kiểm còn dựa vào vị trí:** đều là kiểm "đi được" (> 20 px, > 75 px) bằng `expect.poll`. Một cú cắn 16 px không đủ đảo kết quả.
-- `const sent` được khai báo sau closure `inputs`, nhưng chỉ dùng sau khi đã gán, nên không vướng TDZ. `npm run typecheck` sạch.
-- **Lần chạy lại:** coder chạy 20/20, tester chạy 10/10, đều ngay sau bộ e2e đầy đủ. Bộ e2e đầy đủ qua 37/37.
+- **Cờ `bossReturning`:**
+  - Bật khi trùm không đánh ai mà cách nhà quá `BOSS.leash`. Tắt khi về tới nơi: lúc đó trùm còn được não lang thang mới (`newBrain(pal)`), và vì hàm `return true` nên biến `brain` cũ trong tick không bị dùng tiếp.
+  - Tắt cả trong `spawnBoss`, và trong `removePal` khi `palId === this.bossId`. `defeatBoss` gọi `removePal(bossId)` trước `this.bossId = undefined` (GameRoom.ts:1703-1704), nên cờ được tắt đúng.
+  - Bị khiêu khích lúc đang về: nhánh đánh (`wildTarget`) chạy trước nên trùm vẫn đánh, đánh xong còn cờ thì về tiếp, đúng thiết kế ("vẫn đánh", về tới 128 px).
+  - Chạy tick sau khi trùm đã mất: không sao, vì `state.pals.forEach` không còn trùm và cờ đã tắt.
+- **Đuổi, dây giới hạn, lang thang:**
+  - `bossHeadHome` chặn trước `stepWander`. Thú đầu đàn không bị đụng: `home` là `undefined` với trùm.
+  - `stepWander` giờ dùng `radius`. Với thú thường và thú đầu đàn, `radius === species.size`, nên không đổi gì.
+  - Không bước xuống biển: giống nhánh đuổi.
+  - `stepChase` không có đường vòng thì dừng ở `0,7 × 128 ≈ 90` px, mà `inRange` tính ở 128 px, nên lúc tới nơi cờ luôn tắt.
+- **`PathPlanner`:**
+  - `maxPath` được chép vào `query` mỗi lần xếp hàng, nên lần gọi về nhà (không có `maxPath`) xoá giới hạn của lần đuổi trước.
+  - Lần bị từ chối vẫn tính vào `searches` và `expanded`, rồi `drop` và chờ `failRetryMs` (2 s), nên không chiếm ngân sách liên tục và không làm đói các thú khác.
+  - Nhánh `else` cũ (đường `found` nhưng rỗng thì chờ `retryMs`) giữ nguyên hành vi.
+  - `pathLength` không cấp phát; `detourLimit` O(1); chỉ một con trùm. Chi phí tick không đáng kể.
+- **Hằng số:**
+  - `BOSS` có đủ 4 trường, mỗi trường có JSDoc tiếng Anh, chú thích `radius` đã sửa.
+  - `BOSS_LEASH` và `8 * 32` đã bỏ.
+  - `BOSS_DETOUR.max` suy ra từ tốc độ loài × `WILD_CHASE_SPEED_FACTOR` × `WILD_AGGRO_MS`, không ghi số cứng.
+  - Thú khác nhận `maxPath: undefined`.
+- **Test:**
+  - 3 test unit và 3 test tích hợp kiểm đúng hành vi: có đối chứng không giới hạn (đi xa hơn 150 px), có kiểm mốc thử lại theo `failRetryMs`, có kiểm không lấn vật cản ở mọi tick.
+  - Tester chạy 3 đột biến, đều làm đúng test tương ứng hỏng. Riêng đột biến thứ ba không làm hỏng test unit "tường dài", vì test đó tự truyền `maxPath`; PLAN.md ghi nhầm chỗ này, không phải lỗi của test.
+  - Không có test cũ nào bị nới.
+- Không đổi giao thức, schema, hồ sơ hay client. Không có `debug:*` mới.
 
 ## Góp ý không bắt buộc
-- Đoạn quét lưới tìm "chỗ không có thú" khá dài ngay trong test. Nếu sau này test khác cũng cần, nên chuyển nó thành helper chung trong `multiplayer.spec.ts`, hoặc thay bằng hook debug (xem dưới).
-- Vẫn chưa có e2e riêng cho "đang đi thì mở hộp, nhân vật dừng (tin `input` cuối là `{0, 0}`)" và "hết tạm dừng không tự đi tiếp" (`direction()` xoá `held`). Code đúng khi đọc, nhưng chưa có test giữ hành vi này.
+- `packages/server/src/rooms/GameRoom.ts:1612`: JSDoc của `spawnBoss` ("The giant Boulderhorn appears at the foot of the volcano.") nằm trơ phía trên JSDoc của `bossHeadHome`, nên `spawnBoss` mất chú thích. Nên chuyển dòng đó xuống ngay trên `private spawnBoss()`. Có thể sửa khi commit nhiệm vụ sau đụng tới file này, hoặc ghép vào T41.
+- **Cùng key `w:${id}` cho lúc đuổi và lúc về nhà:**
+  - Khi trùm đổi từ đuổi sang về nhà, nếu còn đường cũ thì `steer` trả điểm mốc của đường đuổi trong tối đa 0,5 s (`retryMs`).
+  - Nếu lần đuổi vừa bị từ chối, trùm đi thẳng về nhà trong tối đa 2 s rồi mới được tìm đường.
+  - Thú đầu đàn cũng vậy, và lỗi này cùng nhóm với các mục của T41 ("bỏ đường cũ"). Đề xuất ghi vào T41: khi đích đổi hẳn (đổi chế độ), gọi `drop` và đặt lại `nextSearchAt`.
+- **Test chưa có (không bắt buộc theo PLAN.md):**
+  - trùm đang về nhà bị khiêu khích, đánh xong lại về tiếp, kể cả khi đã ở trong 256 px;
+  - `bossReturning` tắt sau `defeatBoss` và khi trùm xuất hiện lại.
+  Có thể thêm khi làm T41.
+- Test unit "keeps the boss pressing on..." ghi cứng `max: 648`. Có thể dựng như `BOSS_DETOUR` (đã có câu kiểm 648 ở test "matches the boss table"), để khi đổi tốc độ loài chỉ một chỗ hỏng.
 
-## Việc nên thêm vào TASKS.md
-1. (thấp) Tab từ thế giới vào thẳng bảng đang mở. Hiện phải Tab qua mọi nút HUD trước; cần thiết kế riêng (PLAN.md T19 đã nêu).
-2. (thấp) Hook `debug:clearPals` (dọn thú hoang trong một bán kính quanh người chơi, chỉ khi `PETGAME_DEBUG=1`). Các e2e đứng lâu ở `{3150, 2500}` sẽ không còn phụ thuộc thú hoang ngẫu nhiên: test lướt khoảng dòng 726, test chiêu khoảng dòng 819, test `keys:`.
-3. (thấp) e2e cho "đang đi thì mở hộp, nhân vật dừng" và "hết tạm dừng phải nhấn lại phím mới đi".
-4. (ghi chú thiết kế) Khi thêm ô nhập chữ (ví dụ chat), đưa ô đó vào `KeyGate`, để W/A/S/D không vừa gõ chữ vừa làm nhân vật đi.
+## Việc tiếp theo đề xuất cho TASKS.md
+- **T41:**
+  - bỏ ý cuối (sửa câu về đường tìm khi bị kẹt trong `pals.md`), vì game-designer đã sửa trong T21;
+  - thêm: bỏ đường và đặt lại thời điểm tìm khi một thú đổi đích (đuổi sang về nhà);
+  - thêm: chuyển JSDoc `spawnBoss` về đúng chỗ;
+  - tuỳ chọn: đo xem `Walker.maxPath` có giúp thú thường không.
+- **Việc mới, ưu tiên thấp:** trùm về nhà quá 60 giây thì hiện lại ở nhà. Chỉ làm nếu chơi thử thấy trùm lạc mãi (khoảng 8% lần bị dụ sang phía bên kia núi lửa).

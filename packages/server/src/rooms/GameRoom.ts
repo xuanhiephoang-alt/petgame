@@ -198,7 +198,7 @@ import {
 } from "@petgame/shared";
 import { newBrain, randomPoint, stepWander, type WanderBrain } from "../ai/wander.ts";
 import { companionReach, stepCompanion, stepToward } from "../ai/companion.ts";
-import { PathPlanner } from "../ai/pathing.ts";
+import { detourLimit, PathPlanner } from "../ai/pathing.ts";
 import { findNearestTarget, stepChase, stepFlee, type CombatTarget, type WildAggro } from "../ai/wildCombat.ts";
 import { chooseSkill } from "../ai/skillAi.ts";
 import { emptyProfile, isValidToken, openStore, type Profile, type ProfileStore } from "../persistence/store.ts";
@@ -257,8 +257,12 @@ const FROM_CASTER = new Set(["nova", "cone", "wave", "melee", "beam", "heal", "s
 const BASE_CLEARANCE = 28;
 /** Two players' bases must be at least this far apart (pixels). */
 const BASE_SPACING = 140;
-/** The boss wanders at most this far (pixels) from its home when calm. */
-const BOSS_LEASH = 8 * 32;
+/** The boss's limit on detours while chasing: at most what it walks in one anger (45 × 1.8 × 8 s = 648 px). */
+const BOSS_DETOUR = {
+  factor: BOSS.chaseDetourFactor,
+  extra: BOSS.chaseDetourExtra,
+  max: (getSpecies(BOSS.speciesId).speed * WILD_CHASE_SPEED_FACTOR * WILD_AGGRO_MS) / 1000,
+};
 /** Saves are batched: at most one per player per this many ms. */
 const SAVE_DELAY_MS = 2000;
 
@@ -325,6 +329,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private bossId: string | undefined;
   /** Where the boss lives; it wanders back there when not fighting. */
   private bossHome: Vec2 = { x: 0, y: 0 };
+  /** The boss is on its way home (strayed past BOSS.leash while calm); cleared within BOSS.homeRadius. */
+  private bossReturning = false;
   private bossHelpers = new Set<string>();
   private bossLastStompAt = 0;
   /** Each region's pack leader (its pal id while it is out) and where its lair is (alphas.ts). */
@@ -712,7 +718,13 @@ export class GameRoom extends Room<{ state: GameState }> {
         }
         const range = pal.boss ? BOSS.radius + 24 : WILD_ATTACK_RANGE;
         const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
-        const via = this.paths.steer(`w:${id}`, pos, target.pos, { radius, sea: false, goalRadius: range, step: (speed * dtMs) / 1000 }, now);
+        const via = this.paths.steer(`w:${id}`, pos, target.pos, {
+          radius,
+          sea: false,
+          goalRadius: range,
+          step: (speed * dtMs) / 1000,
+          maxPath: pal.boss ? detourLimit(distance(pos, target.pos), BOSS_DETOUR) : undefined,
+        }, now);
         const step = stepChase(pos, target.pos, speed, dtMs, radius, this.obstacles, range, via);
         // Wild pals cannot swim: they stop at the shore.
         if (!isSea(this.terrain, step.pos.x, step.pos.y)) {
@@ -731,14 +743,14 @@ export class GameRoom extends Room<{ state: GameState }> {
       }
       pal.angry = false;
       pal.windup = "";
-      // The boss stays near the volcano: stray too far and it heads home.
-      if (pal.boss && distance(pos, this.bossHome) > BOSS_LEASH) brain.target = { ...this.bossHome };
+      // The boss stays near the volcano: stray too far and it walks home around whatever is in the way.
+      if (pal.boss && this.bossHeadHome(id, pal, pos, radius, species, dtMs, now)) return;
       // A pack leader strolls around its lair, licking its wounds.
       if (home) {
         if (distance(pos, home) > ALPHA.roam) brain.target = { ...home };
         pal.hp = Math.min(pal.maxHp, pal.hp + pal.maxHp * ALPHA.healPerSecond * (dtMs / 1000));
       }
-      stepWander(pos, brain, species.speed, dtMs, Math.random, { grid: this.obstacles, radius: species.size });
+      stepWander(pos, brain, species.speed, dtMs, Math.random, { grid: this.obstacles, radius });
       if (isSea(this.terrain, pos.x, pos.y)) {
         // Turn back at the water's edge and wander somewhere else.
         brain.target = { x: pal.x + (pal.x - pos.x) * 40, y: pal.y + (pal.y - pos.y) * 40 };
@@ -1247,6 +1259,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.cancelCasts("wild", palId);
     this.forgetSkills(`w:${palId}`);
     this.paths.forget(`w:${palId}`);
+    if (palId === this.bossId) this.bossReturning = false;
     // A pack leader comes back to its lair a while later.
     if (this.alphaHome.delete(palId)) {
       this.alphaReturning.delete(palId);
@@ -1597,6 +1610,28 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   /** The giant Boulderhorn appears at the foot of the volcano. */
+  /**
+   * Walks a calm boss back toward its home (around trees and the volcano) once it strayed past BOSS.leash,
+   * until it is within BOSS.homeRadius. Returns true when it handled this tick's move.
+   */
+  private bossHeadHome(id: string, pal: WildPal, pos: Vec2, radius: number, species: PalSpecies, dtMs: number, now: number): boolean {
+    if (!this.bossReturning && distance(pos, this.bossHome) <= BOSS.leash) return false;
+    this.bossReturning = true;
+    const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
+    const home = this.bossHome;
+    const via = this.paths.steer(`w:${id}`, pos, home, { radius, sea: false, goalRadius: BOSS.homeRadius, step: (speed * dtMs) / 1000 }, now);
+    const step = stepChase(pos, home, speed, dtMs, radius, this.obstacles, BOSS.homeRadius, via);
+    if (!isSea(this.terrain, step.pos.x, step.pos.y)) {
+      pal.x = step.pos.x;
+      pal.y = step.pos.y;
+    }
+    if (step.inRange || distance(pal, home) <= BOSS.homeRadius) {
+      this.bossReturning = false;
+      this.brains.set(id, newBrain(pal));
+    }
+    return true;
+  }
+
   private spawnBoss() {
     if (this.bossId && this.state.pals.has(this.bossId)) return;
     const species = getSpecies(BOSS.speciesId);
@@ -1617,6 +1652,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     boss.hp = boss.maxHp;
     this.bossId = id;
     this.bossHome = { ...pos };
+    this.bossReturning = false;
     this.bossHelpers.clear();
   }
 

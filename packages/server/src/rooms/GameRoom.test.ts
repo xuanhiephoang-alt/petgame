@@ -24,6 +24,7 @@ import {
   scaledMaxHp,
   xpToNext,
   getSpecies,
+  type BossStompMessage,
   type HitMessage,
   type LevelUpMessage,
   type NoticeMessage,
@@ -713,6 +714,83 @@ describe("finding a way around trees", () => {
     control.aggroUntil = room.clock.currentTime + 6000;
     for (let i = 0; i < 80 && !hits.some((h) => h.companionId === owned.id && h.palId === id); i++) await room.waitForNextTimestep();
     expect(hits.some((h) => h.companionId === owned.id && h.palId === id)).toBe(true);
+  }, 15_000);
+});
+
+describe("boss movement", () => {
+  const C = { x: 3200, y: 2560 };
+  const wall = (y: number, x0: number, x1: number): Circle[] => {
+    const out: Circle[] = [];
+    for (let x = x0; x <= x1; x += 20) out.push({ x, y, r: 14 });
+    return out;
+  };
+
+  /** Only the boss stays among the wild pals, calm at `at` with `home`, the player far off. */
+  function calmBoss(room: GameRoom, player: { x: number; y: number }, at: Vec2, home: Vec2): [string, WildPal] {
+    const [id, boss] = bossOf(room)!;
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    player.x = at.x + 1500;
+    player.y = at.y;
+    boss.x = at.x;
+    boss.y = at.y;
+    (room as any).bossHome = { ...home };
+    (room as any).bossReturning = false;
+    (room as any).wildAggro.delete(id);
+    return [id, boss];
+  }
+
+  it("the boss wanders with its whole body and does not squeeze through a gap narrower than itself", async () => {
+    const { room, player } = await setup();
+    plantTrees(room, [...wall(C.y + 60, C.x - 400, C.x - 40), ...wall(C.y + 60, C.x + 40, C.x + 400)]);
+    const [id, boss] = calmBoss(room, player, C, C);
+    const brain = (room as any).brains.get(id);
+    brain.target = { x: C.x, y: C.y + 180 };
+    brain.idleMs = 0;
+    for (let i = 0; i < 100; i++) {
+      await room.waitForNextTimestep();
+      expect(boss.y).toBeLessThan(C.y + 60);
+      expect((room as any).obstacles.blocked(boss, BOSS.radius - 1)).toBe(false);
+    }
+    expect(distance(boss, C)).toBeGreaterThanOrEqual(20);
+  }, 15_000);
+
+  it("walks the boss home around a wall in its way, at its own size", async () => {
+    const { room, player } = await setup();
+    plantTrees(room, wall(C.y + 60, C.x - 100, C.x + 100));
+    const home = { x: C.x, y: C.y + 290 };
+    const [, boss] = calmBoss(room, player, C, home);
+    let arrived = false;
+    for (let i = 0; i < 160 && !arrived; i++) {
+      await room.waitForNextTimestep();
+      expect((room as any).obstacles.blocked(boss, BOSS.radius - 1)).toBe(false);
+      expect(boss.angry).toBe(false);
+      arrived = distance(boss, home) <= BOSS.homeRadius;
+    }
+    expect(arrived).toBe(true);
+    await ticks(room, 2);
+    expect((room as any).bossReturning).toBe(false);
+  }, 15_000);
+
+  it("the boss stays and stomps a player just behind a long wall instead of walking far round", async () => {
+    const { room, client, player } = await setup();
+    plantTrees(room, wall(C.y + 50, C.x - 200, C.x + 200));
+    const start = { x: C.x, y: C.y - 10 };
+    const [id, boss] = calmBoss(room, player, start, start);
+    const P = { x: C.x, y: C.y + 90 };
+    (room as any).skillGapUntil.set(`w:${id}`, Infinity);
+    (room as any).bossLastStompAt = -Infinity;
+    const stomps = collect<BossStompMessage>(client, ServerMessage.BossStomp);
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    let far = 0;
+    for (let i = 0; i < 60; i++) {
+      player.x = P.x;
+      player.y = P.y;
+      player.hp = PLAYER_MAX_HP;
+      await room.waitForNextTimestep();
+      far = Math.max(far, distance(boss, start));
+    }
+    expect(far).toBeLessThanOrEqual(40);
+    expect(stomps.some((m) => m.bossId === id)).toBe(true);
   }, 15_000);
 });
 

@@ -19,8 +19,19 @@ export const BOSS = {
   biteDamage: 14,
   biteCooldownMs: 1800,
   biteWindupMs: 600,
-  /** Body radius for collisions and melee reach (pixels). */
+  /** Body radius for every move (spawn, wander, chase, way home), collisions and melee reach (pixels). */
   radius: 40,
+  /** Calm and farther than this from home (pixels): it walks back. */
+  leash: 8 * PIXELS_PER_UNIT,
+  /** Back within this of home (pixels) it wanders again. */
+  homeRadius: 4 * PIXELS_PER_UNIT,
+  /**
+   * A chase path longer than max(factor × straight, straight + extra), and than what it walks in one anger,
+   * is not worth walking: it presses on straight instead (see ai/pathing.ts detourLimit).
+   */
+  chaseDetourFactor: 3,
+  /** Pixels a chase detour may add to the straight distance (see chaseDetourFactor). */
+  chaseDetourExtra: 5 * PIXELS_PER_UNIT,
   /** Its skills (skills.json) instead of the species' own, used at this level (gentler than its real one). */
   skills: ["horn_charge", "rock_spikes"],
   skillLevel: 4,

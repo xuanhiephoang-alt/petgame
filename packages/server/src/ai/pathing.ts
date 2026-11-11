@@ -35,6 +35,29 @@ export interface Walker extends NavBody {
   goalRadius: number;
   /** Pixels it walks this tick (speed × dt): moving less than 30% of it counts toward being stuck. */
   step: number;
+  /**
+   * Longest path (px, from where it stands through every waypoint) worth walking; a longer one counts as
+   * no way: it walks straight as before and asks again after failRetryMs. No limit when absent.
+   */
+  maxPath?: number;
+}
+
+/** Length of the way from `from` through every point of `path`. */
+function pathLength(from: Vec2, path: readonly Vec2[]): number {
+  let len = 0;
+  let x = from.x;
+  let y = from.y;
+  for (const p of path) {
+    len += Math.hypot(p.x - x, p.y - y);
+    x = p.x;
+    y = p.y;
+  }
+  return len;
+}
+
+/** Longest chase path worth walking toward a goal `straight` px away (see BOSS.chaseDetourFactor). */
+export function detourLimit(straight: number, rule: { factor: number; extra: number; max: number }): number {
+  return Math.min(rule.max, Math.max(straight * rule.factor, straight + rule.extra));
 }
 
 /** Server-only path state of one pal. Positions are copied, never references to schema objects. */
@@ -63,7 +86,7 @@ export class PathPlanner {
   private tracks = new Map<string, Track>();
   private queue = new Set<string>();
   /** What the last `run` cost, for tests. */
-  lastRun = { searches: 0, expanded: 0 };
+  lastRun = { searches: 0, expanded: 0, refused: 0 };
 
   constructor(private nav: NavGrid, private limits: PathLimits = PATHING) {}
 
@@ -83,7 +106,7 @@ export class PathPlanner {
         stuck: 0,
         forced: false,
         nextSearchAt: 0,
-        query: { from: { x: 0, y: 0 }, goal: { x: 0, y: 0 }, walker: { radius: 0, sea: false, goalRadius: 0, step: 0 } },
+        query: { from: { x: 0, y: 0 }, goal: { x: 0, y: 0 }, walker: { radius: 0, sea: false, goalRadius: 0, step: 0, maxPath: undefined } },
       };
       this.tracks.set(key, t);
     }
@@ -137,6 +160,7 @@ export class PathPlanner {
       w.sea = walker.sea;
       w.goalRadius = walker.goalRadius;
       w.step = walker.step;
+      w.maxPath = walker.maxPath;
       this.queue.add(key);
     }
     return t.path ? t.path[t.next] : goal;
@@ -147,6 +171,7 @@ export class PathPlanner {
     const lim = this.limits;
     let searches = 0;
     let expanded = 0;
+    let refused = 0;
     for (const key of this.queue) {
       if (searches >= lim.searchesPerTick || expanded + lim.maxNodes > lim.tickBudget) break;
       this.queue.delete(key);
@@ -162,7 +187,13 @@ export class PathPlanner {
       searches++;
       expanded += result.expanded;
       t.stuck = 0;
-      if (result.status === "found" && result.path.length > 0) {
+      const tooLong =
+        result.status === "found" && q.walker.maxPath !== undefined && pathLength(q.from, result.path) > q.walker.maxPath;
+      if (tooLong) {
+        this.drop(t);
+        t.nextSearchAt = now + lim.failRetryMs;
+        refused++;
+      } else if (result.status === "found" && result.path.length > 0) {
         t.path = result.path;
         t.next = 0;
         t.pathGoal.x = q.goal.x;
@@ -175,6 +206,7 @@ export class PathPlanner {
     }
     this.lastRun.searches = searches;
     this.lastRun.expanded = expanded;
+    this.lastRun.refused = refused;
   }
 
   /** Drops everything known about `key` (pal removed, caught, released). */

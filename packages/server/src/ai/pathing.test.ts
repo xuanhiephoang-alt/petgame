@@ -5,7 +5,10 @@ import {
   PLAYER_RADIUS,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  BOSS,
+  WILD_AGGRO_MS,
   WILD_CHASE_SPEED_FACTOR,
+  distance,
   defaultNav,
   defaultWorld,
   getSpecies,
@@ -14,7 +17,7 @@ import {
   type Circle,
   type Vec2,
 } from "@petgame/shared";
-import { PATHING, PathPlanner, type Walker } from "./pathing.ts";
+import { PATHING, PathPlanner, detourLimit, type Walker } from "./pathing.ts";
 import { stepChase } from "./wildCombat.ts";
 import { randomPoint } from "./wander.ts";
 
@@ -289,5 +292,96 @@ describe("PathPlanner", () => {
     expect(maxExpanded).toBeLessThanOrEqual(PATHING.tickBudget);
     expect(pals.filter((p) => p.arrived).length).toBeGreaterThanOrEqual(95);
     expect(perTick).toBeLessThan(5);
+  });
+});
+
+describe("detourLimit", () => {
+  const rule = { factor: 3, extra: 160, max: 648 };
+
+  it("allows the larger of factor x straight and straight + extra, up to max", () => {
+    expect(detourLimit(30, rule)).toBe(190);
+    expect(detourLimit(94, rule)).toBe(282);
+    expect(detourLimit(400, rule)).toBe(648);
+  });
+
+  it("matches the boss table", () => {
+    const boss = getSpecies(BOSS.speciesId);
+    expect((boss.speed * WILD_CHASE_SPEED_FACTOR * WILD_AGGRO_MS) / 1000).toBeCloseTo(648);
+    expect(BOSS.chaseDetourFactor).toBe(3);
+    expect(BOSS.chaseDetourExtra).toBe(160);
+    expect(BOSS.leash).toBe(256);
+    expect(BOSS.homeRadius).toBe(128);
+  });
+});
+
+describe("PathPlanner maxPath", () => {
+  const c = { x: 1000, y: 1000 };
+  const goal = { x: c.x, y: c.y + 120 };
+
+  it("refuses a path longer than maxPath, walks straight and asks again after failRetryMs", () => {
+    const { nav } = scene(treeCup(c));
+    const a = new PathPlanner(nav);
+    a.steer("w:a", c, goal, walker(), TICK);
+    a.run(TICK);
+    const way = a.waypoints("w:a")!;
+    expect(way).toBeDefined();
+    let len = 0;
+    let at: Vec2 = c;
+    for (const p of way) {
+      len += distance(at, p);
+      at = p;
+    }
+
+    const b = new PathPlanner(nav);
+    const capped = { ...walker(), maxPath: len - 1 };
+    b.steer("w:a", c, goal, capped, TICK);
+    b.run(TICK);
+    expect(b.lastRun.searches).toBe(1);
+    expect(b.lastRun.refused).toBe(1);
+    expect(b.waypoints("w:a")).toBeUndefined();
+    for (let i = 1; i < 50; i++) {
+      const now = TICK + i * TICK;
+      const via = b.steer("w:a", c, goal, capped, now);
+      if (i === 1) expect(via).toBe(goal);
+      b.run(now);
+      if (now < TICK + PATHING.failRetryMs) expect(b.lastRun.searches).toBe(0);
+      else if (now === TICK + PATHING.failRetryMs) expect(b.lastRun.searches).toBe(1);
+    }
+
+    const k = new PathPlanner(nav);
+    k.steer("w:a", c, goal, { ...walker(), maxPath: len + 1 }, TICK);
+    k.run(TICK);
+    expect(k.waypoints("w:a")).toBeDefined();
+    expect(k.lastRun.refused).toBe(0);
+  });
+
+  it("keeps the boss pressing on toward a target close behind a long wall instead of walking far round it", () => {
+    const wall: Circle[] = [];
+    for (let x = 800; x <= 1200; x += 20) wall.push(tree(x, 1050));
+    const { grid, nav } = scene(wall);
+    const speed = getSpecies(BOSS.speciesId).speed * WILD_CHASE_SPEED_FACTOR;
+    const target = { x: 1000, y: 1090 };
+    const run = (limited: boolean) => {
+      const planner = new PathPlanner(nav);
+      const start = { x: 1000, y: 990 };
+      let pos: Vec2 = start;
+      let far = 0;
+      for (let i = 0; i < 60; i++) {
+        const now = (i + 1) * TICK;
+        const maxPath = limited
+          ? detourLimit(distance(pos, target), { factor: BOSS.chaseDetourFactor, extra: BOSS.chaseDetourExtra, max: 648 })
+          : undefined;
+        const goalRadius = BOSS.radius + 24;
+        const via = planner.steer("w:boss", pos, target, { radius: BOSS.radius, sea: false, goalRadius, step: (speed * TICK) / 1000, maxPath }, now);
+        pos = stepChase(pos, target, speed, TICK, BOSS.radius, grid, goalRadius, via).pos;
+        planner.run(now);
+        far = Math.max(far, distance(pos, start));
+      }
+      return { far, end: distance(pos, target) };
+    };
+    const limited = run(true);
+    expect(limited.far).toBeLessThanOrEqual(40);
+    expect(limited.end).toBeLessThanOrEqual(BOSS.stompRadius);
+    expect(run(false).far).toBeGreaterThan(150);
   });
 });
