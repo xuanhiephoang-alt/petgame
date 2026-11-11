@@ -7,9 +7,10 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 | Vùng | Desktop | Điện thoại dọc | Điện thoại ngang |
 |---|---|---|---|
 | Cột trái trên (`.hud-left`), từ trên xuống: hàng máu và giờ (kèm nút 🫐 Ăn, 🔊), trạng thái, nhiệm vụ, rồi **thông báo** | rộng tối đa 460 px | rộng 100vw − 140 px | rộng tối đa 300 px, chữ 12 px, ẩn tên vùng và dòng "Thưởng" của nhiệm vụ |
-| Cột phải trên: 🐾 Thú, 🏕️ Đặt trại, 🔨 Chế tạo, 👕 Tủ đồ, bản đồ nhỏ | bản đồ dưới các nút | bản đồ dưới các nút | bản đồ bên trái các nút |
+| Cột phải trên: 🐾 Thú, 🏕️ Đặt trại, 🔨 Chế tạo, 👕 Tủ đồ (cách nhau 48 px), bản đồ nhỏ | bản đồ dưới các nút (top 204) | bản đồ dưới các nút (top 196) | bản đồ bên trái các nút |
+| Bảng Thú, Chế tạo, Tủ đồ | dưới cột nút phải (top 204), rộng 340 | top 196, rộng 340 | bên trái cột nút; Thú và Tủ đồ rộng 490 |
 | Giữa trên: thanh máu trùm (khi ở gần trùm) | rộng 420 px | rộng 60vw | rộng 200 px, nằm giữa cột trái và bản đồ |
-| Dưới: thanh chiêu, nút bóng, nút cảm ứng (Đánh, Bắt, 💨) | thanh chiêu ở giữa | bên phải | bên phải |
+| Dưới: thanh chiêu, nút bóng, nút cảm ứng (Đánh, Bắt, 💨) | thanh chiêu ở giữa, nút bóng góc phải dưới | bên phải; nút bóng bên trái nút Bắt | bên phải; nút bóng bên trái nút Bắt |
 | Cần điều khiển (chỉ cảm ứng) | không có | hiện ở chỗ ngón trái chạm, ở bất cứ đâu trong nửa trái màn hình trừ trên nút (kể cả trên các ô của cột trái và thông báo) | như dọc |
 
 - Nhân vật luôn ở giữa màn hình. Ở điện thoại ngang, cột trái phải kết thúc trước giữa màn hình ít nhất 100 px (844×390: cột đến x = 312, giữa là 422), để không che nhãn tên của người và thú quanh nhân vật.
@@ -25,13 +26,31 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
   - Nhờ vậy cần điều khiển vẫn bật được trên 96% nửa trái, cả dọc lẫn ngang (đo ở T39). Nếu các ô chặn chạm thì chỉ còn 79% khi cầm dọc và 72% khi cầm ngang. Nhấn giữ trên chữ của ô cũng không bôi đen chữ.
   - Hệ quả: chỗ nhận chạm trong cột trái phải là nút (`<button>`).
 - **Kéo cần điều khiển qua nút không bấm nút:** cần điều khiển giữ ngón của nó đến khi ngón nhấc lên. Ngược lại, ngón chạm xuống trên nút thì bấm nút, không bật cần điều khiển.
-- **Nút dùng trong lúc ngón kia đang giữ cần điều khiển chạy ngay khi ngón chạm xuống** (`pointerdown`): Đánh, Bắt, 💨, ô chiêu, Tự động/Theo lệnh, 🫐 Ăn.
+- **Nút dùng trong lúc ngón kia đang giữ cần điều khiển chạy ngay khi ngón chạm xuống** (`pointerdown`): Đánh, Bắt, 💨, ô chiêu, Tự động/Theo lệnh, 🫐 Ăn, ⚪/🔵 Bóng (từ T18).
   - Lý do: trên điện thoại, ngón thứ hai chạm vào nút không sinh ra `click`. Đo ở T39: khi nút Ăn còn nghe `click`, giữ cần điều khiển rồi chạm Ăn bằng ngón kia thì không ăn được.
   - Chuột vẫn bấm được (chuột cũng sinh `pointerdown`). Bàn phím dùng phím tắt (H cho Ăn), không dùng Enter trên nút.
 - **🔗 Mời bạn phải nghe `click`.** Mở bảng chia sẻ hay chép link cần "cử chỉ của người dùng". Theo chuẩn HTML (Safari cũng vậy), một lần chạm chỉ cho cử chỉ đó lúc ngón nhấc lên.
 - 🔊, nút mở bảng và nút trong bảng nghe `click`, vì không dùng trong lúc đang chạy.
-- Nút ⚪/🔵 Bóng hiện cũng nghe `click`, nên chưa đổi bóng được bằng ngón thứ hai trong lúc đang chạy. Phần này để việc riêng.
+- **Nút ⚪/🔵 Bóng** (T18): trên cảm ứng nằm sát bên trái nút Bắt, trên nút Đánh, ở nửa phải cả khi cầm dọc lẫn ngang. Trước đó, khi cầm dọc nó nằm đúng chỗ ngón cái trái đặt cần điều khiển, nên chạm nhầm là đổi bóng. Chọn bóng gắn với việc ném, nên đặt cạnh nút Bắt. Nhãn ngắn trên cảm ứng: "⚪ Thường" / "🔵 Xịn (N)" (trình đọc màn hình đọc tên đầy đủ); desktop giữ "⚪ Bóng thường" / "🔵 Bóng xịn (N)" ở góc phải dưới. Bàn phím: R.
 - **Desktop** không có vùng cần điều khiển; các ô của cột vẫn nhận chuột như cũ, nên link mời trong ô trạng thái vẫn chọn và bấm được.
+
+## Cỡ chạm
+
+Đặt ra ở nhiệm vụ T18 (số đo trong `PLAN.md` của commit kế hoạch T18).
+
+- **Mọi chỗ ngón tay chạm được có vùng chạm ít nhất 44×44 px, ở cả ba khung hình, kể cả desktop**: sảnh, HUD, các bảng, hộp xác nhận. Lý do: máy tính bảng và laptop cảm ứng cũng nhận bố cục desktop.
+  - Ngoại lệ duy nhất: link mời trong ô trạng thái desktop. Nó chỉ hiện trên máy không có màn hình cảm ứng; máy cảm ứng có nút 🔗 Mời bạn.
+- **Hai cách:**
+  - Tăng cỡ thật khi có chỗ: nút trong bảng, tab Tủ đồ, ô màu, nút kiểu tóc, ô tên, 🔊, Tự động, nút Bóng, ✕ đóng bảng.
+  - Vùng chạm vô hình cao 44 px quanh nút nhỏ hình, khi tăng cỡ làm vỡ bố cục gọn: bốn nút cột phải và 🔗 Mời bạn. Hai vùng chạm không được chồng nhau, nên bốn nút cột phải cách nhau 48 px.
+- **Đo bằng vùng chạm thật** (chạm thử từng điểm từ tâm nút ra), không bằng hộp bao: vùng vô hình không nằm trong hộp bao, còn phần bị nút khác đè thì không bấm được.
+- **Hàng máu:** 🫐 Ăn và 🔊 luôn đi cùng nhau. Không đủ chỗ cạnh thanh máu thì cả cặp xuống dòng 2. Nhờ vậy khi cầm ngang hàng máu luôn cao 72 px, không đổi theo chữ giờ (trước đó 52-87 px), và thông báo vẫn kết thúc trên mốc màn hình − 140 px.
+- **Bảng không bao giờ tràn khỏi màn hình:** đáy cách mép dưới 12 px (ngang 8 px).
+- **Thẻ thú:**
+  - Cầm dọc và desktop: nút xếp một cột.
+  - Cầm ngang: bảng Thú rộng 490 px như Tủ đồ, nút xếp 2 cột (nút thứ ba trải cả hai cột), nên thẻ cao khoảng 120 px và thấy 2 thẻ trọn trong bảng.
+  - Tên thẻ không bao giờ tách "Lv" khỏi số; tên dài thì xuống dòng trước "Lv".
+- **Sảnh:** cầm ngang, ô tên và nút "Vào chơi" chung một hàng. Điện thoại dọc thấp hơn 760 px: hình nhân vật nhỏ lại (80%) và khoảng cách hẹp hơn, để nút "Vào chơi" vẫn hiện mà không phải cuộn. Vào phòng lỗi thì dòng lỗi luôn được cuộn vào tầm nhìn.
 
 ## Nút 🫐 Ăn
 
