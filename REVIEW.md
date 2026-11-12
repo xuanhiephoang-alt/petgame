@@ -1,71 +1,46 @@
 PASS
-# REVIEW: T64 Giới hạn số thế giới được tạo, vòng 1
+# REVIEW: T66 `npm run shots`/`npm run dev` chạm trần thế giới; làm chắc `worldLimits`, vòng 1
 
 ## Kết luận
-Thay đổi làm đủ các bước 1-12 và mọi tiêu chí trong PLAN.md, khớp `docs/design/multiplayer.md`. Ba chỗ lệch kế hoạch trong PROGRESS.md đều hợp lý. Tôi đã đối chiếu mã nguồn Colyseus 0.18.18 trong `node_modules`, cả `src` lẫn bản `build/*.mjs` chạy thật: cách gắn địa chỉ, chỗ chặn `invokeMethod` và sổ đếm đều đúng với mã thật, không chỉ đúng trên giấy. Chạy lại `worldLimits.test.ts`, `connection.test.ts` và `joinStatus.test.ts`: 53/53 qua. Không còn lỗi phải sửa; vài chỗ nên làm cứng thêm, ghi ở dưới.
+Thay đổi làm đủ 10 bước và các tiêu chí của PLAN.md, không đụng file ngoài phạm vi (`git diff --stat` chỉ 8 file: 2 script, `worldLimits.ts` và test, 3 tài liệu, PROGRESS.md). Làm chắc đúng hướng hỏng đóng: thiếu địa chỉ socket thì ra khoá `unknown` chứ không lấy header; Colyseus đổi dạng thì server không khởi động. Đã kiểm chứng bằng chạy thật. Không có lỗi phải sửa.
 
-## Lỗi phải sửa (FAIL khi còn mục này)
+## Lỗi phải sửa
 (không có)
 
-## Đã xác minh
-
-**Gắn địa chỉ (`x-real-ip`)**
-- `Server.listen()` gọi `bindRoutes()` trong callback của `transport.listen`, trước `resolve()`. `bindRouterToTransport` gỡ app Express rồi `prependListener("request", cors+next)`.
-- `guardWorldCreation` chạy ngay khi `await server.listen` xong, tức chỉ sau vài microtask và trước khi vòng sự kiện kịp nhận request nào. Nên thực tế không có khoảng hở (Rủi ro 5 của PLAN không xảy ra). `stamp` đứng đầu danh sách listener.
-- `next` gọi `getRequest({ request: req })` một cách đồng bộ, và hàm này dùng `headers: request.headers` (better-call `adapters/node/request.mjs:74`). Nên header đã ghi đè được chép vào `Request`.
-- `resolveClientIp` (`build/Transport.mjs:50`) đọc `x-real-ip` đầu tiên. Đường HTTP không truyền `remoteAddress`. Test "cannot be fooled…" là bằng chứng cho thứ tự listener: nếu `stamp` chạy sau thì `8.8.8.8` đã thắng.
-- **WebSocket upgrade:** `stamp` không chạy cho sự kiện `upgrade`, nên `authContext.ip` phía WS vẫn lấy từ header client gửi (`buildAuthContext` trong ws-transport). Điều này không ảnh hưởng trần: WS chỉ dùng chỗ đã đặt, không tạo được phòng, và `GameRoom` không dùng `onAuth` hay IP của client. Xem góp ý 3.
-
-**Chặn `invokeMethod`**
-- Router gọi `matchMaker.controller.invokeMethod(...)` qua đúng object này, nên `this` vẫn là `controller` và lệnh kiểm `exposedMethods` gốc vẫn chạy.
-- `matchMaker` chỉ có hai method tạo phòng là `create` và `joinOrCreate`; `joinOrCreate` đã bị gỡ. `join` không tạo phòng, nhưng vẫn gỡ vì nó ghép người lạ vào thế giới.
-- Gọi `Create`, `createRoom` hay tên lạ khác đều không có trong `exposedMethods`, nên trả 520.
-- `@colyseus/testing` dùng `joinById`, và `reconnect` không đổi.
-- **Khi nâng Colyseus:** nếu `controller` bị đóng băng, hoặc `exposedMethods` không còn là mảng, thì server sập lúc khởi động. Đó là hỏng đóng, có ồn.
-  - Nếu route thôi gọi `controller.invokeMethod` thì chặn mất im lặng (hỏng mở). Test tích hợp 5, 6 và 11 sẽ đỏ trong CI.
-  - Lockfile ghim `colyseus` 0.18.9 và `@colyseus/core` 0.18.18. Chấp nhận như Rủi ro 2 của PLAN.
-
-**Sổ đếm**
-- `onCreate` ném lỗi: `opened` chưa chạy, vì nó là lệnh cuối và `onCreate` là hàm đồng bộ. Colyseus gọi `discardRoom`, phát `dispose`, rồi `#_dispose`, rồi `onDispose`. `closed(id lạ)` không làm gì.
-- Phòng bị huỷ giữa `opened` và `settle` (ví dụ `releaseIfShuttingDown`, hay `recordRoom` trả `owner`): `onDispose` xoá phòng, và `settle` không gán phòng đã đóng. Đóng hai lần thì `Map.delete` không làm gì. Listener `dispose` là `once`.
-- `opened` luôn chạy trước `settle` vì `handleCreateRoom` chờ `onCreate` xong. `pending` luôn được trả trong `finally`.
-- Địa chỉ đi vào phòng qua `authContext.ip` mà `stamp` đã ghi đè, không qua `options` của client.
-
-**Client**
-- 429 được xét sau nhánh `unreachable` và trước 522. Hai thẻ mới có chữ đúng bảng trong `multiplayer.md`, và số phút tính từ `EMPTY_WORLD_HOLD_MS`.
-- Không có `switch` nào khác trên `JoinFailure` cần thêm `case`.
-- Các luồng T23, T42, T49 không đổi:
-  - Tạo thế giới mới bỏ `room` trước khi gọi `enter()`;
-  - thử lại lặng lẽ bỏ `room` trước khi tạo;
-  - Thử lại sau `busy`/`tooMany` là tạo lại.
-- Test e2e trả `origin` của trang kèm `allow-credentials`, đúng vì SDK gửi credentials. Yêu cầu `OPTIONS` vẫn đi tới server thật, và server trả 204 kèm CORS.
-
-**`/whoami` và log**
-- `/whoami` chỉ trả địa chỉ của chính người gọi. Listener CORS của Colyseus thêm `Access-Control-Allow-Origin: <origin>` cho mọi đường, nên trang khác đọc được `/whoami` của khách. Nhưng đó là địa chỉ mà trang ấy vốn đã biết, nên không lộ gì.
-- Log không ghi IP: cảnh báo `X-Forwarded-For` in một lần, log chặn in tối đa một dòng mỗi 60 s, dòng khởi động chỉ in số.
-
-**Cấu hình**
-- `fly.toml` dùng `[http_service]` (bộ xử lý HTTP), và fly-proxy nối thẳng vào máy rồi thêm địa chỉ vào cuối `X-Forwarded-For`, nên `1` là đúng.
-- Render chưa chắc (có thể có Cloudflare phía trước). Chú thích, cách kiểm bằng `/whoami` trong `deploy.md`, và chiều sai còn lại không hại người chơi là đủ cho vòng này (Rủi ro 1).
-- `PETGAME_TRUST_PROXY` lấy mục thứ N tính từ cuối, giống `trust proxy` dạng số của Express.
-- IPv6 gộp /64 đúng với `::`, IPv4 lồng trong IPv6, và zone. Dạng `::ffff:a.b.c.d` được bóc ra thành IPv4.
-- Playwright đặt hai trần 1000 kèm chú thích; không test nào bị nới.
+## Đã kiểm chứng
+- **`clientAddress`/`stampClientAddress` và khoá `"unknown"`:**
+  - Không có `remote` thì trả `undefined` trước khi đọc header. `stampClientAddress` luôn ghi `x-real-ip`, nên `resolveClientIp` của Colyseus (`@colyseus/core/build/Transport.mjs:48-50`, đọc `x-real-ip` trước) không bao giờ rơi về `x-forwarded-for`/`x-client-ip` do client gửi.
+  - Dùng chung một khoá `unknown` là chấp nhận được. `socket.remoteAddress` chỉ là `undefined` khi handle của socket đã mất trước sự kiện `request`, tức client đã cắt kết nối. Khi đó phản hồi cũng không về tới ai. Trên Fly/Render, đầu kia của TCP là proxy giữ kết nối, nên trường hợp này thực tế gần như không xảy ra.
+  - Kẻ phá cố tình rơi vào `unknown` cũng chỉ lấp được 10 chỗ của chính khoá đó. Hắn không được miễn trần và không tạo được nhiều thế giới hơn so với dùng địa chỉ thật.
+  - Server không nghe Unix socket (PORT là số), nên không có trường hợp mọi yêu cầu đều thành `unknown`.
+- **`addressKey`:**
+  - Đã chạy thử các dạng sau, kết quả đúng PLAN: `::ffff:cb00:7105%eth0` và `0000:…:FFFF:CB00:7105` ra `203.0.113.5`; `::FFFF:1.2.3.4` ra `1.2.3.4`.
+  - Các dạng sau gộp /64, đúng mục "KHÔNG làm": `::ffff:0:1.2.3.4` (SIIT), `::1.2.3.4`, `64:ff9b::1.2.3.4` và `2001:db8::ffff:1.2.3.4`.
+  - Chuỗi hỏng (`::ffff:1.2.3.4:5`, `[::1]`, `%eth0`) trả nguyên chuỗi như trước T66.
+  - Chi phí: `ipv6Groups` chỉ chạy sau khi `isIPv6` đúng, tức chuỗi ≤ 45 ký tự. Với chuỗi 16 KB (trần header của Node), `isIPv6`/`isIPv4` mất ≤ 0,001 ms; `split("%")` trên 16 000 dấu `%` mất 0,24 ms; `clientAddress` với `X-Forwarded-For` 4000 mục mất 0,29 ms. Tất cả tuyến tính, không có ReDoS.
+- **`RefusalLog`:** câu in khớp từng ký tự với PLAN 2c. Khoảng thời gian in ra là từ lần chặn đầu chưa in tới `now`, nên luôn đúng và không âm: `firstAt` luôn nhỏ hơn `loggedAt + REFUSAL_LOG_MS`, mà câu chỉ được in khi `now` đã vượt mốc đó. Class thuần, nhận `now` từ ngoài; đồng hồ là `Date.now()` trong `noteRefusal` (xem góp ý).
+- **Kiểm dạng controller lúc khởi động:**
+  - Lần kiểm đứng trước `prependListener`, việc đổi `exposedMethods` và bọc `invokeMethod`, nên không cài nửa chừng. Test kiểm số listener và `invokeMethod` không đổi sau cả ba trường hợp hỏng.
+  - Đã chạy `index.ts` thật với một preload gỡ `"create"` khỏi `exposedMethods`. Server in rõ lỗi `guardWorldCreation: matchMaker.controller no longer has invokeMethod() and exposedMethods …` kèm stack, rồi thoát với mã 1. Lỗi đi qua handler `uncaughtException` của Colyseus, `gracefullyShutdown` rồi `process.exit(1)`.
+  - Kết luận: hỏng đóng, có ồn, server không bao giờ chạy mà thiếu trần.
+- **Scripts:**
+  - `dev.mjs` chỉ đưa `env` riêng cho `@petgame/server`; client nhận `process.env` như cũ. Dùng `??`, nên giá trị đã đặt được giữ.
+  - `shots.mjs` ép `"1000"`.
+  - Không chỗ nào dùng cú pháp shell, nên chạy được trên cả Windows lẫn POSIX: biến đi qua option `env` của `spawn`, giữ `shell: win32` như cũ.
+  - `package.json` (`play`, `start`, `dev:server`), `playwright.config.ts`, `Dockerfile`, `fly.toml`, `render.yaml` và `WORLD_LIMITS` không đổi.
+- **Tài liệu:**
+  - Đã đối chiếu câu cảnh báo WebSocket với `@colyseus/ws-transport` (`buildAuthContext` dùng `req.headers` của `upgrade`, listener `stamp` không chạy cho sự kiện này): đúng.
+  - `GameRoom` không dùng `onAuth` hay `client.ip` (grep rỗng), nên câu "hiện không sao" đúng.
+  - Câu thêm về `dev:server` trong `deploy.md` cũng đúng.
+- **Test:**
+  - Dòng sửa trong "clamps…" là siết luật, không phải nới. `(undefined, "2.2.2.2", 2)` trước mong `"2.2.2.2"`, nay test mới mong `undefined`. Phần clamp vẫn được phủ bằng `("10.0.0.1", "2.2.2.2", 3)` ra `"2.2.2.2"`.
+  - Đã chạy lại `worldLimits.test.ts`: 37/37 qua. `tsc -p packages/server` sạch.
+  - Mục grep `"in the last minute"` của PLAN còn đúng 1 dòng: `not.toContain` trong test do chính PLAN yêu cầu. Code sản phẩm không còn chuỗi này, nên chấp nhận.
 
 ## Góp ý không bắt buộc
-1. `packages/server/src/worldLimits.ts:202`: khi `clientAddress` trả `undefined`, code `delete` header `x-real-ip`. Colyseus khi đó rơi về `x-forwarded-for` rồi `x-client-ip` **của client**, nên khoá đếm do kẻ gửi chọn. Điều này trái ý "địa chỉ không xác định được gộp vào `unknown`, không được miễn" (PLAN Thiết kế 1).
-   - Thực tế gần như không xảy ra, vì `remoteAddress` vẫn còn lúc có sự kiện `request`.
-   - Sửa một dòng: `req.headers["x-real-ip"] = address ?? "unknown"`. `addressKey("unknown")` vẫn ra `"unknown"`. Đây là chỗ duy nhất hỏng theo hướng mở.
-2. `worldLimits.ts:66`: IPv4 lồng trong IPv6 viết dạng hex (`::ffff:cb00:7105`) không được bóc, nên mọi địa chỉ dạng này rơi chung vào khoá `0:0:0:0::/64`. Node luôn viết dạng chấm và Fly cũng vậy, nên chỉ là làm cứng: nhận dạng tiền tố `0:0:0:0:0:ffff` sau khi mở rộng.
-3. Ghi vào `docs/architecture.md` (mục `worldLimits.ts`) rằng `stamp` chỉ chạy cho `request`. `authContext.ip` và `client.ip` ở đường WebSocket upgrade vẫn lấy từ header client gửi, nên ai sau này dùng IP trong `onAuth` hay `onJoin` phải tự tính lại bằng `clientAddress`.
-4. `worldLimits.ts:163-171`: các lần bị chặn sau dòng log đầu chỉ được in khi có lần chặn kế tiếp, mà lần đó có thể cách hàng giờ. Khi ấy chữ "in the last minute" sai. Sửa bằng cách in khoảng thời gian thật (`since Xs`), hoặc bỏ cụm "in the last minute".
-5. `worldLimits.ts:126`: hàm `positiveInt` nhận cả 0 (cho `PETGAME_TRUST_PROXY`) nên tên và JSDoc chưa đúng; đổi thành `intFromEnv`.
-6. Có thể cho `guardWorldCreation` tự kiểm lúc cài: `typeof controller.invokeMethod === "function"` và `exposedMethods` có `"create"`, sai thì ném lỗi rõ ràng. Như vậy lỗi khi nâng Colyseus lộ ra ngay lúc khởi động chứ không chờ tới CI.
-
-## Việc mới cho TASKS.md
-- **Kiểm `/whoami` sau lần deploy tới**, trên Fly và Render: dùng điện thoại 4G, rồi thử hai mạng khác nhau. Nếu Render ra địa chỉ của Cloudflare hay địa chỉ nội bộ thì nâng `PETGAME_TRUST_PROXY` (Rủi ro 1 của PLAN).
-- **IPv6 làm trần cả server dễ bị chiếm** (thấp-trung bình): nhà mạng thường cấp /56 hoặc /48 cho mỗi thuê bao, nên một người có IPv6 có 256 khối /64 trở lên. Một máy nhà là đủ chiếm hết 50 chỗ và chặn mọi người tạo thế giới. Thiết kế đã chấp nhận "kẻ phá nhiều địa chỉ", nhưng chưa tính tới việc với IPv6 thì chỉ cần một người. Đề xuất thêm trần thứ hai theo /48 (ví dụ 20). Cần game-designer xét.
-- **Dev và shots dùng trần 10 từ localhost:**
-  - `npm run shots` tạo 8 thế giới trong vài phút (2 + 3 + 3), sát trần; thêm một cảnh nữa là hỏng.
-  - `npm run dev` mà mở nhiều tab hay bấm Tạo thế giới mới liên tục thì gặp 429.
-  - Đề xuất: `scripts/shots.mjs` và `scripts/dev.mjs` đặt `PETGAME_MAX_WORLDS_PER_ADDRESS` cao như `playwright.config.ts`.
-- **Gom các góp ý 1, 2, 4, 5, 6** vào một việc nhỏ "làm cứng worldLimits".
+- `worldLimits.ts:194`: `noteRefusal` lấy giờ bằng `Date.now()`, là đồng hồ tường. Nếu đồng hồ máy lùi (NTP sửa giờ sau khi khởi động), dòng log bị chặn sẽ im cho tới khi đồng hồ chạy qua mốc cũ. Số đếm không mất, chỉ in muộn. Dùng `performance.now()` sẽ đơn điệu, và `RefusalLog` không phải sửa.
+- `RefusalLog.note`: khi n > 1 mà các lần chặn sát nhau ngay trước mốc 60 s, câu có thể ra "in the last 0 s". Dùng `Math.max(1, …)` hoặc `Math.ceil` sẽ dễ đọc hơn. Ngoài ra, có 1 thế giới mở thì câu in "1 worlds open". Cả hai đều là chữ trong log, không ảnh hưởng hành vi.
+- `docs/architecture.md`: câu "IPv4 viết dạng IPv6 dạng chấm hay hex tính như IPv4" nên ghi rõ là chỉ `::ffff:…` (IPv4-mapped), như `multiplayer.md` đã ghi. `::a.b.c.d` và NAT64 vẫn gộp /64.
+- `docs/deploy.md`: ví dụ `PETGAME_MAX_WORLDS_PER_ADDRESS=2 npm run dev` là cú pháp POSIX. Có thể thêm cách đặt biến trên Windows (`set …` hoặc `$env:…`).
+- `scripts/shots.mjs` chạy server với `stdio: "ignore"`, nên nếu server dừng vì lần kiểm controller mới, người chạy shots không thấy thông báo, chỉ thấy chờ `/healthz` thất bại. Vấn đề này có từ trước T66. Có thể in stderr của server khi `/healthz` không lên.
+- `addressKey` trả nguyên chuỗi không phải IP làm khoá. Điều này chỉ khai thác được khi `PETGAME_TRUST_PROXY` đặt cao hơn số proxy thật, đã có trong `deploy.md`, và có từ trước. Nếu muốn chặt hơn, có thể gộp mọi chuỗi không phải IP vào `unknown` (cân nhắc cùng T67).

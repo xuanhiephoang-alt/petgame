@@ -3,13 +3,16 @@ import { ColyseusTestServer } from "@colyseus/testing";
 import { defineRoom, defineServer, matchMaker } from "colyseus";
 import { Client } from "@colyseus/sdk";
 import type { AddressInfo } from "node:net";
+import type { IncomingMessage } from "node:http";
 import { ROOM_NAME, WORLD_LIMITS, WORLD_LIMIT_ERROR } from "@petgame/shared";
 import { GameRoom } from "./rooms/GameRoom.ts";
 import {
+  RefusalLog,
   WorldCensus,
   addressKey,
   clientAddress,
   guardWorldCreation,
+  stampClientAddress,
   trustProxyFromEnv,
   worldCensus,
   worldLimitsFromEnv,
@@ -27,8 +30,14 @@ describe("clientAddress", () => {
   });
 
   it("clamps to the first entry when there are fewer entries than trusted proxies", () => {
-    expect(clientAddress(undefined, "2.2.2.2", 2)).toBe("2.2.2.2");
+    expect(clientAddress("10.0.0.1", "2.2.2.2", 3)).toBe("2.2.2.2");
     expect(clientAddress("10.0.0.1", undefined, 3)).toBe("10.0.0.1");
+  });
+
+  it("has no address without a socket address, whatever the header says", () => {
+    expect(clientAddress(undefined, "9.9.9.9", 0)).toBeUndefined();
+    expect(clientAddress(undefined, "2.2.2.2", 2)).toBeUndefined();
+    expect(clientAddress("", "9.9.9.9", 1)).toBeUndefined();
   });
 
   it("drops empty entries and spaces", () => {
@@ -51,6 +60,15 @@ describe("addressKey", () => {
     expect(addressKey("::ffff:203.0.113.5")).toBe("203.0.113.5");
   });
 
+  it("unwraps hex IPv4-mapped IPv6, and only that", () => {
+    expect(addressKey("::ffff:cb00:7105")).toBe("203.0.113.5");
+    expect(addressKey("::FFFF:CB00:7105")).toBe("203.0.113.5");
+    expect(addressKey("0:0:0:0:0:ffff:cb00:7105")).toBe("203.0.113.5");
+    expect(addressKey("::ffff:203.0.113.5%eth0")).toBe("203.0.113.5");
+    expect(addressKey("::cb00:7105")).toBe("0:0:0:0::/64");
+    expect(addressKey("1::ffff:cb00:7105")).toBe("1:0:0:0::/64");
+  });
+
   it("groups IPv6 by its /64 block", () => {
     expect(addressKey("2001:db8:a:b:1:2:3:4")).toBe("2001:db8:a:b::/64");
     expect(addressKey("2001:DB8:A:B::9")).toBe("2001:db8:a:b::/64");
@@ -63,6 +81,59 @@ describe("addressKey", () => {
   it("calls a missing address unknown", () => {
     expect(addressKey(undefined)).toBe("unknown");
     expect(addressKey("")).toBe("unknown");
+  });
+});
+
+describe("RefusalLog", () => {
+  it("logs the first refusal at once", () => {
+    expect(new RefusalLog().note("address", 1_000, 3)).toBe(
+      "World limits: refused 1 world creation (server 0, address 1); 3 worlds open",
+    );
+  });
+
+  it("counts refusals within a minute into the next line, with the real time span", () => {
+    const log = new RefusalLog();
+    expect(log.note("address", 0, 1)).toBeDefined();
+    expect(log.note("server", 10_000, 2)).toBeUndefined();
+    expect(log.note("address", 30_000, 2)).toBeUndefined();
+    const line = log.note("address", 7_200_000, 4);
+    expect(line).toBe("World limits: refused 3 world creations in the last 7190 s (server 1, address 2); 4 worlds open");
+    expect(line).not.toContain("in the last minute");
+  });
+
+  it("starts a new count after a line", () => {
+    const log = new RefusalLog();
+    log.note("address", 0, 1);
+    log.note("server", 10_000, 2);
+    log.note("address", 30_000, 2);
+    log.note("address", 7_200_000, 4);
+    expect(log.note("server", 7_230_000, 4)).toBeUndefined();
+    expect(log.note("server", 7_260_000, 4)).toBe(
+      "World limits: refused 2 world creations in the last 30 s (server 2, address 0); 4 worlds open",
+    );
+  });
+});
+
+describe("stampClientAddress", () => {
+  const fake = (remoteAddress: string | undefined) =>
+    ({
+      headers: { "x-real-ip": "8.8.8.8", "x-forwarded-for": "9.9.9.9" } as Record<string, string | undefined>,
+      socket: { remoteAddress },
+    }) as unknown as IncomingMessage;
+
+  it("writes the socket address over any address header", () => {
+    const req = fake("10.0.0.1");
+    stampClientAddress(req, 0);
+    expect(req.headers["x-real-ip"]).toBe("10.0.0.1");
+  });
+
+  it("writes unknown, never deletes, when there is no address", () => {
+    for (const trust of [0, 1]) {
+      const req = fake(undefined);
+      stampClientAddress(req, trust);
+      expect(req.headers["x-real-ip"]).toBe("unknown");
+      expect(addressKey(req.headers["x-real-ip"] as string)).toBe("unknown");
+    }
   });
 });
 
@@ -298,6 +369,37 @@ describe("creating worlds over HTTP", () => {
     expect((await post("create", "nope")).status).toBeGreaterThanOrEqual(400);
     expect(worldCensus.countFor("127.0.0.1")).toBe(0);
     expect((await create()).status).toBe(200);
+    expect((await create()).status).toBe(200);
+  });
+
+  it("refuses to install on a matchmaker it does not recognise, installing nothing", async () => {
+    const http = server.transport.server!;
+    const listeners = http.listenerCount("request");
+    const controller = matchMaker.controller;
+    const invoke = controller.invokeMethod;
+    const exposed = controller.exposedMethods;
+    const broken: Array<() => void> = [
+      () => {
+        controller.exposedMethods = exposed.filter((m) => m !== "create");
+      },
+      () => {
+        controller.exposedMethods = undefined as any;
+      },
+      () => {
+        controller.invokeMethod = undefined as any;
+      },
+    ];
+    for (const breakIt of broken) {
+      try {
+        breakIt();
+        expect(() => guardWorldCreation(server, settings, new WorldCensus())).toThrow(/invokeMethod\(\) and exposedMethods/);
+      } finally {
+        controller.exposedMethods = exposed;
+        controller.invokeMethod = invoke;
+      }
+    }
+    expect(http.listenerCount("request")).toBe(listeners);
+    expect(matchMaker.controller.invokeMethod).toBe(invoke);
     expect((await create()).status).toBe(200);
   });
 

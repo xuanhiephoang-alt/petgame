@@ -40,7 +40,9 @@ Mỗi lần tạo thế giới tốn một ít CPU và bộ nhớ, nên server g
 | `PETGAME_MAX_WORLDS_PER_ADDRESS` | 10 | số thế giới tối đa mỗi địa chỉ mạng (IPv6 tính theo khối /64) |
 | `PETGAME_TRUST_PROXY` | 0 | số proxy đứng trước server (0-9); server lấy địa chỉ người chơi là mục thứ N tính từ cuối `X-Forwarded-For` |
 
-Giá trị sai (không phải số nguyên dương) bị bỏ qua kèm cảnh báo trong log. `fly.toml` và `render.yaml` đặt `PETGAME_TRUST_PROXY=1`.
+Giá trị sai (ngoài khoảng cho phép: hai trần là số nguyên ≥ 1, `PETGAME_TRUST_PROXY` từ 0 tới 9) bị bỏ qua kèm cảnh báo trong log. `fly.toml` và `render.yaml` đặt `PETGAME_TRUST_PROXY=1`.
+
+- `npm run dev` và `npm run shots` tự nâng `PETGAME_MAX_WORLDS_PER_ADDRESS` lên 1000 cho server chúng chạy (dev giữ giá trị nếu bạn đã đặt, để thử thẻ bị chặn: `PETGAME_MAX_WORLDS_PER_ADDRESS=2 npm run dev`). `npm run play` dùng trần thật; `npm run dev:server` (gọi thẳng workspace) cũng giữ trần thật.
 
 **Kiểm sau khi deploy:** tắt Wi-Fi trên điện thoại (dùng 4G), mở `https://<app>/whoami`, rồi so với địa chỉ một trang "what is my IP" báo.
 - Khớp: đúng.

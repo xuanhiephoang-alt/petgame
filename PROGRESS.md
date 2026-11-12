@@ -1,33 +1,25 @@
-# PROGRESS: T64 Giới hạn số thế giới được tạo
+# PROGRESS: T66 shots/dev chạm trần thế giới; làm chắc worldLimits
 
 ## Vòng 1: coder
-- [x] Bước 1: `WORLD_LIMITS`, `WORLD_LIMIT_STATUS`, `WORLD_LIMIT_ERROR` kèm JSDoc (`packages/shared/src/constants.ts`).
-- [x] Bước 2: module mới `packages/server/src/worldLimits.ts`: `clientAddress`, `addressKey`, `WorldCensus`/`worldCensus`, `worldLimitsFromEnv`, `trustProxyFromEnv`, `guardWorldCreation` (ghi đè `x-real-ip`, tắt `join`/`joinOrCreate`, bọc `invokeMethod` cho `create`, hàm gỡ), log chặn tối đa 1 dòng/60 s không có IP, cảnh báo `X-Forwarded-For` một lần.
-- [x] Bước 3: `GameRoom.ts`: `worldCensus.opened` cuối `onCreate`, `worldCensus.closed` đầu `onDispose`.
-- [x] Bước 4: `index.ts`: đọc cấu hình, `GET /whoami`, `guardWorldCreation` sau `listen()`, in dòng cấu hình.
-- [x] Bước 5-6: client `net/connection.ts` (`busy`, `tooMany` trong `joinFailure`) và `ui/joinStatus.ts` (hai thẻ mới).
-- [x] Bước 7-9: `playwright.config.ts` (hai trần 1000 kèm chú thích), `fly.toml`, `render.yaml` (`PETGAME_TRUST_PROXY=1`).
-- [x] Bước 10-11: `docs/deploy.md` (mục "Giới hạn số thế giới và proxy"), `docs/architecture.md`.
-- [x] Test: `packages/server/src/worldLimits.test.ts` (unit + describe "creating worlds over HTTP", 29 test, chạy 3 lần đều qua), `connection.test.ts` (test mới), `joinStatus.test.ts` (`ALL` thêm hai loại + test mới), e2e `lobby: a refused new world says why...` (`--repeat-each=5 --retries=0`: 5/5 qua).
-- Lệch kế hoạch (nhỏ):
-  - Test e2e: trả lời giả 429 phải kèm `access-control-allow-origin` bằng đúng origin của trang và `access-control-allow-credentials: true` (SDK gửi credentials, `*` bị trình duyệt chặn bằng CORS). Plan ghi `*`.
-  - Test e2e viết chuỗi lỗi trực tiếp (có chú thích nguồn) thay vì import `@petgame/shared`, vì spec chưa import shared.
-  - Test unit "accepts the header as an array" và "drops empty entries" đưa `remote` vào (với `remote` undefined và trustProxy 1, công thức của plan coi mục cuối là proxy nên ra mục đầu).
-- Lệnh đã chạy: typecheck ✓, test ✓ (443 test), build ✓, `npm run test:e2e` đầy đủ ✓ (48 test).
-- Không commit; `.claude/settings.json` không đổi.
+- [x] Bước 1: `scripts/dev.mjs` truyền `PETGAME_MAX_WORLDS_PER_ADDRESS` (mặc định `"1000"`, giữ giá trị đã đặt, dùng `??`) chỉ cho tiến trình server; client nhận `process.env`.
+- [x] Bước 2: `scripts/shots.mjs` thêm `PETGAME_MAX_WORLDS_PER_ADDRESS: "1000"` vào `env` của server, kèm chú thích.
+- [x] Bước 3: `clientAddress` trả `undefined` khi không có `remote`, không đọc header (`packages/server/src/worldLimits.ts`).
+- [x] Bước 4: thêm `stampClientAddress` (luôn ghi `x-real-ip`, `"unknown"` khi thiếu địa chỉ); `stamp` gọi hàm này.
+- [x] Bước 5: `addressKey` bóc IPv4 lồng IPv6 qua `ipv6Groups` (dạng chấm, hex, chữ hoa, đủ 8 nhóm); không bóc `::a:b` hay tiền tố khác 0.
+- [x] Bước 6: `REFUSAL_LOG_MS`, class `RefusalLog` (thuần, nhận `now`), `noteRefusal` dùng nó; bỏ `refusedSince`/`refusedLogAt`/`refusedCounts`.
+- [x] Bước 7: `positiveInt` đổi thành `intFromEnv`, JSDoc mới.
+- [x] Bước 8: `guardWorldCreation` kiểm `matchMaker.controller` trước `prependListener`, ném lỗi có chữ `invokeMethod() and exposedMethods`; thêm câu vào JSDoc. Không cần ép kiểu rộng: `tsc` không phàn nàn.
+- [x] Bước 9: `worldLimits.test.ts`: sửa test "clamps…" (đúng chỗ plan nêu), thêm test `clientAddress` không socket, `stampClientAddress` (2), `addressKey` hex, `RefusalLog` (3), test từ chối cài trên matchmaker lạ.
+- [x] Bước 10: tài liệu `docs/architecture.md` (hai chỗ), `docs/deploy.md`, `docs/design/multiplayer.md`.
+- Lệch kế hoạch: tiêu chí "`grep -rn "in the last minute" packages` rỗng" không đạt nguyên văn, vì test "counts refusals within a minute…" (theo plan) có `expect(line).not.toContain("in the last minute")`. Không còn trong code sản phẩm. Ngoài ra `docs/deploy.md` ghi thêm rằng `npm run dev:server` giữ trần thật (plan chỉ ghi ở architecture.md).
+- Không đổi: `package.json`, `Dockerfile`, `fly.toml`, `render.yaml`, `playwright.config.ts`, `WORLD_LIMITS`, `index.ts`.
+- Kiểm tay: `timeout 25 npm run dev` log `World limits: 50 worlds, 1000 per address; trusting 0 proxies`; với `PETGAME_MAX_WORLDS_PER_ADDRESS=2` log `2 per address`. `npm run shots -- --name t66 --no-build` chạy xong (32 ảnh), không lỗi 429.
+- Lệnh đã chạy: typecheck ✓, test ✓ (451 test, 33 file; `worldLimits.test.ts` chạy riêng 3 lần, 37 test mỗi lần, đều qua), build ✓, test:e2e ✓ (48 test).
 
 ## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (443, 33 file)   build ✓   e2e ✓ (48, 7,8 phút)   photo3d (không chạy, không đụng)
-- Lặp lại: `worldLimits.test.ts` 3 lần, 29/29 mỗi lần; `GameRoom.test.ts` 2 lần, 131/131 mỗi lần (móc sổ đếm không làm hỏng gì); e2e `a refused new world says why` với `--repeat-each=10 --workers=1 --retries=0`: 10/10 qua. Không có test chập chờn. Output ở scratchpad.
-- Tiêu chí hoàn thành: [x] hằng số + JSDoc  [x] 429 đúng loại trước khi tạo phòng  [x] đếm theo địa chỉ, đóng thì trả chỗ, tạo hỏng không giữ chỗ  [x] trần cả server gồm phòng không qua HTTP  [x] trust proxy 0/N, IPv6 /64  [x] chặn cài sau `listen()` (test "cannot be fooled" chứng minh)  [x] `joinById` không bị chặn, `join`/`joinOrCreate` 520  [x] `GameRoom` chỉ thêm `opened`/`closed`  [x] `/whoami`, cấu hình fly/render, deploy.md, log cảnh báo một lần  [x] env sai thì dùng mặc định + cảnh báo  [x] thẻ `busy`/`tooMany` (unit + e2e: focus, Enter)  [x] test 1-13 đủ, e2e mới, không test cũ bị nới  [x] `playwright.config.ts` env 1000 + chú thích  [x] docs cập nhật. Không phải thêm test nào.
-- Kiểm tra đột biến (mỗi cái đã hoàn nguyên, so sánh với bản sao, cây làm việc không đổi):
-  - a) bỏ ghi đè `x-real-ip` / tin header client: 2 test hỏng ("cannot be fooled...", "counts the last X-Forwarded-For entry...").
-  - b) `closed()` không xoá: 12 test hỏng (gồm "gives the place back when a world closes", "frees both caps...").
-  - c) chặn cả `joinById`: hỏng "never refuses joining a world that exists".
-  - d) để `joinOrCreate` bật: hỏng "switches off join and joinOrCreate".
-  - e) client ánh xạ 429 thành `failed` (hai biến thể): hỏng "tells the server's world cap from the address cap".
-- Kiểm tra tay với server thật (`npx tsx packages/server/src/index.ts`, `PETGAME_DEBUG` không đặt, `PETGAME_DB=:memory:`):
-  - `PETGAME_TRUST_PROXY` không đặt: 10 lần `POST /matchmake/create/world` từ localhost trả 200; lần 11 trả 429 `{"code":429,"error":"too many worlds from this address"}`. Lần 12 kèm `X-Forwarded-For: 9.9.9.9`, `X-Real-IP: 8.8.8.8`, `X-Client-IP: 7.7.7.7` vẫn 429 (không vượt được trần). `joinOrCreate` trả 520. `/whoami` trả `127.0.0.1`. Log: một dòng "refused 1 world creation ... 10 worlds open" (không có IP) và đúng một cảnh báo `X-Forwarded-For`.
-  - `PETGAME_TRUST_PROXY=1`: mỗi `X-Forwarded-For` khác (không có, 203.0.113.1, 203.0.113.2) có trần 10 riêng (10 lần 200, lần 11 là 429); `/whoami` với `X-Forwarded-For: 1.2.3.4, 203.0.113.9` trả `203.0.113.9` (mục cuối).
-  - Lần chạy tay đầu có nhầm: server cũ chưa tắt nên lượt "proxy1" gặp 429 ngay. Đó là lỗi cách chạy của tester, không phải lỗi sản phẩm; đã chạy lại riêng như trên.
-- Test đã thêm: không (đủ theo PLAN).
+- typecheck ✓   test ✓ (451, 33 file; `worldLimits.test.ts` chạy riêng 3 lần, 37 test mỗi lần, đều qua)   build ✓   e2e ✓ (48)   photo3d (không chạy, không đụng)
+- Tiêu chí hoàn thành: [x] dev.mjs (chỉ server, `??`) [x] shots.mjs [x] package.json/Dockerfile/fly.toml/render.yaml/playwright.config.ts/`WORLD_LIMITS` không đổi (`git diff --stat` chỉ 8 file: PROGRESS, 3 doc, worldLimits.ts + test, 2 script) [x] `clientAddress` không socket thì `undefined` [x] không còn `delete x-real-ip`, thiếu địa chỉ ghi `"unknown"` [x] `addressKey` bóc hex/chấm, không bóc nhầm [x] câu log khớp từng ký tự (test) [x] `positiveInt` hết, `intFromEnv` có JSDoc [x] kiểm controller ném lỗi, không cài gì trước khi ném (test) [x] test mới đủ, test cũ chỉ sửa dòng "clamps" [x] tài liệu [x] chú thích tiếng Anh
+- Ghi chú: `grep "in the last minute" packages` còn đúng 1 dòng ở `worldLimits.test.ts:101` (`not.toContain`), không phải code sản phẩm; chấp nhận như coder đã ghi.
+- Kiểm biến đổi (đã hoàn nguyên, `cmp` với bản gốc giống hệt, diff worldLimits.ts vẫn 107 dòng): a) stamp lại `delete` -> 1 test hỏng; b) `clientAddress` dùng header khi thiếu socket -> 2 test hỏng; c) `addressKey` không bóc dạng hex -> 1 test hỏng; d) bỏ kiểm controller -> 1 test hỏng; e) `RefusalLog` ghi "60 s" cố định -> 2 test hỏng. Cả 5 đều bị bắt.
+- Kiểm tay: `npm run dev` log `1000 per address`; với `PETGAME_MAX_WORLDS_PER_ADDRESS=2` log `2 per address`; `npm run shots -- --only world --name t66b` xong (15 ảnh), không 429; server chạy thẳng `npx tsx packages/server/src/index.ts` (không env): 10 lần create đầu 200, lần 11 là 429, log `10 per address` và dòng "refused 1 world creation (server 0, address 1); 10 worlds open".
+- Test đã thêm: không thêm (bộ test của coder đủ và bắt được cả 5 biến đổi).

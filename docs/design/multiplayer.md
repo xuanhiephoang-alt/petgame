@@ -51,7 +51,7 @@ Mỗi lần bấm "Vào chơi" mà không có link mời (hoặc bấm **Tạo t
 | Mỗi mạng | **10** thế giới | thế giới **được tạo từ cùng một địa chỉ mạng** và còn mở (có người hay không) | thẻ "Đã mở nhiều thế giới quá" |
 
 - Chỉ việc tạo bị giới hạn. **Vào thế giới có sẵn** (link mời, tải lại trang, nối lại) không bao giờ bị chặn, kể cả khi đã chạm trần.
-- "Địa chỉ mạng" là địa chỉ IP mà server thấy. Cả nhà dùng chung Wi-Fi là chung một địa chỉ. IPv6 tính theo cả khối /64 (một thiết bị IPv6 có thể đổi địa chỉ trong khối đó).
+- "Địa chỉ mạng" là địa chỉ IP mà server thấy. Cả nhà dùng chung Wi-Fi là chung một địa chỉ. IPv6 tính theo cả khối /64 (một thiết bị IPv6 có thể đổi địa chỉ trong khối đó). Địa chỉ IPv4 viết dạng IPv6 (`::ffff:…`, cả dạng chấm lẫn dạng hex) tính như IPv4. Server không biết địa chỉ thì mọi yêu cầu như vậy chung một khoá `unknown`, không được miễn.
 - Thế giới đóng (hết 60 giây không ai, hoặc server khởi động lại) thì trả lại chỗ ngay.
 - Vì mỗi thế giới sống ít nhất 60 giây, trần 10 cũng là giới hạn tốc độ: một mạng tạo được tối đa 10 thế giới trong một phút. Không cần thêm bộ đếm theo thời gian.
 

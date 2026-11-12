@@ -21,19 +21,20 @@ export interface WorldGuardSettings {
  * The address of the player: the socket's, or with `trustProxy` N proxies in front, the Nth entry from the end of
  * X-Forwarded-For (each proxy appends the address it saw; entries before that are whatever the client claimed).
  * Same rule as Express' numeric `trust proxy`. With 0 the header is ignored, so a client cannot fake its address.
+ * Without a socket address there is no address (the header alone could be anything).
  */
 export function clientAddress(
   remote: string | undefined,
   forwardedFor: string | string[] | undefined,
   trustProxy: number,
 ): string | undefined {
+  if (!remote) return undefined;
   const header = Array.isArray(forwardedFor) ? forwardedFor.join(",") : (forwardedFor ?? "");
   const chain = header
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry !== "");
-  if (remote) chain.push(remote);
-  if (chain.length === 0) return undefined;
+  chain.push(remote);
   return chain[Math.max(0, chain.length - 1 - trustProxy)];
 }
 
@@ -54,16 +55,19 @@ function ipv6Groups(address: string): number[] {
 }
 
 /**
- * The key worlds are counted under: IPv4 as is (also when written as IPv4-mapped IPv6), IPv6 as its /64 block (a host
- * rotates addresses inside its block, and providers hand out at least a /64 per subscriber), "unknown" when there is none.
+ * The key worlds are counted under: IPv4 as is (also when written as IPv4-mapped IPv6, dotted or hex), IPv6 as its /64
+ * block (a host rotates addresses inside its block, and providers hand out at least a /64 per subscriber), "unknown"
+ * when there is none.
  */
 export function addressKey(address: string | undefined): string {
   if (!address) return "unknown";
-  let text = address.split("%")[0];
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(text);
-  if (mapped) text = mapped[1];
+  const text = address.split("%")[0];
   if (isIPv4(text)) return text;
-  if (isIPv6(text)) return `${ipv6Groups(text).slice(0, 4).map((g) => g.toString(16)).join(":")}::/64`;
+  if (isIPv6(text)) {
+    const g = ipv6Groups(text);
+    if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`;
+    return `${g.slice(0, 4).map((x) => x.toString(16)).join(":")}::/64`;
+  }
   return address;
 }
 
@@ -122,8 +126,8 @@ export class WorldCensus {
 /** The census shared by GameRoom (reports open and closed worlds) and guardWorldCreation (checks it). */
 export const worldCensus = new WorldCensus();
 
-/** A positive decimal integer from env, else `fallback` (with a warning when the variable was set to something else). */
-function positiveInt(name: string, raw: string | undefined, fallback: number, min: number, max: number): number {
+/** A decimal integer in [min, max] from env, else `fallback` (with a warning when the variable was set to something else). */
+function intFromEnv(name: string, raw: string | undefined, fallback: number, min: number, max: number): number {
   if (raw === undefined) return fallback;
   const value = /^\d+$/.test(raw) ? Number(raw) : NaN;
   if (value >= min && value <= max) return value;
@@ -134,8 +138,8 @@ function positiveInt(name: string, raw: string | undefined, fallback: number, mi
 /** Reads PETGAME_MAX_WORLDS and PETGAME_MAX_WORLDS_PER_ADDRESS; anything but a positive integer keeps the default. */
 export function worldLimitsFromEnv(env: Record<string, string | undefined>): WorldLimits {
   return {
-    maxWorlds: positiveInt("PETGAME_MAX_WORLDS", env.PETGAME_MAX_WORLDS, WORLD_LIMITS.maxWorlds, 1, Number.MAX_SAFE_INTEGER),
-    perAddress: positiveInt(
+    maxWorlds: intFromEnv("PETGAME_MAX_WORLDS", env.PETGAME_MAX_WORLDS, WORLD_LIMITS.maxWorlds, 1, Number.MAX_SAFE_INTEGER),
+    perAddress: intFromEnv(
       "PETGAME_MAX_WORLDS_PER_ADDRESS",
       env.PETGAME_MAX_WORLDS_PER_ADDRESS,
       WORLD_LIMITS.perAddress,
@@ -147,28 +151,53 @@ export function worldLimitsFromEnv(env: Record<string, string | undefined>): Wor
 
 /** Reads PETGAME_TRUST_PROXY (0-9, default 0); anything else is ignored with a warning. */
 export function trustProxyFromEnv(env: Record<string, string | undefined>): number {
-  return positiveInt("PETGAME_TRUST_PROXY", env.PETGAME_TRUST_PROXY, 0, 0, 9);
+  return intFromEnv("PETGAME_TRUST_PROXY", env.PETGAME_TRUST_PROXY, 0, 0, 9);
 }
 
 let warnedForwarded = false;
-let refusedSince = 0;
-let refusedLogAt = 0;
-const refusedCounts: Record<WorldRefusal, number> = { server: 0, address: 0 };
 
-/** Logs refusals at most once a minute and never the address: the first one at once, the rest counted into the next line. */
+/** Minimum time between two refusal log lines (a logging rhythm, not a balance number). */
+const REFUSAL_LOG_MS = 60_000;
+
+/** Rate-limits the refusal log: at most one line per REFUSAL_LOG_MS; refusals in between are counted into the next line. Pure. */
+export class RefusalLog {
+  private count = 0;
+  private counts: Record<WorldRefusal, number> = { server: 0, address: 0 };
+  /** Time of the first refusal not logged yet. */
+  private firstAt = 0;
+  /** Time of the last line; -Infinity so the very first refusal is logged at once. */
+  private loggedAt = -Infinity;
+
+  /** Counts one refusal at `now` (ms); returns the line to log, or undefined while the last line is younger than REFUSAL_LOG_MS. */
+  note(refusal: WorldRefusal, now: number, openWorlds: number): string | undefined {
+    if (this.count === 0) this.firstAt = now;
+    this.count++;
+    this.counts[refusal]++;
+    if (now - this.loggedAt < REFUSAL_LOG_MS) return undefined;
+    const n = this.count;
+    const seconds = Math.round((now - this.firstAt) / 1000);
+    const line =
+      `World limits: refused ${n === 1 ? "1 world creation" : `${n} world creations in the last ${seconds} s`} ` +
+      `(server ${this.counts.server}, address ${this.counts.address}); ${openWorlds} worlds open`;
+    this.loggedAt = now;
+    this.count = 0;
+    this.counts.server = 0;
+    this.counts.address = 0;
+    return line;
+  }
+}
+
+const refusalLog = new RefusalLog();
+
+/** Logs refusals at most once a minute and never the address. */
 function noteRefusal(refusal: WorldRefusal, census: WorldCensus): void {
-  refusedCounts[refusal]++;
-  refusedSince++;
-  const now = Date.now();
-  if (now - refusedLogAt < 60_000) return;
-  console.warn(
-    `World limits: refused ${refusedSince} world creation${refusedSince === 1 ? "" : "s"} in the last minute ` +
-      `(server ${refusedCounts.server}, address ${refusedCounts.address}); ${census.total()} worlds open`,
-  );
-  refusedLogAt = now;
-  refusedSince = 0;
-  refusedCounts.server = 0;
-  refusedCounts.address = 0;
+  const line = refusalLog.note(refusal, Date.now(), census.total());
+  if (line) console.warn(line);
+}
+
+/** Overwrites `x-real-ip` (the header Colyseus reads first) with the address computed from the socket; "unknown" when there is none. */
+export function stampClientAddress(req: Pick<IncomingMessage, "headers" | "socket">, trustProxy: number): void {
+  req.headers["x-real-ip"] = clientAddress(req.socket.remoteAddress, req.headers["x-forwarded-for"], trustProxy) ?? "unknown";
 }
 
 /**
@@ -185,10 +214,25 @@ function noteRefusal(refusal: WorldRefusal, census: WorldCensus): void {
  *
  * `join` and `joinOrCreate` are switched off: the game never calls them, `joinOrCreate` makes worlds around the cap, and
  * both would put strangers into somebody's world. Only `create` is counted; joinById and reconnect are never refused.
+ *
+ * Fails closed: if `matchMaker.controller` no longer has the shape this relies on (a Colyseus upgrade), it throws before
+ * installing anything, so the server does not start without its caps.
  */
 export function guardWorldCreation(server: Server, settings: WorldGuardSettings, census: WorldCensus = worldCensus): () => void {
   const http = server.transport.server;
   if (!http) throw new Error("guardWorldCreation must be called after server.listen()");
+
+  const controller = matchMaker.controller;
+  if (
+    typeof controller?.invokeMethod !== "function" ||
+    !Array.isArray(controller.exposedMethods) ||
+    !controller.exposedMethods.includes("create")
+  ) {
+    throw new Error(
+      "guardWorldCreation: matchMaker.controller no longer has invokeMethod() and exposedMethods with \"create\" " +
+        "(Colyseus changed?); the world caps cannot be installed. See worldLimits.ts.",
+    );
+  }
 
   const stamp = (req: IncomingMessage) => {
     const forwarded = req.headers["x-forwarded-for"];
@@ -198,13 +242,10 @@ export function guardWorldCreation(server: Server, settings: WorldGuardSettings,
         "World limits: requests carry X-Forwarded-For but PETGAME_TRUST_PROXY is 0; every player may share the proxy's address. See docs/deploy.md.",
       );
     }
-    const address = clientAddress(req.socket.remoteAddress, forwarded, settings.trustProxy);
-    if (address === undefined) delete req.headers["x-real-ip"];
-    else req.headers["x-real-ip"] = address;
+    stampClientAddress(req, settings.trustProxy);
   };
   http.prependListener("request", stamp);
 
-  const controller = matchMaker.controller;
   const exposedBefore = controller.exposedMethods;
   controller.exposedMethods = exposedBefore.filter((method) => method !== "join" && method !== "joinOrCreate");
 
