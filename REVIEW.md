@@ -1,37 +1,41 @@
 PASS
-# REVIEW: T51 Test e2e `labels:` trên điện thoại chập chờn, vòng 1
+# REVIEW: T53 (server test GameRoom nghe ở cổng trống, làm nóng, hạn riêng có số đo), vòng 1
 
 ## Kết luận
-Thay đổi đúng PLAN.md, chỉ đụng test (`tests/e2e/multiplayer.spec.ts`, `labelLayout.test.ts`) và `PROGRESS.md`; `labelLayout.ts`, `labels.ts`, `index.html` không đổi. Kiểm 3 giây vẫn bắt được lỗi bố cục kéo dài, chỉ bỏ qua lúc chuyển ngắn đúng thiết kế "Lúc chuyển". Test unit 12 có tác dụng thật: tôi thử hai bản `layoutTags` cố ý sai thì chỉ test 12 hỏng, test 1-11 vẫn qua.
-
-## Lỗi phải sửa
-Không có.
+Thay đổi làm đúng các bước 1-4 của PLAN.md, không thừa (bước 5 không cần, vì C qua). Nguyên nhân gốc (cổng 2568 cố định cộng `Server.listen` treo khi gặp `EADDRINUSE`) được sửa tận gốc bằng `listen(0)` và đọc lại cổng thật. Hai hạn `15_000` đều có số đo, không che một chỗ chậm thật nào và không nới điều kiện kiểm nào. Cả hai phép đột biến cho reviewer đều cho đúng kết quả mong đợi.
 
 ## Đã kiểm
-- **Phép đo dùng chung:** `installLabelPairs` gắn `window.__labelPairs`, thân hàm giữ y nguyên bản cũ (bỏ nhãn `display: none` hoặc mờ dưới 0,5; chữ mờ trên 0,5; thanh máu đang hiện; đè hơn 1 px theo cả hai chiều). `labelOverlaps` và `lastingLabelOverlaps` đều gọi hàm đó, không có code chép hai lần. Gắn sau `frames > 0`, trước khi cần dùng.
-- **Không nới quá kế hoạch:** poll 20 s vẫn còn. Kiểm "một khoảnh khắc sau 30 khung" được thay bằng theo dõi ≥ 3 s và ≥ 60 khung, ngưỡng 400 ms **và** 8 khung, đúng bảng trong PLAN. Kiểm `frames ≥ 60` có mặt. Kiểm độ mờ của nhãn mình, nhãn thú đi theo và kiểm "≤ 10 lần đo" giữ nguyên. Lỗi bố cục kéo dài (đè suốt cả khoảng theo dõi) chắc chắn bị báo: ở 20 khung/giây là 3000 ms và 60 khung; ở 5 khung/giây vòng theo dõi kéo dài tới khoảng 12 s cho đủ 60 khung.
-- **Vòng rAF:** chỉ lấy mẫu khi `game.frames` tăng. `frames++` nằm ngay sau `labels.update` trong cùng lượt ticker (`Game.ts:1004-1005`), nên mỗi khung đã vẽ cho đúng một mẫu. Lượt rAF không có khung mới thì không lấy mẫu và cũng không ngắt lần đè. Một khung không đè thì đóng lần đè (đúng "một khung không đè là ngắt"). Lần còn mở lúc hết giờ được xét. Mỗi cặp chỉ ghi lần dài nhất. Hằng số truyền vào làm tham số. `last - start` tính thiếu một khoảng khung, tức nghiêng về phía không báo nhầm; với ngưỡng 400 ms thì không đáng kể.
-- **Chốt 20 s:** hoạt động khi game ngừng vẽ mà rAF vẫn chạy (trả về `frames` thật, rồi `frames ≥ 60` hỏng rõ). Khi tab bị ẩn thì rAF dừng hẳn, `tick` không chạy nên chốt không bao giờ tới; test sẽ hỏng vì hết thời gian chung thay vì có thông báo rõ. Trong Playwright headless trang luôn ở trạng thái hiện, và test này chỉ có một trang (bốn người kia là observer qua SDK), nên đây không phải lỗi (xem góp ý).
-- **`aimedTag` + poll 2 s:** giữ đủ ba ý. Không có thú đang nhắm thì trả `null` nên `toEqual` hỏng. Độ mờ phải là `"1"`. `barShown = !hurt || (bar && display !== "none")` tương đương với `if (hurt) expect(bar).not.toBe("none")` cũ. Poll 2 s không che được lỗi thật, vì nhãn bị ẩn sai sẽ ẩn mãi.
-- **Test unit 12:** tôi chép test và `labelLayout.ts` vào scratchpad, sửa bản chép ở đó, không đụng repo:
-  - bản gốc: 13/13 qua;
-  - M1, thu nhỏ cũng phải chờ `holdUntil`: **test 12 hỏng** (18.191 cặp đè), test 1-11 qua;
-  - M2, dạng đang chờ giữ `rise` cũ thay cho `bestRise`: **test 12 hỏng** (391 cặp), test 1-11 qua.
-  
-  Như vậy test 12 bảo vệ đúng phần chống nhấp nháy qua nhiều khung, là kết luận mà T51 dựa vào. Test giữ tham chiếu và hạng gốc bằng `Map` vì `layoutTags` sắp xếp mảng tại chỗ: đúng.
-- **Quy ước:** JSDoc tiếng Anh, có trỏ tới `LABEL_EASE_MS`, các `transition` CSS và `docs/design/pals.md`. Hằng số viết `UPPER_SNAKE_CASE`. Không có hook `debug:*` mới, không đổi giao thức hay `Profile`.
-- `npm test` chạy song song với `npm run typecheck`: 30/30 file, 366/366 test qua (130 s).
+- **`bootTestServer`** (`packages/server/src/rooms/GameRoom.test.ts:95-111`): đã đối chiếu với `@colyseus/testing` 0.18.6 (`index.ts`, `TestServer.ts`) và `@colyseus/core` `Server.ts`.
+  - `defineServer` chuyển `greet` và `gracefullyShutdown` vào `new Server(...)`. `greet: false` bỏ banner; `gracefullyShutdown: false` không gọi `registerGracefulShutdown`, nên worker vitest không bị gắn trình bắt tín hiệu thoát. `devMode` mặc định là false, giống `boot()`.
+  - `listen(0, "127.0.0.1")`: `Server.listen` gán `this.port = 0`, sau đó coder đọc cổng thật từ `transport.server.address()` và gán lại vào `server["port"]` trước khi tạo `new ColyseusTestServer(server)`. Constructor đọc `server['port']` để dựng cả `sdk` (`ws://127.0.0.1:<cổng>`) lẫn `http`, nên client nối đúng cổng thật.
+  - `ColyseusTestServer` vẫn được import từ `@colyseus/testing`, nên phần vá `Room.ext.ts` vẫn được nạp.
+- **Làm nóng:** `createRoom` rồi `cleanup()`. `cleanup` gọi `matchMaker.disconnectAll()`, nên phòng làm nóng bị huỷ trước test đầu tiên. Phòng này không có người chơi nên không mở store (`store()` lười), và `onDispose` chỉ dọn `liveSessions`. Không có trạng thái nào rò sang test sau.
+- **`afterAll(() => colyseus?.shutdown())`:** đã thấy tận mắt trong đột biến 1. Khi hook hỏng, chỉ còn `EADDRINUSE` và "Hook timed out", không còn `TypeError` phụ. `afterEach` không có `?.` cũng không sao, vì vitest không chạy test (nên không chạy `afterEach`) khi `beforeAll` hỏng.
+- **Hạn riêng:**
+  - Test khí hậu tự chờ thật khoảng 4,5 s (một nhịp `CLIMATE_TICK_MS` rồi 50 tick), tester đo 4538-4573 ms. Hạn `15_000` chỉ để chặn treo; số tick và `expect` không đổi.
+  - `worldgen`: chạy lại đo được 1440 ms khi máy rảnh. Với 3 thế giới, dưới tải nặng ước khoảng 4,9 s, vẫn sát 5 s, nên cần hạn riêng.
+  - Cả hai con số khớp quy tắc "khoảng 3 lần thời gian xấu nhất đã đo". Không đổi `vitest.config.ts`.
+- **`worldgen.test.ts`:** `generateWorld` không có cache (chỉ `defaultWorld` có), nên `expect(generateWorld(7)).toEqual(seven)` vẫn so hai lần sinh độc lập. Điều kiện "khác seed thì `props` khác nhau" vẫn giữ nguyên nghĩa.
+- **`docs/architecture.md`:** mô tả đúng luật cổng trống, làm nóng và hạn riêng có số đo. Viết tiếng Việt, chú thích code viết tiếng Anh.
+- **Phạm vi:** `git diff --stat` chỉ có `GameRoom.test.ts`, `worldgen.test.ts`, `docs/architecture.md` và `PROGRESS.md`. Typecheck sạch.
+- **Đột biến 1** (`listen(2568, ...)` + hai lần chạy cùng lúc): lần sau hỏng như mong đợi, với `EADDRINUSE 127.0.0.1:2568`, `Hook timed out in 10000ms` và `121 skipped`. Đã hoàn tác; sha256 khớp bản gốc.
+- **Đột biến 2** (bỏ làm nóng, chạy lẻ dưới tải 8 vòng lặp CPU trên 4 nhân):
+  - Test khí hậu qua 3/3, vì hạn riêng tự đủ.
+  - Để so sánh, `caught, a pack leader pays the catch XP...` mất 4698, 4784 và 4930 ms, so với 3719-3846 ms khi có làm nóng (số của tester). Vậy làm nóng thật sự gánh khoảng 1 s cho test đầu tiên.
+  - Đã hoàn tác; sha256 khớp bản gốc; `git diff --stat` không đổi.
 
-## Lần `npm test` hỏng chập chờn (tester ghi lại)
-Số liệu tester ghi lại là "1 failed file | 245 passed | **121 skipped**". `GameRoom.test.ts` có đúng 121 test (245 + 121 = 366), và không file nào khác có số test như vậy. Gần như chắc chắn file hỏng là `packages/server/src/rooms/GameRoom.test.ts`, và hỏng ở `beforeAll` chứ không ở một test nào: hook hỏng thì Vitest bỏ qua cả file. `beforeAll` gọi `boot(..., 2571)`, tức dựng server trên một **cổng cố định** với hạn mặc định 10 s. Hai nguyên nhân khả dĩ: dựng server quá 10 s khi máy bận, hoặc cổng 2571 đang bị một lần chạy vitest khác chiếm. Tôi chạy lại song song với `tsc` thì không tái hiện được.
-
-**Nên thêm nhiệm vụ theo dõi**, ưu tiên thấp. Lý do: khi lỗi này xảy ra thì 121 test tích hợp server bị bỏ qua cùng lúc, và CI đỏ vô cớ. Đề xuất cho TASKS.md:
-- "T?: `GameRoom.test.ts` `beforeAll` có lúc hỏng khi máy bận (T51: 1 file hỏng, 121 test bị bỏ qua). Tái hiện bằng 3 vòng lặp CPU (cách làm trong PLAN T51) và chạy file đó lặp lại, đọc lỗi của hook. Nếu do hết giờ: cho `beforeAll` hạn dài hơn (ví dụ 30 s). Nếu do cổng: dùng cổng trống thay cho 2571 cố định. Không nới test nào khác."
+## Lỗi phải sửa (FAIL khi còn mục này)
+Không có.
 
 ## Góp ý không bắt buộc
-- `lastingLabelOverlaps`: thêm một `setTimeout(…, 20_000)` dự phòng để resolve cả khi rAF dừng hẳn (tab ẩn). Khi đó test sẽ hỏng với thông báo `frames < 60` rõ ràng thay vì hết thời gian chung.
-- Theo kế hoạch, một khung không đè là ngắt lần đè. Vì vậy một lỗi bố cục kiểu **nhấp nháy** (hai nhãn đè nhau cách khung một) sẽ không bị báo, trong khi kiểm một khoảnh khắc cũ bắt được nó khoảng 50% số lần. Test 12 đã che phía bố cục, nên điều này chấp nhận được. Nếu muốn chặt hơn, có thể báo thêm cặp nào đè trong hơn khoảng 25% số khung theo dõi.
-- Test 12: ghi seed, khung và cặp vào thông báo lỗi, ví dụ `expect(a.forced || b.forced, \`seed ${seed} f ${f}\`).toBe(true)`. Hiện lỗi chỉ in "expected false to be true", khó lần ra. Theo lần thử của tôi, nhánh `forced` không xảy ra lần nào (0 cặp đè có `forced`), và kiểm "thú đang nhắm không ẩn" trùng với kiểm "nhãn ghim không ẩn" (`aimed` ≤ `PINNED_RANK`). Cả hai vô hại. Có thể thêm hạng `follower`/`leader` và thú hoang yên (`named: false`, không thanh máu) để phủ rộng hơn.
-- Khoá cặp là chữ của nhãn. Hai nhãn trùng chữ (hai "Lv 3 Leafkit") sẽ gộp vào cùng một khoá. Như vậy test chỉ chặt hơn, có thể báo nhầm chứ không bỏ sót; hiện chưa thấy xảy ra.
-- `PROGRESS.md` (phần tester) viết nhầm "labelPayout".
-- Ghi chú về T28 trong PLAN.md (Rủi ro 4: thú lành lặn đi ngang lấy chỗ thú đang nhắm khoảng 5 s) nên được agent chính chép vào mục T28 trong `TASKS.md`.
+- `GameRoom.test.ts:109`: `transport.server` có kiểu `http.Server | https.Server`, nên sau phép thu hẹp `typeof address !== "object"` thì `address` đã là `AddressInfo`. Vì vậy phép ép `as AddressInfo` và dòng `import type { AddressInfo } from "node:net"` là thừa, có thể bỏ.
+- `worldgen.test.ts:11`: chú thích "~2 s in `npm test`" là số đo của bản sinh 4 thế giới. Có thể ghi "(4 worlds)" cho cả hai con số để khỏi hiểu nhầm.
+
+## Việc tiếp theo đề xuất (cho agent chính thêm vào TASKS.md)
+- **Mới, P2: test `boss movement > the boss wanders with its whole body and does not squeeze through a gap narrower than itself` chập chờn (có từ trước, không do T53).**
+  - Ở đột biến 1, lần chạy cả file (song song với một vitest khác) hỏng với `expected 18.29967482189087 to be greater than or equal to 20` (`GameRoom.test.ts:776`).
+  - Chạy lẻ thì qua: 4/4 khi máy rảnh, 4/4 dưới tải.
+  - Nguyên nhân: khi trùm bị chặn, `stepWander` (`packages/server/src/ai/wander.ts:71-75`) chọn đích mới bằng `nearbyPoint(pos, Math.random)` trong vòng ±150 px. Trong 100 tick, trùm có thể đi ngẫu nhiên ngược về gần `C`.
+  - Cách sửa theo kiểu T17: tiêm `random` hoặc seed cho não của trùm trong test (hoặc đặt `brain.idleMs` đủ dài sau khi bị chặn), để kết quả tất định. Không nới ngưỡng 20 px. Kiểm bằng chạy lặp.
+- **T22:** bỏ phần về cổng, như PLAN.md đề xuất, vì T53 đã làm xong phần đó.
+- **Mới, P3** (theo PLAN.md): `npm run dev`/`npm run play` treo im lặng khi cổng 2567 đã bị chiếm, vì `Server.listen` chỉ gắn `on('error')` sau khi đã nghe. Cách sửa: bắt lỗi trong `packages/server/src/index.ts`, in thông báo rõ rồi thoát với mã khác 0.

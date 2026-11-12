@@ -8,10 +8,12 @@ import { climateHazard, protectedFrom } from "./climate.ts";
 import { pickSpecies } from "./pals.ts";
 
 describe("generateWorld", () => {
+  // Pure CPU: ~0.35 s per generated world, ~2 s in `npm test`, 6.5 s on a busy machine (4 worlds), hence the explicit limit.
   it("is deterministic for a seed", () => {
-    expect(generateWorld(7)).toEqual(generateWorld(7));
-    expect(generateWorld(7).props).not.toEqual(generateWorld(8).props);
-  });
+    const seven = generateWorld(7);
+    expect(generateWorld(7)).toEqual(seven);
+    expect(generateWorld(8).props).not.toEqual(seven.props);
+  }, 15_000);
 
   it("keeps the spawn line free of obstacles", () => {
     const { grid } = defaultWorld();

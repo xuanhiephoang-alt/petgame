@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { boot, type ColyseusTestServer } from "@colyseus/testing";
+import { ColyseusTestServer } from "@colyseus/testing";
 import { CloseCode, defineRoom, defineServer } from "colyseus";
+import type { AddressInfo } from "node:net";
 import {
   CLOSE_REPLACED,
   COMPANION_FOLLOW_DISTANCE,
@@ -91,10 +92,31 @@ process.env.PETGAME_DB = ":memory:";
 
 let colyseus: ColyseusTestServer;
 
+/**
+ * Starts the test server on a port picked by the OS. `boot()` ignores its port argument when given
+ * a `Server` (it always uses 2568), and `Server.listen` hangs instead of failing when that port is
+ * taken, so parallel vitest runs would clash and surface only as "Hook timed out".
+ */
+async function bootTestServer(): Promise<ColyseusTestServer> {
+  const server = defineServer({
+    rooms: { [ROOM_NAME]: defineRoom(GameRoom) },
+    greet: false,
+    gracefullyShutdown: false,
+  });
+  await server.listen(0, "127.0.0.1");
+  const address = server.transport.server?.address();
+  if (!address || typeof address !== "object") throw new Error("the test server is not listening on a TCP port");
+  server["port"] = (address as AddressInfo).port; // ColyseusTestServer points its SDK at server["port"], which listen() set to 0
+  return new ColyseusTestServer(server);
+}
+
 beforeAll(async () => {
-  colyseus = await boot(defineServer({ rooms: { [ROOM_NAME]: defineRoom(GameRoom) } }), 2571);
+  colyseus = await bootTestServer();
+  // The first room generates the world and nav grid (~0.45 s, ~1.6 s when busy): pay it here, not in the first test.
+  await colyseus.createRoom(ROOM_NAME);
+  await colyseus.cleanup();
 });
-afterAll(() => colyseus.shutdown());
+afterAll(() => colyseus?.shutdown());
 afterEach(async () => {
   vi.restoreAllMocks();
   await colyseus.cleanup();
@@ -1776,6 +1798,8 @@ describe("regions and climate", () => {
     expect(isSea(defaultWorld().layout.terrain, player.x, player.y)).toBe(true);
   });
 
+  // Waits for real: one climate tick (2 s from room creation), then 50 ticks = 2.5 s. Measured 4.5 s in
+  // `npm test` and over 5 s when run alone on a busy machine, hence the explicit limit.
   it("hurts players in the snow unless they wear a coat", async () => {
     const { room, client, player } = await setup();
     room.state.pals.clear(); // the snow's pack leader lives right there
@@ -1796,7 +1820,7 @@ describe("regions and climate", () => {
     player.hp = PLAYER_MAX_HP;
     await ticks(room, 50); // 2.5 s: more than one climate tick
     expect(player.hp).toBe(PLAYER_MAX_HP);
-  });
+  }, 15_000);
 
   it("lets players pick berries from a fruit bush", async () => {
     const { room, client, player } = await setup();
