@@ -190,6 +190,14 @@ Bốn loại đầu (mình, thú đang nhắm, thú đi theo, đầu đàn hoang
 
 Nhãn đã thu gọn hoặc ẩn phải có chỗ liên tục 1/4 giây mới hiện lại, để nhãn không nhấp nháy khi mọi người chen qua lại. Nhãn đổi độ cao mượt chứ không nhảy. Chữ bay (sát thương, tên chiêu, đồ nhặt) không tham gia và luôn nằm trên mọi nhãn.
 
+**Lúc chuyển** (làm rõ ở nhiệm vụ T51). Bố cục quyết định ngay trong một khung hình, còn hình vẽ đi theo sau:
+- nhãn mờ đi hoặc hiện ra trong 0,15-0,2 giây (CSS);
+- nhãn đổi độ cao mượt, xong 95% sau khoảng 0,2 giây.
+
+Vì vậy, khi một nhãn nhường chỗ (thu gọn, ẩn, hạ xuống), nhãn khác có thể vào chỗ đó trong lúc chữ cũ chưa mờ hết. Hai nhãn chạm nhau thoáng qua như vậy, tối đa khoảng 0,2 giây, là đúng thiết kế: đổi lại, nhãn không nhảy hay nhấp nháy. Còn nếu hai nhãn **đè nhau liền 0,4 giây trở lên**, đó là lỗi bố cục. Số đo ở T51, điện thoại 390×844, cả khi máy bận: mỗi lần chạm thoáng kéo dài 30-190 ms, tức 1-5 khung hình.
+
+Thú đang nhắm có thể là một thú hoang lành lặn đi ngang qua. Thú lành lặn không hiện nhãn, nên người chơi không thấy nó đang được nhắm (nhiệm vụ T28 thêm dấu). Lúc nó đi gần hơn thú bị thương, nó thành thú đang nhắm. Khi đó thú bị thương mất hạng ghim, thu nhỏ còn thanh máu, và các nhãn quanh đó xếp lại.
+
 ## Tính khí
 
 Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì khi không ai động tới, và khi bị đánh. Số liệu ở `combat.ts`, luật ở `GameRoom.ts` (`provoke`, `wildTarget`).
