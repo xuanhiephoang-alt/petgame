@@ -10,10 +10,10 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 | Cột phải trên: 🐾 Thú, 🏕️ Đặt trại, 🔨 Chế tạo, 👕 Tủ đồ (cách nhau 48 px), bản đồ nhỏ | bản đồ dưới các nút (top 204) | bản đồ dưới các nút (top 196) | bản đồ bên trái các nút |
 | Bảng Thú, Chế tạo, Tủ đồ | dưới cột nút phải (top 204), rộng 340 | top 196, rộng 340 | bên trái cột nút; Thú và Tủ đồ rộng 490 |
 | Thanh máu trùm (khi cách trùm ≤ 450 px) | rộng ≥ 1248 px: giữa trên, rộng `min(420, 100vw − 2 × lề trái − 944)` (1280: 312 px). Hẹp hơn: trong cột, thế chỗ ô nhiệm vụ | trong cột, thế chỗ ô nhiệm vụ | giữa trên, rộng `min(200, 100vw − 2 × lề phải − 528)`, nằm giữa cột trái và bản đồ |
-
-"Lề trái/phải" là `max(12 px, env(safe-area-inset-*))`: 12 px, hoặc phần tai thỏ nếu lớn hơn (mục "Vùng an toàn"). Top 204 và 196 ở trên là khi không có tai thỏ.
 | Dưới: thanh chiêu, nút bóng, nút cảm ứng (Đánh, Bắt, 💨) | thanh chiêu ở giữa, nút bóng góc phải dưới | bên phải; nút bóng bên trái nút Bắt | bên phải; nút bóng bên trái nút Bắt |
 | Cần điều khiển (chỉ cảm ứng) | không có | hiện ở chỗ ngón trái chạm, ở bất cứ đâu trong nửa trái màn hình trừ trên nút (kể cả trên các ô của cột trái và thông báo) | như dọc |
+
+"Lề trái/phải" là `max(12 px, env(safe-area-inset-*))`: 12 px, hoặc phần tai thỏ nếu lớn hơn (mục "Vùng an toàn"). Top 204 và 196 ở trên là khi không có tai thỏ.
 
 - Nhân vật luôn ở giữa màn hình. Ở điện thoại ngang, cột trái phải kết thúc trước giữa màn hình ít nhất 100 px (844×390: cột đến x = 312, giữa là 422), để không che nhãn tên của người và thú quanh nhân vật. Từ T30 luật này đúng cả khi có tai thỏ: cột hẹp lại theo lề trái, mép phải luôn ≤ 50vw − 110.
 - Lớp vẽ, từ dưới lên: nhãn tên (z 1), HUD (z 2). Trong HUD: **vùng cần điều khiển (−1, dưới cùng)**, các ô, nút và thanh máu trùm (không đặt z), bảng Thú, Chế tạo, Tủ đồ (3), **thông báo (4)**, bản đồ phóng to (4, vẽ sau thông báo), hộp xác nhận thả thú (5), màn mất kết nối (6). Thông báo không nhận chạm; chạm xuyên qua nó.

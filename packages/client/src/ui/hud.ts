@@ -21,7 +21,12 @@ export class Hud {
   private lastHealth = "";
   private lastTime = "";
   private soundButton!: HTMLButtonElement;
-  private bossBar!: HTMLDivElement;
+  private bossBar: HTMLDivElement;
+  private bossName: HTMLSpanElement;
+  private bossNum: HTMLSpanElement;
+  private bossFill: HTMLDivElement;
+  /** What the boss bar shows now (name|hp|maxHp), so the DOM is written only when it changes. */
+  private lastBoss = "";
   private eatButton: HTMLButtonElement;
   private eatCover: HTMLSpanElement;
   private eatSecs: HTMLSpanElement;
@@ -61,12 +66,15 @@ export class Hud {
     actionsRow.append(this.eatButton, this.soundButton);
     this.health.append(actionsRow);
     this.bossBar = div("boss-bar");
-    this.bossBar.innerHTML = `<strong></strong><div class="boss-hp"><div></div></div>`;
+    this.bossBar.innerHTML = `<strong><span class="boss-name"></span><span class="boss-num"></span></strong><div class="boss-hp"><div></div></div>`;
+    this.bossName = this.bossBar.querySelector<HTMLSpanElement>(".boss-name")!;
+    this.bossNum = this.bossBar.querySelector<HTMLSpanElement>(".boss-num")!;
+    this.bossFill = this.bossBar.querySelector<HTMLDivElement>(".boss-hp div")!;
     this.bossBar.hidden = true;
-    this.root.append(this.bossBar);
     this.left = div("hud-left");
+    // The boss bar lives in the column: CSS puts it top middle, or in the column in place of the quest tracker (T30, docs/design/hud.md).
     // The toasts sit last in the column (CSS order), under the quest tracker that is added to it later.
-    this.left.append(this.health, this.status, this.toasts);
+    this.left.append(this.health, this.status, this.bossBar, this.toasts);
     this.root.append(this.left);
     // Invite button (phones): share sheet if available, else copy the link. It stays on click: both need a user gesture,
     // which a touch only gives as the finger lifts.
@@ -138,10 +146,22 @@ export class Hud {
 
   /** Big HP bar for the boss; undefined hides it. */
   setBoss(boss: { name: string; hp: number; maxHp: number } | undefined) {
-    this.bossBar.hidden = !boss;
-    if (!boss) return;
-    this.bossBar.querySelector("strong")!.textContent = `👑 ${boss.name}  ${Math.ceil(boss.hp)}/${boss.maxHp}`;
-    this.bossBar.querySelector<HTMLDivElement>(".boss-hp div")!.style.width = `${(Math.max(0, boss.hp) / boss.maxHp) * 100}%`;
+    if (this.bossBar.hidden !== !boss) {
+      this.bossBar.hidden = !boss;
+      // CSS hides the quest tracker while the bar sits in the column.
+      this.left.classList.toggle("boss-near", !!boss);
+    }
+    if (!boss) {
+      this.lastBoss = "";
+      return;
+    }
+    const hp = Math.ceil(boss.hp);
+    const key = `${boss.name}|${hp}|${boss.maxHp}`;
+    if (key === this.lastBoss) return;
+    this.lastBoss = key;
+    this.bossName.textContent = `👑 ${boss.name}`;
+    this.bossNum.textContent = `${hp}/${boss.maxHp}`;
+    this.bossFill.style.width = `${(Math.max(0, boss.hp) / boss.maxHp) * 100}%`;
   }
 
   setHealth(hp: number, maxHp: number) {

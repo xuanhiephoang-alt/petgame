@@ -61,11 +61,26 @@
       .label.pal.alpha.angry span { background: rgba(198,40,40,0.85); }
       .label.pal.alpha .hp-bar { display: block; width: 52px; height: 6px; }
       .sound-btn { border: none; background: rgba(255,255,255,0.2); border-radius: 8px; min-width: 44px; min-height: 44px; cursor: pointer; font-size: 15px; }
-      .boss-bar { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
-        width: min(420px, 60vw); text-align: center; color: #fff; font-size: 14px; text-shadow: 0 1px 2px #000; }
+      /* The boss bar (T30) is a child of .hud-left. Top middle (absolute against the column, whose top is the HUD's top):
+         the width keeps it 12 px clear of the column (up to 460 px wide) at any width from 1248 px. */
+      .boss-bar { order: 5; box-sizing: border-box; position: absolute; top: 0; left: calc(50vw - max(12px, env(safe-area-inset-left)));
+        transform: translateX(-50%); width: min(420px, calc(100vw - 2 * max(12px, env(safe-area-inset-left)) - 944px));
+        text-align: center; color: #fff; font-size: 14px; text-shadow: 0 1px 2px #000; }
       .boss-bar[hidden] { display: none; }
+      .boss-bar strong { display: flex; justify-content: center; align-items: baseline; gap: 4px; white-space: nowrap; }
+      /* The name gives way (ellipsis); the health numbers never do. */
+      .boss-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .boss-num { flex: none; }
       .boss-hp { height: 12px; margin-top: 4px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.5); border-radius: 6px; overflow: hidden; }
       .boss-hp div { height: 100%; background: linear-gradient(90deg, #d50000, #ff6d00); transition: width 0.2s; }
+      /* Narrow screens (100vw - 968 < 280) and phones held upright: the bar takes the quest tracker's place in the column,
+         so the column does not grow and the toasts stay clear of the player's name tag. */
+      @media (max-width: 600px), (max-width: 1247px) and (min-height: 521px) {
+        .boss-bar { position: static; transform: none; width: auto; align-self: stretch; text-align: left; background: rgba(0,0,0,0.45);
+          border-left: 3px solid #ff6d00; padding: 4px 10px; border-radius: 8px; }
+        .boss-bar strong { justify-content: space-between; }
+        .hud-left.boss-near > .hud-quest { display: none; }
+      }
       .party-skills { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
       .skill-chip { font-size: 11px; line-height: 1.35; padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
       .skill-chip.fire { background: #ffe0d6; color: #bf360c; }
@@ -145,8 +160,9 @@
       /* A full party (MAX_PARTY): yellow, so the player lets a pal go before stunning another one. */
       .party-btn.full { background: #ffd54f; color: #4e342e; }
       /* border-box: max-height counts the padding, so a long panel ends 12 px above the bottom edge instead of 8 px below it (T18). */
-      .party-panel { position: absolute; top: 204px; right: max(12px, env(safe-area-inset-right)); box-sizing: border-box; width: min(340px, calc(100vw - 24px));
-        max-height: calc(100% - 216px); overflow-y: auto; pointer-events: auto; background: rgba(250,252,246,0.97); color: #253020;
+      /* Below the Tủ đồ button, also in a notch (the minimap's formula); ends above the home bar (T30). */
+      .party-panel { position: absolute; top: max(204px, calc(env(safe-area-inset-top) + 192px)); right: max(12px, env(safe-area-inset-right)); box-sizing: border-box; width: min(340px, calc(100vw - 24px));
+        max-height: calc(100% - max(204px, calc(env(safe-area-inset-top) + 192px)) - max(12px, env(safe-area-inset-bottom))); overflow-y: auto; pointer-events: auto; background: rgba(250,252,246,0.97); color: #253020;
         border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,0.3); padding: 10px; }
       .party-panel[hidden] { display: none; }
       .party-header { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 2px 4px 8px; font-size: 16px; }
@@ -378,14 +394,17 @@
         .hud-quest small { font-size: 11px; }
         .party-btn, .base-btn, .craft-btn, .wardrobe-btn { padding: 6px 10px; font-size: 13px; }
         .minimap { width: 112px; top: max(196px, calc(env(safe-area-inset-top) + 184px)); }
-        .party-panel { top: 196px; max-height: calc(100% - 208px); }
+        .boss-bar { font-size: 12px; }
+        .boss-hp { height: 10px; margin-top: 3px; }
+        .party-panel { top: max(196px, calc(env(safe-area-inset-top) + 184px));
+          max-height: calc(100% - max(196px, calc(env(safe-area-inset-top) + 184px)) - max(12px, env(safe-area-inset-bottom))); }
         .toast { font-size: 13px; padding: 5px 10px; }
         .toast.high { padding-left: 8px; }
       }
       /* Short screens (phones held sideways). */
       @media (max-height: 520px) and (min-width: 601px) {
-        /* The HUD column stays left of the name tags around the player (T6). */
-        .hud-left { max-width: 300px; gap: 4px; }
+        /* The HUD column ends 110 px left of the middle, notch or not, left of the name tags around the player and the boss bar (T6, T30). */
+        .hud-left { max-width: min(300px, calc(50vw - 110px - max(12px, env(safe-area-inset-left)))); gap: 4px; }
         .hud-health { font-size: 12px; gap: 5px; padding: 4px 8px; }
         .hud-hp { width: 64px; }
         .hud-hp-text { font-size: 11px; }
@@ -396,14 +415,15 @@
         .hud-quest .quest-reward { display: none; }
         .toast { font-size: 13px; padding: 5px 10px; }
         .toast.high { padding-left: 8px; }
-        .boss-bar { width: 200px; font-size: 12px; }
+        /* Top middle, 12 px clear of the minimap (112 px wide, 140 px left of the right edge plus the notch) (T30). */
+        .boss-bar { width: min(200px, calc(100vw - 528px - 2 * max(12px, env(safe-area-inset-right)))); font-size: 12px; }
         /* The skills left of the attack button, in the right half (the joystick has the left). */
         .skill-bar.touch { right: max(196px, calc(env(safe-area-inset-right) + 196px)); bottom: 18px; width: auto; flex-wrap: nowrap; align-items: center; }
         .skill-bar.touch .skill-auto { order: -1; }
         /* The minimap and the panels beside the buttons, clear of the touch buttons below. */
         .minimap { width: 112px; top: max(12px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + 140px); }
-        .party-panel { top: max(8px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + 130px); max-height: calc(100% - 16px); }
-        .wardrobe-panel { width: min(490px, calc(100vw - 150px)); height: calc(100% - 16px); display: grid;
+        .party-panel { top: max(8px, env(safe-area-inset-top)); right: calc(max(12px, env(safe-area-inset-right)) + 130px); max-height: calc(100% - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom))); }
+        .wardrobe-panel { width: min(490px, calc(100vw - 150px)); height: calc(100% - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom))); display: grid;
           grid-template-columns: auto 1fr; grid-template-rows: auto auto 1fr; column-gap: 10px; }
         .wardrobe-panel .party-header { grid-column: 1 / -1; padding-bottom: 4px; }
         .wardrobe-stage { grid-column: 1; grid-row: 2 / 4; align-items: flex-start; }

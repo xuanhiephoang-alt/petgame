@@ -44,11 +44,12 @@ function watch(page: Page, tag: string) {
  * Opens the game in a fresh browser context (an empty localStorage: a new device); `tag` names the page in the log.
  * `options` shape the device (a phone's screen and touch, say); by default it is the desktop browser.
  */
-async function openPage(browser: Browser, path = "/", tag = "page", options: BrowserContextOptions = {}): Promise<Page> {
+async function openPage(browser: Browser, path = "/", tag = "page", options: BrowserContextOptions = {}, before?: (page: Page) => Promise<void>): Promise<Page> {
   const context = await browser.newContext(options);
   contexts.push(context);
   const page = await context.newPage();
   watch(page, tag);
+  await before?.(page); // e.g. a notch (`safeArea`): set before the page loads
   // Software-rendered WebGL here: skip post-processing so tests stay fast.
   await page.goto(path + (path.includes("?") ? "&" : "?") + "quality=low");
   return page;
@@ -69,8 +70,8 @@ async function enterLobby(page: Page, name: string, press: "click" | "enter" = "
   else await page.click("#join-btn");
 }
 
-async function join(browser: Browser, name: string, path = "/", options: BrowserContextOptions = {}): Promise<Page> {
-  const page = await openPage(browser, path, name, options);
+async function join(browser: Browser, name: string, path = "/", options: BrowserContextOptions = {}, before?: (page: Page) => Promise<void>): Promise<Page> {
+  const page = await openPage(browser, path, name, options, before);
   await enterLobby(page, name);
   return page;
 }
@@ -2386,11 +2387,14 @@ for (const screen of TOAST_SCREENS) {
     await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
 
     // The two longest high toasts there are (the boss reward as the server words it, and a level-up with two new skills).
-    await page.evaluate(() => {
+    // The two longest high toasts; put back when they have run out while the test looked for a calm spot.
+    const pushToasts = () => page.evaluate(() => {
       const { hud } = (window as any).__petgame.game;
+      if (document.querySelectorAll(".hud-toasts > .toast").length > 0) return;
       hud.showToast("Hạ được trùm! 🏆 🪵\xa015  🪨\xa025  🫐\xa010  🔵\xa02  🛡️\xa0Giáp hiệp sĩ · Emberpup +250 XP", "high");
       hud.showToast("Frostfang lên cấp 15! ⭐ Học được chiêu mới: ❄️ Hơi thở băng giá, 🌨️ Bão tuyết", "high");
     });
+    await pushToasts();
     await expect(page.locator(".hud-toasts > .toast:not(.out)")).toHaveCount(screen.room);
     const layout = await toastLayout(page);
     expect(layout.toasts).toHaveLength(screen.room);
@@ -2416,6 +2420,352 @@ for (const screen of TOAST_SCREENS) {
       expect(layout.columnRight).toBeLessThanOrEqual(layout.width / 2 - 100);
       // Only one fits: the second shows once the first is gone.
       await expect(page.locator(".hud-toasts")).toContainText("Hơi thở băng giá", { timeout: 10_000 });
+    }
+  });
+}
+
+type Insets = { top?: number; right?: number; bottom?: number; left?: number };
+
+/**
+ * A notch for the page, to be passed as `before` to `openPage`/`join`: the browser's own safe-area insets through CDP
+ * (`Emulation.setSafeAreaInsetsOverride`), or, if this Chromium does not know that command, the page's own CSS with every
+ * `env(safe-area-inset-*)` replaced by the number once the document is parsed (they are all in index.html's <style>).
+ */
+const safeArea = (insets: Insets) => async (page: Page) => {
+  const { top = 0, right = 0, bottom = 0, left = 0 } = insets;
+  try {
+    const cdp = await page.context().newCDPSession(page);
+    await (cdp as any).send("Emulation.setSafeAreaInsetsOverride", {
+      insets: { top, topMax: top, left, leftMax: left, bottom, bottomMax: bottom, right, rightMax: right },
+    });
+  } catch {
+    // Not page.route + fulfill: a document served that way loses its loopback address space and the browser then blocks its calls to the server.
+    await page.addInitScript((px) => {
+      document.addEventListener("DOMContentLoaded", () => {
+        for (const el of document.querySelectorAll("style")) {
+          const css = el.textContent ?? "";
+          const fixed = css.replace(/env\(safe-area-inset-(top|right|bottom|left)\)/g, (_, edge: "top" | "right" | "bottom" | "left") => `${px[edge]}px`);
+          if (fixed !== css) el.textContent = fixed;
+        }
+      });
+    }, { top, right, bottom, left });
+  }
+};
+
+/**
+ * The boss bar, the HUD parts shown (not the bar), the toasts and my name tag as boxes, plus what the checks need:
+ * the column's right edge and box, whether the quest tracker and the `boss-near` class are on, what lies at the bar's centre.
+ */
+const bossLayout = (page: Page) =>
+  page.evaluate(() => {
+    const box = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    };
+    const shown = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return getComputedStyle(el).display !== "none" && !(el as HTMLElement).hidden && r.width > 0 && r.height > 0;
+    };
+    const bar = document.querySelector<HTMLElement>(".boss-bar")!;
+    const part = (sel: string) => box(document.querySelector(sel)!);
+    const parts = [...document.querySelectorAll<HTMLElement>(
+      ".hud-health, .hud-status, .hud-quest, .eat-btn, .sound-btn, .invite-btn, .party-btn, .base-btn, .craft-btn, .wardrobe-btn, .minimap, .skill-btn, .skill-auto, .ball-btn, .action-btn")]
+      .filter(shown)
+      .map((el) => ({ name: el.className, ...box(el) }));
+    const mine = [...document.querySelectorAll(".labels > .label.me span")].map((el) => ({ name: "my name", ...box(el) }));
+    const toasts = [...document.querySelectorAll(".hud-toasts > .toast:not(.out)")].map((el) => ({ text: el.textContent ?? "", ...box(el) }));
+    const barBox = box(bar);
+    const info = (window as any).__petgame.game.debugInfo();
+    const nearestWild = (me: { x: number; y: number }) => {
+      let best = 99999;
+      (window as any).__petgame.room.state.pals.forEach((pal: any) => {
+        if (!pal.boss) best = Math.min(best, Math.hypot(pal.x - me.x, pal.y - me.y));
+      });
+      return best;
+    };
+    const centre = document.elementFromPoint((barBox.left + barBox.right) / 2, (barBox.top + barBox.bottom) / 2);
+    const num = bar.querySelector<HTMLElement>(".boss-num")!;
+    const name = bar.querySelector<HTMLElement>(".boss-name")!;
+    const strong = bar.querySelector("strong")!;
+    const left = document.querySelector<HTMLElement>(".hud-left")!;
+    const quest = document.querySelector(".hud-quest");
+    const rightButtons = [".party-btn", ".base-btn", ".craft-btn", ".wardrobe-btn"].map((sel) => part(sel).left);
+    return {
+      bar: barBox,
+      barShown: shown(bar),
+      // How far the camera still lags behind my pal (px), and the toasts still fading or sliding in.
+      // Distance to the nearest wild pal (not the boss), and how many times a pal's blow has landed on me (`watchHurt`).
+      wild: nearestWild(info.me),
+      hurt: ((window as any).__bossHurt as number | undefined) ?? 0,
+      lag: Math.hypot(info.camera.x - info.me.x, info.camera.y - (info.me.y - 16)),
+      fading: document.querySelectorAll(".hud-toasts > .toast.out").length +
+        document.getAnimations().filter((a) => (a.effect as KeyframeEffect | null)?.target?.closest?.(".hud-toasts") && a.playState === "running").length,
+      num: box(num),
+      numClipped: num.scrollWidth > num.clientWidth + 1,
+      nameClipped: name.scrollWidth > name.clientWidth + 1,
+      strongHeight: strong.getBoundingClientRect().height,
+      parts: [...parts, ...mine],
+      toasts,
+      left: box(left),
+      leftClasses: left.className,
+      position: getComputedStyle(bar).position,
+      columnRight: Math.max(...[...document.querySelectorAll(".hud-health, .hud-status, .hud-quest")].filter(shown).map((el) => el.getBoundingClientRect().right)),
+      statusBottom: part(".hud-status").bottom,
+      questShown: !!quest && getComputedStyle(quest).display !== "none",
+      minimapLeft: part(".minimap").left,
+      rightButtonsLeft: Math.min(...rightButtons),
+      overJoystick: !!centre?.closest(".joystick-zone"),
+      overBar: !!centre?.closest(".boss-bar"),
+      width: innerWidth,
+      height: innerHeight,
+    };
+  });
+
+/** Counts the blows that land on my player (the server's "damage" messages) in `window.__bossHurt`. */
+const watchHurt = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as any;
+    w.__bossHurt = 0;
+    w.__petgame.room.onMessage("damage", (m: any) => m.targetId === w.__petgame.room.sessionId && w.__bossHurt++);
+  });
+
+/** A wild pal this close (px) can reach me and bite: not a place to measure. */
+const WILD_CLEAR_PX = 250;
+
+/** Where the boss stands now, from the room state. */
+const bossPosition = (page: Page) =>
+  page.evaluate(() => {
+    let found: { x: number; y: number } | undefined;
+    (window as any).__petgame.room.state.pals.forEach((pal: any) => {
+      if (pal.boss) found = { x: pal.x, y: pal.y };
+    });
+    return found;
+  });
+
+/**
+ * Measures the boss bar's screen once it is at rest: goes back to the boss if the bar is hidden (it wanders), waits for the
+ * camera to stop easing and the toasts to stop moving, measures in ONE evaluate and accepts the numbers only if the bar was
+ * shown then (in the column: with `boss-near`), the camera was still and `accept` agrees. `prepare` runs each try after the move (the test puts its toasts back if they ran out). A bounded number of tries.
+ */
+async function settledBossLayout(
+  page: Page,
+  goNearBoss: () => Promise<void>,
+  accept: (layout: BossLayout) => boolean = () => true,
+  prepare: () => Promise<void> = async () => {},
+): Promise<BossLayout> {
+  let layout: BossLayout | undefined;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    // Where a wild pal is near (or the bar is gone) go to another spot by the boss, then note how often I was hit so far.
+    const before = await bossLayout(page);
+    if (!before.barShown || before.wild < WILD_CLEAR_PX) await goNearBoss();
+    await prepare();
+    const hurtBefore = (await bossLayout(page)).hurt;
+    await page
+      .waitForFunction(() => {
+        const info = (window as any).__petgame.game.debugInfo();
+        const toasts = [...document.querySelectorAll(".hud-toasts > .toast")];
+        return Math.hypot(info.camera.x - info.me.x, info.camera.y - (info.me.y - 16)) < 1 &&
+          !toasts.some((el) => el.classList.contains("out")) &&
+          !document.getAnimations().some((a) => (a.effect as KeyframeEffect | null)?.target?.closest?.(".hud-toasts") && a.playState === "running");
+      }, undefined, { timeout: 10_000 })
+      .catch(() => {});
+    layout = await bossLayout(page);
+    const inColumn = layout.position === "static";
+    // Nothing bit me while I waited (a blow moves my name tag) and no wild pal is close.
+    if (layout.hurt === hurtBefore && layout.wild >= WILD_CLEAR_PX && layout.barShown && layout.lag < 1 && layout.fading === 0 && (!inColumn || layout.leftClasses.includes("boss-near")) && accept(layout)) return layout;
+    await page.waitForTimeout(250);
+  }
+  throw new Error(`The boss bar never settled: ${JSON.stringify(layout)}`);
+}
+
+const BOSS_SCREENS = [
+  { name: "desktop", options: { viewport: { width: 1280, height: 720 } }, room: 2, spot: "top", insets: undefined },
+  { name: "phone upright", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, room: 2, spot: "column", insets: undefined },
+  { name: "phone sideways", options: { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true }, room: 1, spot: "top", insets: undefined },
+  { name: "phone upright, notch", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, room: 2, spot: "column", insets: { top: 47, bottom: 34 } },
+  { name: "phone sideways, notch", options: { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true }, room: 1, spot: "top", insets: { left: 47, right: 47, bottom: 21 } },
+] as const;
+
+type BossLayout = Awaited<ReturnType<typeof bossLayout>>;
+
+/** The bar lies on none of the HUD parts and none of the toasts, and its numbers show whole on one line. */
+function expectBarClear(layout: BossLayout, label: string) {
+  expect(layout.barShown, `${label}: bar shown`).toBe(true);
+  expect(layout.parts.filter((part) => boxesOverlap(layout.bar, part)).map((part) => part.name), `${label}: bar over`).toEqual([]);
+  expect(layout.toasts.filter((toast) => boxesOverlap(layout.bar, toast)).map((toast) => toast.text), `${label}: bar under toasts`).toEqual([]);
+  expect(layout.numClipped, `${label}: numbers cut`).toBe(false);
+  expect(layout.num.left, label).toBeGreaterThanOrEqual(layout.bar.left - 1);
+  expect(layout.num.right, label).toBeLessThanOrEqual(layout.bar.right + 1);
+  expect(layout.strongHeight, `${label}: one line`).toBeLessThanOrEqual(22);
+}
+
+/** The bar sits in the column in place of the quest tracker, between the status and the toasts. */
+function expectBarInColumn(layout: BossLayout, touch: boolean, label: string) {
+  expect(layout.leftClasses, label).toContain("boss-near");
+  expect(layout.questShown, `${label}: quest hidden`).toBe(false);
+  expect(layout.bar.top, label).toBeGreaterThanOrEqual(layout.statusBottom + 2);
+  if (layout.toasts.length > 0) expect(layout.bar.bottom, label).toBeLessThanOrEqual(layout.toasts[0].top - 2);
+  expect(Math.abs(layout.bar.left - layout.left.left), label).toBeLessThanOrEqual(1);
+  expect(Math.abs(layout.bar.right - layout.left.right), label).toBeLessThanOrEqual(1);
+  if (touch) expect(layout.overJoystick, `${label}: a touch on the bar reaches the joystick`).toBe(true);
+}
+
+for (const screen of BOSS_SCREENS) {
+  test(`boss bar (${screen.name}): clear of the health row, the toasts, the right column and the panels`, async ({ browser }) => {
+    test.slow();
+    const touch = "hasTouch" in screen.options;
+    const insets: Insets = screen.insets ?? {};
+    const safe = { top: insets.top ?? 0, right: insets.right ?? 0, bottom: insets.bottom ?? 0, left: insets.left ?? 0 };
+    const page = await join(browser, "Hiệp", "/", { ...screen.options }, screen.insets ? safeArea(screen.insets) : undefined);
+    await waitForWorld(page);
+    await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+    await watchHurt(page);
+
+    // The safe area took effect, whichever way it was set.
+    const edges = await page.evaluate(() => ({
+      columnLeft: document.querySelector(".hud-left")!.getBoundingClientRect().left,
+      buttonTop: document.querySelector(".party-btn")!.getBoundingClientRect().top,
+    }));
+    expect(Math.abs(edges.columnLeft - Math.max(12, safe.left))).toBeLessThanOrEqual(1);
+    expect(Math.abs(edges.buttonTop - Math.max(12, safe.top))).toBeLessThanOrEqual(1);
+
+    await sendFrom(page, "debug:givePal", { species: "emberpup", level: 8 });
+    await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(1);
+    await expect(page.locator(".skill-bar")).toBeVisible();
+    await expect(page.locator(".hud-quest")).toContainText(/\S/);
+    const home = await page.evaluate(() => {
+      const { room } = (window as any).__petgame;
+      const me = room.state.players.get(room.sessionId);
+      return { x: me.x as number, y: me.y as number };
+    });
+
+    // Near the boss: it stands still when not hit.
+    const goNearBoss = async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const boss = await bossPosition(page);
+        expect(boss).toBeTruthy();
+        // The spot by the boss (180-340 px: the bar shows within 450) farthest from every wild pal.
+        const spot = await page.evaluate((boss) => {
+          const others: { x: number; y: number }[] = [];
+          (window as any).__petgame.room.state.pals.forEach((pal: any) => {
+            if (!pal.boss) others.push({ x: pal.x, y: pal.y });
+          });
+          let best = { x: boss.x, y: boss.y + 180, score: -1 };
+          for (const radius of [180, 260, 340]) {
+            for (let k = 0; k < 8; k++) {
+              const x = boss.x + Math.cos((k * Math.PI) / 4) * radius;
+              const y = boss.y + Math.sin((k * Math.PI) / 4) * radius;
+              const score = Math.min(99999, ...others.map((o) => Math.hypot(o.x - x, o.y - y)));
+              if (score > best.score) best = { x, y, score };
+            }
+          }
+          return best;
+        }, boss!);
+        await sendFrom(page, "debug:teleport", { x: spot.x, y: spot.y });
+        try {
+          await expect(page.locator(".boss-bar")).toBeVisible({ timeout: 30_000 });
+          return;
+        } catch (error) {
+          if (attempt === 1) throw error;
+        }
+      }
+    };
+    await goNearBoss();
+
+    await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
+    // The two longest high toasts; put back when they have run out while the test looked for a calm spot.
+    const pushToasts = () => page.evaluate(() => {
+      const { hud } = (window as any).__petgame.game;
+      if (document.querySelectorAll(".hud-toasts > .toast").length > 0) return;
+      hud.showToast("Hạ được trùm! 🏆 🪵\xa015  🪨\xa025  🫐\xa010  🔵\xa02  🛡️\xa0Giáp hiệp sĩ · Emberpup +250 XP", "high");
+      hud.showToast("Frostfang lên cấp 15! ⭐ Học được chiêu mới: ❄️ Hơi thở băng giá, 🌨️ Bão tuyết", "high");
+    });
+    await pushToasts();
+    await expect(page.locator(".hud-toasts > .toast:not(.out)")).toHaveCount(screen.room);
+
+    // Let the toasts' slide-in (4 px up) finish before measuring the gaps.
+    await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => (a.effect as KeyframeEffect).target?.closest(".hud-toasts")).map((a) => a.finished)));
+    // The boss may wander off while the toasts run: this goes back to it, and measures only at rest.
+    const layout = await settledBossLayout(page, goNearBoss, (l) => l.toasts.length === screen.room, pushToasts);
+    expect(layout.toasts).toHaveLength(screen.room);
+    expectBarClear(layout, screen.name);
+    // Toasts clear of the bar, the parts and my name, and on screen.
+    for (const toast of layout.toasts) {
+      expect(toast.left, toast.text).toBeGreaterThanOrEqual(0);
+      expect(toast.right, toast.text).toBeLessThanOrEqual(layout.width);
+      expect(toast.bottom, toast.text).toBeLessThanOrEqual(layout.height);
+      expect([layout.bar, ...layout.parts].filter((part) => boxesOverlap(toast, part)).map((part) => ("name" in part ? `${part.name} ${Math.round(part.top)}-${Math.round(part.bottom)}` : "boss-bar")), `${toast.text} (toast ${Math.round(toast.top)}-${Math.round(toast.bottom)})`).toEqual([]);
+    }
+    // The bar is in the safe area.
+    expect(layout.bar.left).toBeGreaterThanOrEqual(safe.left - 1);
+    expect(layout.bar.right).toBeLessThanOrEqual(layout.width - safe.right + 1);
+    expect(layout.bar.top).toBeGreaterThanOrEqual(Math.max(12, safe.top) - 1);
+    const sideways = layout.width > layout.height;
+    if (screen.spot === "top") {
+      expect(layout.position).toBe("absolute");
+      expect(Math.abs((layout.bar.left + layout.bar.right) / 2 - layout.width / 2)).toBeLessThanOrEqual(1);
+      expect(Math.abs(layout.bar.top - layout.left.top)).toBeLessThanOrEqual(1);
+      expect(layout.bar.left).toBeGreaterThanOrEqual(layout.columnRight + 8);
+      expect(layout.bar.right).toBeLessThanOrEqual((sideways ? layout.minimapLeft : layout.rightButtonsLeft) - 8);
+      expect(layout.questShown).toBe(true);
+    } else {
+      expectBarInColumn(layout, touch, screen.name);
+    }
+    if (sideways) {
+      expect(layout.columnRight).toBeLessThanOrEqual(layout.width / 2 - 100);
+      for (const toast of layout.toasts) expect(toast.bottom).toBeLessThanOrEqual(layout.height - 140);
+    }
+
+    // The panels: inside the safe area, clear of the right column and its touch areas, drawn over the bar.
+    const press = (loc: ReturnType<Page["locator"]>) => (touch ? loc.tap() : loc.click());
+    for (const [button, panel] of [[".party-btn", ".pals-panel"], [".craft-btn", ".craft-panel"], [".wardrobe-btn", ".wardrobe-panel"]]) {
+      await press(page.locator(button));
+      await expect(page.locator(panel)).toBeVisible();
+      const check = await page.evaluate(([panelSel]) => {
+        const panelEl = document.querySelector(panelSel)!;
+        const r = panelEl.getBoundingClientRect();
+        const bar = document.querySelector(".boss-bar")!.getBoundingClientRect();
+        const right = [".party-btn", ".base-btn", ".craft-btn", ".wardrobe-btn"].flatMap((sel) => {
+          const b = document.querySelector(sel)!.getBoundingClientRect();
+          const cx = b.left + b.width / 2;
+          const cy = b.top + b.height / 2;
+          return [0, -21, 21].filter((dy) => !document.elementFromPoint(cx, cy + dy)?.closest(sel)).map((dy) => `${sel} ${dy}`);
+        });
+        const ix = [Math.max(r.left, bar.left), Math.min(r.right, bar.right)];
+        const iy = [Math.max(r.top, bar.top), Math.min(r.bottom, bar.bottom)];
+        const meets = ix[1] - ix[0] > 1 && iy[1] - iy[0] > 1;
+        const at = meets ? document.elementFromPoint((ix[0] + ix[1]) / 2, (iy[0] + iy[1]) / 2) : null;
+        return { top: r.top, bottom: r.bottom, covered: right, meets, panelOnTop: !meets || !!at?.closest(panelSel), height: innerHeight };
+      }, [panel]);
+      expect(check.top, panel).toBeGreaterThanOrEqual(safe.top);
+      expect(check.bottom, panel).toBeLessThanOrEqual(check.height - Math.max(safe.bottom, 8) + 1);
+      expect(check.covered, `${panel}: right column covered`).toEqual([]);
+      expect(check.panelOnTop, `${panel}: drawn over the bar`).toBe(true);
+      await press(page.locator(`${panel} .party-close`));
+      await expect(page.locator(panel)).toBeHidden();
+    }
+
+    // Away from the boss: the bar goes, the quest tracker is back.
+    await sendFrom(page, "debug:teleport", home);
+    await expect(page.locator(".boss-bar")).toBeHidden({ timeout: 15_000 });
+    await expect(page.locator(".hud-quest")).toBeVisible();
+    await expect(page.locator(".hud-left")).not.toHaveClass(/boss-near/);
+
+    if (screen.name === "desktop") {
+      await goNearBoss();
+      // 1248 px: the narrowest the bar stays top middle, its name whole.
+      await page.setViewportSize({ width: 1248, height: 720 });
+      const narrow = await settledBossLayout(page, goNearBoss, (l) => Math.round(l.bar.right - l.bar.left) === 280);
+      expect(narrow.position).toBe("absolute");
+      expect(narrow.nameClipped).toBe(false);
+      expect(Math.abs((narrow.bar.left + narrow.bar.right) / 2 - 624)).toBeLessThanOrEqual(1);
+      expect(narrow.bar.left).toBeGreaterThanOrEqual(narrow.columnRight + 8);
+      expectBarClear(narrow, "1248");
+      // 1024 px: in the column.
+      await page.setViewportSize({ width: 1024, height: 768 });
+      const column = await settledBossLayout(page, goNearBoss, (l) => l.position === "static");
+      expectBarInColumn(column, false, "1024");
+      expectBarClear(column, "1024");
     }
   });
 }
