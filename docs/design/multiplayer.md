@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -17,7 +17,7 @@ Sảnh (ngoại hình, tên, nút "Vào chơi") chỉ dùng được khi script 
 - **Tải lại** mở lại đúng địa chỉ đang có, giữ `?room=` của link mời và mọi tham số khác. Có link mời thì thông báo ghi thêm "Link mời vẫn được giữ."
 - Thông báo "mạng chậm" không chặn gì, không đổi nút "Đang tải..." và không lấy focus. Chỉ khi trình duyệt báo lỗi thật mới hiện thẻ "Không tải được game".
 - Vì sao chờ 15 giây: script sảnh của bản build khoảng 960 kB (server chưa nén). Đo được sảnh sẵn sàng sau 5,3 giây ở 4G chậm (1,6 Mbps), 11,3 giây ở 3G (750 kbps), 20,7 giây ở 3G chậm (400 kbps). Với 15 giây, mạng từ 3G trở lên không bị làm phiền, còn người bị treo mạng không phải chờ quá lâu mới có nút Tải lại.
-- Phạm vi: chỉ lúc tải trang, trước khi sảnh dùng được. Lỗi khi bấm "Vào chơi" là mục "Vào thế giới: lỗi và cách đi tiếp" (T23). Mất mạng khi đang chơi là màn che kết nối ở mục "Quay lại".
+- Phạm vi: chỉ lúc tải trang, trước khi sảnh dùng được. Lỗi khi bấm "Vào chơi" là mục "Vào thế giới: lỗi và cách đi tiếp" (T23) và "Vào được nhưng game không mở được" (T42). Mất mạng khi đang chơi là màn che kết nối ở mục "Quay lại".
 
 ## Tải lại trang: về đúng thế giới (T23)
 
@@ -38,7 +38,7 @@ Trong lúc chơi, thanh địa chỉ luôn ghi nơi mà lần mở trang sau s�
 
 ## Vào thế giới: lỗi và cách đi tiếp (T23)
 
-Vào hỏng thì nút "Vào chơi" nhường chỗ cho một thẻ (cùng kiểu thẻ "Không tải được game"), nút chính có sẵn focus; ô tên và ngoại hình vẫn sửa được. Trong lúc đang vào, nút ghi "Đang vào...".
+Vào hỏng thì nút "Vào chơi" nhường chỗ cho một thẻ (cùng kiểu thẻ "Không tải được game"), nút chính có sẵn focus; ô tên và ngoại hình vẫn sửa được. Trong lúc đang vào, nút ghi "Đang vào...". Sảnh ở lại cho đến khi thế giới đã vẽ xong (T42), nên không bao giờ có màn hình tối không chữ.
 
 | Tình huống | Tiêu đề | Dòng giải thích | Nút |
 |---|---|---|---|
@@ -51,6 +51,20 @@ Vào hỏng thì nút "Vào chơi" nhường chỗ cho một thẻ (cùng kiểu
 - **Tạo thế giới mới** bỏ `room` khỏi địa chỉ rồi vào ngay một thế giới mới (cùng bản đồ).
 - Biết thế giới đã đóng thì địa chỉ bỏ `room` ngay, nên tải lại ở thẻ này cũng ra thế giới mới, không gặp lại lỗi cũ.
 - **Thử lại** vào lại đúng địa chỉ đang có (vẫn giữ link mời).
+
+## Vào được nhưng game không mở được (T42)
+
+Vào phòng được, nhưng phần vẽ thế giới không dựng nổi: thiếu một file của game (mạng chập chờn, hoặc tab cũ sau khi server vừa đổi bản), hoặc trình duyệt gặp lỗi khi vẽ. Sảnh vẫn còn (nó chỉ biến mất khi thế giới đã vẽ xong) và hiện thẻ:
+
+| Nguyên nhân | Tiêu đề | Dòng giải thích | Nút |
+|---|---|---|---|
+| Thiếu file của game | Không tải được game | Kiểm tra mạng rồi bấm Tải lại. | **Tải lại** |
+| Lỗi khác | Không mở được game | Trình duyệt gặp lỗi khi mở thế giới. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt. | **Tải lại** |
+
+- Người chơi **rời thế giới ngay** (rời chủ động): bạn bè không thấy một nhân vật đứng im, chỗ trống lại ngay.
+- Địa chỉ được ghi theo luật "Tải lại trang" ở trên trước khi rời: còn bạn bè thì giữ `?room=`, một mình thì bỏ. **Tải lại** mở lại đúng địa chỉ đó: về thế giới của bạn bè, hoặc thế giới mới cùng bản đồ.
+- Chỉ có Tải lại, không có Thử lại: phần game hỏng chỉ lấy lại được khi tải lại trang (cũng là cách lấy bản mới sau khi server đổi bản). Ô tên và ngoại hình ẩn đi, như thẻ hỏng lúc mở game.
+- Ảnh vẽ bằng AI hỏng hay thiếu (kể cả file danh mục ảnh sai) **không** làm hỏng việc vào: thú, cây, đá và nhân vật được vẽ bằng code như khi chưa có ảnh.
 
 ## Mỗi thiết bị một nhân vật
 
