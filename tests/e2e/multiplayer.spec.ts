@@ -1080,20 +1080,11 @@ test("labels: in a crowd on a phone, no name tag covers another, and mine, my pa
   expect(await opacities(".labels > .label.me")).toEqual(["1", "1"]);
   expect(await opacities(".labels > .label.companion", "Lv 8 Emberpup")).toEqual(["1", "1"]);
 
-  // The aimed pal (nearest within the throwing range, not in a ball) is shown, with its bar when hurt.
+  // The aimed pal (the game's own choice, debugInfo().aim) is shown, with its bar when hurt.
   // The aimed pal may have just changed (its tag fades in over 0.15 s), so poll briefly.
   const aimedTag = () => page.evaluate(() => {
     const game = (window as any).__petgame.game;
-    const me = game.me().pos;
-    let best: any;
-    let bestDist = 180;
-    game.pals.forEach((pal: any) => {
-      const d = Math.hypot(pal.actor.pos.x - me.x, pal.actor.pos.y - me.y);
-      if (!pal.inBall && d <= bestDist) {
-        bestDist = d;
-        best = pal;
-      }
-    });
+    const best = game.pals.get(game.debugInfo().aim.id);
     if (!best) return null;
     const el = best.tag.element as HTMLElement;
     const bar = el.querySelector(".hp-bar");
@@ -1108,6 +1099,73 @@ test("labels: in a crowd on a phone, no name tag covers another, and mine, my pa
   const start = await page.evaluate(() => (window as any).__petgame.game.frames as number);
   await page.waitForFunction((start) => (window as any).__petgame.game.frames - start >= 60, start);
   expect((await measured()) - before).toBeLessThanOrEqual(10);
+});
+
+test("aim: the ring marks the hurt pal over a closer healthy one; Bắt and E throw where it shows, never at a pal in a ball", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Hiệp", "/", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const F = { x: 3200, y: 2470 };
+  await sendFrom(page, "debug:teleport", F);
+  const weakId = await spawnWeakPal(page, "leafkit"); // at F + (40, 0)
+  await sendFrom(page, "debug:teleport", { x: 3160, y: 2500 });
+  const fullId = await spawnFullPal(page, "leafkit"); // at (3200, 2500), 30 px from F
+  await sendFrom(page, "debug:teleport", F);
+  await expect.poll(() => page.evaluate((f) => {
+    const me = (window as any).__petgame.game.debugInfo().me;
+    return me ? Math.hypot(me.x - f.x, me.y - f.y) : 99;
+  }, F)).toBeLessThan(3);
+
+  // The healthy pal is the closer one: the old "nearest" rule would pick it, the new one must not.
+  const dists = await page.evaluate(([w, f]) => {
+    const { game } = (window as any).__petgame;
+    const me = game.debugInfo().me;
+    const d = (id: string) => Math.hypot(game.pals.get(id).actor.pos.x - me.x, game.pals.get(id).actor.pos.y - me.y);
+    return { weak: d(w), full: d(f) };
+  }, [weakId, fullId]);
+  expect(dists.full, `healthy ${dists.full} should be nearer than hurt ${dists.weak}`).toBeLessThan(dists.weak);
+
+  const aim = () => page.evaluate((w) => {
+    const { game } = (window as any).__petgame;
+    const a = game.debugInfo().aim;
+    const pos = game.pals.get(w)?.actor.pos;
+    return { id: a.id, shown: a.shown, off: pos ? Math.hypot(a.x - pos.x, a.y - pos.y) : 99 };
+  }, weakId);
+  await expect.poll(aim, { timeout: 5_000 }).toMatchObject({ id: weakId, shown: true, off: expect.any(Number) });
+  expect((await aim()).off).toBeLessThan(1);
+
+  // Record sends; after the weak pal's result arrives, the aim of the next 3 frames.
+  await page.evaluate(([w, type]) => {
+    const win = window as any;
+    const { room, game } = win.__petgame;
+    win.__sent = [] as [string, any][];
+    win.__aimAfter = [] as string[];
+    const send = room.send.bind(room);
+    room.send = (t: string, m: any) => {
+      win.__sent.push([t, m]);
+      return send(t, m);
+    };
+    room.onMessage(type, (msg: any) => {
+      if (msg.palId !== w) return;
+      const step = () => {
+        win.__aimAfter.push(game.debugInfo().aim.id);
+        if (win.__aimAfter.length < 3) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  }, [weakId, "captureResult"] as const);
+  await page.locator(".btn-capture").tap();
+  await expect.poll(() => page.evaluate((w) => (window as any).__sent.some(([t, m]: [string, any]) => t === "throw" && m?.palId === w), weakId)).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as any).__aimAfter.length), { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+  expect(await page.evaluate(() => (window as any).__aimAfter as string[])).not.toContain(weakId);
+
+  // E throws at whatever the ring shows now.
+  const shown = await page.evaluate(() => (window as any).__petgame.game.debugInfo().aim.id as string);
+  expect(shown, "a pal must be aimed at: the healthy one is within 30 px").not.toBe("");
+  await page.evaluate(() => ((window as any).__sent.length = 0));
+  await page.keyboard.press("e");
+  await expect.poll(() => page.evaluate((id) => (window as any).__sent.some(([t, m]: [string, any]) => t === "throw" && m?.palId === id), shown)).toBe(true);
 });
 
 test("party: let a pal go after confirming; a full party cannot throw", async ({ browser }) => {
@@ -1320,6 +1378,21 @@ async function spawnWeakPal(page: Page, species?: string): Promise<string> {
     const found: string[] = [];
     (window as any).__petgame.room.state.pals.forEach((p: any, id: string) => {
       if (!known.includes(id) && p.hp === 1) found.push(id);
+    });
+    return found;
+  }, before);
+  await expect.poll(spawned).toHaveLength(1);
+  return (await spawned())[0];
+}
+
+/** Like spawnWeakPal, but the pal keeps its full health (debug hook `{ full: true }`): the one new pal with hp equal to maxHp. */
+async function spawnFullPal(page: Page, species: string): Promise<string> {
+  const before = await page.evaluate(() => [...(window as any).__petgame.room.state.pals.keys()] as string[]);
+  await sendFrom(page, "debug:spawnPal", { species, full: true });
+  const spawned = () => page.evaluate((known) => {
+    const found: string[] = [];
+    (window as any).__petgame.room.state.pals.forEach((p: any, id: string) => {
+      if (!known.includes(id) && p.hp === p.maxHp) found.push(id);
     });
     return found;
   }, before);

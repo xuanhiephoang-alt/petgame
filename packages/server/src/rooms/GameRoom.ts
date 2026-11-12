@@ -158,6 +158,7 @@ import {
   ServerMessage,
   THROW_COOLDOWN_MS,
   THROW_RANGE,
+  THROW_REACH_SLACK,
   TICK_MS,
   WILD_ATTACK_RANGE,
   WILD_PAL_TARGET,
@@ -925,7 +926,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player || !control || !pal) return;
     const now = this.clock.currentTime;
     if (now - control.lastThrowAt < THROW_COOLDOWN_MS) return;
-    if (distance(player, pal) > THROW_RANGE) return;
+    // Clients aim within THROW_RANGE but see pals a little late.
+    if (distance(player, pal) > THROW_RANGE + THROW_REACH_SLACK) return;
     if (this.inBall.has(palId)) return;
     control.lastThrowAt = now; // a refused throw waits out the cooldown too: refusals cannot flood notices
     // The boss is never caught and a full party has no room: refuse before any roll is made or great ball used.

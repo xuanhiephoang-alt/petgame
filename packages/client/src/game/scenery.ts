@@ -13,6 +13,7 @@ import {
   type WorldLayout,
 } from "@petgame/shared";
 import { berriesArt, decorArt, propArt, type PropArt, type Tint } from "./art/nature.ts";
+import { canopyHides, boxHides } from "./canopy.ts";
 import { campfireArt, flameArt, volcanoArt } from "./art/props.ts";
 
 const TINTS: Partial<Record<TerrainKind, Tint>> = { snow: "frost", swamp: "swamp", volcano: "ash", desert: "sand", island: "beach" };
@@ -163,6 +164,9 @@ export class Scenery {
   private campfire: Vec2;
   private volcano: Circle;
   private crater: Vec2;
+  private cone!: Sprite;
+  /** Fade (0 solid .. 1 see-through) of the volcano cone while it hides the player or the aimed pal. */
+  private coneFade = 0;
 
   constructor(objects: Container, layout: WorldLayout, glow: Texture) {
     this.terrain = layout.terrain;
@@ -247,6 +251,7 @@ export class Scenery {
     cone.position.set(layout.volcano.x, layout.volcano.y + layout.volcano.r * 0.55);
     cone.zIndex = layout.volcano.y + layout.volcano.r * 0.55;
     objects.addChild(cone);
+    this.cone = cone;
     this.crater = { x: cone.x, y: cone.y - cone.height * cone.anchor.y + cone.height * 0.07 };
     // Puffs of smoke rising from the crater.
     for (let i = 0; i < 7; i++) {
@@ -324,7 +329,7 @@ export class Scenery {
     ];
   }
 
-  update(view: Rectangle, timeSec: number, focus: Vec2 | undefined, dt = 0) {
+  update(view: Rectangle, timeSec: number, focus: Vec2 | undefined, dt = 0, aimAt?: Vec2) {
     const x0 = view.x, x1 = view.x + view.width, y0 = view.y, y1 = view.y + view.height;
     for (const p of this.props) {
       const { prop, sprite, art } = p;
@@ -352,13 +357,8 @@ export class Scenery {
       }
       if (art.sway) sprite.skew.x = Math.sin(timeSec * 1.6 + prop.x * 0.013 + prop.y * 0.007) * art.sway;
       // Canopies between the camera and the player turn see-through.
-      let want = 0;
-      if (focus && art.canopy && focus.y < prop.y - 4) {
-        const c = art.canopy;
-        const s = prop.scale;
-        const above = prop.y - focus.y;
-        if (Math.abs(focus.x - prop.x) < c.halfWidth * s && above > c.bottom * s * 0.4 - 10 && above < c.top * s) want = 1;
-      }
+      // (also those hiding the pal a ball would hit: it must stay in sight)
+      const want = art.canopy && (canopyHides(art.canopy, prop, prop.scale, focus) || canopyHides(art.canopy, prop, prop.scale, aimAt)) ? 1 : 0;
       p.fade += (want - p.fade) * 0.15;
       sprite.alpha = 1 - p.fade * 0.6;
     }
@@ -367,6 +367,13 @@ export class Scenery {
       sprite.visible = visible;
       if (visible && sway) sprite.skew.x = Math.sin(timeSec * 1.6 + at.x * 0.013 + at.y * 0.007) * sway;
     }
+    // The volcano cone fades the same way (to alpha 0.4) when it hides the player or the aimed pal.
+    const cone = this.cone;
+    const left = cone.x - cone.width * cone.anchor.x;
+    const top = cone.y - cone.height * cone.anchor.y;
+    const hidden = boxHides(left, left + cone.width, top, cone.y, focus) || boxHides(left, left + cone.width, top, cone.y, aimAt);
+    this.coneFade += ((hidden ? 1 : 0) - this.coneFade) * 0.15;
+    cone.alpha = 1 - this.coneFade * 0.6;
     this.seen = this.glows.filter((l) => l.x > x0 - l.radius && l.x < x1 + l.radius && l.y > y0 - l.radius && l.y < y1 + l.radius);
     // Smoke: puffs grow, drift with the wind and fade as they rise.
     this.smoke.forEach((puff, i) => {

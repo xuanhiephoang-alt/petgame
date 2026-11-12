@@ -1,28 +1,46 @@
 PASS
-# REVIEW: T27 Thú hiền bỏ chạy chậm hơn người chơi, vòng 1
+# REVIEW: T28 Đánh dấu thú đang nhắm, vòng 2
 
 ## Kết luận
-Thay đổi đúng và đủ theo PLAN.md: trần `WILD_FLEE_SPEED_CAP = PLAYER_SPEED * 0.6` và hàm thuần `fleeSpeed` nằm trong `packages/shared/src/combat.ts`, server chỉ đổi đúng một dòng gọi `stepFlee` (cộng import và một dòng chú thích). Mọi đường dẫn tới bỏ chạy đều đi qua nhánh đã kẹp, các tốc độ đuổi giữ nguyên, test bắt được đột biến bỏ trần. Không có lỗi phải sửa.
+Lỗi phải sửa của vòng 1 đã sửa đúng cách: thú đang nhắm không còn bị tán cây hay núi lửa che. Phần nối dây `aimAt` trong `Scenery.update` chưa có test hành vi. Không bắt buộc sửa, vì hai hàm thuần đã có test, phần nối chỉ một dòng và ảnh chụp xác nhận. Không còn lỗi phải sửa.
 
-## Đã kiểm
-- **Mọi đường bỏ chạy đi qua trần.** `fleeing` chỉ được ghi ở một chỗ (`provoke`, `GameRoom.ts:1717`, chỉ khi `passive && !alpha`) và chỉ được đọc ở một chỗ (nhánh `stepFlee`, `GameRoom.ts:693-704`). `provoke` được gọi từ: đòn người chơi (`:893`), đòn thú đi theo (`:861`), chiêu thú đi theo (`:1526`), bóng vỡ (`breakOut`, `:1223`). Không có đường bỏ chạy nào khác: grep `flee|run away|scatter|scare` trong code không phải test chỉ ra các chỗ này. Đẩy lùi (`push`/`knockback`, `:1290`) là dịch chuyển một lần mỗi đòn, không phải bỏ chạy, và PLAN để ngoài phạm vi.
-- **Tốc độ đuổi không đổi.** Bốn chỗ `species.speed * WILD_CHASE_SPEED_FACTOR` (`:265`, `:685`, `:722`, `:1622`) giữ nguyên. Lang thang (`:755`) dùng `species.speed`. `FLEE_MS`, `stepFlee` và hệ số 1,8 không đổi. Client không dùng các hằng số này, nên không cần đổi client, schema, message hay `Profile`.
-- **Vị trí hằng số.** Hệ số 0,6 chỉ xuất hiện ở định nghĩa `WILD_FLEE_SPEED_CAP` (bảng hằng số cạnh `WILD_CHASE_SPEED_FACTOR`). Không có vòng import (`constants.ts` không import gì). JSDoc tiếng Anh, nói lý do. `index.ts` đã `export *`, và tên mới không trùng tên nào khác.
-- **Hiệu năng.** Mỗi tick chỉ thêm một `Math.min`, không cấp phát gì mới.
-- **Tài liệu.** `docs/design/pals.md` dòng 213-223 khớp code: tên `WILD_FLEE_SPEED_CAP`, `fleeSpeed`, 96 px/s, bảng tốc độ và quãng chạy. Dòng 64 (T58) và dòng 252 (T57) cũng khớp.
-- **Test** (tôi chạy lại: `combat.test.ts` + `wildCombat.test.ts` 19/19, `GameRoom.test.ts -t "Voltmouse|passive pals run away"` 2/2):
-  - Shared 1-3 khoá đúng giá trị và tính chất. Test 3 lặp qua mọi loài hiền, nên vẫn đúng khi thêm loài mới.
-  - Tích hợp 5 tất định: vòng `tick` đồng bộ, không `await`, nên `clock.currentTime` đứng yên và `fleeing.until` còn hiệu lực. Đã bỏ cây, đá; `placeWild` không tạo thú đầu đàn. Test đo đúng 96 px trong 1 s, còn đột biến cho 171 px.
-  - **Biên 104,95 so với 104,81 trong `wildCombat.test.ts` không phải biên của code đúng.** Đó là chỗ *đột biến* (171 px/s) vượt câu kiểm trong vòng lặp ở bước 9, vì mỗi bước khoảng cách tăng 0,55 px: 100 + 9 × 0,55 = 104,95. Với code đúng, khoảng cách sau mỗi bước là 100 − 3,2·i, lớn nhất 96,8, tức cách ngưỡng 104,81 tới 8 px. Câu kiểm cuối ra 36 so với ngưỡng 40 (đột biến: 111). Đây là số học thuần, không có ngẫu nhiên hay thời gian thật, nên không chập chờn. Nếu câu kiểm trong vòng lặp có quá sát thì câu kiểm cuối vẫn bắt được đột biến. Test có nghĩa nhưng câu kiểm trong vòng lặp yếu hơn cần thiết (xem góp ý).
+## Lỗi phải sửa (FAIL khi còn mục này)
+(không còn)
 
-## Lỗi phải sửa
-Không có.
+## Đã kiểm ở vòng này
+- **`canopy.ts`:** `canopyHides` giữ đúng phép kiểm cũ (điều kiện `point.y >= prop.y - 4`, khoảng cao và rộng của tán, nhân theo `scale`). `boxHides` dùng cho hình nón núi lửa. Có test cho các trường hợp trước, bên cạnh, phía trên, `undefined` và tỉ lệ.
+- **`Scenery.update`:**
+  - một tán trong suốt khi che người chơi hoặc chân thú đang nhắm;
+  - hình nón mờ cùng hệ số 0,15, alpha thấp nhất 0,4;
+  - không tạo object mới mỗi khung, mỗi khung chỉ thêm O(1) cho hình nón.
+- **`Game.ts`:** truyền `aimed?.actor.pos` vào `scenery.update`. Lệnh này chạy sau `throwTarget` trong cùng khung, nên không trễ.
+- **Chú thích `THROW_REACH_SLACK`:** đã sửa đúng (nửa nhịp patch, một vòng mạng).
+- **`shots.mjs`:** mỗi lần thử lại lùi 260 px, ra ngoài tầm ném.
+- **Ảnh** (đã xem `shots/t28/aim-swamp.png`, phóng to vùng quanh con đang nhắm, và `aim-volcano-night.png`):
+  - Núi lửa đêm: nón đã mờ, Lv 4 Leafkit rõ, vòng đọc được (cung và mũi dưới chân).
+  - Đầm lầy: Lv 2 Leafkit đứng rõ, nhãn ghim ngay trên đầu, cung phải của vòng lộ ra. Con lành lặn (không nhãn) hiện qua tán đã mờ, tách hẳn khỏi con đang nhắm. Người chơi phân biệt được bóng sẽ bay vào con nào, nên đạt mục đích của tiêu chí.
+  - Phần lớn vòng ở đầm lầy bị **lá súng nổi** che. Đây là hạn chế của lớp vẽ, xem góp ý thứ nhất.
 
-## Góp ý không bắt buộc (có thể làm cùng T57 hoặc khi chỉnh trần)
-- `packages/server/src/ai/wildCombat.test.ts:36-39`: câu kiểm trong vòng lặp chạy *sau* khi người chơi đã bước, nên ngưỡng "100 + một bước của thú" lỏng và còn dùng số cứng `96`. Tính chất thật cần giữ là "người chơi rút ngắn khoảng cách ở mọi bước". Nên kiểm khoảng cách giảm dần (`expect(gap).toBeLessThan(prevGap)`), đúng với mọi trần nhỏ hơn `PLAYER_SPEED`. Câu kiểm cuối `< 40` thì đang khoá đúng giá trị 0,6: trần từ 100 px/s trở lên là hỏng. Vì vậy nếu sau này vặn "nút chỉnh" 0,65 (104 px/s) mà tài liệu nhắc tới, test này sẽ hỏng (ra 44) cùng với `toBeCloseTo(96)` ở shared. Như vậy là chấp nhận được, vì đổi số cân bằng thì phải sửa test có chủ ý. Nhưng nên viết ngưỡng theo `fleeSpeed(...)` để test hỏng vì đúng lý do.
-- `TASKS.md` dòng 38: mô tả T27 vẫn ghi "ví dụ tối đa 0,9 × `PLAYER_SPEED`". Khi đánh dấu xong, agent chính nên ghi số đã chọn (0,6, 96 px/s) để khỏi lệch với PLAN và tài liệu.
-- `GameRoom.test.ts:23`: `PLAYER_SPEED` chen giữa `companionMaxHp` và `distance`. Khối import vốn đã không theo thứ tự, nên không cần sửa.
+## Lỗ hổng test (`aimAt` không có test hành vi): không bắt buộc
+- Logic thật (hai hàm kiểm che) đã nằm trong hàm thuần và có test.
+- Phần còn lại là nối dây trong lớp Pixi, chỉ một dòng ở mỗi đầu:
+  - nếu tham số bị bỏ không dùng, typecheck (`noUnusedParameters`) bắt;
+  - nếu chỗ gọi bỏ đối số, ảnh `aim-swamp`, `aim-volcano-night` lộ ra.
+- Muốn có test e2e thì phải mở thêm một bộ đếm trong `debugInfo` (số tán và nón đang mờ) chỉ để test. Hiệu ích không xứng với chi phí, nên để thành việc sau (mục dưới), không chặn T28.
 
-## Việc tiếp theo (đã có trong TASKS.md, không thêm mới)
-- T57: thú hiền chạy trốn về phía thoáng; phải giữ trần `fleeSpeed`.
-- T58: Voltmouse đầu đàn đuổi 171 px/s; quyết định có kẹp trong bảng `ALPHA` hay không.
+## Góp ý không bắt buộc
+- **Lá súng và vật nổi che vòng:** vật trôi trên nước nằm trong `stage.objects` với `zIndex = -1e5`, tức là trên lớp `marks`, nên đè lên vòng khi thú đứng ở mép ao (ảnh `aim-swamp`).
+  - Cách sửa nhỏ: đặt `AimMarker.root` vào `stage.objects` với `zIndex` khoảng `-1e5 + 1`. Khi đó vòng nằm trên vật nổi nhưng vẫn dưới mọi vật đứng.
+  - Đổi lại, số `debugInfo().objects` tăng 1.
+- **`docs/architecture.md`:** chưa nhắc `game/canopy.ts` (`canopyHides`, `boxHides`) và việc tán cây, núi lửa mờ đi theo thú đang nhắm. Nên thêm một dòng trước khi commit, ở mục `scenery.ts` hoặc `aimMarker.ts`.
+- **Hình nón dùng cả khung chữ nhật của sprite**, nên đứng ở góc trống phía trên hai bên nón cũng làm nón mờ. Chấp nhận được. Nếu thấy phiền thì thu hẹp hộp, ví dụ chỉ lấy 70% bề rộng ở giữa.
+
+## Việc mới cho TASKS.md
+1. **(P1, lỗi có sẵn từ commit `23cb20b`, không do T28)** `Game.ts:1015` gọi `scenery.update(view, t, focus, 0, …)`, tức `dt` luôn bằng 0. Trước T28 cũng vậy, chỉ là ngầm định.
+   - Trong `scenery.ts:340-347`, `p.shake` và `p.grow` không bao giờ giảm. Cây bị chặt trúng một lần thì nghiêng mãi và bỏ qua phần làm mờ (`continue`). Cây mọc lại thì đứng mãi ở 55% cỡ.
+   - Sửa: truyền `dt` của `frame()`. Thêm cách kiểm, ví dụ e2e chặt cây rồi đọc `skew` hoặc `scale`, hoặc tách bước giảm thành hàm thuần có test.
+2. **(P3)** Đưa vòng ngắm lên trên vật nổi (lá súng), theo góp ý thứ nhất.
+3. **(P3)** `debugInfo().fades` (số tán và nón đang mờ), rồi viết e2e: thú đang nhắm đứng sau một tán thì tán đó mờ.
+4. **(P3)** "Chọn thú để ném": chạm vào thú, hoặc Tab/F để đổi đích (theo PLAN.md).
+5. **(P3)** Dấu "đang nhắm" trên nhãn ghim (cần đổi CSS nhãn, thuộc thiết kế HUD).
+6. **T29:** bỏ mục đổi tên biến `d` (đã làm trong T28).

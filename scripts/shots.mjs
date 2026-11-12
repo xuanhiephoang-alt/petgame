@@ -2,7 +2,8 @@
 // close-up, a phone screen) so visual changes can be compared before/after,
 // with how many sprites were drawn in each.
 // Usage: npm run shots -- --name before   → shots/before/*.png + report.json
-//        --only world|labels   → just that group (default: both); "labels" is the crowded name-tag scenes
+//        --only world|labels|aim   → just those groups, comma separated (default: all); "labels" is the crowded name-tag scenes,
+//                              "aim" the ring under the pal a thrown ball would hit (a hurt pal beside a nearer healthy one)
 //        --no-build            → skip the client build
 //        PETGAME_CHROMIUM=<path>|playwright → choose the browser, same as e2e (scripts/chromium.mjs)
 import { createRequire } from "node:module";
@@ -14,10 +15,10 @@ import { chromiumLaunchOptions } from "./chromium.mjs";
 
 const args = process.argv.slice(2);
 const name = args.includes("--name") ? args[args.indexOf("--name") + 1] : "latest";
-const only = new Set((args.includes("--only") ? args[args.indexOf("--only") + 1] ?? "" : "world,labels").split(","));
+const only = new Set((args.includes("--only") ? args[args.indexOf("--only") + 1] ?? "" : "world,labels,aim").split(","));
 for (const group of only) {
-  if (group !== "world" && group !== "labels") {
-    console.error(`--only needs "world", "labels" or both separated by a comma (got "${group}")`);
+  if (group !== "world" && group !== "labels" && group !== "aim") {
+    console.error(`--only needs "world", "labels", "aim" or several separated by commas (got "${group}")`);
     process.exit(1);
   }
 }
@@ -288,6 +289,83 @@ async function labelShots(browser) {
   }
 }
 
+// [file, x, y, time of day]: a leafkit pair everywhere, as it is passive.
+// The night meadow is 200 px west of the day one: the day scene's pair stays behind and would compete for the aim.
+const AIM_SPOTS = [
+  ["aim-meadow", 3200, 2470, 0.3],
+  ["aim-meadow-night", 3000, 2470, 0.85],
+  ["aim-snow", 3200, 1180, 0.3],
+  ["aim-desert", 3200, 3650, 0.3],
+  ["aim-swamp", 1520, 2400, 0.3],
+  ["aim-volcano-night", 4700, 2400, 0.85],
+];
+
+/** The aim ring: a hurt pal 40 px to the right, a healthy one nearer (30 px below), at every region and on the phones. */
+async function aimShots(browser) {
+  const views = [
+    ["desktop", { viewport: { width: 1280, height: 720 } }, AIM_SPOTS],
+    ["phone", devices["iPhone 13"], [AIM_SPOTS[0]]],
+    ["phone-landscape", devices["iPhone 13 landscape"], [AIM_SPOTS[0]]],
+  ];
+  for (const [view, options, spots] of views) {
+    const context = await browser.newContext(options);
+    const page = await context.newPage();
+    try {
+      await page.goto(url);
+      await page.locator("#join-btn:enabled").waitFor({ timeout: 120000 });
+      await page.fill("#name", "Hiệp");
+      await page.click("#join-btn");
+      await page.waitForFunction(() => window.__petgame?.room?.state?.players?.size > 0, null, { timeout: 180000 });
+      await page.waitForFunction(() => window.__petgame?.game?.frames > 3, null, { timeout: 180000 });
+      await send(page, "debug:gear");
+      // Coat and sun hat: no climate damage while a scene is set up.
+      await send(page, "equip", { slot: "outfit", id: "coat" });
+      await send(page, "equip", { slot: "hat", id: "nonla" });
+      for (const [scene, x, y0, time] of spots) {
+        const species = "leafkit";
+        await send(page, "debug:setTime", { t: time });
+        // Hostile wild pals may bite while the scene is set up and a faint sends the player back to the campfire, so a scene
+        // that did not come out (the ring not on the hurt pal) is tried again, 260 px further north, out of throwing range (the old pair stays behind).
+        let info;
+        const file = scene === "aim-meadow" && view !== "desktop" ? `aim-${view}` : scene;
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const y = y0 - attempt * 260;
+          const known = await page.evaluate(() => [...window.__petgame.room.state.pals.keys()]);
+          await send(page, "debug:teleport", { x, y });
+          await sleep(150);
+          await send(page, "debug:spawnPal", { species });
+          await sleep(150);
+          await send(page, "debug:teleport", { x: x - 40, y: y + 30 });
+          await sleep(150);
+          await send(page, "debug:spawnPal", { species, full: true });
+          await sleep(150);
+          await send(page, "debug:teleport", { x, y });
+          await settle(page);
+          await sleep(150);
+          const read = ([known, x, y]) => {
+            const { game, room } = window.__petgame;
+            const d = game.debugInfo();
+            let weak;
+            // The hurt one stands 40 px right of the spot (a pal heals back after a while, so not by its health).
+            room.state.pals.forEach((p, id) => { if (!known.includes(id) && Math.hypot(p.x - (x + 40), p.y - y) < 14) weak = id; });
+            return { sprites: d.objects, shown: d.aim.shown, aimsWeak: weak !== undefined && d.aim.id === weak };
+          };
+          // Right before and right after the shot, so a bite in between (a faint moves the player) is caught.
+          info = await page.evaluate(read, [known, x, y]);
+          await page.screenshot({ path: join(out, `${file}.png`) });
+          const after = await page.evaluate(read, [known, x, y]);
+          info.aimsWeak = info.aimsWeak && after.aimsWeak;
+          if (info.aimsWeak) break;
+        }
+        report.push({ file, sprites: info.sprites, aimShown: info.shown, aimsWeak: info.aimsWeak });
+        console.log(file.padEnd(26), `${info.sprites} sprites`, `ring ${info.shown ? "shown" : "hidden"}`, info.aimsWeak ? "aim ✓" : "aim ✗");
+      }
+    } finally {
+      await context.close();
+    }
+  }
+}
+
 let browser;
 try {
   browser = await chromium.launch(launchOptions);
@@ -299,6 +377,7 @@ try {
 try {
   if (only.has("world")) await worldShots(browser);
   if (only.has("labels")) await labelShots(browser);
+  if (only.has("aim")) await aimShots(browser);
 } finally {
   await browser.close();
   server.kill();

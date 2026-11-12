@@ -85,6 +85,10 @@ import {
   pickSpecies,
   type Biome,
   type Vec2,
+  type AimCandidate,
+  THROW_RANGE,
+  THROW_REACH_SLACK,
+  throwTarget,
 } from "@petgame/shared";
 import { GameRoom, useStore } from "./GameRoom.ts";
 import { PathPlanner } from "../ai/pathing.ts";
@@ -2864,5 +2868,55 @@ describe("reconnecting after a dropped connection", () => {
     } finally {
       process.off("unhandledRejection", note);
     }
+  });
+});
+
+describe("throwing at the aimed pal", () => {
+  /** Aim candidates built from the server's pals, as the client builds them from its own view. */
+  function candidates(room: GameRoom): AimCandidate[] {
+    const list: AimCandidate[] = [];
+    room.state.pals.forEach((p, id) => {
+      list.push({ id, x: p.x, y: p.y, hp: p.hp, maxHp: p.maxHp, dizzy: p.dizzy, boss: p.boss, inBall: (room as any).inBall.has(id) });
+    });
+    return list;
+  }
+
+  it("the ball goes at the pal throwTarget picks from the server's view: a hurt pal 2 px farther wins over a healthy one", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const healthy = placeWild(room, "leafkit", player, 36);
+    const hurt = placeWild(room, "leafkit", player, -38);
+    const hurtPal = room.state.pals.get(hurt)!;
+    hurtPal.hp = hurtPal.maxHp - 5;
+    let cands = candidates(room);
+    expect(throwTarget(player, cands, cands.length)?.id).toBe(hurt);
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
+    client.send(ClientMessage.Throw, { palId: hurt });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult);
+    vi.restoreAllMocks();
+    expect(result.palId).toBe(hurt);
+    expect(result.success).toBe(false);
+    cands = candidates(room);
+    expect(throwTarget(player, cands, cands.length)?.id).toBe(healthy); // the other is in the ball
+  });
+
+  it("accepts a throw a little beyond THROW_RANGE (the client sees pals late), refuses one beyond the slack", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const reachable = placeWild(room, "leafkit", player, THROW_RANGE + THROW_REACH_SLACK - 2);
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
+    client.send(ClientMessage.Throw, { palId: reachable });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    expect(result.palId).toBe(reachable);
+    await ticks(room, 20);
+    const tooFar = placeWild(room, "leafkit", player, THROW_RANGE + THROW_REACH_SLACK + 4);
+    const results = collect<CaptureResultMessage>(client, ServerMessage.CaptureResult);
+    const before = (room as any).controls.get(client.sessionId).lastThrowAt;
+    client.send(ClientMessage.Throw, { palId: tooFar });
+    await ticks(room, 6);
+    expect(results.filter((r) => r.palId === tooFar)).toHaveLength(0);
+    expect((room as any).inBall.has(tooFar)).toBe(false);
+    expect((room as any).controls.get(client.sessionId).lastThrowAt).toBe(before);
   });
 });

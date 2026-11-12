@@ -164,6 +164,11 @@ export class PalActor extends Actor {
     this.setScale();
   }
 
+  /** The body's height on screen in pixels (no hover or bob): the aim ring's size follows it. */
+  get bodyHeight(): number {
+    return this.sprite.height * this.scale;
+  }
+
   /** Adds a crown (the boss). */
   crowned() {
     const art = crownArt();

@@ -1,4 +1,5 @@
-import { MAX_PARTY } from "./constants.ts";
+import { MAX_PARTY, THROW_RANGE } from "./constants.ts";
+import { distance, type Vec2 } from "./movement.ts";
 
 /** The ball's flight, its drop to the ground and each wobble (ms): the catch animation, and how long a pal stays in the ball. */
 export const BALL_FLIGHT_MS = 380;
@@ -50,4 +51,67 @@ export function captureChance(hp: number, maxHp: number, catchRate: number, ball
   const base = Math.min(catchRate * ballBonus, 1);
   const chance = base + (1 - base) * (1 - hpRatio) * 0.8;
   return Math.min(Math.max(chance, 0), 1);
+}
+
+/**
+ * Aim bonuses (px of distance) that make a pal easier to pick as the one a thrown ball hits.
+ * See docs/design/pals.md, "Thú đang nhắm và vòng ngắm".
+ */
+export const AIM = {
+  /** A dizzy pal counts this much closer: it is the easiest catch (equal to ATTACK_RANGE). */
+  dizzyPx: 48,
+  /** A hurt pal counts this much closer: it has a better catch chance and is the one being fought. Not added to dizzy. */
+  hurtPx: 24,
+  /** The pal already aimed at is kept unless another beats it by more than this (interpolated positions jitter 1-2 px). */
+  keepPx: 8,
+} as const;
+
+/** What aiming needs to know about a wild pal. The client keeps one per pal and updates it in place every frame. */
+export interface AimCandidate {
+  id: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  dizzy: boolean;
+  boss: boolean;
+  inBall: boolean;
+}
+
+/** Aim score of a pal (lower is better): its distance minus the dizzy/hurt bonus; Infinity when a ball cannot be thrown at it. */
+export function aimScore(from: Vec2, pal: AimCandidate): number {
+  if (pal.boss || pal.inBall) return Infinity;
+  const d = distance(from, pal);
+  if (d > THROW_RANGE) return Infinity;
+  return d - (pal.dizzy ? AIM.dizzyPx : pal.hp < pal.maxHp ? AIM.hurtPx : 0);
+}
+
+/**
+ * The wild pal a thrown ball would hit: the lowest aim score among `pals[0..count)`, ties to the nearer then the earlier.
+ * `current` (the id aimed at last frame) is kept while it is still throwable and within AIM.keepPx of the best.
+ * No allocations: it runs every frame.
+ */
+export function throwTarget(from: Vec2, pals: readonly AimCandidate[], count: number, current = ""): AimCandidate | undefined {
+  let best: AimCandidate | undefined;
+  let bestScore = Infinity;
+  let bestDist = Infinity;
+  let kept: AimCandidate | undefined;
+  let keptScore = Infinity;
+  for (let i = 0; i < count; i++) {
+    const pal = pals[i];
+    const score = aimScore(from, pal);
+    if (score === Infinity) continue;
+    if (current !== "" && pal.id === current) {
+      kept = pal;
+      keptScore = score;
+    }
+    const d = distance(from, pal);
+    if (score < bestScore - 1e-9 || (score < bestScore + 1e-9 && d < bestDist)) {
+      best = pal;
+      bestScore = score;
+      bestDist = d;
+    }
+  }
+  if (kept && keptScore <= bestScore + AIM.keepPx) return kept;
+  return best;
 }

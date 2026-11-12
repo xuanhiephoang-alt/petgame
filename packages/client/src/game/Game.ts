@@ -4,6 +4,8 @@ import {
   ClientMessage,
   ServerMessage,
   THROW_RANGE,
+  throwTarget,
+  type AimCandidate,
   distance,
   getSpecies,
   normalizeInput,
@@ -86,6 +88,7 @@ import { Stage } from "./stage.ts";
 import { Ground, glowBlob, shadowBlob } from "./ground.ts";
 import { Water } from "./water.ts";
 import { Scenery } from "./scenery.ts";
+import { AimMarker } from "./aimMarker.ts";
 import { Effects } from "./effects.ts";
 import { Lighting, type Light } from "./lighting.ts";
 import { Weather } from "./weather.ts";
@@ -126,6 +129,10 @@ interface PalEntity extends Named<PalActor> {
   hpFill: HTMLDivElement;
   /** Inside a ball (being caught): hidden, label too. */
   inBall?: boolean;
+  /** What aiming sees of this pal; updated in place every frame (no allocation). */
+  aim: AimCandidate;
+  /** `performance.now()` until which aiming treats the pal as in a ball (set when a CaptureResult arrives; Infinity once caught). */
+  heldUntil: number;
 }
 
 interface Camp {
@@ -219,6 +226,12 @@ export class Game {
   private sound = new Sound();
   /** Current boss (wild pal id), shown with a big HP bar when near. */
   private bossId: string | undefined;
+  /** The wild pal a ball would hit ("" when none): set every frame from throwTarget; the pinned label, the Bắt button and E all use it. */
+  private aimedId = "";
+  private aimPool: AimCandidate[] = [];
+  private aimMarker!: AimMarker;
+  /** The one night light on the aimed pal's feet (reused; only x and y change). */
+  private aimLight: Light = { x: 0, y: 0, radius: 56, color: 0xfff4d6, strength: 0.6 };
   /** Camera shake strength (world px), decays every frame. */
   private shake = 0;
   private lastSentInput: Vec2 = { x: 0, y: 0 };
@@ -278,6 +291,7 @@ export class Game {
     this.stage.water.addChild(this.water.mesh);
     this.scenery = new Scenery(this.stage.objects, layout, this.glow);
     this.effects = new Effects(this.stage.marks, this.stage.air, this.glow);
+    this.aimMarker = new AimMarker(this.stage.marks);
     this.lighting = new Lighting(this.stage, this.glow);
     this.weather = new Weather(this.stage.weather, this.glow, this.glow, layout);
     this.labels = new Labels(container, this.stage);
@@ -442,7 +456,8 @@ export class Game {
           ? this.nameTag(`★ Đầu đàn · Lv ${pal.level} ${species.name}`, "label pal alpha", () => actor.pos, actor.height + 6, LABEL_RANK.leader)
           : this.nameTag(`Lv ${pal.level} ${species.name}`, "label pal", () => actor.pos, actor.height + 4, LABEL_RANK.wild);
       const hpFill = addHpBar(label);
-      const entity: PalEntity = { actor, tag, label, hpFill, hp: pal.hp, maxHp: pal.maxHp };
+      const aim: AimCandidate = { id, x: pal.x, y: pal.y, hp: pal.hp, maxHp: pal.maxHp, dizzy: pal.dizzy, boss: pal.boss, inBall: false };
+      const entity: PalEntity = { actor, tag, label, hpFill, hp: pal.hp, maxHp: pal.maxHp, aim, heldUntil: 0 };
       this.pals.set(id, entity);
       this.updateHpBar(entity);
       let { angry, dizzy, windup } = pal;
@@ -454,6 +469,9 @@ export class Game {
         actor.server.y = pal.y;
         entity.hp = pal.hp;
         entity.maxHp = pal.maxHp;
+        aim.hp = pal.hp;
+        aim.maxHp = pal.maxHp;
+        aim.dizzy = pal.dizzy;
         this.updateHpBar(entity);
         label.classList.toggle("angry", pal.angry);
         const near = this.nearMe(actor.pos, 520);
@@ -717,6 +735,9 @@ export class Game {
     this.room.onMessage(ServerMessage.CaptureResult, (msg: CaptureResultMessage) => {
       const thrower = this.players.get(msg.playerId);
       const entity = this.pals.get(msg.palId) ?? this.leaving.get(msg.palId)?.entity;
+      // Whoever threw: aiming leaves this pal while it is in the ball (a caught pal is about to leave the state, maybe after this message).
+      const held = this.pals.get(msg.palId);
+      if (held) held.heldUntil = msg.success ? Infinity : performance.now() + captureRevealMs(msg.shakes);
       const mine = msg.playerId === this.room.sessionId;
       const great = mine && this.useGreatBall;
       const name = palName(msg.speciesId, msg.alpha === true);
@@ -920,9 +941,8 @@ export class Game {
     });
     const focus = this.me()?.pos;
 
-    // The wild pal a thrown ball would hit now: nearest within THROW_RANGE and not in a ball (the server's rule; the client's throwBall also counts pals in a ball).
-    let aimed: Tag | undefined;
-    let aimedDist = THROW_RANGE;
+    // Wild pals a ball could be thrown at, for throwTarget below (the pool is reused every frame).
+    let aimCount = 0;
     this.pals.forEach((pal) => {
       const { actor } = pal;
       const prev = { x: actor.pos.x, y: actor.pos.y };
@@ -931,9 +951,11 @@ export class Game {
       // Far-away pals are hidden and not animated (the world is big).
       const d = focus ? distance(focus, actor.pos) : Infinity;
       const near = !focus || d < PAL_DRAW_DISTANCE;
-      if (near && !pal.inBall && d <= aimedDist) {
-        aimedDist = d;
-        aimed = pal.tag;
+      if (near && !pal.inBall) {
+        pal.aim.x = actor.pos.x;
+        pal.aim.y = actor.pos.y;
+        pal.aim.inBall = now < pal.heldUntil;
+        this.aimPool[aimCount++] = pal.aim;
       }
       actor.root.visible = near && !pal.inBall;
       actor.ground.visible = near && !pal.inBall;
@@ -944,10 +966,16 @@ export class Game {
       // The boss shakes the ground as it walks.
       if (pal.actor === this.bossActor() && actor.takeStep() && focus) {
         this.effects.dust(actor.pos, 2.2);
-        const d = distance(focus, actor.pos);
-        if (d < 420) this.shake = Math.max(this.shake, 2.5 * (1 - d / 420));
+        const bossDist = distance(focus, actor.pos);
+        if (bossDist < 420) this.shake = Math.max(this.shake, 2.5 * (1 - bossDist / 420));
       }
     });
+    // The pal a thrown ball would hit now (the Bắt button and E throw at exactly this one).
+    const target = focus && this.watch.online ? throwTarget(focus, this.aimPool, aimCount, this.aimedId) : undefined;
+    this.aimedId = target?.id ?? "";
+    const aimed = target && this.pals.get(target.id);
+    if (aimed && focus) this.aimMarker.show(target.id, aimed.actor.pos.x, aimed.actor.pos.y, aimed.actor.bodyHeight, now);
+    else this.aimMarker.hide();
     // Pals already gone from the state: falling over, in a ball, or fading out.
     this.leaving.forEach((l, id) => {
       const age = now - l.since;
@@ -984,7 +1012,7 @@ export class Game {
     const day = daylight(dayTime);
     this.ground.update(view);
     this.water.update(t, this.stage.camera.zoom);
-    this.scenery.update(view, t, focus);
+    this.scenery.update(view, t, focus, 0, aimed?.actor.pos);
     this.chests.forEach(({ gem, at }) => gem.position.set(at.x, at.y - 34 + Math.sin(t * 2.5 + at.x) * 3));
     this.camps.forEach((camp) => {
       camp.flag.skew.y = Math.sin(t * 3 + camp.at.x) * 0.12;
@@ -1001,7 +1029,7 @@ export class Game {
     this.sound.setNight(phase === "night");
     this.updateBossBar();
     this.updateHud();
-    this.labels.update(now, aimed);
+    this.labels.update(now, aimed?.tag);
     this.frames++;
   }
 
@@ -1011,6 +1039,11 @@ export class Game {
     const lights: Light[] = this.scenery.lights().map((l) => ({ ...l, radius: l.radius * flicker }));
     const me = this.me();
     if (me) lights.push({ x: me.pos.x, y: me.pos.y - 20, radius: 210, color: 0xffd9a0 });
+    if (this.aimMarker.shown) {
+      this.aimLight.x = this.aimMarker.x;
+      this.aimLight.y = this.aimMarker.y - 4;
+      lights.push(this.aimLight);
+    }
     this.players.forEach(({ actor }, id) => {
       if (id !== this.room.sessionId) lights.push({ x: actor.pos.x, y: actor.pos.y - 20, radius: 120, color: 0xffd9a0, strength: 0.8 });
     });
@@ -1131,12 +1164,15 @@ export class Game {
   private throwBall() {
     const me = this.me();
     if (!me || !this.watch.online) return;
-    const target = this.nearestPal(me.pos, THROW_RANGE);
-    if (!target) {
-      this.hud.showToast("Không có thú nào ở gần", "low");
+    // Exactly the pal the aim shows (the same throwTarget call as in frame()), unless it just went into a ball.
+    const targetId = this.aimedId;
+    const pal = targetId ? this.pals.get(targetId) : undefined;
+    if (!pal || performance.now() < pal.heldUntil) {
+      const boss = this.bossId ? this.pals.get(this.bossId) : undefined;
+      const bossNear = boss && distance(me.pos, boss.actor.pos) <= THROW_RANGE;
+      this.hud.showToast((bossNear && throwBlocker(0, { boss: true })) || "Không có thú nào ở gần", "low");
       return;
     }
-    const [targetId, pal] = target;
     const state = this.room.state.players.get(this.room.sessionId);
     // Refused for the same reason the server would give (the boss, a full party): no ball leaves the hand.
     const wild = this.room.state.pals.get(targetId);
@@ -1418,6 +1454,8 @@ export class Game {
       server: me ? { ...me.server } : undefined,
       objects: this.stage.objects.children.filter((c) => c.visible).length,
       labels: { ...this.labels.counts },
+      // The wild pal the Bắt button and E throw at ("" when none), whether its ring shows, and where.
+      aim: { id: this.aimedId, shown: this.aimMarker.shown, x: this.aimMarker.x, y: this.aimMarker.y },
     };
   }
 }

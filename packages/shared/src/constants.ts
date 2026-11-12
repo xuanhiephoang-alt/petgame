@@ -21,6 +21,11 @@ export const ATTACK_DAMAGE = 10;
 export const ATTACK_COOLDOWN_MS = 400;
 
 export const THROW_RANGE = 180;
+/**
+ * The server accepts a throw this much beyond THROW_RANGE: the client draws wild pals about 0.25 s late (interpolation,
+ * half a patch interval, a network round trip) and a fleeing pal (96 px/s) moves about 25 px in that time. Clients only aim within THROW_RANGE.
+ */
+export const THROW_REACH_SLACK = 32;
 export const THROW_COOLDOWN_MS = 800;
 
 /** How many wild pals the server tries to keep alive at once. */
