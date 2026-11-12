@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -41,6 +41,36 @@ Vì sao 60 giây:
 - Mất mạng: màn "Không kết nối lại được" hiện sau 30 giây (`RECONNECT_TRY_MS`). Trường hợp xấu nhất (server biết mất mạng ngay, trang biết trễ 8 giây), thế giới còn mở ít nhất 20 + 60 − 30 − 8 = 42 giây sau khi nút **Về sảnh** hiện, đủ cho 3G chậm.
 - Giá phải trả nhỏ: một thế giới trống tốn khoảng 0,07 ms mỗi nhịp (0,13% một nhân CPU) và khoảng 0,35 MB bộ nhớ.
 
+## Giới hạn số thế giới (T64)
+
+Mỗi lần bấm "Vào chơi" mà không có link mời (hoặc bấm **Tạo thế giới mới**) là tạo một thế giới, và thế giới đó sống ít nhất 60 giây (mục trên). Để một script không mở hàng trăm thế giới làm chậm server, việc **tạo** thế giới có hai trần (bảng `WORLD_LIMITS`):
+
+| Trần | Số | Đếm gì | Bị chặn thì |
+|---|---|---|---|
+| Cả server | **50** thế giới | mọi thế giới đang mở: có người, đang giữ 60 giây, kể cả vừa tạo chưa ai vào | thẻ "Server đang có quá nhiều thế giới" |
+| Mỗi mạng | **10** thế giới | thế giới **được tạo từ cùng một địa chỉ mạng** và còn mở (có người hay không) | thẻ "Đã mở nhiều thế giới quá" |
+
+- Chỉ việc tạo bị giới hạn. **Vào thế giới có sẵn** (link mời, tải lại trang, nối lại) không bao giờ bị chặn, kể cả khi đã chạm trần.
+- "Địa chỉ mạng" là địa chỉ IP mà server thấy. Cả nhà dùng chung Wi-Fi là chung một địa chỉ. IPv6 tính theo cả khối /64 (một thiết bị IPv6 có thể đổi địa chỉ trong khối đó).
+- Thế giới đóng (hết 60 giây không ai, hoặc server khởi động lại) thì trả lại chỗ ngay.
+- Vì mỗi thế giới sống ít nhất 60 giây, trần 10 cũng là giới hạn tốc độ: một mạng tạo được tối đa 10 thế giới trong một phút. Không cần thêm bộ đếm theo thời gian.
+
+Thẻ ở sảnh (thêm vào bảng "Vào thế giới: lỗi và cách đi tiếp"):
+
+| Tình huống | Tiêu đề | Dòng giải thích | Nút |
+|---|---|---|---|
+| Server đã có 50 thế giới | Server đang có quá nhiều thế giới | Chưa tạo thêm được thế giới mới. Chờ một lát rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời. | **Thử lại** |
+| Mạng này đã mở 10 thế giới | Đã mở nhiều thế giới quá | Mạng bạn đang dùng đã mở nhiều thế giới cùng lúc. Thế giới không còn ai sẽ tự đóng sau 1 phút: chờ chút rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời. | **Thử lại** |
+
+- Không có nút "Tạo thế giới mới": Thử lại chính là tạo lại.
+- Người chơi một mình quay lại thế giới đã đóng (T49: tự vào thế giới mới, không thẻ) mà bị chặn lúc tạo thì thấy thẻ của lần tạo đó; địa chỉ đã bỏ `room`, nên Thử lại cũng là tạo mới.
+
+Vì sao các số này:
+- Một thế giới trống tốn khoảng 0,13% một nhân CPU và 0,35 MB (số đo T49). Trước T64, một script gọi tạo thế giới 5 lần mỗi giây giữ được khoảng 300 thế giới (39% một nhân, 105 MB). Nay một địa chỉ giữ được tối đa 10 (1,3%, 3,5 MB), cả server tối đa 50 (6,5%, 17,5 MB khi trống).
+- 10 mỗi mạng: một nhà 5 người, mỗi người một thế giới riêng, cộng mỗi người lỡ mở thêm một thế giới trong lúc thế giới cũ còn giữ 60 giây, là 10.
+- 50 cả server: tới 250 người chơi cùng lúc, quá sức một máy 512 MB dùng chung (`fly.toml`). Máy mạnh hơn thì người vận hành nâng bằng biến môi trường (`docs/deploy.md`).
+- Server chạy sau proxy (Fly, Render) phải được cấu hình để lấy đúng địa chỉ người chơi; nếu không, mọi người chung một địa chỉ và trần 10 chặn nhầm người thật. Cách kiểm ở `docs/deploy.md`.
+
 ## Tải lại trang: về đúng thế giới (T23, T49)
 
 Trong lúc chơi, thanh địa chỉ luôn ghi nơi mà lần mở trang sau sẽ đưa người chơi tới (đổi tại chỗ, không tải lại trang):
@@ -73,6 +103,7 @@ Vào hỏng thì nút "Vào chơi" nhường chỗ cho một thẻ (cùng kiểu
 | Thế giới đã đóng (link mời cũ hoặc sai) | Thế giới này đã đóng | Mọi người đã rời đi. Xin bạn bè link mời mới, hoặc tạo thế giới mới. | **Tạo thế giới mới** |
 | Đủ 5 người (tính cả chỗ đang giữ 20 giây cho người rớt mạng) | Thế giới đã đủ 5 người | Chờ chút rồi bấm Thử lại, hoặc tạo thế giới mới. | **Thử lại**, Tạo thế giới mới (phụ) |
 | Mất mạng, server không chạy hoặc đang khởi động lại | Không kết nối được server | Kiểm tra mạng rồi bấm Thử lại. | **Thử lại** |
+| Tạo thế giới bị chặn vì server hoặc mạng này đã mở quá nhiều thế giới (T64) | xem mục "Giới hạn số thế giới" | | **Thử lại** |
 | Lỗi khác | Không vào được thế giới | Có lỗi khi vào. Chờ giây lát rồi bấm Thử lại. | **Thử lại** |
 
 - Người chơi quay lại thế giới mà lần cuối chỉ có mình họ thì không gặp thẻ "đã đóng": vào thẳng thế giới mới (mục "Tải lại trang").
@@ -140,4 +171,6 @@ Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server
 - Tải lại trang không dùng mã kết nối lại (T23): mã chỉ sống 20 giây và dùng một lần, mà muốn dùng thì phải bỏ luật "tải lại = rời chủ động" (chỗ bị giữ 20 giây mỗi lần đóng tab). Ghi thế giới lên địa chỉ thì sống đến khi thế giới đóng, đổi lại vị trí và máu không được giữ.
 - Link mời của người chơi một mình chỉ sống đến 60 giây sau khi họ rời đi (T49). Quay lại muộn hơn thì họ vào thế giới mới mà không được báo, nên link cũ đã gửi không dùng được nữa (bạn bè thấy "Thế giới này đã đóng"); nút 🔗 cho link mới. Chấp nhận để người chơi một mình không gặp thẻ lỗi mỗi lần mở lại tab.
 - Thế giới trống vẫn chạy (không tạm dừng) trong 60 giây: rẻ (0,13% một nhân CPU mỗi thế giới), đồng hồ hẹn giờ của phòng chạy theo nhịp mô phỏng nên dừng mô phỏng là dừng cả hồi sinh và chính hẹn giờ đóng thế giới, và người quay lại thấy thời gian trôi đúng như khi vắng mặt.
-- Ai cũng tạo được thế giới rồi rời ngay, mỗi cái sống 60 giây (trước T49: 15 giây nếu chưa ai vào). Chi phí nhỏ (0,35 MB, 0,13% CPU mỗi cái) và trước đây giữ kết nối cũng giữ được thế giới; chưa cần giới hạn số thế giới mỗi người.
+- Ai cũng tạo được thế giới rồi rời ngay, mỗi cái sống 60 giây (trước T49: 15 giây nếu chưa ai vào). Từ T64 việc này bị giới hạn (mục "Giới hạn số thế giới").
+- Kẻ phá có nhiều địa chỉ (từ 5 địa chỉ IPv4 hay 5 khối IPv6 /64) vẫn chiếm được hết 50 chỗ, khi đó không ai tạo được thế giới mới cho đến khi các thế giới của họ đóng. Chấp nhận: server không chậm đi (50 thế giới trống chỉ tốn 6,5% một nhân), thế giới đang chơi không bị ảnh hưởng và link mời vẫn vào được. Muốn chặn hơn nữa cần tài khoản hoặc captcha, quá tầm game chơi với bạn bè.
+- Giữ một kết nối trong mỗi thế giới thì thế giới không đóng, như trước T49. Trần 10 mỗi mạng đếm cả thế giới có người, nên cách này cũng không vượt được 10.
