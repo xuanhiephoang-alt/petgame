@@ -1,263 +1,312 @@
-# PLAN: T66 `npm run shots`, `npm run dev` chạm trần thế giới; làm chắc `worldLimits`
+# PLAN: T61 Điện thoại ngang thấp (cao 375 px): thông báo vượt mốc ngón cái
 
-Đọc code ở HEAD `ba6d5e2`. Nguồn là `REVIEW.md` của T64 (commit `004f6ac`): mục "Việc mới" (dev/shots) và các góp ý 1-6. Luật chơi không đổi; đây là việc kỹ thuật và tài liệu.
+Đọc code ở HEAD `ad7db98`. File liên quan:
+- `packages/client/index.html`:
+  - `.hud-health`, `.hud-actions`, `.hud-time`, `.hud-region` ở dòng 93-104;
+  - `.hud-left`, `.hud-status`, `.hud-quest` ở dòng 117-127;
+  - `.invite-btn` ở dòng 133, vùng chạm 44 px (`::before`) ở dòng 257-259;
+  - khối điện thoại ngang `@media (max-height: 520px) and (min-width: 601px)` ở dòng 404-419.
+- `packages/client/src/ui/hud.ts`:
+  - hàng máu dựng ở dòng 51-67 (`actionsRow` chứa 🫐 Ăn và 🔊);
+  - bắt sự kiện nút 🔗 bằng `click` uỷ quyền trên `this.status` ở dòng 79-87;
+  - `setTime` ở dòng 178-183; `setStatus` ở dòng 202-216 (trên cảm ứng nút 🔗 nằm trong `innerHTML` của ô trạng thái).
+- `tests/e2e/multiplayer.spec.ts`: `expectTouchable` (dòng 467), `sendFrom` (1392), `toastLayout` (2416), `boxesOverlap` (2436), `TOAST_SCREENS` và test `toasts (...)` (2439-2493), `safeArea` (2502), `bossLayout` (2527), `watchHurt` (2593), `bossPosition` (2604), `settledBossLayout` (2618), `BOSS_SCREENS` và test `boss bar (...)` (2649-2839; hàm `goNearBoss` nằm trong thân test, dòng 2711-2740).
 
-File liên quan:
-- `scripts/dev.mjs`: chạy song song `npm run dev` của server và client. Hiện không truyền `env`, nên server nhận `process.env`.
-- `scripts/shots.mjs`: dòng 36-39 spawn server với `env: { ...process.env, PORT, PETGAME_DEBUG, PETGAME_DB }`.
-- `playwright.config.ts`: dòng 19-21, mẫu cần làm theo (chú thích và hai trần 1000).
-- `packages/server/src/worldLimits.ts`:
-  - `clientAddress` dòng 25-38;
-  - `addressKey` dòng 60-68;
-  - `positiveInt` dòng 126-132;
-  - `noteRefusal` dòng 153-172;
-  - `stamp` trong `guardWorldCreation` dòng 193-205.
-- `packages/server/src/worldLimits.test.ts`.
-- `packages/server/src/index.ts` dòng 40-44: gọi `guardWorldCreation`, in dòng "World limits: …". **Không phải sửa.**
-- Tài liệu: `docs/architecture.md` dòng 42 (mục `worldLimits.ts`) và dòng 89 (mục test); `docs/deploy.md` mục "Giới hạn số thế giới và proxy"; `docs/design/multiplayer.md` dòng 54.
+### Số đo (script tạm trong scratchpad, chỉ đọc)
+
+**Cách đo.** Giống e2e:
+- Server `PETGAME_DEBUG=1`, `PETGAME_DB=:memory:` ở cổng trống 2667; Vite ở 5273 với `VITE_SERVER_URL`.
+- Chromium `/opt/pw-browsers/chromium` (`scripts/chromium.mjs`), `hasTouch`, `isMobile`.
+- Tai thỏ giả lập bằng CDP `Emulation.setSafeAreaInsetsOverride`, như `safeArea`.
+- Cảnh như test `toasts (...)`: Emberpup cấp 8, chờ ô nhiệm vụ có chữ ("Bắt con thú đầu tiên"), chờ hết thông báo, rồi đẩy 2 thông báo dài nhất. Cầm ngang thì chỉ 1 cái hiện: phần thưởng trùm, 3 dòng, cao 61 px.
+- Lần đo thứ hai: dịch chuyển tới 260 px phía nam trùm, chờ `.boss-bar` hiện, rồi đẩy lại 2 thông báo.
+- Toạ độ là `[trái, trên, phải, dưới]`, đơn vị px. Mốc ngón cái là cao − 140.
+
+**Bây giờ** (có thanh trùm hay không thì số như nhau: khi cầm ngang thanh nằm giữa trên, ngoài cột):
+
+| Màn | Cột | Hàng máu | Trạng thái | Nhiệm vụ | Đáy thông báo | Mốc |
+|---|---|---|---|---|---|---|
+| 812×375, tai thỏ trái/phải 44, dưới 21 | `[44..296]` | 12-84 | 88-136, **2 dòng** | 140-181 | **246** | 235 |
+| 667×375 | `[12..224]` | 12-84 | 88-136, **2 dòng** | 140-195 (gợi ý 2 dòng) | **260** | 235 |
+| 844×390 | `[12..312]` | 12-84 | 88-117, 1 dòng | 121-162 | 210 | 250 |
+| 844×390, tai thỏ 47 | `[47..312]` | 12-84 | 88-136, 2 dòng | 140-181 | 246 | 250 |
+
+- Thanh trùm khi cầm ngang: 812 tai thỏ `[308..504]`, 667 `[276..391]`. Nó không đổi gì trong cột.
+- Ô trạng thái xuống dòng vì nút "🔗 Mời bạn" (88 px) không còn chỗ sau các con số: "👥 1/5 🐾 1 🪵 0 🪨 0 🫐 0" dài 176 px, mà phần chữ của ô chỉ rộng 196 px (667) hoặc 236 px (812 tai thỏ).
+- Dòng 2 của hàng máu (🫐 Ăn 54 px, 🔊 44 px, cao 44 px) còn trống phía phải: 92 px ở 667, 133 px ở 812 tai thỏ.
+- Người chơi lâu, ô trạng thái đầy nhất (5/5 người, 12 thú, 999 mỗi tài nguyên, 🛶 và 3 món đang mặc): 812 tai thỏ 2 dòng, đáy 246; 667 3 dòng, đáy **279**.
+
+**Thử bản thiết kế dưới đây** (CSS chèn vào trang và dựng lại DOM bằng script, không sửa file):
+
+| Màn | Hàng máu | Trạng thái | Nhiệm vụ | Đáy thông báo | Mốc |
+|---|---|---|---|---|---|
+| 812×375, tai thỏ 44 | 12-81 | 84-107, 1 dòng | 110-151 | **214** | 235 |
+| 667×375 | 12-81 | 84-107, 1 dòng | 110-165 | **228** | 235 |
+| 844×390 | 12-81 | 84-107 | 110-151 | 198 | 250 |
+| 844×390, tai thỏ 47 | 12-81 | 84-107 | 110-151 | 214 | 250 |
+
+- Có thanh trùm: số y hệt. Thanh vẫn ở chỗ cũ (`[308..504]`, `[276..391]`), không chồng nút 🔗 (812: `[160..221]`; 667: `[128..189]`).
+- Nút 🔗 Mời: hộp 61×21, vùng chạm thật 61×44 (`::before`), không bị gì đè.
+- Đã thử lúc hoàng hôn (chữ giờ dài nhất, "🌇 Hoàng hôn"):
+  - Nếu giữ nguyên chữ giờ thì ở 667 dòng 1 hàng máu tràn. "100/100" rơi xuống dòng 2, đẩy cụm nút xuống dòng 3: hàng máu cao 85, đáy thông báo **244**.
+  - Vì vậy chữ giờ chỉ còn biểu tượng khi cầm ngang (bước 1). Khi đó hàng máu cao 69 ở mọi giờ, đáy 228.
+- Điện thoại dọc 390×844 và 360×640 với cách dựng ô trạng thái mới (bước 2): hộp ô trạng thái và nút 🔗 trùng từng px với bây giờ (`[12,88,262,136]` / `[12,88,232,136]`; nút `[24,111,112,132]`).
+- Ô trạng thái đầy nhất (như trên): 812 tai thỏ 2 dòng, đáy 231 ≤ 235; 667 2 dòng, đáy **245** (trước là 279). Xem "Rủi ro".
 
 ## Mục tiêu
 
-- Người làm game chạy `npm run shots` (8 thế giới trong vài phút từ 127.0.0.1) hay `npm run dev` (nhiều tab, bấm Tạo thế giới mới liên tục) không gặp thẻ "Đã mở nhiều thế giới quá" (429).
-- Bộ chặn thế giới không còn chỗ nào hỏng theo hướng mở: khi địa chỉ không xác định, không lấy header do client gửi.
-- Lỗi khi nâng Colyseus phải lộ ra lúc khởi động server, không đợi tới CI.
-- Log đúng sự thật. Tài liệu nói rõ chỗ địa chỉ vẫn giả được.
+Trên iPhone cầm ngang (cao 375 px: iPhone X/11 Pro/12 mini có tai thỏ, iPhone SE/8), thông báo hiện tại kéo xuống quá mốc cao − 140 (T18), vào đúng góc ngón cái trái đặt cần điều khiển. Sau nhiệm vụ này:
+- ô trạng thái gọn lại còn một dòng;
+- thông báo dài nhất kết thúc trên mốc 235, có hay không có thanh máu trùm;
+- không bỏ con số nào, không làm nút nào nhỏ hơn 44 px, và giữ nguyên luật "cột trước giữa màn hình 100 px" cùng chỗ của thanh trùm (T30).
 
 ## Phạm vi
 
-Làm:
-1. `scripts/dev.mjs` và `scripts/shots.mjs` nâng trần mỗi địa chỉ cho server mà chúng tự chạy.
-2. `worldLimits.ts`, gồm sáu việc:
-   - (a) địa chỉ không tính được thì thành `"unknown"`;
-   - (b) gỡ IPv4 lồng trong IPv6 viết dạng hex;
-   - (c) sửa câu log về số lần bị chặn;
-   - (d) đổi tên `positiveInt`;
-   - (e) kiểm `matchMaker.controller` lúc cài;
-   - (f) `clientAddress` không dùng header khi thiếu địa chỉ socket. Đây là cùng lỗi với (a), xem Thiết kế 2a.
-3. Test unit cho từng mục trong `worldLimits.test.ts`.
-4. Cập nhật tài liệu.
+Làm, chỉ khi cầm ngang (khối `@media (max-height: 520px) and (min-width: 601px)`, cùng khối đang có cho điện thoại ngang):
+1. Nút 🔗 Mời rời ô trạng thái, sang dòng 2 của hàng máu, cạnh 🫐 Ăn và 🔊. Nhãn ngắn "🔗 Mời".
+2. Ô trạng thái chỉ còn các con số, khoảng cách hẹp hơn, chữ thấp hơn (line-height 1.4).
+3. Chữ giờ chỉ còn biểu tượng (☀️ 🌇 🌙 🌅), như tên vùng đã ẩn từ T6. Nhờ vậy dòng 1 hàng máu không bao giờ tràn.
+4. Khoảng cách giữa các ô của cột 4 → 3 px; khoảng cách giữa 2 dòng của hàng máu 5 → 2 px.
+5. Một e2e mới cho 812×375 có tai thỏ và 667×375, đo khi không có và khi có thanh trùm.
+6. Cập nhật `docs/design/hud.md` (đã làm cùng kế hoạch này).
 
-KHÔNG làm:
-- Không đổi `npm run play`, `npm start`, `Dockerfile`, `fly.toml`, `render.yaml` hay `WORLD_LIMITS`: bản thật giữ trần thật (50 và 10).
-- Không nâng `PETGAME_MAX_WORLDS` trong dev/shots (lý do ở Thiết kế 1).
-- Không thêm trần /48 cho IPv6: đó là T67.
-- Không sửa `stamp` cho đường WebSocket `upgrade`: chỉ ghi tài liệu (mục 7).
-- Không nhận NAT64 (`64:ff9b::/96`), IPv4-compatible (`::a.b.c.d`) hay SIIT (`::ffff:0:a.b.c.d`). Những dạng này vẫn gộp theo /64 như IPv6 thường.
-- Không đổi schema, message hay `Profile`. Không sửa client.
+**Không** làm:
+- Không đổi điện thoại dọc và desktop. Dọc vẫn "🔗 Mời bạn" cuối ô trạng thái, hộp trùng từng px như trên. T62 (thông báo đè tên khi cầm dọc) là việc riêng.
+- Không đổi `toastQueue.ts` (`toastRoom`, mốc 520/760), thanh máu trùm, ô nhiệm vụ, thông báo, cột nút phải, bản đồ nhỏ, server, shared.
+- Không sửa test có sẵn: không đổi `TOAST_SCREENS`, `BOSS_SCREENS`, `goNearBoss` hay một dòng nào của các test đang có. Chỉ thêm.
+- Không xử lý màn 640×360 và ô trạng thái đầy nhất ở 667 (xem "Đề xuất tách việc").
 
 ## Thiết kế
 
-### 1. Trần trong dev và shots
+**Hàng máu khi cầm ngang** (rộng như cột):
+- Dòng 1: `☀️ ❤️ [thanh máu 64 px] 100/100`, dài 152 px.
+- Dòng 2: `[🫐 Ăn] [🔊] [🔗 Mời]`, dài 169 px, cao 44 px.
+- Phần chữ của hàng hẹp nhất trong phạm vi là 182 px (640 rộng). Vì vậy cả hai dòng luôn vừa, ở mọi giờ, có hay không tai thỏ; hàng cao đúng 69 px. Trước đây là 72 px, nhưng "100/100" phải xuống dòng 2 lúc chữ giờ dài.
+- Chữ giờ ("Ngày", "Hoàng hôn"...) ẩn khi cầm ngang, chỉ còn biểu tượng. Ánh sáng của thế giới đã cho thấy ngày hay đêm. Chữ vẫn nằm trong DOM (`textContent` của `.hud-time` không đổi, test "HUD shows health, time of day..." vẫn đọc được), và có `title`.
 
-| Lệnh | `PETGAME_MAX_WORLDS_PER_ADDRESS` | `PETGAME_MAX_WORLDS` | Cách truyền |
-|---|---|---|---|
-| `npm run dev` | `1000`, trừ khi người chạy đã tự đặt biến này | giữ 50 | `scripts/dev.mjs` truyền `env` riêng cho tiến trình server |
-| `npm run shots` | luôn `1000` | giữ 50 | thêm vào object `env` của `spawn` server, giống `PETGAME_DB` |
-| `npm run test:e2e` | 1000 (giữ nguyên) | 1000 (giữ nguyên) | `playwright.config.ts` |
-| `npm run play`, `npm start`, deploy | 10 | 50 | không đổi |
+**Nút 🔗 Mời khi cầm ngang:**
+- Nằm trong `.hud-actions`, sau 🔊.
+- Chữ "🔗 Mời". Chữ " bạn" nằm trong `<span class="invite-more">` và ẩn khi cầm ngang. `aria-label="Mời bạn"` ở mọi màn, nên trình đọc màn hình đọc như nhau.
+- Hộp 61×21, vùng chạm 61×44 (`::before` sẵn có của T18), không chồng vùng chạm của 🔊 (cách 5 px).
+- Vẫn nghe `click` (cần "cử chỉ người dùng" để mở bảng chia sẻ, T39).
+- Lý do chọn hàng máu: dòng 2 đã cao 44 px vì Ăn và 🔊, phần bên phải còn trống, nên nút vào đó không tốn thêm chiều cao nào. Ba nút chạm được của cột về chung một hàng, đều trong nửa trái (ngón cái trái), trên vùng cần điều khiển.
+- Đã bỏ các phương án khác:
+  - Chỉ thu nhỏ nút thành "🔗" 44 px trong ô trạng thái: 157 + 4 + 44 = 205 > 196 px ở 667, vẫn xuống dòng.
+  - Đưa ô trạng thái sang dưới bản đồ nhỏ: dời phần HUD sang nửa phải, đổi luật bố cục lớn hơn mức việc này cần.
+  - Cắt gợi ý của ô nhiệm vụ còn 1 dòng: mất đúng chữ "rồi ném bóng" của nhiệm vụ đầu tiên trên iPhone SE.
 
-Lý do:
-- **Truyền qua script Node, không qua `package.json`.** Đặt biến trong chuỗi lệnh npm (`VAR=1 tsx ...`) không chạy trên Windows, mà repo không có `cross-env`. `dev.mjs` vốn tồn tại để chạy được trên mọi hệ điều hành.
-  - `npm run dev --workspace=@petgame/server` truyền `process.env` của nó xuống `tsx watch`, rồi xuống tiến trình server. Mỗi lần tsx khởi động lại server, biến vẫn còn.
-  - Hệ quả: `npm run dev:server` (gọi thẳng workspace, không qua `dev.mjs`) vẫn giữ trần 10. Chấp nhận được, và ghi vào tài liệu.
-- **Dev dùng `??`, shots ép cứng.**
-  - Dev: người làm game có thể muốn thử thẻ 429 bằng tay, ví dụ `PETGAME_MAX_WORLDS_PER_ADDRESS=2 npm run dev`, nên giá trị đã đặt sẵn phải được giữ.
-  - Shots là bộ chụp cố định giống e2e: nó đã ép `PETGAME_DB` và `PETGAME_DEBUG`, nên cũng ép trần để kết quả không phụ thuộc shell.
-- **Chỉ nâng trần mỗi địa chỉ.**
-  - Hai lệnh này chỉ có một địa chỉ (127.0.0.1, hoặc thêm vài điện thoại trong LAN, mỗi máy một địa chỉ riêng) và tạo tối đa vài chục thế giới. Trần 50 của cả server không bao giờ bị chạm, mà vẫn giữ máy dev khỏi bị một vòng lặp lỗi mở hàng trăm thế giới.
-  - Playwright nâng cả hai vì e2e chạy nhiều worker song song.
-  - Số 1000 giống `playwright.config.ts` để chỉ có một "số dev" trong repo.
-- `.mjs` không import được `@petgame/shared` (TypeScript) khi không có tsx, nên dùng chuỗi `"1000"` kèm chú thích trỏ tới `playwright.config.ts`.
+**Ô trạng thái khi cầm ngang:** `👥 1/5 🐾 1 🪵 0 🪨 0 🫐 0` (thêm biểu tượng đồ nếu có).
+- Mỗi con số (biểu tượng và số) là một `<span class="hud-count">` không bị ngắt giữa chừng. Giữa hai con số là 1 dấu cách + 2 px; trước đây là ` &nbsp; `, khoảng 10 px.
+- Chữ 12 px, line-height 1.4, đệm 3 px trên dưới: ô cao 22,8 px khi 1 dòng.
+- Số lớn thì vẫn được xuống dòng giữa các con số, không cắt, không mất số nào.
 
-### 2. Làm chắc `worldLimits.ts`
+**Điện thoại dọc:** cùng cấu trúc DOM (các `.hud-count` và nút 🔗 cuối ô), nhưng khoảng giữa hai con số là 1 dấu cách + 6 px, nhãn "🔗 Mời bạn" đủ. Đo: hộp như cũ từng px.
 
-**2a. Địa chỉ không xác định (góp ý 1, và cùng lỗi trong `clientAddress`)**
-- Hiện tại, khi `clientAddress` trả `undefined`, `stamp` xoá `x-real-ip`. Colyseus khi đó rơi về `x-forwarded-for`/`x-client-ip` **của client**, tức kẻ gửi tự chọn được khoá đếm.
-- Mới: luôn ghi `req.headers["x-real-ip"] = address ?? "unknown"`. `addressKey("unknown")` trả `"unknown"`, đúng ý PLAN T64: "không xác định thì gộp vào `unknown`, không được miễn".
-- `clientAddress` cũng có một chỗ hở cùng loại.
-  - Khi thiếu `remote` (socket đã đóng), chuỗi mất mục cuối mà proxy gần nhất lẽ ra phải là. Khi đó `trustProxy = 0` vẫn trả mục cuối của `X-Forwarded-For` do client gửi, ví dụ `clientAddress(undefined, "9.9.9.9", 0) === "9.9.9.9"`, trái với JSDoc ("With 0 the header is ignored").
-  - Mới: không có `remote` (rỗng hoặc `undefined`) thì trả `undefined` ngay, không đọc header.
-  - Lý do: không biết ai nối vào thì không biết mục nào của header là do proxy ghi, nên mục nào cũng có thể là giả. `/whoami` khi đó in `"?"`, như hiện nay.
-- Để test được mà không cần socket thật, tách phần ghi header ra hàm export:
-  ```ts
-  /** Overwrites `x-real-ip` (the header Colyseus reads first) with the address computed from the socket; "unknown" when there is none. */
-  export function stampClientAddress(req: Pick<IncomingMessage, "headers" | "socket">, trustProxy: number): void
-  ```
-- `stamp` trong `guardWorldCreation` giữ phần cảnh báo `X-Forwarded-For` một lần, rồi gọi `stampClientAddress(req, settings.trustProxy)`.
+**Xoay máy:** nút đổi chỗ ngay khi bố cục đổi (`matchMedia(...).addEventListener("change")`), cùng điều kiện với khối CSS cầm ngang. Nút là một phần tử duy nhất, chỉ được chuyển chỗ, nên vẫn giữ trình nghe sự kiện và `data-link`.
 
-**2b. IPv4 lồng trong IPv6 dạng hex (góp ý 2)**
-- `addressKey`: bỏ regex `^::ffff:(\d+\.\d+\.\d+\.\d+)$`. Khi `isIPv6(text)`, lấy `g = ipv6Groups(text)`. Nếu `g[0..4]` đều bằng 0 và `g[5] === 0xffff`, trả IPv4 `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`; nếu không thì trả khoá /64 như cũ.
-- `ipv6Groups` đã đổi đuôi dạng chấm thành hai nhóm, nên một nhánh phủ cả dạng chấm, dạng hex, chữ hoa và dạng viết đủ 8 nhóm.
-- Kiểm: `0xcb00` = 203.0, `0x7105` = 113.5, nên `::ffff:cb00:7105` cho ra `203.0.113.5`.
-- Sửa JSDoc của `addressKey`: "IPv4-mapped IPv6 (dotted or hex)".
+**Desktop:** không đổi gì (vẫn có link mời trong ô trạng thái, không có nút 🔗).
 
-**2c. Câu log (góp ý 4)**
-- Hiện tại: lần chặn đầu được in ngay. Các lần sau trong 60 s chỉ được đếm, và chỉ in khi có lần chặn kế tiếp sau mốc 60 s. Lần đó có thể cách hàng giờ, mà câu in vẫn ghi "in the last minute".
-- Mới: tách phần đếm thành một class thuần nhận `now` từ ngoài (giống `WorldCensus`), để test không cần giả đồng hồ:
-  ```ts
-  /** Rate-limits the refusal log: at most one line per REFUSAL_LOG_MS; refusals in between are counted into the next line. Pure. */
-  export class RefusalLog {
-    /** Counts one refusal at `now` (ms); returns the line to log, or undefined while the last line is younger than REFUSAL_LOG_MS. */
-    note(refusal: WorldRefusal, now: number, openWorlds: number): string | undefined
-  }
-  ```
-  - Trạng thái gồm: `count`, `counts: Record<WorldRefusal, number>`, `firstAt` (thời điểm lần chặn đầu tiên chưa in), `loggedAt` (khởi đầu `-Infinity`, để lần chặn đầu in ngay cả khi `now` nhỏ).
-  - Hằng `REFUSAL_LOG_MS = 60_000` đặt ở đầu file, cạnh state cũ. Đây là nhịp log, không phải số cân bằng, nên không đưa vào `shared`.
-  - Câu in, đúng từng ký tự (`n` là số lần chặn trong câu này, `s = Math.round((now - firstAt) / 1000)`):
-    - `n === 1`: `World limits: refused 1 world creation (server S, address A); W worlds open`
-    - `n > 1`: `World limits: refused N world creations in the last s s (server S, address A); W worlds open`
-  - Sau khi in: đặt `loggedAt = now` và đưa các số đếm về 0.
-- Module giữ một bản `const refusalLog = new RefusalLog()`. `noteRefusal` thành:
-  ```ts
-  const line = refusalLog.note(refusal, Date.now(), census.total()); if (line) console.warn(line);
-  ```
-- Vẫn không in địa chỉ.
-
-**2d. Đổi tên (góp ý 5):** đổi `positiveInt` thành `intFromEnv`, JSDoc thành "A decimal integer in [min, max] from env, else `fallback` (with a warning when the variable was set to something else)". Ba chỗ gọi đổi theo. Hành vi không đổi.
-
-**2e. Kiểm Colyseus lúc cài (góp ý 6)**
-- Trong `guardWorldCreation`, ngay sau dòng kiểm `http` và **trước** `http.prependListener`, kiểm `matchMaker.controller`. Lỗi thì không cài gì nửa chừng:
-  ```ts
-  if (typeof controller?.invokeMethod !== "function" || !Array.isArray(controller.exposedMethods) || !controller.exposedMethods.includes("create")) {
-    throw new Error(
-      "guardWorldCreation: matchMaker.controller no longer has invokeMethod() and exposedMethods with \"create\" " +
-        "(Colyseus changed?); the world caps cannot be installed. See worldLimits.ts.",
-    );
-  }
-  ```
-- `index.ts` không bắt lỗi này, nên server dừng lúc khởi động với thông báo rõ. Đó là hỏng đóng, có ồn.
-- `const controller = matchMaker.controller;` chuyển lên trước dòng kiểm.
-- Trong JSDoc của `guardWorldCreation`, thêm một câu nói về lần kiểm này.
-
-### 3. Tài liệu (góp ý 3 và dev/shots)
-
-**`docs/architecture.md`, dòng 42 (`worldLimits.ts`)**
-- Thêm `stampClientAddress` và `RefusalLog` vào danh sách.
-- Thêm câu: "Địa chỉ không xác định (socket không còn địa chỉ) ghi `x-real-ip: unknown`, không xoá header."
-- Thêm câu: "`guardWorldCreation` kiểm `matchMaker.controller` lúc cài, sai dạng thì ném lỗi (server không khởi động)."
-- Thêm câu cảnh báo: "Listener `stamp` chỉ chạy cho sự kiện `request` (HTTP), không chạy cho `upgrade` (WebSocket). Vì vậy `authContext.ip` và `client.ip` ở đường WebSocket vẫn lấy từ header client gửi, nghĩa là **vẫn giả được**. Hiện không sao vì `GameRoom` không dùng `onAuth` hay IP của client. Ai muốn dùng IP trong `onAuth`/`onJoin` phải tự tính lại bằng `clientAddress(req.socket.remoteAddress, req.headers["x-forwarded-for"], trustProxy)`."
-
-**`docs/architecture.md`, dòng 89:** thay câu "e2e đặt hai trần lên 1000 trong `playwright.config.ts` vì mở nhiều thế giới từ 127.0.0.1" bằng: "e2e đặt hai trần lên 1000 (`playwright.config.ts`); `npm run shots` (`scripts/shots.mjs`) và `npm run dev` (`scripts/dev.mjs`, trừ khi đã tự đặt biến) đặt `PETGAME_MAX_WORLDS_PER_ADDRESS=1000`, vì đều mở nhiều thế giới từ 127.0.0.1; `npm run play` và `npm run dev:server` giữ trần thật."
-
-**`docs/deploy.md`, sau bảng biến**
-- Thêm một gạch: "`npm run dev` và `npm run shots` tự nâng `PETGAME_MAX_WORLDS_PER_ADDRESS` lên 1000 cho server chúng chạy (dev giữ giá trị nếu bạn đã đặt, để thử thẻ bị chặn: `PETGAME_MAX_WORLDS_PER_ADDRESS=2 npm run dev`). `npm run play` dùng trần thật."
-- Sửa câu "Giá trị sai (không phải số nguyên dương)" thành "Giá trị sai (ngoài khoảng cho phép: hai trần là số nguyên ≥ 1, `PETGAME_TRUST_PROXY` từ 0 tới 9)".
-
-**`docs/design/multiplayer.md`, dòng 54:** thêm vào cuối câu: "Địa chỉ IPv4 viết dạng IPv6 (`::ffff:…`, cả dạng chấm lẫn dạng hex) tính như IPv4. Server không biết địa chỉ thì mọi yêu cầu như vậy chung một khoá `unknown`, không được miễn."
+**Kết quả:** xem bảng "Thử bản thiết kế". Đáy thông báo 214 và 228, dưới mốc 235 (còn 21 và 7 px). Cột vẫn kết thúc ở 296 và 224, trước giữa màn hình − 100 (306 và 233).
 
 ## Kế hoạch triển khai
 
-1. `scripts/dev.mjs`:
-   - Trong `map`, truyền `env` cho tiến trình server:
-     ```js
-     env: workspace === "@petgame/server" ? { ...process.env, PETGAME_MAX_WORLDS_PER_ADDRESS: process.env.PETGAME_MAX_WORLDS_PER_ADDRESS ?? "1000" } : process.env
-     ```
-   - Thêm chú thích tiếng Anh: one developer opens many worlds from 127.0.0.1 (tabs, "Tạo thế giới mới"), same reason as `playwright.config.ts`; a value already set is kept so the 429 card can be tried by hand; `npm run play` keeps the real caps.
-   - Sửa chú thích đầu file nếu cần.
-2. `scripts/shots.mjs`, dòng 37: thêm `PETGAME_MAX_WORLDS_PER_ADDRESS: "1000"` vào `env`, kèm chú thích một dòng: shots opens 8 worlds from one address within minutes; the per-address cap is 10.
-3. `worldLimits.ts`:
-   - `clientAddress`: thêm `if (!remote) return undefined;` ở đầu hàm (2a). Bỏ `if (remote)` trước `chain.push(remote)`. Cập nhật JSDoc: "Without a socket address there is no address (the header alone could be anything)."
-4. `worldLimits.ts`: thêm `stampClientAddress` (2a). `stamp` gọi hàm này thay cho hai dòng `delete`/gán.
-5. `worldLimits.ts`: sửa `addressKey` theo 2b.
-6. `worldLimits.ts`: thêm `REFUSAL_LOG_MS` và `RefusalLog` (2c). Bỏ `refusedSince`, `refusedLogAt` và `refusedCounts`, viết lại `noteRefusal`.
-7. `worldLimits.ts`: đổi `positiveInt` thành `intFromEnv` (2d).
-8. `worldLimits.ts`: thêm lần kiểm controller trong `guardWorldCreation` (2e).
-9. `worldLimits.test.ts`: thêm và sửa test như mục Test.
-10. Tài liệu: sửa theo Thiết kế 3.
+### 1. `packages/client/src/ui/hud.ts`
 
-Mỗi bước nhỏ. Làm cả nhiệm vụ trong một commit.
+a. Đầu file, sau `TOAST_FADE_MS`:
+```ts
+/**
+ * Phones held sideways: the same condition as the short-screen block in index.html. There the invite button sits
+ * with Ăn and 🔊 in the health row, so the status panel keeps to one line (T61, docs/design/hud.md).
+ */
+const SIDEWAYS_QUERY = "(max-height: 520px) and (min-width: 601px)";
+```
+
+b. Trường mới (cạnh `status`):
+```ts
+  /** Touch screens: the counts in the status panel (players, pals, resources, gear). */
+  private statusCounts?: HTMLSpanElement;
+  /** Touch screens: 🔗 Mời bạn. Last in the status panel, or after 🔊 in the health row on a sideways phone. */
+  private inviteButton?: HTMLButtonElement;
+```
+
+c. Constructor, ngay sau `this.health.append(actionsRow);` (dòng 67): chỉ khi `isTouch`.
+- Tạo `<span class="hud-counts">` gán vào `this.statusCounts`, rồi `this.status.append(counts, " ")`.
+- Tạo nút: `className = "invite-btn"`, `setAttribute("aria-label", "Mời bạn")`, `innerHTML = '🔗 Mời<span class="invite-more"> bạn</span>'`.
+- Gắn `click` thẳng vào nút, giữ nguyên thân xử lý của dòng 81-87 nhưng đọc `button.dataset.link`:
+  - có `navigator.share` thì mở bảng chia sẻ (`title`, `text`, `url` như cũ), `.catch(() => {})`;
+  - không có thì `navigator.clipboard?.writeText`, xong thì toast "Đã chép link mời 🔗" mức `low`, lỗi thì toast chính link đó.
+- Đặt chỗ:
+  ```ts
+  const sideways = window.matchMedia(SIDEWAYS_QUERY);
+  const placeInvite = () => (sideways.matches ? actionsRow : this.status).append(button);
+  placeInvite();
+  sideways.addEventListener("change", placeInvite);
+  ```
+- Xoá trình nghe `click` uỷ quyền trên `this.status` (dòng 79-87). Chú thích cũ ("It stays on click: both need a user gesture...") chuyển lên trình nghe mới.
+
+d. `this.health.innerHTML` (dòng 52): giữ nguyên, `.hud-time` vẫn rỗng lúc đầu.
+
+e. `setTime`: bảng nhãn thành biểu tượng + chữ:
+```ts
+const labels = { day: ["☀️", "Ngày"], dusk: ["🌇", "Hoàng hôn"], night: ["🌙", "Đêm"], dawn: ["🌅", "Bình minh"] } as const;
+```
+- Ghi `el.innerHTML = \`${icon}<span class="hud-time-word"> ${word}</span>\`` và `el.title = word`. Vẫn chỉ ghi khi pha đổi (`lastTime`).
+- Lấy `.hud-time` một lần: dùng `querySelector` như bây giờ là đủ, vì hàm chỉ chạy khi pha đổi.
+- `textContent` vẫn là "☀️ Ngày", nên test desktop `toHaveText(/Ngày|.../)` không đổi.
+
+f. `setStatus`:
+- Nhánh cảm ứng:
+  - Dựng `counts = [\`👥 ${players}/${MAX_PLAYERS}\`, \`🐾 ${captured}\`, ...RESOURCES.map((r) => \`${RESOURCE_INFO[r].icon} ${resources[r]}\`), ...(gear ? [gear] : [])]`.
+  - `html = counts.map((c) => \`<span class="hud-count">${c}</span>\`).join(" ")`.
+  - Chỉ ghi `this.statusCounts.innerHTML` khi `html !== this.lastStatus`.
+  - Gán `this.inviteButton.dataset.link = invite` khi khác. `dataset` không cần `escapeHtml`.
+  - Không ghi lại `this.status.innerHTML`: nó sẽ xoá mất nút.
+- Nhánh desktop giữ nguyên từng ký tự (biến `help`, `items` với ` &nbsp; `, link, `escapeHtml`).
+- Biến `help` chỉ desktop dùng. Đưa nó vào nhánh desktop để `noUnusedLocals` không báo, và để code dễ đọc.
+
+g. JSDoc của lớp và của `left`: thêm "the invite button (touch) moves to the health row when sideways".
+
+### 2. `packages/client/index.html`
+
+a. Sau `.hud-status a` (dòng 134), thêm:
+```css
+      /* Phones: each count (icon and number) stays whole on its line; the gap matches the old " &nbsp; " (T61). */
+      .hud-count { white-space: nowrap; }
+      .hud-count + .hud-count { margin-left: 6px; }
+```
+
+b. Trong khối `@media (max-height: 520px) and (min-width: 601px)` (dòng 405-419):
+- `.hud-left { ...; gap: 4px; }` → `gap: 3px;`
+- `.hud-health { font-size: 12px; gap: 5px; padding: 4px 8px; }` → `gap: 2px 5px;` (`.hud-actions` có `gap: inherit` nên giữ 5 px giữa các nút).
+- `.hud-status { font-size: 12px; padding: 4px 8px; line-height: 1.6; }` → `padding: 3px 8px; line-height: 1.4;`
+- Ngay sau `.hud-region { display: none; }` thêm `.hud-time-word { display: none; }`.
+- Thêm (kèm chú thích):
+  ```css
+        /* T61: on screens 375 px tall the toast must end 140 px above the bottom (the thumb corner). The invite button
+           sits after 🔊 in the health row (hud.ts moves it), short label; the status keeps to one line of counts. */
+        .hud-count + .hud-count { margin-left: 2px; }
+        .hud-actions .invite-btn { margin-left: 0; }
+        .invite-more { display: none; }
+  ```
+- Không đổi `max-width` của cột, `.boss-bar`, `.minimap`, `.party-panel`, `.toast`.
+
+c. Không đổi khối `@media (max-width: 600px)` (dọc) hay CSS desktop.
+
+### 3. `tests/e2e/multiplayer.spec.ts`: thêm (không sửa gì có sẵn)
+
+Đặt sau vòng `for (const screen of BOSS_SCREENS)` (sau dòng 2839).
+
+a. Helper `nearBoss(page: Page): Promise<void>`, khai báo trên cùng tầng file.
+- Cách chọn chỗ giống `goNearBoss` trong test `boss bar (...)`:
+  - lấy trùm bằng `bossPosition`;
+  - thử 8 hướng × bán kính 180/260/340 px, chọn chỗ xa thú hoang nhất;
+  - `debug:teleport` tới đó, chờ `.boss-bar` hiện (30 s); thử 2 lần.
+- JSDoc ghi rằng test `boss bar (...)` còn giữ bản riêng của nó (T61 không sửa test cũ), kèm đề xuất gộp ở "Đề xuất tách việc".
+
+b. Hằng số:
+```ts
+/** Phones held sideways on a 375 px tall screen (T61): iPhone X/11 Pro with its notch, iPhone SE/8. */
+const SHORT_SIDEWAYS_SCREENS = [
+  { name: "812×375, notch", options: { viewport: { width: 812, height: 375 }, hasTouch: true, isMobile: true }, insets: { left: 44, right: 44, bottom: 21 } },
+  { name: "667×375", options: { viewport: { width: 667, height: 375 }, hasTouch: true, isMobile: true }, insets: undefined },
+] as const;
+```
+
+c. Mỗi màn một test, `test.slow()`. Tên:
+`short sideways phone (${screen.name}): one-line status, 🔗 Mời by Ăn and 🔊, the toast ends above the thumb corner with and without the boss bar`
+
+1. **Vào thế giới.**
+   - `join(browser, "Hiệp", "/", { ...screen.options }, screen.insets ? safeArea(screen.insets) : undefined)`, `waitForWorld`, chờ `frames > 0`, `watchHurt(page)`.
+   - Kiểm tai thỏ đã có tác dụng: mép trái `.hud-left` = `max(12, L)` ±1, như test `boss bar`.
+2. **Chuẩn bị.** `debug:givePal` emberpup cấp 8, chờ `companions.size === 1`, `.skill-bar` hiện, `.hud-quest` có chữ. Chờ hết thông báo (`toHaveCount(0)`, 20 s).
+3. **Hàng máu và ô trạng thái, lúc hoàng hôn** (chữ giờ dài nhất).
+   - `sendFrom(page, "debug:setTime", { t: 0.66 })` (hoàng hôn kéo dài 0,65-0,72 của 8 phút, tức còn khoảng 29 s), rồi `expect(page.locator(".hud-time")).toContainText("Hoàng hôn")`.
+   - Kiểm:
+     - `.invite-btn` có đúng 1 cái (`toHaveCount(1)`), nằm trong `.hud-health .hud-actions`, và `.hud-status button` có 0 cái.
+     - `.invite-btn` có `toHaveText("🔗 Mời", { useInnerText: true })` và `toHaveAttribute("aria-label", "Mời bạn")`.
+     - `.hud-time-word` ẩn (`toBeHidden()`).
+     - Đo một lần bằng `page.evaluate`:
+       - cao `.hud-status` ≤ 24 (đo 22,8: 1 dòng);
+       - cao `.hud-health` ≤ 70 (đo 69);
+       - tâm theo chiều dọc của `.eat-btn`, `.sound-btn`, `.invite-btn` lệch nhau ≤ 2 (cùng một dòng; nút 🔗 thấp hơn nhưng căn giữa dòng 44 px, đo: cả ba tâm ở y = 55);
+       - mép phải của `.invite-btn` ≤ mép phải `.hud-health` − 7 (nằm trong hàng, không tràn).
+     - `expectTouchable(page, ".hud-left", screen.name)` trả về danh sách chứa `.eat-btn`, `.sound-btn`, `.invite-btn`: mỗi nút có vùng chạm thật ≥ 44×44.
+4. **Xoay máy.**
+   - `page.setViewportSize({ width: 375, height: 812 })`, rồi `expect(page.locator(".hud-status .invite-btn")).toHaveCount(1)` và `toHaveText("🔗 Mời bạn", { useInnerText: true })`.
+   - Trả lại cỡ cũ (`screen.options.viewport`), rồi `expect(page.locator(".hud-actions .invite-btn")).toHaveCount(1)`.
+   - Thay `navigator.share` bằng hàm giả như test `touch (...)` (dòng 365-373), `tap()` nút. `window.__shared` phải bằng `{ title: "PetGame", text: "Vào chơi cùng mình!", url: link }`, với `link = data-link` có `room=<roomId>`. Nút vẫn chạy sau khi đổi chỗ 2 lần.
+5. **Thông báo, không có thanh trùm.**
+   - `.boss-bar` ẩn (`toBeHidden()`). Chỗ xuất phát ở đồng cỏ, xa trùm.
+   - Đẩy 2 thông báo dài nhất bằng đúng hàm `pushToasts` như test `toasts` (chép 2 chuỗi đó). Chờ `toHaveCount(1)` cho `.hud-toasts > .toast:not(.out)`, rồi chờ hiệu ứng trượt vào xong (như dòng 2755).
+   - `const layout = await toastLayout(page)`, kiểm:
+     - đúng 1 thông báo;
+     - mỗi thông báo: `left ≥ 0`, `right ≤ width`, **`bottom ≤ height − 140` (235)**, không chồng phần nào trong `layout.hud` (`boxesOverlap`), `top ≥` đáy phần có tên `hud-quest` trong `layout.hud`;
+     - `layout.columnRight ≤ width / 2 − 100`.
+6. **Thông báo, có thanh trùm.**
+   - `await nearBoss(page)`, chờ hết thông báo (20 s), `pushToasts`, chờ `toHaveCount(1)` và hiệu ứng xong.
+   - `const layout = await settledBossLayout(page, () => nearBoss(page), (l) => l.toasts.length === 1, pushToasts)`.
+   - Kiểm:
+     - `expectBarClear(layout, screen.name)`: thanh không chồng hàng máu, 🫐, 🔊, 🔗, trạng thái, nhiệm vụ, nút phải, bản đồ, nút cảm ứng, tên mình; số máu không bị cắt; chữ 1 dòng.
+     - Chỗ của thanh như T30:
+       - `position === "absolute"`;
+       - |tâm − width/2| ≤ 1;
+       - |`bar.top` − `left.top`| ≤ 1;
+       - `bar.left ≥ columnRight + 8`;
+       - `bar.right ≤ minimapLeft − 8 + 0.5` (ở 667 thanh cách bản đồ đúng 8 px; 0,5 cho làm tròn dưới px);
+       - `questShown === true`.
+     - Thanh trong vùng an toàn: `left ≥ L − 1`, `right ≤ width − R + 1`.
+     - Mỗi thông báo: **`bottom ≤ height − 140`**, không chồng `[layout.bar, ...layout.parts]` (thông điệp lỗi như dòng 2765).
+     - `columnRight ≤ width / 2 − 100`.
+
+**Test có sẵn phải qua, không sửa một dòng:**
+- `toasts (phone sideways)`: đáy 198 ≤ 250.
+- `boss bar (phone sideways[, notch])`: đáy 198 và 214 ≤ 250; nút 🔗 (`[128..189]`, `[163..224]`) vẫn ngoài thanh `[322..522]`.
+- `touch (phone sideways)`: `invite-btn` vẫn có tâm ở nửa trái, nằm trên cùng, `tap` mở bảng chia sẻ.
+- `touch targets (phone sideways)`: 🔗 61×44.
+- Mọi test cầm dọc và desktop: DOM dọc chỉ thêm span, hộp như cũ; desktop không đổi.
+- "HUD shows health, time of day...": desktop, `textContent` của `.hud-time` vẫn có chữ.
 
 ## Giao thức
 
-- Không đổi `schema.ts`, `messages.ts` hay `Profile`. Client không đổi.
-- Header `x-real-ip` là nội bộ giữa listener của ta và Colyseus. Giá trị `"unknown"` chỉ đi vào `authContext.ip` và `addressKey`.
+Không đổi `schema.ts`, `messages.ts`, `Profile`, server hay shared. Chỉ client (DOM/CSS) và e2e.
 
 ## Test
 
-Tất cả trong `packages/server/src/worldLimits.test.ts`. Import thêm `RefusalLog` và `stampClientAddress`.
-
-**`describe("clientAddress")` (2a)**
-- Sửa test "clamps to the first entry…":
-  - Bỏ `clientAddress(undefined, "2.2.2.2", 2)` vì giờ phải ra `undefined`.
-  - Thay bằng `clientAddress("10.0.0.1", "2.2.2.2", 3)`, mong `"2.2.2.2"`. Giữ dòng `("10.0.0.1", undefined, 3)`, mong `"10.0.0.1"`.
-  - Đây là siết luật, không phải nới test.
-- Thêm test "has no address without a socket address, whatever the header says":
-  - `(undefined, "9.9.9.9", 0)`, `(undefined, "2.2.2.2", 2)` và `("", "9.9.9.9", 1)` đều ra `undefined`.
-  - Giữ hai dòng của test "has no address without socket and header".
-
-**`describe("stampClientAddress")` (2a)**
-- "writes the socket address over any address header":
-  - Đầu vào: `{ headers: { "x-real-ip": "8.8.8.8", "x-forwarded-for": "9.9.9.9" }, socket: { remoteAddress: "10.0.0.1" } }` với `trustProxy` 0.
-  - Mong: `headers["x-real-ip"] === "10.0.0.1"`.
-  - Dùng `as unknown as IncomingMessage` hoặc kiểu `Pick` cho object giả.
-- "writes unknown, never deletes, when there is no address":
-  - Đầu vào: `socket: { remoteAddress: undefined }`, các header như trên, với `trustProxy` 0 rồi 1.
-  - Mong: `headers["x-real-ip"] === "unknown"` và `addressKey(headers["x-real-ip"]) === "unknown"`.
-
-**`describe("addressKey")` (2b)**
-- Thêm vào test "keeps IPv4 and unwraps IPv4-mapped IPv6" (hoặc một test mới "unwraps hex IPv4-mapped IPv6"):
-  - `addressKey("::ffff:cb00:7105")`, `addressKey("::FFFF:CB00:7105")` và `addressKey("0:0:0:0:0:ffff:cb00:7105")` đều ra `"203.0.113.5"`.
-  - `addressKey("::ffff:203.0.113.5%eth0")` ra `"203.0.113.5"`.
-- Kiểm không bóc nhầm:
-  - `addressKey("::cb00:7105")` ra `"0:0:0:0::/64"`;
-  - `addressKey("1::ffff:cb00:7105")` ra `"1:0:0:0::/64"`.
-- Các test /64 cũ phải qua nguyên vẹn.
-
-**`describe("RefusalLog")` (2c)**, mỗi test một `new RefusalLog()`:
-- "logs the first refusal at once":
-  - `note("address", 1_000, 3)` ra đúng `"World limits: refused 1 world creation (server 0, address 1); 3 worlds open"`.
-- "counts refusals within a minute into the next line, with the real time span":
-  - `note("address", 0, 1)` in ngay. `note("server", 10_000, 2)` và `note("address", 30_000, 2)` ra `undefined`.
-  - `note("address", 7_200_000, 4)` ra đúng `"World limits: refused 3 world creations in the last 7190 s (server 1, address 2); 4 worlds open"`.
-  - Chữ "in the last minute" không còn xuất hiện.
-- "starts a new count after a line":
-  - Tiếp chuỗi trên: `note("server", 7_230_000, 4)` ra `undefined`; `note("server", 7_260_000, 4)` ra `"… refused 2 world creations in the last 30 s (server 2, address 0); 4 worlds open"`.
-  - Chuỗi `…` là cùng tiền tố `World limits: `; test so cả câu.
-  - Kiểm: 7_260_000 − 7_200_000 = 60_000, không nhỏ hơn `REFUSAL_LOG_MS`, nên câu được in; `firstAt = 7_230_000`, nên s = 30.
-
-**`describe("limits from env")` (2d):** test hiện có phải qua nguyên vẹn. Không cần test mới, vì `intFromEnv` không export.
-
-**`describe("creating worlds over HTTP")` (2e)**, thêm test "refuses to install on a matchmaker it does not recognise, installing nothing":
-- Ghi lại `const http = server.transport.server!`, `const listeners = http.listenerCount("request")`, `const invoke = matchMaker.controller.invokeMethod` và `const exposed = matchMaker.controller.exposedMethods`.
-- Ba trường hợp, mỗi trường hợp gán rồi khôi phục trong `try/finally`:
-  1. `exposedMethods = exposed.filter((m) => m !== "create")`;
-  2. `exposedMethods = undefined as any`;
-  3. `invokeMethod = undefined as any`.
-- Mỗi trường hợp mong `expect(() => guardWorldCreation(server, settings, new WorldCensus())).toThrow(/invokeMethod\(\) and exposedMethods/)`.
-- Sau cả ba trường hợp:
-  - `http.listenerCount("request")` vẫn bằng `listeners`;
-  - `matchMaker.controller.invokeMethod` vẫn là `invoke`;
-  - `(await create()).status` vẫn là 200, nghĩa là bộ chặn đang cài vẫn chạy.
-- Test sẵn có "cannot be fooled by address headers" và "is undone completely" phải còn qua: chúng chứng minh `stampClientAddress` vẫn chạy trước listener của Colyseus.
-
-**Scripts:** không có test tự động, vì `dev.mjs` và `shots.mjs` chạy ngay khi import. Tester kiểm tay:
-- Ngắt server dev đang chạy nếu có (cổng 2567 và 5173 phải trống).
-- Chạy `timeout 40 npm run dev`. Log server phải có `World limits: 50 worlds, 1000 per address; trusting 0 proxies`.
-- Chạy `PETGAME_MAX_WORLDS_PER_ADDRESS=2 timeout 40 npm run dev`. Log phải có `2 per address`.
-- Chạy `npm run shots -- --name t66 --no-build` (cần build có sẵn, hoặc bỏ `--no-build`) và xác nhận chạy xong, không lỗi 429. Bước này chậm; chỉ bắt buộc khi máy chạy được Chromium.
-
-**E2E:** không thêm. `playwright.config.ts` không đổi, và `npm run test:e2e` phải còn qua.
+- Unit, tích hợp: không thêm. Không có logic dùng chung mới; `Hud` không có unit test, và matchMedia/bố cục chỉ kiểm được trong trình duyệt.
+- E2E: 2 test mới (mục 3), chạy riêng bằng `npx playwright test -g "short sideways phone"`. Rồi chạy toàn bộ `npm run test:e2e`.
+- Tester nên chạy thêm `-g "toasts \\(|boss bar \\(|touch"` để thấy sớm nếu test cũ hỏng.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `scripts/dev.mjs` truyền `PETGAME_MAX_WORLDS_PER_ADDRESS` (mặc định `"1000"`, giữ giá trị đã đặt) **chỉ** cho tiến trình server. Client nhận `process.env` như cũ. Không nâng `PETGAME_MAX_WORLDS`.
-- [ ] `scripts/shots.mjs` thêm `PETGAME_MAX_WORLDS_PER_ADDRESS: "1000"` vào `env` của server.
-- [ ] `package.json` (script `play`, `dev:server`), `packages/server/package.json`, `Dockerfile`, `fly.toml`, `render.yaml`, `playwright.config.ts` và `WORLD_LIMITS` không đổi. Kiểm bằng `git diff --stat`.
-- [ ] `clientAddress` trả `undefined` khi không có `remote`, dù header nói gì.
-- [ ] `stamp` không còn `delete req.headers["x-real-ip"]`; địa chỉ không xác định thành `"unknown"`.
-- [ ] `addressKey` bóc IPv4 lồng trong IPv6 cả dạng chấm lẫn hex, và không bóc nhầm `::a:b` hay tiền tố khác 0.
-- [ ] Câu log bị chặn khớp từng ký tự với Thiết kế 2c; chuỗi "in the last minute" không còn trong repo (`grep -rn "in the last minute" packages` rỗng).
-- [ ] `positiveInt` không còn (`grep -n positiveInt packages` rỗng); `intFromEnv` có JSDoc đúng.
-- [ ] `guardWorldCreation` ném lỗi có chữ `invokeMethod() and exposedMethods` khi controller sai dạng, và không cài listener hay wrapper nào trước khi ném.
-- [ ] Mọi test mới ở mục Test có mặt và qua. Test cũ chỉ sửa đúng chỗ đã ghi ("clamps…"), không test nào bị nới hay bỏ.
-- [ ] `npm run typecheck`, `npm test` và `npm run test:e2e` sạch.
-- [ ] Kiểm tay `npm run dev` ra `1000 per address`, và với biến tự đặt ra đúng số đó.
-- [ ] Tài liệu: `docs/architecture.md` (hai chỗ, có câu `auth.ip`/`client.ip` ở WebSocket vẫn giả được), `docs/deploy.md` và `docs/design/multiplayer.md` sửa như Thiết kế 3.
-- [ ] Chú thích code bằng tiếng Anh; tài liệu bằng tiếng Việt.
+- [ ] `npm run typecheck`, `npm test`, `npm run build` sạch. `npm run test:e2e` qua toàn bộ, kể cả 2 test `short sideways phone (...)` mới.
+- [ ] Không có dòng nào của test có sẵn bị sửa hoặc xoá (`git diff` của `multiplayer.spec.ts` chỉ có dòng thêm).
+- [ ] Ở 812×375 có tai thỏ 44 và 667×375, khi có và không có thanh máu trùm: thông báo dài nhất (1 cái) kết thúc ≤ 235 px. Số đo bản thử: 214 và 228.
+- [ ] Khi cầm ngang:
+  - ô trạng thái 1 dòng (cao ≤ 24) với số liệu lúc mới vào;
+  - hàng máu cao ≤ 70 ở mọi giờ, kể cả "Hoàng hôn";
+  - chữ giờ chỉ còn biểu tượng.
+- [ ] Nút 🔗 Mời khi cầm ngang:
+  - nằm sau 🔊 trong hàng máu, nhãn "🔗 Mời", `aria-label="Mời bạn"`;
+  - vùng chạm thật ≥ 44×44;
+  - mở bảng chia sẻ bằng `click`;
+  - đổi chỗ đúng khi xoay máy, chỉ có đúng 1 phần tử `.invite-btn`.
+- [ ] Cầm dọc: nút "🔗 Mời bạn" vẫn ở cuối ô trạng thái; hộp ô trạng thái và nút như trước (390×844: `[12,88,262,136]`, nút `[24,111,112,132]`). Desktop không đổi.
+- [ ] Thanh máu trùm cầm ngang giữ đúng chỗ của T30 (giữa trên, cách cột ≥ 8, cách bản đồ ≥ 8), không chồng phần nào của HUD. Cột kết thúc ≤ giữa − 100.
+- [ ] `setStatus` không ghi DOM khi các con số không đổi. Nút 🔗 không bị tạo lại mỗi lần cập nhật (một phần tử dùng suốt). Không có `querySelector` mới chạy mỗi khung.
+- [ ] Không đổi `toastQueue.ts`, `Game.ts`, server, shared.
+- [ ] `docs/design/hud.md` khớp với code (đã cập nhật cùng kế hoạch: bảng bố cục, mục "Hàng trạng thái và nút 🔗 khi cầm ngang", "Vùng an toàn", "Cỡ chạm").
 
 ## Rủi ro, câu hỏi mở
 
-1. **Kiểu của `controller`:** `typeof controller?.invokeMethod !== "function"` có thể bị TypeScript coi là luôn sai. Lỗi này không làm hỏng `noUnusedLocals`, nhưng nếu `tsc` báo so sánh vô nghĩa thì đọc qua một biến kiểu rộng: `const c = matchMaker.controller as { invokeMethod?: unknown; exposedMethods?: unknown }`.
-2. **Gán `undefined` vào `controller` trong test:** cần `as any`. Bắt buộc khôi phục trong `finally`, nếu không các test sau trong file hỏng dây chuyền.
-3. **`npm run dev:server`** vẫn giữ trần 10. Chấp nhận và đã ghi tài liệu. Nếu sau này cần, chuyển phần đặt biến vào một script Node riêng cho server.
-4. Không có mục CHẶN.
+- **Font trên CI khác container.** Ở 667 còn dư 7 px. Nếu font khác làm thông báo 4 dòng (+17 px) hay gợi ý nhiệm vụ 3 dòng thì sẽ hỏng. Khi đó báo lại kèm số đo, **không** nới mốc 235.
+- **Ô trạng thái đầy nhất ở 667** (3 tài nguyên ≥ 100, 12 thú trở lên, có đồ): xuống 2 dòng, đáy 245 > 235. Vẫn tốt hơn bây giờ (279), và người mới (trường hợp e2e đo) đạt. 812 có tai thỏ vẫn đạt (231). Đề xuất tách việc bên dưới.
+- **Màn 601-~615 px rộng**: dòng 2 hàng máu (169 px) rộng hơn phần chữ (162 px) nên tràn 6 px sang phải. Không có điện thoại phổ biến nào cầm ngang ở cỡ này (iPhone SE đời đầu 568 px rộng dùng bố cục dọc ≤ 600). Chấp nhận.
+- **Thanh trùm cách bản đồ nhỏ 8 px, không phải 12 px như `hud.md` viết ở T30**: viền 2 px mỗi bên của bản đồ không được tính. Không đổi hành vi, chỉ sửa câu trong tài liệu (đã sửa). Test mới kiểm ≥ 8 như test T30.
+- **Hoàng hôn trong test** chỉ kéo dài khoảng 29 s sau `debug:setTime 0.66`. Bước 3 đo ngay khi chữ hiện, nên không cần lâu hơn. Ở bước 6 không cần hoàng hôn: chữ giờ đã ẩn nên giờ nào cũng như nhau.
+- Không có "CHẶN:".
+
+### Đề xuất tách việc (agent chính thêm vào `TASKS.md`)
+
+1. **Điện thoại ngang 640×360 (Android): thông báo quá mốc ngón cái** (P3). Sau T61, đáy 228 > 360 − 140 = 220 (trước T61 là 260). Hướng làm: gợi ý nhiệm vụ gọn hơn khi cao ≤ 360, hoặc thông báo chữ 12 px; đo lại bằng test `short sideways phone`.
+2. **Ô trạng thái đầy ở 667×375 xuống 2 dòng** (P3). Ví dụ "👥 5/5 🐾 12 🪵 999 🪨 999 🫐 999" kèm đồ thì đáy thông báo 245 > 235. Hướng làm: khi cầm ngang ẩn biểu tượng đồ (đã thấy trên nhân vật và trong Tủ đồ), hoặc viết gọn số ≥ 1000 ("1,2k"). Thêm trường hợp ô đầy vào e2e.
+3. **Dọn test**: cho test `boss bar (...)` dùng `nearBoss` (T61) thay bản `goNearBoss` riêng trong thân test, để bỏ chỗ trùng lặp (P3, chỉ đổi test).

@@ -6,7 +6,7 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 
 | Vùng | Desktop | Điện thoại dọc | Điện thoại ngang |
 |---|---|---|---|
-| Cột trái trên (`.hud-left`), từ trên xuống: hàng máu và giờ (kèm nút 🫐 Ăn, 🔊), trạng thái, nhiệm vụ (hoặc thanh máu trùm, xem dưới), rồi **thông báo** | rộng tối đa 460 px | rộng 100vw − 140 px | rộng `min(300 px, 50vw − 110 px − lề trái)`, chữ 12 px, ẩn tên vùng và dòng "Thưởng" của nhiệm vụ |
+| Cột trái trên (`.hud-left`), từ trên xuống: hàng máu và giờ (kèm nút 🫐 Ăn, 🔊), trạng thái, nhiệm vụ (hoặc thanh máu trùm, xem dưới), rồi **thông báo** | rộng tối đa 460 px | rộng 100vw − 140 px | rộng `min(300 px, 50vw − 110 px − lề trái)`, chữ 12 px, ẩn tên vùng, chữ của giờ (chỉ còn ☀️ 🌇 🌙 🌅) và dòng "Thưởng" của nhiệm vụ; nút 🔗 Mời nằm trong hàng máu, ô trạng thái một dòng (mục "Hàng trạng thái và nút 🔗 khi cầm ngang") |
 | Cột phải trên: 🐾 Thú, 🏕️ Đặt trại, 🔨 Chế tạo, 👕 Tủ đồ (cách nhau 48 px), bản đồ nhỏ | bản đồ dưới các nút (top 204) | bản đồ dưới các nút (top 196) | bản đồ bên trái các nút |
 | Bảng Thú, Chế tạo, Tủ đồ | dưới cột nút phải (top 204), rộng 340 | top 196, rộng 340 | bên trái cột nút; Thú và Tủ đồ rộng 490 |
 | Thanh máu trùm (khi cách trùm ≤ 450 px) | rộng ≥ 1248 px: giữa trên, rộng `min(420, 100vw − 2 × lề trái − 944)` (1280: 312 px). Hẹp hơn: trong cột, thế chỗ ô nhiệm vụ | trong cột, thế chỗ ô nhiệm vụ | giữa trên, rộng `min(200, 100vw − 2 × lề phải − 528)`, nằm giữa cột trái và bản đồ |
@@ -37,7 +37,7 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 
 Thanh nằm đúng giữa màn hình, mép trên ngang mép trên cột, không nền. Bề rộng tính để cách cột trái và bản đồ nhỏ ít nhất 12 px:
 - desktop: `min(420, 100vw − 2 × lề trái − 944)`. Cột desktop rộng tối đa 460 px, nên 944 = 2 × (460 + 12). Mốc 1248 là chỗ thanh còn 280 px, đủ hiện tên và số cỡ 14 px.
-- ngang: `min(200, 100vw − 2 × lề phải − 528)`. Bản đồ nhỏ có mép trái ở 100vw − lề phải − 252.
+- ngang: `min(200, 100vw − 2 × lề phải − 528)`. Bản đồ nhỏ có mép trái ở 100vw − lề phải − 256 (rộng 112 px, cộng viền 2 px mỗi bên), nên khi thanh bị thu hẹp (màn rộng dưới 728 + 2 × lề phải: 752 px khi không có tai thỏ, 816 px với tai thỏ 44) nó cách bản đồ 8 px, không phải 12. Đo ở T61: 667×375, thanh `[276..391]`, bản đồ từ 399; 812×375 tai thỏ 44, thanh `[308..504]`, bản đồ từ 512.
 
 **Trong cột trái, thế chỗ ô nhiệm vụ**, ở mọi màn rộng ≤ 600 px và desktop/máy tính bảng rộng 601-1247 px:
 - Thanh là một ô như các ô khác của cột: nền tối, viền trái màu cam (ô nhiệm vụ viền vàng), tên bên trái, số bên phải. Thanh đứng sau ô trạng thái, trước thông báo.
@@ -63,11 +63,51 @@ Luật: mọi thứ trên HUD nằm cách mép **ít nhất 12 px, hoặc phần
   - mép trên `max(204, lề trên + 192)` (desktop), `max(196, lề trên + 184)` (dọc), luôn dưới vùng chạm 44 px của nút 👕 Tủ đồ;
   - đáy cách mép dưới `max(12, lề dưới)` (ngang `max(8, …)`), không nằm dưới thanh Home.
   - Trước T30, bảng khi cầm dọc mở ở top 196 cố định, nên trên iPhone có tai thỏ nó đè nút Tủ đồ 75×22 px.
-- **Còn tồn tại (làm ở việc riêng):** ở điện thoại ngang chỉ cao 375 px, cột hẹp lại làm ô trạng thái xuống 2 dòng, và thông báo kết thúc quá mốc cao − 140 px:
-  - 812×375 có tai thỏ: 246 > 235;
-  - 667×375: 260 > 235.
-  Chọn giữ luật "cột trước giữa màn hình 100 px", vì cột nằm đó mãi, còn thông báo chỉ hiện vài giây và chạm xuyên được.
+- **Điện thoại ngang chỉ cao 375 px** (812×375 có tai thỏ, 667×375): cột hẹp lại theo luật "cột trước giữa màn hình 100 px". Từ T30 đến T61, ô trạng thái vì thế xuống 2 dòng, và thông báo kết thúc ở 246 và 260, quá mốc cao − 140 = 235. T61 giữ luật cột, và thu gọn hàng trạng thái (mục "Hàng trạng thái và nút 🔗 khi cầm ngang"): còn 214 và 228.
 - **Kiểm thử:** e2e giả lập tai thỏ bằng CDP `Emulation.setSafeAreaInsetsOverride`. Chromium chưa có lệnh này thì viết lại `env(safe-area-inset-*)` trong `index.html` thành số px. Test kiểm lại rằng lề đã có tác dụng.
+
+## Hàng trạng thái và nút 🔗 khi cầm ngang
+
+Đặt ra ở nhiệm vụ T61 (số đo trong `PLAN.md` của commit kế hoạch T61). Áp dụng cho mọi điện thoại cầm ngang (cao ≤ 520 px, rộng ≥ 601 px); cầm dọc và desktop không đổi.
+
+**Vấn đề:** trên màn cao 375 px, ô trạng thái xuống 2 dòng vì nút "🔗 Mời bạn" (88 px) không còn chỗ sau các con số. Thông báo vì thế kết thúc quá mốc ngón cái cao − 140 = 235:
+- 812×375 có tai thỏ: 246;
+- 667×375: 260.
+
+**Bố cục cột khi cầm ngang**, từ trên xuống:
+- **Hàng máu**, cao 69 px:
+  - dòng 1: `☀️ ❤️ [thanh máu] 100/100`;
+  - dòng 2: `[🫐 Ăn] [🔊] [🔗 Mời]`, cao 44 px.
+- **Ô trạng thái**, một dòng: `👥 1/5 🐾 1 🪵 0 🪨 0 🫐 0` (thêm biểu tượng đồ nếu có).
+- Ô nhiệm vụ, rồi thông báo (1 cái), như cũ.
+
+**Luật:**
+- **🔗 Mời nằm sau 🔊 trong hàng máu.**
+  - Nhãn ngắn "🔗 Mời"; trình đọc màn hình đọc "Mời bạn" như ở mọi màn.
+  - Vùng chạm 61×44 px. Vẫn nghe `click`, vì mở bảng chia sẻ cần cử chỉ người dùng.
+  - Lý do: dòng 2 đã cao 44 px vì Ăn và 🔊, bên phải còn trống, nên nút vào đó không tốn thêm chiều cao nào.
+  - Xoay máy thì nút đổi chỗ ngay; cầm dọc nó lại là "🔗 Mời bạn" ở cuối ô trạng thái.
+- **Chữ giờ chỉ còn biểu tượng** (☀️ Ngày, 🌇 Hoàng hôn, 🌙 Đêm, 🌅 Bình minh), như tên vùng đã ẩn khi cầm ngang.
+  - Lý do: lúc "Hoàng hôn", dòng 1 tràn ở 667 px, đẩy "100/100" xuống dòng 2 và cụm nút xuống dòng 3. Hàng máu khi đó cao 85 px, thông báo kết thúc ở 244.
+  - Chữ vẫn có trong `title`. Ánh sáng của thế giới cũng cho biết giờ.
+- **Ô trạng thái gọn:**
+  - Mỗi con số (biểu tượng và số) không bị ngắt giữa chừng; giữa hai con số là 1 dấu cách + 2 px.
+  - Chữ 12 px, line-height 1.4, đệm 3 px trên dưới: cao 23 px.
+  - Số lớn thì vẫn xuống dòng giữa các con số, không cắt số nào.
+- **Khoảng cách:** giữa các ô của cột 3 px, giữa 2 dòng của hàng máu 2 px.
+
+**Kết quả** (thông báo dài nhất, có hay không có thanh máu trùm):
+
+| Màn | Trước | Sau | Mốc |
+|---|---|---|---|
+| 812×375, tai thỏ 44 | 246 | 214 | 235 |
+| 667×375 | 260 | 228 | 235 |
+| 844×390 | 210 | 198 | 250 |
+| 844×390, tai thỏ 47 | 246 | 214 | 250 |
+
+**Còn tồn tại (việc riêng):**
+- 640×360 (Android): 228 > 220 (trước là 260).
+- Ô trạng thái rất đầy ở 667 px (3 tài nguyên ≥ 100, có đồ): xuống 2 dòng, 245 > 235 (trước là 279).
 
 ## Cần điều khiển và nút cảm ứng
 
@@ -138,7 +178,7 @@ Bảng đóng (bằng bất kỳ cách nào) thì focus rời bảng, phím th�
   - Tăng cỡ thật khi có chỗ: nút trong bảng, tab Tủ đồ, ô màu, nút kiểu tóc, ô tên, 🔊, Tự động, nút Bóng, ✕ đóng bảng.
   - Vùng chạm vô hình cao 44 px quanh nút nhỏ hình, khi tăng cỡ làm vỡ bố cục gọn: bốn nút cột phải và 🔗 Mời bạn. Hai vùng chạm không được chồng nhau, nên bốn nút cột phải cách nhau 48 px.
 - **Đo bằng vùng chạm thật** (chạm thử từng điểm từ tâm nút ra), không bằng hộp bao: vùng vô hình không nằm trong hộp bao, còn phần bị nút khác đè thì không bấm được.
-- **Hàng máu:** 🫐 Ăn và 🔊 luôn đi cùng nhau. Không đủ chỗ cạnh thanh máu thì cả cặp xuống dòng 2. Nhờ vậy khi cầm ngang hàng máu luôn cao 72 px, không đổi theo chữ giờ (trước đó 52-87 px), và thông báo vẫn kết thúc trên mốc màn hình − 140 px.
+- **Hàng máu:** 🫐 Ăn và 🔊 (khi cầm ngang thêm 🔗 Mời, T61) luôn đi cùng nhau. Không đủ chỗ cạnh thanh máu thì cả cụm xuống dòng 2. Nhờ vậy khi cầm ngang hàng máu không đổi theo chữ giờ (trước T18 là 52-87 px), và thông báo vẫn kết thúc trên mốc màn hình − 140 px. Từ T61 hàng cao 69 px (trước là 72): dòng 2 sát dòng 1 hơn, và chữ giờ chỉ còn biểu tượng nên dòng 1 không bao giờ tràn.
 - **Bảng không bao giờ tràn khỏi màn hình:** đáy cách mép dưới 12 px (ngang 8 px), hoặc phần thanh Home nếu lớn hơn (T30, mục "Vùng an toàn").
 - **Thẻ thú:**
   - Cầm dọc và desktop: nút xếp một cột.
@@ -168,7 +208,7 @@ Bảng đóng (bằng bất kỳ cách nào) thì focus rời bảng, phím th�
 **Chỗ hiện.** Ngay dưới ô nhiệm vụ (hoặc dưới thanh máu trùm khi nó thế chỗ ô nhiệm vụ), trong cột trái. Cột cao bao nhiêu thì thông báo tự xuống theo, nên không bao giờ đè lên các ô của cột, các nút bên phải hay bản đồ. Rộng theo cột, desktop tối đa 420 px. Chữ đậm 15 px (điện thoại 13 px) trên nền đen mờ. Thông báo quan trọng có viền vàng bên trái.
 
 **Bao nhiêu cái cùng lúc.** Tối đa 2, xếp theo thứ tự hiện, cái mới ở dưới. Chỉ 1 cái khi:
-- điện thoại ngang (màn hình cao ≤ 520 px): để góc ngón cái trái trống cho cần điều khiển;
+- điện thoại ngang (màn hình cao ≤ 520 px): để góc ngón cái trái trống cho cần điều khiển. Thông báo phải kết thúc trên mốc cao − 140 px (T18), cả trên màn chỉ cao 375 px (T61);
 - điện thoại dọc thấp hơn 760 px (ví dụ Safari trên iPhone khi có thanh địa chỉ): cột trái nằm ngay trên đầu nhân vật, 2 thông báo sẽ đè lên nhân vật.
 
 **Ba mức quan trọng.**
