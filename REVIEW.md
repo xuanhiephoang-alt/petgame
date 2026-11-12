@@ -1,46 +1,28 @@
 PASS
-# REVIEW: T28 Đánh dấu thú đang nhắm, vòng 2
-
+# REVIEW: T59 Cây bị chặt không hết rung, cây mọc lại không lớn hết, vòng 1
 ## Kết luận
-Lỗi phải sửa của vòng 1 đã sửa đúng cách: thú đang nhắm không còn bị tán cây hay núi lửa che. Phần nối dây `aimAt` trong `Scenery.update` chưa có test hành vi. Không bắt buộc sửa, vì hai hàm thuần đã có test, phần nối chỉ một dòng và ảnh chụp xác nhận. Không còn lỗi phải sửa.
+Thay đổi làm đủ các bước và tiêu chí trong PLAN.md, không làm thừa. `dt` thật đã vào `Scenery.update` (lấy từ `frame()`, giới hạn 0,1 s). Toán rung và mọc lại nằm trong `propMotion.ts` thuần, cho ra đúng số của `23cb20b`. Hai lỗi phụ (khung cuối của mọc lại, đếm lùi ngoài camera) đã sửa đúng. Typecheck sạch, `propMotion.test.ts` 10/10 (reviewer chạy lại). Tester đã xác nhận e2e hỏng khi đặt lại `dt = 0`.
 
 ## Lỗi phải sửa (FAIL khi còn mục này)
-(không còn)
+Không có.
 
-## Đã kiểm ở vòng này
-- **`canopy.ts`:** `canopyHides` giữ đúng phép kiểm cũ (điều kiện `point.y >= prop.y - 4`, khoảng cao và rộng của tán, nhân theo `scale`). `boxHides` dùng cho hình nón núi lửa. Có test cho các trường hợp trước, bên cạnh, phía trên, `undefined` và tỉ lệ.
-- **`Scenery.update`:**
-  - một tán trong suốt khi che người chơi hoặc chân thú đang nhắm;
-  - hình nón mờ cùng hệ số 0,15, alpha thấp nhất 0,4;
-  - không tạo object mới mỗi khung, mỗi khung chỉ thêm O(1) cho hình nón.
-- **`Game.ts`:** truyền `aimed?.actor.pos` vào `scenery.update`. Lệnh này chạy sau `throwTarget` trong cùng khung, nên không trễ.
-- **Chú thích `THROW_REACH_SLACK`:** đã sửa đúng (nửa nhịp patch, một vòng mạng).
-- **`shots.mjs`:** mỗi lần thử lại lùi 260 px, ra ngoài tầm ném.
-- **Ảnh** (đã xem `shots/t28/aim-swamp.png`, phóng to vùng quanh con đang nhắm, và `aim-volcano-night.png`):
-  - Núi lửa đêm: nón đã mờ, Lv 4 Leafkit rõ, vòng đọc được (cung và mũi dưới chân).
-  - Đầm lầy: Lv 2 Leafkit đứng rõ, nhãn ghim ngay trên đầu, cung phải của vòng lộ ra. Con lành lặn (không nhãn) hiện qua tán đã mờ, tách hẳn khỏi con đang nhắm. Người chơi phân biệt được bóng sẽ bay vào con nào, nên đạt mục đích của tiêu chí.
-  - Phần lớn vòng ở đầm lầy bị **lá súng nổi** che. Đây là hạn chế của lớp vẽ, xem góp ý thứ nhất.
-
-## Lỗ hổng test (`aimAt` không có test hành vi): không bắt buộc
-- Logic thật (hai hàm kiểm che) đã nằm trong hàm thuần và có test.
-- Phần còn lại là nối dây trong lớp Pixi, chỉ một dòng ở mỗi đầu:
-  - nếu tham số bị bỏ không dùng, typecheck (`noUnusedParameters`) bắt;
-  - nếu chỗ gọi bỏ đối số, ảnh `aim-swamp`, `aim-volcano-night` lộ ra.
-- Muốn có test e2e thì phải mở thêm một bộ đếm trong `debugInfo` (số tán và nón đang mờ) chỉ để test. Hiệu ích không xứng với chi phí, nên để thành việc sau (mục dưới), không chặn T28.
+## Đã kiểm
+- **Số hình không đổi so với `23cb20b`:** 0,35 / 0,45 / 0,55 / 0,14 / 60 / 2 / 90. `shakeLean`, `shakeJolt` cho ra đúng biểu thức `sin(left·rate)·max·(left/0.35)`. `growSize` đúng `0.55 + 0.45·(1-(1-g)²)`, chỉ thêm kẹp `g` về 0..1 (không đổi kết quả trong khoảng cũ). `scenery.ts` không còn số cứng của rung hay mọc lại. Unit test ghim thẳng 0,14 / 2 / 0,55 (không đọc lại `PROP_MOTION`), nên lỡ tay đổi số sẽ bị bắt.
+- **Chuyển trạng thái** (`scenery.ts:298-334`, `352-385`):
+  - Rung xong trên màn hình: khung cuối đặt `skew = 0`, `x = prop.x`, rồi đi tiếp vào nhánh lay gió và mờ tán như cây khác.
+  - Rung xong ngoài màn hình: đứng thẳng, đúng chỗ. Lúc camera quay lại, nhánh lay gió đặt lại `skew`.
+  - Đang rung ngoài màn hình: `continue` sau khi đã gán `sprite.visible = false`, đúng.
+  - Cây đổ giữa lúc đang rung: `setFelled(true)` đặt `skew = 0` và `grow = 0`, gốc chỉ giật ngang, không bị đặt lại cỡ cây. Trường hợp cây vừa mọc lại đã bị chặt ngay trong 0,45 s cũng được sửa luôn.
+  - Đá vụn hay gốc cây bị đánh: `growing = false` nên không đổi cỡ riêng do `setFelled(true)` đặt.
+  - Khung `grow` về 0: `growing` đọc trước khi đếm lùi, `growSize(0) = 1`, nên cỡ đúng tuyệt đối. Tester xác nhận e2e bắt được khi đổi ngược lại.
+  - Lật hình được giữ bằng `Math.sign(sprite.scale.x)`.
+- **Hiệu năng:** vòng lặp đã duyệt ~2058 prop mỗi khung. Phép kiểm `shake > 0 || grow > 0` chỉ được đưa lên trước phép kiểm tầm nhìn, tức thêm hai phép so sánh mỗi vật. Phần đếm lùi và đặt dáng chỉ chạy cho vài vật đang rung hay đang mọc. Các hàm thuần trả số, không tạo object. `debugProp` chỉ tạo object khi test gọi. Không đổi số sprite.
+- **Hook debug:** `debugInfo(prop?)` và `debugProp` chỉ đọc, chạy ở client, không gửi gì lên server, nên không phải hook `debug:*` của server và không mở đường gian lận. Gọi không tham số (`scripts/shots.mjs`) vẫn trả như cũ, chỉ thêm `prop: undefined`.
+- **Đường tắt e2e `setFelled(i, false)`:** chỉ đổi hình ở client, có chú thích trong test. Khi server mọc lại thật (90 s sau), `onRemove("felled")` gọi `setFelled(false)` và nó dừng sớm vì `p.felled` đã là `false`, nên vô hại. Phần sau của test đã teleport đi chỗ khác. Không thêm hook server, đúng phạm vi.
+- **Thứ tự tin nhắn trong bước "đứng thẳng sau nhát đầu":** `gather()` gửi `Gathered` ngay (`GameRoom.ts:2024`, nên `hitProp` chạy trước), còn `wood` đi theo patch state sau đó. `NODE_HITS.tree = 3`, nên nhát đầu không làm cây đổ và `!p.felled` đứng vững. `art.sway` luôn là số (`nature.ts:41`), nên `p.sway + 1e-9` không thành NaN.
+- **Quy ước:** chú thích tiếng Anh có JSDoc, tên file và hàm đúng kiểu, import có `.ts`. Tài liệu `architecture.md` và `art-style.md` cập nhật đúng bước 6.
 
 ## Góp ý không bắt buộc
-- **Lá súng và vật nổi che vòng:** vật trôi trên nước nằm trong `stage.objects` với `zIndex = -1e5`, tức là trên lớp `marks`, nên đè lên vòng khi thú đứng ở mép ao (ảnh `aim-swamp`).
-  - Cách sửa nhỏ: đặt `AimMarker.root` vào `stage.objects` với `zIndex` khoảng `-1e5 + 1`. Khi đó vòng nằm trên vật nổi nhưng vẫn dưới mọi vật đứng.
-  - Đổi lại, số `debugInfo().objects` tăng 1.
-- **`docs/architecture.md`:** chưa nhắc `game/canopy.ts` (`canopyHides`, `boxHides`) và việc tán cây, núi lửa mờ đi theo thú đang nhắm. Nên thêm một dòng trước khi commit, ở mục `scenery.ts` hoặc `aimMarker.ts`.
-- **Hình nón dùng cả khung chữ nhật của sprite**, nên đứng ở góc trống phía trên hai bên nón cũng làm nón mờ. Chấp nhận được. Nếu thấy phiền thì thu hẹp hộp, ví dụ chỉ lấy 70% bề rộng ở giữa.
-
-## Việc mới cho TASKS.md
-1. **(P1, lỗi có sẵn từ commit `23cb20b`, không do T28)** `Game.ts:1015` gọi `scenery.update(view, t, focus, 0, …)`, tức `dt` luôn bằng 0. Trước T28 cũng vậy, chỉ là ngầm định.
-   - Trong `scenery.ts:340-347`, `p.shake` và `p.grow` không bao giờ giảm. Cây bị chặt trúng một lần thì nghiêng mãi và bỏ qua phần làm mờ (`continue`). Cây mọc lại thì đứng mãi ở 55% cỡ.
-   - Sửa: truyền `dt` của `frame()`. Thêm cách kiểm, ví dụ e2e chặt cây rồi đọc `skew` hoặc `scale`, hoặc tách bước giảm thành hàm thuần có test.
-2. **(P3)** Đưa vòng ngắm lên trên vật nổi (lá súng), theo góp ý thứ nhất.
-3. **(P3)** `debugInfo().fades` (số tán và nón đang mờ), rồi viết e2e: thú đang nhắm đứng sau một tán thì tán đó mờ.
-4. **(P3)** "Chọn thú để ném": chạm vào thú, hoặc Tab/F để đổi đích (theo PLAN.md).
-5. **(P3)** Dấu "đang nhắm" trên nhãn ghim (cần đổi CSS nhãn, thuộc thiết kế HUD).
-6. **T29:** bỏ mục đổi tên biến `d` (đã làm trong T28).
+- `tests/e2e/multiplayer.spec.ts:739-742`: bước "đứng thẳng lại" chỉ kiểm trạng thái cuối, nên nếu `hitProp` không bao giờ chạy (mất dây `Gathered` → `hitProp`, hay `node` khác `tree.index`) thì test vẫn qua mà không kiểm được gì. Lý do: Chromium phần mềm chỉ chạy vài khung/giây, rung xong trong ≤ 4 khung, nên poll khó bắt được lúc đang rung. Nếu muốn chặt hơn, có thể thêm vào `debugProp` một bộ đếm số lần bị đánh (`hits`), rồi kiểm nó tăng lên 1 sau nhát đầu. Đây là việc nhỏ, có thể thêm vào TASKS.md ở ưu tiên thấp.
+- Các chuyển trạng thái trong vòng `Scenery.update` (khung cuối, gốc không đổi cỡ, đếm lùi ngoài camera) chỉ có e2e kiểm. Lỗi `growing` → `grow > 0` không bị unit test bắt. Muốn có unit test, có thể tách thêm một hàm thuần kiểu `stepPropMotion(state, dt, kind, felled)` trả dáng vào một object dùng lại. Không cần làm ngay.
+- Rủi ro đã ghi trong PLAN: e2e không kiểm dây nối `onRemove("felled")` → `setFelled(false)` khi server mọc lại thật. Nếu sau này cần, làm hook `debug:regrow` ở server thành nhiệm vụ riêng. Hiện không đề xuất.

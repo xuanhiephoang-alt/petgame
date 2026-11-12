@@ -730,6 +730,17 @@ test("gameplay: chop a tree, dash, and knock out a dizzy pal", async ({ browser 
     });
     return near;
   }, radius);
+  const prop = () => page.evaluate((i) => (window as any).__petgame.game.debugInfo(i).prop, tree.index);
+
+  // The first hit shakes the tree, and the shake must end: upright again (only the wind sway left) and in place.
+  await expect.poll(() => wildPalsNear(100), { timeout: 60_000 }).toEqual([]);
+  await page.keyboard.press(" ");
+  await expect.poll(async () => (await me()).wood).toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => {
+    const p = await prop();
+    return !!p && !p.felled && p.shake === 0 && Math.abs(p.skew) <= p.sway + 1e-9 && Math.abs(p.dx) < 1e-6;
+  }, { timeout: 15_000 }).toBe(true);
+
   for (let i = 0; i < 8 && (await me()).wood < 3; i++) {
     await expect.poll(() => wildPalsNear(100), { timeout: 60_000 }).toEqual([]);
     await page.keyboard.press(" ");
@@ -737,6 +748,20 @@ test("gameplay: chop a tree, dash, and knock out a dizzy pal", async ({ browser 
   }
   expect((await me()).wood).toBeGreaterThanOrEqual(3);
   await expect.poll(() => page.evaluate((i) => (window as any).__petgame.room.state.felled.has(`n${i}`), tree.index)).toBe(true);
+
+  // The stump stops jolting too.
+  await expect.poll(async () => {
+    const p = await prop();
+    return !!p && p.felled && p.shake === 0 && Math.abs(p.dx) < 1e-6 && p.skew === 0;
+  }, { timeout: 15_000 }).toBe(true);
+
+  // Growing back ends at exactly full size. The server takes 90 s to regrow a tree, so call what the client does when
+  // "felled" is cleared (looks only: the server still counts the tree as chopped).
+  await page.evaluate((i) => (window as any).__petgame.game.scenery.setFelled(i, false), tree.index);
+  await expect.poll(async () => {
+    const p = await prop();
+    return !!p && !p.felled && p.grow === 0 && Math.abs(p.size - 1) < 1e-6 && Math.abs(p.dx) < 1e-6;
+  }, { timeout: 15_000 }).toBe(true);
 
   // Dash: Shift while walking covers far more ground than walking alone.
   await page.evaluate(() => (window as any).__petgame.room.send("debug:teleport", { x: 3150, y: 2500 }));

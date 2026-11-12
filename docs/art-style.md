@@ -7,7 +7,7 @@
 - **Cảm giác:** dễ thương, tươi sáng; thú tròn trịa, đầu to, mắt to bóng (tròng màu, hai đốm sáng), chân ngắn, má hồng nhạt; màu bão hòa vừa phải.
 - **Tỉ lệ (pixel của server = pixel thế giới):** người chơi cao ~56 (búp bê giấy: 200 đơn vị từ cổ tới chân, 0,13 px mỗi đơn vị); thú 37–62 tùy `size` trong `pals.json` (`palHeight` = size × 3,1); boss gấp 2,4; cây 100–130; bụi 30; rương 26.
 - **Hướng:** mỗi loài có 3 hình: trước (đi xuống màn hình), sau (đi lên), bên (đi sang phải; sang trái là hình bên lật lại). Ảnh PNG có thể có đủ 4 hướng.
-- **Chuyển động:** không vẽ từng khung hình. Thú nhún nhảy, phồng xẹp, lao tới khi đánh, rung khi bị đánh; người chơi lắc lư khi đi, đầu gật theo bước chậm hơn thân một nhịp, vung vũ khí cận chiến hoặc giơ cung, ná, gậy phép ra ngắm khi đánh. Cây, bụi lay theo gió.
+- **Chuyển động:** không vẽ từng khung hình. Thú nhún nhảy, phồng xẹp, lao tới khi đánh, rung khi bị đánh; người chơi lắc lư khi đi, đầu gật theo bước chậm hơn thân một nhịp, vung vũ khí cận chiến hoặc giơ cung, ná, gậy phép ra ngắm khi đánh. Cây, bụi lay theo gió. Cây bị chặt quất qua lại 0,35 giây rồi đứng thẳng, đá và gốc cây giật nhẹ; cây, đá mọc lại phồng từ 55% lên đủ cỡ trong 0,45 giây.
 - **Mặt đất:** màu theo vùng hòa vào nhau, bãi cát quanh biển và hồ, cỏ, hoa, sỏi vẽ thẳng vào nền (không tốn gì khi chơi), bóng mềm dưới cây/đá.
 - **Nước:** dải màu nông/sâu rõ ràng kiểu hoạt hình, viền bọt trắng ở bờ, sóng lăn vào, vài đốm lấp lánh.
 - **Ngày đêm:** ban đêm tối xanh, sáng quanh đèn lồng người chơi, lửa trại, dung nham, đèn trại, rương; hoàng hôn ấm màu cam.

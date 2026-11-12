@@ -1012,7 +1012,7 @@ export class Game {
     const day = daylight(dayTime);
     this.ground.update(view);
     this.water.update(t, this.stage.camera.zoom);
-    this.scenery.update(view, t, focus, 0, aimed?.actor.pos);
+    this.scenery.update(view, t, focus, dt, aimed?.actor.pos);
     this.chests.forEach(({ gem, at }) => gem.position.set(at.x, at.y - 34 + Math.sin(t * 2.5 + at.x) * 3));
     this.camps.forEach((camp) => {
       camp.flag.skew.y = Math.sin(t * 3 + camp.at.x) * 0.12;
@@ -1444,10 +1444,11 @@ export class Game {
     entity.actor.destroy();
   }
 
-  /** Numbers for tests and the screenshot tool. */
-  debugInfo() {
+  /** Numbers for tests and the screenshot tool; `prop` also reports the shake and regrow state of the tree or rock with that layout index. */
+  debugInfo(prop?: number) {
     const me = this.me();
     return {
+      prop: prop === undefined ? undefined : this.scenery.debugProp(prop),
       frames: this.frames,
       camera: { x: this.camera.x, y: this.camera.y },
       me: me ? { ...me.pos } : undefined,

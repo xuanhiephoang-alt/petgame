@@ -14,6 +14,7 @@ import {
 } from "@petgame/shared";
 import { berriesArt, decorArt, propArt, type PropArt, type Tint } from "./art/nature.ts";
 import { canopyHides, boxHides } from "./canopy.ts";
+import { PROP_MOTION, countDown, growSize, shakeJolt, shakeLean } from "./propMotion.ts";
 import { campfireArt, flameArt, volcanoArt } from "./art/props.ts";
 
 const TINTS: Partial<Record<TerrainKind, Tint>> = { snow: "frost", swamp: "swamp", volcano: "ash", desert: "sand", island: "beach" };
@@ -267,7 +268,24 @@ export class Scenery {
   /** The tree or rock with this layout index was hit: it shakes. */
   hitProp(index: number) {
     const p = this.byIndex.get(index);
-    if (p) p.shake = 0.35;
+    if (p) p.shake = PROP_MOTION.shakeSec;
+  }
+
+  /** Shake and growth state of one tree or rock, for e2e via `Game.debugInfo`; not called every frame. */
+  debugProp(index: number) {
+    const p = this.byIndex.get(index);
+    if (!p) return undefined;
+    const { sprite, prop, art } = p;
+    return {
+      felled: p.felled,
+      shake: p.shake,
+      grow: p.grow,
+      skew: sprite.skew.x,
+      dx: sprite.x - prop.x,
+      // Only meaningful while the prop is standing.
+      size: Math.abs(sprite.scale.y) / (prop.scale * (art.fit ?? 1)),
+      sway: art.sway,
+    };
   }
 
   /** Where a tree or rock stands and how tall it is drawn (world px), for effects. */
@@ -290,9 +308,10 @@ export class Scenery {
       const size = prop.scale * (art.fit ?? 1);
       sprite.scale.set(flip * size, size);
       sprite.tint = art.tint ?? 0xffffff;
-      p.grow = 0.45;
+      p.grow = PROP_MOTION.growSec;
       return;
     }
+    p.grow = 0;
     if (prop.kind === "rock") {
       // A low pile of the same stone.
       const size = prop.scale * (art.fit ?? 1);
@@ -329,28 +348,30 @@ export class Scenery {
     ];
   }
 
-  update(view: Rectangle, timeSec: number, focus: Vec2 | undefined, dt = 0, aimAt?: Vec2) {
+  /** Moves everything for one frame; `dt` is the seconds since the previous frame (shake and regrow run on it). */
+  update(view: Rectangle, timeSec: number, focus: Vec2 | undefined, dt: number, aimAt?: Vec2) {
     const x0 = view.x, x1 = view.x + view.width, y0 = view.y, y1 = view.y + view.height;
     for (const p of this.props) {
       const { prop, sprite, art } = p;
       // Generous bounds: tall trees reach far above their base.
       const visible = prop.x > x0 - 80 && prop.x < x1 + 80 && prop.y > y0 - 20 && prop.y < y1 + 160;
       sprite.visible = visible;
-      if (!visible) continue;
+      // Count down even off screen, so a far prop is not still shaking or swelling when the camera comes back.
       if (p.shake > 0 || p.grow > 0) {
-        p.shake = Math.max(0, p.shake - dt);
-        p.grow = Math.max(0, p.grow - dt);
-        const k = p.shake / 0.35;
+        const growing = p.grow > 0;
+        p.shake = countDown(p.shake, dt);
+        p.grow = countDown(p.grow, dt);
         // A hit tree whips back and forth, a rock jolts; one growing back swells up from small.
-        if (prop.kind === "tree" && !p.felled) sprite.skew.x = Math.sin(p.shake * 60) * 0.14 * k;
-        sprite.x = prop.x + (prop.kind === "rock" || p.felled ? Math.sin(p.shake * 90) * 2 * k : 0);
-        if (p.grow > 0) {
-          const g = 1 - p.grow / 0.45;
-          const size = prop.scale * (art.fit ?? 1) * (0.55 + 0.45 * (1 - (1 - g) * (1 - g)));
+        if (prop.kind === "tree" && !p.felled) sprite.skew.x = shakeLean(p.shake);
+        sprite.x = prop.x + (prop.kind === "rock" || p.felled ? shakeJolt(p.shake) : 0);
+        if (growing) {
+          // The last frame (grow = 0) sets exactly the full size.
+          const size = prop.scale * (art.fit ?? 1) * growSize(p.grow);
           sprite.scale.set(Math.sign(sprite.scale.x) * size, size);
         }
         if (p.shake > 0) continue;
       }
+      if (!visible) continue;
       if (p.felled) {
         sprite.alpha = 1;
         continue;
