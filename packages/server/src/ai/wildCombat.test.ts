@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WILD_ATTACK_RANGE } from "@petgame/shared";
+import { PLAYER_SPEED, WILD_ATTACK_RANGE, fleeSpeed, getSpecies } from "@petgame/shared";
 import { findNearestTarget, stepChase, stepFlee } from "./wildCombat.ts";
 
 describe("wild combat", () => {
@@ -25,6 +25,18 @@ describe("wild combat", () => {
     const next = stepFlee({ x: 100, y: 100 }, { x: 60, y: 100 }, 200, 100, 10);
     expect(next.x).toBeCloseTo(120);
     expect(next.y).toBeCloseTo(100);
+  });
+
+  it("a player walking after a fleeing Voltmouse closes in", () => {
+    let pal = { x: 100, y: 0 };
+    let player = { x: 0, y: 0 };
+    for (let i = 0; i < 20; i++) {
+      pal = stepFlee(pal, player, fleeSpeed(getSpecies("voltmouse").speed), 50, 12);
+      const gap = pal.x - player.x;
+      player = { x: player.x + Math.min(PLAYER_SPEED * 0.05, gap), y: 0 };
+      expect(pal.x - player.x).toBeLessThanOrEqual(100 + 96 * 0.05 + 0.01);
+    }
+    expect(pal.x - player.x).toBeLessThan(40);
   });
 
   it("walks to a waypoint at full speed, but measures its bite range to the target", () => {

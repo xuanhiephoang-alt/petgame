@@ -20,8 +20,10 @@ import {
   CAPTURE_NEWS_DELAY_MS,
   captureRevealMs,
   companionMaxHp,
+  PLAYER_SPEED,
   distance,
   finishXp,
+  fleeSpeed,
   scaledMaxHp,
   xpToNext,
   getSpecies,
@@ -2175,6 +2177,24 @@ describe("chopping, dodging, dizzy pals", () => {
     await ticks(room, 20);
     // From 30 px away it runs at chase speed (about 90 px/s) for FLEE_MS.
     expect(distance(room.state.pals.get(id)!, player)).toBeGreaterThan(100);
+  });
+
+  it("a hit Voltmouse runs away slower than the player", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    plantTrees(room, []);
+    player.x = 3200;
+    player.y = 2560;
+    const id = placeWild(room, "voltmouse", player);
+    const pal = room.state.pals.get(id)!;
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    const start = { x: pal.x, y: pal.y };
+    // Synchronous loop: the room clock never runs, so the flee timer stays valid throughout.
+    for (let i = 0; i < 20; i++) (room as any).tick(TICK_MS);
+    const seconds = (20 * TICK_MS) / 1000;
+    expect(distance(pal, start)).toBeCloseTo(fleeSpeed(getSpecies("voltmouse").speed) * seconds, 0);
+    expect(distance(pal, start)).toBeLessThan(PLAYER_SPEED * seconds);
+    expect(pal.x).toBeGreaterThan(start.x);
   });
 
   it("companions leave a dizzy pal for their owner", async () => {

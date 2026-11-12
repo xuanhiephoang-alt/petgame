@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { CollisionGrid } from "./collision.ts";
-import { BITE_KNOCKBACK, PLAYER_MAX_HP, hitWildPal, knockback, palDrops, wildDamage } from "./combat.ts";
+import { PLAYER_SPEED } from "./constants.ts";
+import {
+  BITE_KNOCKBACK,
+  PLAYER_MAX_HP,
+  WILD_CHASE_SPEED_FACTOR,
+  WILD_FLEE_SPEED_CAP,
+  fleeSpeed,
+  hitWildPal,
+  knockback,
+  palDrops,
+  wildDamage,
+} from "./combat.ts";
 import { PAL_SPECIES, getSpecies } from "./pals.ts";
 import { companionDamage, wildMaxLevel } from "./progression.ts";
 import { isSupport, knownSkills, skillPower, wildSkillLevel } from "./skills.ts";
@@ -80,6 +91,30 @@ describe("wild pals' bites", () => {
           expect(3 * skillPower(k, wildSkillLevel(level)), `${s.id} Lv ${level} ${k.id}`).toBeLessThan(PLAYER_MAX_HP);
         }
       }
+    }
+  });
+});
+
+describe("fleeing passive pals", () => {
+  it("Voltmouse and Mothlume are capped at 0.6 of a player's speed", () => {
+    expect(WILD_FLEE_SPEED_CAP).toBeCloseTo(96);
+    expect(fleeSpeed(getSpecies("voltmouse").speed)).toBe(WILD_FLEE_SPEED_CAP);
+    expect(fleeSpeed(getSpecies("mothlume").speed)).toBe(WILD_FLEE_SPEED_CAP);
+  });
+
+  it("slower pals keep their chase speed", () => {
+    expect(fleeSpeed(getSpecies("leafkit").speed)).toBeCloseTo(90);
+    expect(fleeSpeed(getSpecies("bubbloon").speed)).toBeCloseTo(72);
+    expect(fleeSpeed(getSpecies("bogbloom").speed)).toBeCloseTo(72);
+    for (let speed = 10; speed * WILD_CHASE_SPEED_FACTOR <= WILD_FLEE_SPEED_CAP; speed += 5) {
+      expect(fleeSpeed(speed)).toBe(speed * WILD_CHASE_SPEED_FACTOR);
+    }
+  });
+
+  it("every passive pal runs away slower than a walking player", () => {
+    for (const s of PAL_SPECIES.filter((p) => p.temperament === "passive")) {
+      expect(fleeSpeed(s.speed)).toBeLessThanOrEqual(PLAYER_SPEED * 0.6 + 1e-9);
+      expect(fleeSpeed(s.speed)).toBeLessThan(PLAYER_SPEED);
     }
   });
 });

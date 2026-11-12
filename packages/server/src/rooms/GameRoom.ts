@@ -119,6 +119,7 @@ import {
   WILD_CHASE_SPEED_FACTOR,
   biomeAt,
   companionMaxHp,
+  fleeSpeed,
   isNight,
   wildDamage,
   type DamageMessage,
@@ -692,7 +693,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       const flee = this.fleeing.get(id);
       const from = flee && flee.until > now ? this.targetPos(flee.from) : undefined;
       if (from) {
-        const next = stepFlee(pos, from, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, radius, this.obstacles);
+        // A passive pal runs away, slower than a walking player (fleeSpeed).
+        const next = stepFlee(pos, from, fleeSpeed(species.speed), dtMs, radius, this.obstacles);
         if (!isSea(this.terrain, next.x, next.y)) {
           pal.x = next.x;
           pal.y = next.y;

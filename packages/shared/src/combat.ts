@@ -1,4 +1,4 @@
-import { WORLD_HEIGHT, WORLD_WIDTH } from "./constants.ts";
+import { PLAYER_SPEED, WORLD_HEIGHT, WORLD_WIDTH } from "./constants.ts";
 import type { CollisionGrid } from "./collision.ts";
 import { clamp, type Vec2 } from "./movement.ts";
 import type { Element, PalSpecies } from "./pals.ts";
@@ -20,8 +20,22 @@ export const WILD_DAMAGE_PER_LEVEL = 0.08;
 export const WILD_AGGRO_MS = 8000;
 /** Aggressive wild pals notice players and companions this close. */
 export const AGGRESSIVE_SIGHT = 120;
-/** Chasing wild pals move this much faster than when wandering. */
+/**
+ * Chasing wild pals move this much faster than when wandering; fleeing passive pals too, but never faster
+ * than WILD_FLEE_SPEED_CAP.
+ */
 export const WILD_CHASE_SPEED_FACTOR = 1.8;
+/**
+ * Fleeing passive pals never run faster than this (px/s): 0.6 of a walking player's speed, so a player who
+ * follows even at 70% of full speed (touch joystick, weaving round trees) keeps hitting at the weapon's own
+ * pace instead of waiting out FLEE_MS (BALANCE.md of T27, docs/design/pals.md "Tính khí").
+ */
+export const WILD_FLEE_SPEED_CAP = PLAYER_SPEED * 0.6;
+
+/** How fast a passive pal of this wandering speed runs away when hit (px/s): its chase speed, capped. */
+export function fleeSpeed(speciesSpeed: number): number {
+  return Math.min(speciesSpeed * WILD_CHASE_SPEED_FACTOR, WILD_FLEE_SPEED_CAP);
+}
 /** No damage taken for this long starts health regeneration. */
 export const REGEN_DELAY_MS = 5000;
 export const REGEN_PER_SECOND = 4;

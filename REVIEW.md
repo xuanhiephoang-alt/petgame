@@ -1,31 +1,28 @@
 PASS
-# REVIEW: T54 Thú lang thang tới đích không lấn vào cây; test trùm qua khe tất định, vòng 3
+# REVIEW: T27 Thú hiền bỏ chạy chậm hơn người chơi, vòng 1
 
 ## Kết luận
-Lỗi phải sửa của vòng 2 đã được sửa: chú thích của test (a) giờ nói đúng rằng hạt 42 chỉ cố định dãy số ngẫu nhiên, còn lỗi lấn cây khi tới đích do test kế tiếp và `wander.test.ts` bảo vệ. Code `stepWander` không đổi so với vòng 2 (chỉ đổi JSDoc). Hai góp ý vòng trước cũng đã làm: JSDoc viết nhẹ lại, số 14 lặp lại đã đặt tên `treeR`. Không còn lỗi phải sửa.
-
-## Lỗi phải sửa (FAIL khi còn mục này)
-(không có)
+Thay đổi đúng và đủ theo PLAN.md: trần `WILD_FLEE_SPEED_CAP = PLAYER_SPEED * 0.6` và hàm thuần `fleeSpeed` nằm trong `packages/shared/src/combat.ts`, server chỉ đổi đúng một dòng gọi `stepFlee` (cộng import và một dòng chú thích). Mọi đường dẫn tới bỏ chạy đều đi qua nhánh đã kẹp, các tốc độ đuổi giữ nguyên, test bắt được đột biến bỏ trần. Không có lỗi phải sửa.
 
 ## Đã kiểm
-- **`GameRoom.test.ts:774-775`:** chú thích mới đúng với kết quả đột biến ở vòng 1 và 2. Phân vai giữa các test rõ ràng: test (a) bảo vệ khe hẹp; test tích hợp mới và test unit bảo vệ nhánh tới đích.
-- **JSDoc `stepWander`:** mô tả đúng việc code làm (đẩy đích ra khỏi vật cản khi tới nơi), không còn khẳng định "never".
-- **Test tích hợp mới:** tính lại `reach = BOSS.radius + treeR` cho cùng con số như vòng 2 (cây cách 55, đích lấn 1 px), nên hành vi test không đổi.
-- **Những gì đã kiểm ở vòng 2 vẫn còn đúng:**
-  - Thứ tự rút số ngẫu nhiên không đổi; mọi thú hoang đều đi qua chỗ gọi `GameRoom.ts:753`.
-  - Mock `Math.random` được khôi phục; `respawnTimer = -Infinity` chặn hồi sinh.
-  - `deepest >= 20` tất định.
-  - Ba đột biến đều bị ít nhất một test bắt 5/5 lần.
-  - Phạm vi đúng: chỉ đổi `wander.ts`, `wander.test.ts`, `GameRoom.test.ts`; không đổi giao thức hay `Profile`.
-- **Chạy lại để xác minh:** `wander.test.ts` cùng `GameRoom.test.ts -t "boss movement"`: 10/10 qua. Tester vòng 3 báo typecheck sạch, `npm test` 368/368.
+- **Mọi đường bỏ chạy đi qua trần.** `fleeing` chỉ được ghi ở một chỗ (`provoke`, `GameRoom.ts:1717`, chỉ khi `passive && !alpha`) và chỉ được đọc ở một chỗ (nhánh `stepFlee`, `GameRoom.ts:693-704`). `provoke` được gọi từ: đòn người chơi (`:893`), đòn thú đi theo (`:861`), chiêu thú đi theo (`:1526`), bóng vỡ (`breakOut`, `:1223`). Không có đường bỏ chạy nào khác: grep `flee|run away|scatter|scare` trong code không phải test chỉ ra các chỗ này. Đẩy lùi (`push`/`knockback`, `:1290`) là dịch chuyển một lần mỗi đòn, không phải bỏ chạy, và PLAN để ngoài phạm vi.
+- **Tốc độ đuổi không đổi.** Bốn chỗ `species.speed * WILD_CHASE_SPEED_FACTOR` (`:265`, `:685`, `:722`, `:1622`) giữ nguyên. Lang thang (`:755`) dùng `species.speed`. `FLEE_MS`, `stepFlee` và hệ số 1,8 không đổi. Client không dùng các hằng số này, nên không cần đổi client, schema, message hay `Profile`.
+- **Vị trí hằng số.** Hệ số 0,6 chỉ xuất hiện ở định nghĩa `WILD_FLEE_SPEED_CAP` (bảng hằng số cạnh `WILD_CHASE_SPEED_FACTOR`). Không có vòng import (`constants.ts` không import gì). JSDoc tiếng Anh, nói lý do. `index.ts` đã `export *`, và tên mới không trùng tên nào khác.
+- **Hiệu năng.** Mỗi tick chỉ thêm một `Math.min`, không cấp phát gì mới.
+- **Tài liệu.** `docs/design/pals.md` dòng 213-223 khớp code: tên `WILD_FLEE_SPEED_CAP`, `fleeSpeed`, 96 px/s, bảng tốc độ và quãng chạy. Dòng 64 (T58) và dòng 252 (T57) cũng khớp.
+- **Test** (tôi chạy lại: `combat.test.ts` + `wildCombat.test.ts` 19/19, `GameRoom.test.ts -t "Voltmouse|passive pals run away"` 2/2):
+  - Shared 1-3 khoá đúng giá trị và tính chất. Test 3 lặp qua mọi loài hiền, nên vẫn đúng khi thêm loài mới.
+  - Tích hợp 5 tất định: vòng `tick` đồng bộ, không `await`, nên `clock.currentTime` đứng yên và `fleeing.until` còn hiệu lực. Đã bỏ cây, đá; `placeWild` không tạo thú đầu đàn. Test đo đúng 96 px trong 1 s, còn đột biến cho 171 px.
+  - **Biên 104,95 so với 104,81 trong `wildCombat.test.ts` không phải biên của code đúng.** Đó là chỗ *đột biến* (171 px/s) vượt câu kiểm trong vòng lặp ở bước 9, vì mỗi bước khoảng cách tăng 0,55 px: 100 + 9 × 0,55 = 104,95. Với code đúng, khoảng cách sau mỗi bước là 100 − 3,2·i, lớn nhất 96,8, tức cách ngưỡng 104,81 tới 8 px. Câu kiểm cuối ra 36 so với ngưỡng 40 (đột biến: 111). Đây là số học thuần, không có ngẫu nhiên hay thời gian thật, nên không chập chờn. Nếu câu kiểm trong vòng lặp có quá sát thì câu kiểm cuối vẫn bắt được đột biến. Test có nghĩa nhưng câu kiểm trong vòng lặp yếu hơn cần thiết (xem góp ý).
 
-## Góp ý không bắt buộc
-- `PLAN.md` mục 4 và tiêu chí "đột biến 2 hỏng 5/5 ở test (a)" đã lỗi thời. Thân commit message nên ghi rõ phân vai mới giữa các test (đã nêu ở mục Đã kiểm), để lịch sử không mang lại khẳng định sai về hạt 42.
+## Lỗi phải sửa
+Không có.
 
-## Việc mới đề xuất cho `TASKS.md`
-- **P3: Thú bước dài có thể xuyên khe hẹp khi server chậm** (đồng ý với đề xuất cuối `PLAN.md`).
-  - `CollisionGrid.resolve` chỉ đẩy thú ra tại điểm đích, không quét đường đi.
-  - Khi tick dài 250 ms liên tục, trùm bước 11 px và lọt khe 52 px ở 6/5.000 lần trong mô phỏng tường của test (a).
-  - Cùng nguyên nhân: ở nhánh tới đích, nếu một bước lấn quá nửa vùng cấm của một vật cản nhỏ, `resolve` có thể đẩy thú sang phía bên kia vật cản. Điều này chỉ xảy ra với thú nhanh và tick dài.
-  - Hướng sửa: chia bước dài thành các bước con (ví dụ ≤ bán kính / 2) trong `stepWander` và `stepChase`, hoặc giới hạn `dtMs` trong `GameRoom.tick`.
-  - Ưu tiên thấp, vì server thường chạy 20 tick/giây.
+## Góp ý không bắt buộc (có thể làm cùng T57 hoặc khi chỉnh trần)
+- `packages/server/src/ai/wildCombat.test.ts:36-39`: câu kiểm trong vòng lặp chạy *sau* khi người chơi đã bước, nên ngưỡng "100 + một bước của thú" lỏng và còn dùng số cứng `96`. Tính chất thật cần giữ là "người chơi rút ngắn khoảng cách ở mọi bước". Nên kiểm khoảng cách giảm dần (`expect(gap).toBeLessThan(prevGap)`), đúng với mọi trần nhỏ hơn `PLAYER_SPEED`. Câu kiểm cuối `< 40` thì đang khoá đúng giá trị 0,6: trần từ 100 px/s trở lên là hỏng. Vì vậy nếu sau này vặn "nút chỉnh" 0,65 (104 px/s) mà tài liệu nhắc tới, test này sẽ hỏng (ra 44) cùng với `toBeCloseTo(96)` ở shared. Như vậy là chấp nhận được, vì đổi số cân bằng thì phải sửa test có chủ ý. Nhưng nên viết ngưỡng theo `fleeSpeed(...)` để test hỏng vì đúng lý do.
+- `TASKS.md` dòng 38: mô tả T27 vẫn ghi "ví dụ tối đa 0,9 × `PLAYER_SPEED`". Khi đánh dấu xong, agent chính nên ghi số đã chọn (0,6, 96 px/s) để khỏi lệch với PLAN và tài liệu.
+- `GameRoom.test.ts:23`: `PLAYER_SPEED` chen giữa `companionMaxHp` và `distance`. Khối import vốn đã không theo thứ tự, nên không cần sửa.
+
+## Việc tiếp theo (đã có trong TASKS.md, không thêm mới)
+- T57: thú hiền chạy trốn về phía thoáng; phải giữ trần `fleeSpeed`.
+- T58: Voltmouse đầu đàn đuổi 171 px/s; quyết định có kẹp trong bảng `ALPHA` hay không.
