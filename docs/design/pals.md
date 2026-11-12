@@ -169,7 +169,7 @@ Trên đầu mỗi người chơi, thú và trại có một nhãn: tên (thú t
 **Khi nhiều nhãn chen nhau** (hay gặp trên điện thoại: hình thú nhỏ đi còn chữ giữ nguyên cỡ), không nhãn nào được che nhãn khác. Nhãn quan trọng hơn giữ chỗ, theo thứ tự:
 
 1. Nhãn của chính mình.
-2. Thú đang nhắm: thú hoang gần nhất trong tầm ném bóng, tức con mà bóng sẽ bay tới khi bấm E hoặc Bắt.
+2. Thú đang nhắm: con mà bóng sẽ bay tới khi bấm E hoặc Bắt, có vòng ngắm dưới chân (mục "Thú đang nhắm và vòng ngắm").
 3. Thú đi theo của mình.
 4. Thú đầu đàn hoang, trùm.
 5. Người chơi khác.
@@ -197,7 +197,7 @@ Nhãn đã thu gọn hoặc ẩn phải có chỗ liên tục 1/4 giây mới hi
 
 Vì vậy, khi một nhãn nhường chỗ (thu gọn, ẩn, hạ xuống), nhãn khác có thể vào chỗ đó trong lúc chữ cũ chưa mờ hết. Hai nhãn chạm nhau thoáng qua như vậy, tối đa khoảng 0,2 giây, là đúng thiết kế: đổi lại, nhãn không nhảy hay nhấp nháy. Còn nếu hai nhãn **đè nhau liền 0,4 giây trở lên**, đó là lỗi bố cục. Số đo ở T51, điện thoại 390×844, cả khi máy bận: mỗi lần chạm thoáng kéo dài 30-190 ms, tức 1-5 khung hình.
 
-Thú đang nhắm có thể là một thú hoang lành lặn đi ngang qua. Thú lành lặn không hiện nhãn, nên người chơi không thấy nó đang được nhắm (nhiệm vụ T28 thêm dấu). Lúc nó đi gần hơn thú bị thương, nó thành thú đang nhắm. Khi đó thú bị thương mất hạng ghim, thu nhỏ còn thanh máu, và các nhãn quanh đó xếp lại.
+Thú đang nhắm có thể là một thú hoang lành lặn. Thú lành lặn không hiện nhãn, nên dấu của nó là vòng ngắm dưới chân (T28). Trước T28, một thú lành lặn đi ngang, gần hơn thú bị thương vài px, là giành mất chỗ thú đang nhắm; khi đó thú bị thương mất hạng ghim, thu nhỏ còn thanh máu, và các nhãn quanh đó xếp lại. Từ T28 thú bị thương và thú choáng được ưu tiên, và con đang nhắm được giữ lại khi hai con gần bằng nhau, nên chuyện đó chỉ còn xảy ra khi con lành lặn gần hơn hẳn.
 
 ## Tính khí
 
@@ -228,10 +228,38 @@ Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì
 
 **Đòn đánh và bóng trúng con nào:**
 - **Đánh** (Space, nút Đánh): server cho trúng thú hoang **gần nhất trong tầm vũ khí** (tay không 48 px). Người chơi không chọn được con nào. Chỉ khi không có thú nào trong tầm thì đòn mới hái quả, chặt cây hay đập đá.
-- **Bắt** (E, nút Bắt): bóng bay tới thú hoang gần nhất trong 180 px (`THROW_RANGE`); client chọn con, server kiểm lại tầm.
-- Vì vậy một thú hoang đi ngang qua có thể nhận đòn hay quả bóng định cho con khác; nếu là thú tự vệ thì nó đánh lại.
+- **Bắt** (E, nút Bắt): bóng bay tới **thú đang nhắm**, con có vòng ngắm dưới chân (mục "Thú đang nhắm và vòng ngắm"). Thú bị thương và thú choáng được ưu tiên hơn thú lành lặn đứng gần bằng. Client chọn con, server kiểm lại tầm.
+- Vì vậy một thú hoang đi ngang qua có thể nhận đòn định cho con khác; nếu là thú tự vệ thì nó đánh lại. Với bóng thì người chơi thấy trước con nào sẽ bị ném, và thú lành lặn đi ngang không giành được chỗ của con đang bị đánh.
 
 Trường `spawn.biomes` (`meadow`, `lake`, `snow`, `desert`, `swamp`, `volcano`, `island`) và `spawn.time` (`any`, `day`, `night`) quyết định thú xuất hiện ở đâu, khi nào.
+
+## Thú đang nhắm và vòng ngắm
+
+Đặt ra ở nhiệm vụ T28. Trước đó bóng bay tới thú hoang gần nhất trong tầm ném, và người chơi không thấy đó là con nào. Đo ở T51: một Leafkit lành lặn đi ngang, gần hơn 2 px (36 so với 38 px), giành chỗ của con đang bị thương 1 máu trong khoảng 5 giây; bấm Bắt lúc đó là ném vào con lành lặn.
+
+**Luật chọn** (hàm thuần `throwTarget` trong `packages/shared/src/capture.ts`, số trong bảng `AIM`):
+- Chỉ xét thú hoang trong 180 px (`THROW_RANGE`), không đang nằm trong bóng (của bất kỳ ai), không phải trùm.
+- Mỗi con có một **khoảng cách tính điểm**: khoảng cách thật, trừ 48 px nếu nó đang choáng, hoặc trừ 24 px nếu nó bị thương (máu dưới tối đa). Con có điểm nhỏ nhất được nhắm.
+- **Giữ con đang nhắm:** con đang nhắm chỉ mất chỗ khi một con khác hơn nó quá 8 px điểm. Nhờ vậy vòng ngắm và nhãn ghim không nhảy qua lại giữa hai con đứng gần bằng.
+- Bằng điểm thì con gần hơn thật được chọn.
+
+**Vì sao các con số:**
+- **Choáng: 48 px**, bằng tầm đánh tay không (`ATTACK_RANGE`). Một con choáng còn trong tầm đánh luôn được nhắm trước mọi thú lành lặn. Choáng chỉ kéo dài 6 giây, và lúc đó bắt dễ hơn nhiều: Leafkit cấp 5 khoảng 92% khi choáng 1 máu so với 42% khi lành lặn; Voltmouse cấp 5 khoảng 86% so với 23%. Ném nhầm vào con lành lặn mất 0,8 giây chờ ném lại cộng 1-1,5 giây bóng lắc, có khi hết luôn lúc choáng, và còn chọc giận con kia.
+- **Bị thương: 24 px**, một nửa mức choáng. Đủ cho trường hợp đo ở T51 (cách nhau 2 px) và cả khi con lành lặn gần hơn tới 24 px. Con lành lặn sát chân người chơi (gần hơn quá 24 px) vẫn được nhắm, nên người chơi muốn ném con lành lặn thì bước lại gần nó.
+- **Giữ: 8 px**. Thú lang thang đi tối đa 95 px/s, nên muốn vượt 8 px phải đi thêm ít nhất khoảng 0,1 giây. Mức này chặn chuyện vòng ngắm nhảy qua lại từng khung hình vì vị trí nội suy rung vài px, nhưng không giữ lâu con mà người chơi đã rõ ràng bước ra xa.
+
+**Server không chọn con.** Tin ném mang id con mà client thấy được nhắm. Server chỉ kiểm: con đó còn, chưa nằm trong bóng, đã hết hồi ném (0,8 giây), và nằm trong `THROW_RANGE` cộng 32 px dư (`THROW_REACH_SLACK`). Thú bị trùm hoặc túi đầy thì báo lý do (`throwBlocker`).
+- Lý do không để server chọn: server thấy vị trí khác client tới khoảng 25 px (mục dưới). Nếu server tự chọn lại thì bóng có thể bay tới con khác với con có vòng ngắm, đúng lỗi mà T28 sửa.
+- Lý do có 32 px dư: client vẽ thú hoang trễ hơn server. Thú bỏ chạy 96 px/s, nên khi tin ném tới server nó đã ra xa thêm khoảng 25 px (nội suy 0,14 giây, nửa nhịp gửi state 0,025 giây, mạng hai chiều 0,1 giây). Không có phần dư, một lần ném vào con có vòng ngắm ở mép tầm sẽ bị bỏ qua không một lời. Client đã sửa chỉ nhắm trong 180 px, nên phần dư chỉ có ích cho client bị sửa: ném xa hơn 32 px, không đáng kể.
+
+**Vòng ngắm** (client, `packages/client/src/game/aimMarker.ts`): một vòng dưới chân thú đang nhắm, vẽ bằng code.
+- **Hình:** bốn cung tròn màu kem có viền nâu đậm cùng tông (không dùng đen), giữa các cung là bốn mũi tam giác nhỏ chĩa vào trong. Cả vòng dẹt theo mặt đất (cao bằng một nửa bề ngang) và xoay chậm.
+- **Cỡ:** bán kính bằng 0,6 lần chiều cao thân thú, ít nhất 22 px. Vì vậy vòng lớn hơn bóng (0,31) và vòng của thú đi theo (0,42), và lớn hơn cả quầng vàng của thú đầu đàn.
+- **Màu:** khác mọi vòng có sẵn: vòng thú đi theo màu người chơi, vòng trùm đỏ, quầng đầu đàn vàng, vùng chiêu đỏ. Nền kem viền nâu đọc được trên cỏ, tuyết trắng, cát, đầm lầy và đá núi lửa.
+- **Chuyển động:** vòng thở nhẹ (±5%). Khi đổi sang con khác, vòng hiện ra từ cỡ 1,5 lần thu về trong 0,16 giây, để người chơi thấy bóng vừa đổi đích.
+- **Ban đêm:** thêm một đốm sáng nhỏ (bán kính 56 px) ở chân thú đang nhắm, nên ở mép tầm ném (180 px, đèn lồng của người chơi tới 210 px nhưng mờ dần) vẫn thấy cả vòng lẫn con thú.
+- **Ẩn khi:** không con nào ném được, hoặc mất kết nối (lúc đó ném cũng không được). Nhãn của thú đang nhắm vẫn là nhãn ghim (mục "Nhãn tên và thanh máu"). Thú lành lặn không hiện nhãn, nên với nó vòng ngắm là dấu duy nhất.
+- **Cảm ứng và bàn phím** như nhau: nút Bắt và phím E ném vào đúng con có vòng ngắm. Không con nào ném được thì báo "Không có thú nào ở gần"; nếu trong tầm chỉ có trùm thì báo "Không thể bắt trùm! Hãy cùng nhau hạ nó". Chưa có cách tự chọn con khác (chạm vào thú, phím đổi đích): người chơi bước lại gần con mình muốn.
 
 ## Đi vòng cây, đá
 

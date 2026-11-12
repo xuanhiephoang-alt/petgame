@@ -32,6 +32,7 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 - **🔗 Mời bạn phải nghe `click`.** Mở bảng chia sẻ hay chép link cần "cử chỉ của người dùng". Theo chuẩn HTML (Safari cũng vậy), một lần chạm chỉ cho cử chỉ đó lúc ngón nhấc lên.
 - 🔊, nút mở bảng và nút trong bảng nghe `click`, vì không dùng trong lúc đang chạy.
 - **Nút ⚪/🔵 Bóng** (T18): trên cảm ứng nằm sát bên trái nút Bắt, trên nút Đánh, ở nửa phải cả khi cầm dọc lẫn ngang. Trước đó, khi cầm dọc nó nằm đúng chỗ ngón cái trái đặt cần điều khiển, nên chạm nhầm là đổi bóng. Chọn bóng gắn với việc ném, nên đặt cạnh nút Bắt. Nhãn ngắn trên cảm ứng: "⚪ Thường" / "🔵 Xịn (N)" (trình đọc màn hình đọc tên đầy đủ); desktop giữ "⚪ Bóng thường" / "🔵 Bóng xịn (N)" ở góc phải dưới. Bàn phím: R.
+- **Nút Bắt và phím E** (T28) ném vào thú có vòng ngắm dưới chân, cùng một con cho cả hai cách bấm. Luật chọn con và hình vòng ngắm ở `docs/design/pals.md`, mục "Thú đang nhắm và vòng ngắm". Không thêm nút hay phím nào.
 - **Desktop** không có vùng cần điều khiển; các ô của cột vẫn nhận chuột như cũ, nên link mời trong ô trạng thái vẫn chọn và bấm được.
 
 ## Bàn phím khi hộp thoại hoặc bảng giữ focus
