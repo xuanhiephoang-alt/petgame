@@ -37,7 +37,8 @@ function nearbyPoint(from: Vec2, random: () => number): Vec2 {
 /**
  * Advances a wandering pal: idle for a while, walk to a nearby point, repeat.
  * With obstacles, the pal slides around them and gives up on a target it is
- * blocked from. Mutates `pos` and `brain` in place.
+ * blocked from. On arrival it resolves the target out of any obstacle it
+ * overlaps, so the pal rests beside it rather than inside. Mutates `pos` and `brain` in place.
  */
 export function stepWander(
   pos: Vec2,
@@ -56,8 +57,10 @@ export function stepWander(
   const dist = Math.hypot(dx, dy);
   const step = (speed * dtMs) / 1000;
   if (dist <= step) {
-    pos.x = brain.target.x;
-    pos.y = brain.target.y;
+    // The target was picked blindly: if it overlaps an obstacle, stop at the nearest clear spot instead.
+    const at = obstacles ? obstacles.grid.resolve(brain.target, obstacles.radius) : brain.target;
+    pos.x = at.x;
+    pos.y = at.y;
     brain.target = nearbyPoint(pos, random);
     brain.idleMs = 1000 + random() * 3000;
     return;

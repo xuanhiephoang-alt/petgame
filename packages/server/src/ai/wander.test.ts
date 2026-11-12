@@ -39,6 +39,17 @@ describe("wandering with obstacles", () => {
     expect(brain.target).not.toEqual({ x: 200, y: 100 });
   });
 
+  it("stops next to an obstacle when its target overlaps it, not inside", () => {
+    const pos = { x: 108, y: 100 };
+    const brain: WanderBrain = { target: { x: 112, y: 100 }, idleMs: 0 };
+    stepWander(pos, brain, 100, 100, () => 0.5, { grid, radius: 10 });
+    expect(pos.x).toBeCloseTo(110);
+    expect(pos.y).toBeCloseTo(100);
+    expect(grid.blocked(pos, 10)).toBe(false);
+    expect(brain.idleMs).toBeGreaterThan(0);
+    expect(brain.target).not.toEqual({ x: 112, y: 100 });
+  });
+
   it("spawns in free space", () => {
     let i = 0;
     // First candidate lands inside the obstacle; the retry must not.

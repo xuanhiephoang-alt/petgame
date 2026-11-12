@@ -57,6 +57,7 @@ import {
   ALPHAS,
   alphaLairs,
   BOSS,
+  mulberry32,
   QUESTS,
   CHEST_COUNT,
   type ChestOpenedMessage,
@@ -768,12 +769,37 @@ describe("boss movement", () => {
     const brain = (room as any).brains.get(id);
     brain.target = { x: C.x, y: C.y + 180 };
     brain.idleMs = 0;
+    // No wild pal respawns during the test, so the boss's wandering takes every random roll (see below).
+    (room as any).respawnTimer = -Infinity;
+    // Where the boss turns to once the trees stop it is a fixed sequence, so a failure replays.
+    // Stopping inside a tree on arrival is covered by the next test and by wander.test.ts, not by this seed.
+    vi.spyOn(Math, "random").mockImplementation(mulberry32(42));
+    let deepest = -Infinity;
     for (let i = 0; i < 100; i++) {
       await room.waitForNextTimestep();
       expect(boss.y).toBeLessThan(C.y + 60);
       expect((room as any).obstacles.blocked(boss, BOSS.radius - 1)).toBe(false);
+      deepest = Math.max(deepest, boss.y - C.y);
     }
-    expect(distance(boss, C)).toBeGreaterThanOrEqual(20);
+    vi.restoreAllMocks();
+    // It walked into the gap until the trees on both sides stopped its body (23.7 px deep at radius 40; a
+    // radius-20 body goes through). The end spot is not checked: random turns can bring it back near the start.
+    expect(deepest).toBeGreaterThanOrEqual(20);
+  }, 15_000);
+
+  it("the boss that arrives at a wander target overlapping a tree stops beside the tree, not inside it", async () => {
+    const { room, player } = await setup();
+    const treeR = 14;
+    const reach = BOSS.radius + treeR;
+    plantTrees(room, [{ x: C.x + reach + 1, y: C.y, r: treeR }]);
+    const [id, boss] = calmBoss(room, player, C, C);
+    const brain = (room as any).brains.get(id);
+    // The target is 2 px away, so the first step arrives; it lies 1 px inside the tree's keep-out ring.
+    brain.target = { x: C.x + 2, y: C.y };
+    brain.idleMs = 0;
+    for (let i = 0; i < 5 && brain.idleMs <= 0; i++) await room.waitForNextTimestep();
+    expect(brain.idleMs).toBeGreaterThan(0);
+    expect((room as any).obstacles.blocked(boss, BOSS.radius - 0.5)).toBe(false);
   }, 15_000);
 
   it("walks the boss home around a wall in its way, at its own size", async () => {
