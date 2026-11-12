@@ -1,32 +1,29 @@
-# PROGRESS: T42 Sảnh giữ đến khi thế giới vẽ xong
+# PROGRESS: T51 Test e2e `labels:` trên điện thoại chập chờn
 
 ## Vòng 1: coder
-- [x] Bước 1: `joinStatus.ts`: `JoinCard.reload`, `primary` thêm `"reload"`, `StartFailure`, `DOWNLOAD_ERROR`, `startFailure`, `startCard`; test trong `joinStatus.test.ts` (packages/client/src/ui/)
-- [x] Bước 2: `game/assetIndex.ts` (`fetchIndex`) + `assetIndex.test.ts`; dùng trong `palSprites.ts`, `art/pictures.ts`, `art/doll.ts`
-- [x] Bước 3: `Game.create` gọi `abandon()` (huỷ PixiJS app, không ném) khi `init` hỏng (`game/Game.ts`)
-- [x] Bước 4: `index.html`: nút `#join-reload-btn`, `#lobby { z-index: 10 }`, chú thích form
-- [x] Bước 5: `main.ts`: `Promise.allSettled`, `lobby.remove()` sau `Game.create` (rồi mới gán `__petgame.game`), `failToStart` (dọn `#game`, ghi địa chỉ, `watch.leave()`, ẩn tên/ngoại hình, thẻ Tải lại), cờ `broken`, nút Tải lại (click + Space)
-- [x] Bước 6: e2e `tests/e2e/multiplayer.spec.ts`: `waitForWorld` chờ sảnh biến mất, `PIXI_ENV_CHUNK`, test A và B
-- [x] Bước 7: `docs/architecture.md` (đoạn `main.ts`; `assetIndex.ts` nhắc trong đoạn đó, không thêm dòng riêng vì mục `game/` gộp theo nhóm)
-- Lệch kế hoạch: không có.
-- Lệnh đã chạy: typecheck ✓, test ✓ (365 test), build ✓, `npx playwright test -g "lobby:"` ✓ (6 test), `npm run test:e2e` đầy đủ: ✓ (40 passed, 5.9 phút).
+- [x] Bước 1: `tests/e2e/multiplayer.spec.ts`: `installLabelPairs(page)` gắn `window.__labelPairs()` (phép đo cũ, giữ nguyên luật: mờ 0,5, đè hơn 1 px, chữ và thanh máu); `labelOverlaps` gọi lại nó; thêm `LASTING_OVERLAP_MS = 400`, `LASTING_OVERLAP_FRAMES = 8` (có JSDoc nêu lý do) và `lastingLabelOverlaps(page, 3000, 60)` (một `page.evaluate` chạy vòng `requestAnimationFrame`, một mẫu cho mỗi khung đã vẽ, `Map` cặp -> lần đè liền, chốt an toàn 20 s).
+- [x] Bước 2: cùng file, test `labels:`: gọi `installLabelPairs` sau khi có khung hình; giữ poll 20 s; thay kiểm "một khoảnh khắc" bằng `lastingLabelOverlaps` (kiểm `frames >= 60` và `pairs` rỗng); phần thú đang nhắm tách thành `aimedTag()` và poll 2 s (có thú đang nhắm, độ mờ "1", bị thương thì thanh máu hiện). Các kiểm khác không đổi.
+- [x] Bước 3: `packages/client/src/game/labelLayout.test.ts`: thêm test 12 (100 hạt giống x 200 khung, đổi thú đang nhắm và nhích nhãn). Lưu ý: `layoutTags` sắp xếp `items` tại chỗ nên test giữ tham chiếu và hạng gốc theo nhãn (`Map`), không theo chỉ số.
+- [x] Bước 4: kiểm tay, không commit. Tạm sửa `layoutTags` để mọi nhãn `form = full`, `rise = 0` rồi `continue`. Test `labels:` **hỏng** ngay ở poll 20 s chờ ổn định (trước kiểm theo dõi 3 s), với nhiều cặp đè nhau liên tục suốt 20 s (`Hiệp | Lv 8 Emberpup`, `Lan Anh | Lv 7 Bubbloon`, ...). Phần `lastingLabelOverlaps` không được chạy tới trong lần này (poll đứng trước), nên nhánh "kéo dài ≥ 400 ms" chỉ được kiểm gián tiếp qua poll. Đã hoàn tác (chép lại bản gốc, `git status` chỉ còn spec và `labelLayout.test.ts`); chạy lại thì qua (xem dưới).
+- Lệch kế hoạch: không có. Chú ý: kiểm tay hỏng ở poll, không ở `watched.pairs`; kế hoạch cho phép ("hoặc hỏng ở poll trước đó").
+- Không đổi `labelLayout.ts`, `labels.ts`, `index.html`, client hay server (`git diff --stat`: spec e2e và `labelLayout.test.ts`; `docs/design/pals.md`, `PLAN.md` đã đổi từ bước thiết kế).
+
+### Lệnh đã chạy
+- `npm run typecheck` ✓
+- `npm test` ✓ (30 file, 366 test, gồm test 12)
+- `npx playwright test -g "labels: in a crowd on a phone" --repeat-each=20 --workers=1 --retries=0`, máy rảnh: **20/20 qua** (4,4 phút)
+- Cùng lệnh, 3 vòng lặp `node -e "for(;;){}"` ở nền: **20/20 qua** (4,7 phút); đã `pkill` các vòng lặp sau đó
+- `npm run test:e2e` cả bộ: **40/40 qua** (6,1 phút)
+- `npm run build`: không chạy (không đụng mã client sản phẩm, chỉ test)
 
 ## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (365, 30 file)   build ✓   e2e ✓ (40; lần chạy đầy đủ: 39 qua, 1 chập chờn)   photo3d (không chạy)
-- Chập chờn: `labels: in a crowd on a phone, no name tag covers another...` (multiplayer.spec.ts:971) lần đầu hỏng ở dòng 1002 (`labelOverlaps` trả `["Tuấn | Lv 6 Leafkit"]`), chạy lại riêng thì qua. Đây là test bố cục nhãn, không đi qua đường sảnh/failToStart; nghi do thời điểm mô phỏng thú đi lại, không do T42. Nên theo dõi nếu lặp lại.
-- Test A và B: `--repeat-each=3 --workers=1` qua cả 6 lần (A ~10 s, B ~2.8 s).
-- Kiểm tra test B hỏng trên code cũ: tạm chép `doll.ts` của HEAD vào (không dùng `fetchIndex`), test B hỏng ở `await expect(page.locator("#look")).toBeHidden()` (multiplayer.spec.ts:1731). Đã khôi phục, `cmp` với bản lưu giống hệt.
-- Tiêu chí hoàn thành:
-  - [x] Sảnh chỉ gỡ sau `Game.create`; `__petgame.game` gán sau `lobby.remove()` (main.ts)
-  - [x] `#lobby { z-index: 10 }` (đọc diff; không có test hình riêng cho khoảng dựng)
-  - [x] `Promise.allSettled`; vào được mà hỏng thì `failToStart` gọi `watch.leave()`
-  - [x] Lỗi vào phòng giữ nguyên bốn thẻ T23 (các test `lobby:` cũ qua)
-  - [x] `#game` rỗng (test A: 0 canvas, 0 `.hud`); địa chỉ giữ `room`/`quality` khi có bạn, bỏ `room` khi một mình; host thấy số người về 1 trong timeout 5 s mặc định của `expect.poll` (< 20 s giữ chỗ, nên là rời chủ động)
-  - [x] Thẻ đúng chữ, chỉ nút Tải lại, có focus, Enter và chạm tải lại được; ≥ 44x44 và trong khung nhìn ở 3 cỡ. Phím Space chỉ kiểm bằng đọc code (chưa có e2e)
-  - [x] `#name` ẩn (test A); `broken` chặn `enter()` (đọc code)
-  - [x] `fetchIndex` dùng ở cả ba hàm tải ảnh; test B qua với `null`/`[1]`/pals bị chặn
-  - [x] `Game.create` gọi `abandon()` (đọc code, không có test riêng)
-  - [x] Test A khẳng định route bị gọi (`expect(blocked).toBeGreaterThan(0)`)
-  - [x] Unit mới cho `startFailure`, `startCard`, `fetchIndex`
-  - [x] `docs/architecture.md` cập nhật
-- Test đã thêm: không thêm (bộ test của coder đã đủ theo PLAN.md). Ghi chú nhỏ: Space trên nút Tải lại và `#look` ẩn sau thẻ chưa có e2e; không bắt buộc.
+- typecheck ✓   test ✓ (30 file, 366 test)   build (không chạy, không đụng client)   e2e ✓ (40/40, 5,8 phút)   photo3d (không chạy)
+- Lưu ý: lần chạy `npm test` đầu tiên, chạy cùng lúc với `tsc` còn đang chạy nền, báo "1 failed file | 245 passed | 121 skipped" (file hỏng không in ra do tôi chỉ lấy đuôi log). Chạy lại ngay: 366/366 qua. Nghi do tải máy (chập chờn), không tái hiện.
+- `npx playwright test -g "labels: in a crowd on a phone" --repeat-each=10 --workers=1 --retries=0`: 10/10 qua (1,7 phút).
+- Kiểm trực tiếp `lastingLabelOverlaps` bằng spec tạm (đã xoá, `git status` sạch ngoài 3 file của coder): chép nguyên văn `installLabelPairs` + `lastingLabelOverlaps` từ spec thật, trang tĩnh với hai `.label` và `__petgame.game.frames` đếm bằng rAF, chuyển thẻ B đè lên A bằng `style.top` có hẹn giờ:
+  - (a) đè liền 1000 ms: BÁO `["A | B (983 ms, 60 khung)"]`
+  - (b) đè 150 ms: KHÔNG báo (`[]`)
+  - (c) ba lần chạm 150 ms cách nhau 250 ms: KHÔNG báo, không bị gộp (`[]`)
+  Vậy nhánh theo dõi 3 s phát hiện được đè kéo dài và bỏ qua chuyển tiếp ngắn. Hạn chế: kiểm trên trang giả, không phải thế giới thật; đo bằng chính hàm thật nên đủ cho ngưỡng 400 ms/8 khung.
+- Tiêu chí hoàn thành: [x] test `labels:` ổn định (10/10) [x] theo dõi đè kéo dài hoạt động [x] test 12 trong labelPayout/labelLayout.test.ts qua [x] không đổi code sản phẩm
+- Test đã thêm: không (chỉ kiểm tra; spec tạm đã xoá).

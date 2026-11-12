@@ -1,36 +1,37 @@
 PASS
-# REVIEW: T42 Sảnh giữ đến khi thế giới vẽ xong; thẻ "không mở được game"; chỉ mục ảnh chịu lỗi, vòng 1
+# REVIEW: T51 Test e2e `labels:` trên điện thoại chập chờn, vòng 1
 
 ## Kết luận
-Thay đổi làm đủ các bước và tiêu chí của PLAN.md, không làm thừa ngoài phạm vi (không đụng server, schema, message, `Profile`, bộ canh tải T15). Luồng `allSettled` đảm bảo phòng đã vào luôn được dùng hoặc rời; `failToStart` đúng luật địa chỉ T23, rời chủ động đúng một lần, focus đúng nút. Chỗ hỏng chập chờn của test `labels:` không do T42 gây ra (lý do ở dưới), nên ghi thành việc tiếp theo, không phải lỗi phải sửa. Typecheck sạch, 16 unit test mới qua (đã chạy lại để kiểm chứng).
+Thay đổi đúng PLAN.md, chỉ đụng test (`tests/e2e/multiplayer.spec.ts`, `labelLayout.test.ts`) và `PROGRESS.md`; `labelLayout.ts`, `labels.ts`, `index.html` không đổi. Kiểm 3 giây vẫn bắt được lỗi bố cục kéo dài, chỉ bỏ qua lúc chuyển ngắn đúng thiết kế "Lúc chuyển". Test unit 12 có tác dụng thật: tôi thử hai bản `layoutTags` cố ý sai thì chỉ test 12 hỏng, test 1-11 vẫn qua.
 
 ## Lỗi phải sửa
-(không có)
+Không có.
 
 ## Đã kiểm
-- **Luồng `allSettled` (main.ts:131-149):** `connect` hỏng thì không có phòng nào để rời, giữ nguyên bốn thẻ T23. `connect` được mà `assets` hỏng thì `throw art.reason` rơi vào cùng `catch` với `startGame`, nên `failToStart` luôn chạy khi đã vào phòng. Không có `await` nào giữa `Game.create` ném lỗi và `watch.leave()` (chỉ có microtask), nên không có patch nào của server chen vào lúc stage đã huỷ. Không rời hai lần: `ConnectionWatch.leave()` thoát sớm khi đã `lost`, nên `pagehide` (đã gắn trong `startGame`) gọi lại cũng không sao; đang `reconnecting` thì chỉ tắt nối lại, không gửi tin (Rủi ro 5 của plan, chấp nhận được).
-- **`failToStart`:** `broken` chặn mọi đường vào lại; `#game` được dọn trước; địa chỉ theo luật T23 (0 giữ nguyên, 1 bỏ `room`, >1 có `room`); `watch.leave()` chạy trước `showJoinCard`, nên focus của `ConnectionOverlay.show(lost)` (trên phần tử đã gỡ) không cướp focus của `#join-reload-btn`. `#look` ẩn không bị `dollArt` bật lại, vì `allSettled` đã chờ `assets` (gồm `dollArt`).
-- **Phím Space:** `Keyboard` chặn mặc định của Space trên `<button>` ở cả `keydown` lẫn `keyup` (chặn `click`), nhưng không `stopPropagation`, nên handler `keydown` riêng của nút vẫn chạy. Đúng như `ConnectionOverlay`.
-- **`Game.abandon`:** bọc `try`, không che lỗi gốc; huỷ ticker và canvas. Listener `window` của `Keyboard`/`Sound`/`visibilitychange` còn lại, đã ghi ở Rủi ro 7 của plan; mọi tin gửi đi đều qua `send`, mà `send` bỏ qua khi `watch` đã `lost`.
-- **`fetchIndex`:** toàn bộ thân trong `try`, loại `null`/mảng/số; cả ba hàm tải ảnh dùng nó, đã bỏ `try`/`res.json()` trùng lặp. `BODY` chỉ nhận số.
-- **Lớp z-index:** mọi lớp của game nằm trong `#game` có z-index tối đa 6 (`.net-overlay`); `.labels` (1) và `.hud` (2) tự tạo stacking context nên `.float` (20) và nhãn (3..10) bị nhốt bên trong. Không có phần tử nào của game gắn thẳng vào `body`. `#lobby` z-index 10 che được hết.
-- **Chữ tiếng Việt:** khớp bảng Thiết kế 3 và `docs/design/multiplayer.md`; chú thích code tiếng Anh.
-- **Test:** unit test kiểm đúng hành vi (chữ của từng trình duyệt, các dạng `err` lạ, mọi dạng JSON hỏng). E2E A chống test rỗng bằng `blocked > 0`, chứng minh rời chủ động bằng việc host thấy số người về 1 trong 5 s (người chơi không rời thì ping giữ socket mãi, nên không thể qua nhờ may). Tester đã xác nhận E2E B hỏng trên code cũ.
+- **Phép đo dùng chung:** `installLabelPairs` gắn `window.__labelPairs`, thân hàm giữ y nguyên bản cũ (bỏ nhãn `display: none` hoặc mờ dưới 0,5; chữ mờ trên 0,5; thanh máu đang hiện; đè hơn 1 px theo cả hai chiều). `labelOverlaps` và `lastingLabelOverlaps` đều gọi hàm đó, không có code chép hai lần. Gắn sau `frames > 0`, trước khi cần dùng.
+- **Không nới quá kế hoạch:** poll 20 s vẫn còn. Kiểm "một khoảnh khắc sau 30 khung" được thay bằng theo dõi ≥ 3 s và ≥ 60 khung, ngưỡng 400 ms **và** 8 khung, đúng bảng trong PLAN. Kiểm `frames ≥ 60` có mặt. Kiểm độ mờ của nhãn mình, nhãn thú đi theo và kiểm "≤ 10 lần đo" giữ nguyên. Lỗi bố cục kéo dài (đè suốt cả khoảng theo dõi) chắc chắn bị báo: ở 20 khung/giây là 3000 ms và 60 khung; ở 5 khung/giây vòng theo dõi kéo dài tới khoảng 12 s cho đủ 60 khung.
+- **Vòng rAF:** chỉ lấy mẫu khi `game.frames` tăng. `frames++` nằm ngay sau `labels.update` trong cùng lượt ticker (`Game.ts:1004-1005`), nên mỗi khung đã vẽ cho đúng một mẫu. Lượt rAF không có khung mới thì không lấy mẫu và cũng không ngắt lần đè. Một khung không đè thì đóng lần đè (đúng "một khung không đè là ngắt"). Lần còn mở lúc hết giờ được xét. Mỗi cặp chỉ ghi lần dài nhất. Hằng số truyền vào làm tham số. `last - start` tính thiếu một khoảng khung, tức nghiêng về phía không báo nhầm; với ngưỡng 400 ms thì không đáng kể.
+- **Chốt 20 s:** hoạt động khi game ngừng vẽ mà rAF vẫn chạy (trả về `frames` thật, rồi `frames ≥ 60` hỏng rõ). Khi tab bị ẩn thì rAF dừng hẳn, `tick` không chạy nên chốt không bao giờ tới; test sẽ hỏng vì hết thời gian chung thay vì có thông báo rõ. Trong Playwright headless trang luôn ở trạng thái hiện, và test này chỉ có một trang (bốn người kia là observer qua SDK), nên đây không phải lỗi (xem góp ý).
+- **`aimedTag` + poll 2 s:** giữ đủ ba ý. Không có thú đang nhắm thì trả `null` nên `toEqual` hỏng. Độ mờ phải là `"1"`. `barShown = !hurt || (bar && display !== "none")` tương đương với `if (hurt) expect(bar).not.toBe("none")` cũ. Poll 2 s không che được lỗi thật, vì nhãn bị ẩn sai sẽ ẩn mãi.
+- **Test unit 12:** tôi chép test và `labelLayout.ts` vào scratchpad, sửa bản chép ở đó, không đụng repo:
+  - bản gốc: 13/13 qua;
+  - M1, thu nhỏ cũng phải chờ `holdUntil`: **test 12 hỏng** (18.191 cặp đè), test 1-11 qua;
+  - M2, dạng đang chờ giữ `rise` cũ thay cho `bestRise`: **test 12 hỏng** (391 cặp), test 1-11 qua.
+  
+  Như vậy test 12 bảo vệ đúng phần chống nhấp nháy qua nhiều khung, là kết luận mà T51 dựa vào. Test giữ tham chiếu và hạng gốc bằng `Map` vì `layoutTags` sắp xếp mảng tại chỗ: đúng.
+- **Quy ước:** JSDoc tiếng Anh, có trỏ tới `LABEL_EASE_MS`, các `transition` CSS và `docs/design/pals.md`. Hằng số viết `UPPER_SNAKE_CASE`. Không có hook `debug:*` mới, không đổi giao thức hay `Profile`.
+- `npm test` chạy song song với `npm run typecheck`: 30/30 file, 366/366 test qua (130 s).
 
-## Test chập chờn `labels: in a crowd on a phone...` (multiplayer.spec.ts:971, hỏng ở dòng 1002)
-**Không do T42.** Dòng 1002 là lần kiểm thứ hai ("Stable, not just one lucky moment"), chạy sau khi `expect.poll` ở dòng 1000 đã thấy `[]`. Đến đó sảnh đã bị gỡ từ lâu (gỡ đồng bộ ngay sau `Game.create`, trước khung hình đầu tiên), và đã có hàng chục tin `debug:*` cùng ít nhất 5 bạn đồng hành được chờ xong. `waitForWorld` mới chỉ làm test bắt đầu muộn hơn một chút, không đổi trạng thái thế giới hay DOM lúc đo; `#lobby` không còn trong DOM nên không ảnh hưởng `getBoundingClientRect` của nhãn.
+## Lần `npm test` hỏng chập chờn (tester ghi lại)
+Số liệu tester ghi lại là "1 failed file | 245 passed | **121 skipped**". `GameRoom.test.ts` có đúng 121 test (245 + 121 = 366), và không file nào khác có số test như vậy. Gần như chắc chắn file hỏng là `packages/server/src/rooms/GameRoom.test.ts`, và hỏng ở `beforeAll` chứ không ở một test nào: hook hỏng thì Vitest bỏ qua cả file. `beforeAll` gọi `boot(..., 2571)`, tức dựng server trên một **cổng cố định** với hạn mặc định 10 s. Hai nguyên nhân khả dĩ: dựng server quá 10 s khi máy bận, hoặc cổng 2571 đang bị một lần chạy vitest khác chiếm. Tôi chạy lại song song với `tsc` thì không tái hiện được.
 
-**Nguyên nhân có lẽ là:** `"Lv 6 Leafkit"` là một trong hai thú hoang test tự sinh (bị thương nên nhãn hiện), và thú hoang vẫn đi lại theo AI. Khi nó đi sát nhãn của "Tuấn", `layoutTags` đổi dạng nhãn (nâng lên, thu gọn hoặc ẩn), nhưng phần vẽ đi trễ hơn quyết định đó: `drawnRise` trôi dần theo `LABEL_EASE_MS` (60 ms), còn độ mờ đổi qua CSS `.label { transition: opacity 0.15s }` / `.label.pal span { transition: opacity 0.2s }`. `labelOverlaps` đọc `getComputedStyle(...).opacity` và hộp đang vẽ, nên nếu đo đúng lúc đang chuyển thì vẫn thấy hai nhãn chồng nhau (độ mờ còn > 0.5, hoặc hộp chưa tới chỗ mới). Một lần đo đơn lẻ sau 30 khung hình rơi vào khoảng 60–200 ms đó là đủ để test hỏng.
+**Nên thêm nhiệm vụ theo dõi**, ưu tiên thấp. Lý do: khi lỗi này xảy ra thì 121 test tích hợp server bị bỏ qua cùng lúc, và CI đỏ vô cớ. Đề xuất cho TASKS.md:
+- "T?: `GameRoom.test.ts` `beforeAll` có lúc hỏng khi máy bận (T51: 1 file hỏng, 121 test bị bỏ qua). Tái hiện bằng 3 vòng lặp CPU (cách làm trong PLAN T51) và chạy file đó lặp lại, đọc lỗi của hook. Nếu do hết giờ: cho `beforeAll` hạn dài hơn (ví dụ 30 s). Nếu do cổng: dùng cổng trống thay cho 2571 cố định. Không nới test nào khác."
 
 ## Góp ý không bắt buộc
-- main.ts:198-212 và 105-116: khi `Game.create` hỏng, `watch.leave()` cũng gọi `react` của `startGame`, nên `overlay.show` chạy trên phần tử đã gỡ và `setAddress` được gọi lần hai. Với `size > 0` thì kết quả giống `failToStart`; với `size === 0` (state chưa về) thì `react` bỏ `room` khỏi địa chỉ, trái với dòng "0 giữ nguyên" của plan. Gần như không xảy ra, vì `stage.init` phải chờ một lượt mạng nên state đã về trước. Muốn chặt chẽ thì để `startGame` trả về hàm gỡ `react`, hoặc cho `react` bỏ qua khi `broken`.
-- E2E A phần 2: câu kiểm "địa chỉ không có `room`" yếu, vì người chơi một mình mở `/?quality=low` nên địa chỉ chưa bao giờ có `room`. Nhánh "đúng 1 người thì bỏ `room`" của `failToStart` chưa có test thật sự kiểm.
-- Space trên `#join-reload-btn` chưa có e2e (tester đã ghi).
-- `doll.ts:59-63`: chỉ mục có đúng dạng ngoài cùng nhưng một mục bên trong hỏng (ví dụ `heads: { a: null }`) vẫn ném lỗi ngoài `try` ở `entry.file`, nên game hỏng với thẻ "Không mở được game" (nay ít ra có thẻ và người chơi đã rời phòng). Plan chỉ yêu cầu kiểm dạng ngoài cùng nên không tính là lỗi.
-- `pictures.ts:30`: chú thích "No atlases: everything is drawn." nay đứng trên một dòng gán, nên đọc như mô tả của dòng đó; có thể viết lại thành "Without an index (or a broken one) every object is drawn from code."
-
-## Việc tiếp theo đề xuất cho TASKS.md
-1. **(trung bình) Làm vững test `labels: in a crowd on a phone...`** (multiplayer.spec.ts:971, chập chờn ở dòng 1002). Có hai hướng, chọn một hoặc cả hai: (a) cho thú hoang trong test đứng yên (ví dụ thêm tuỳ chọn cho `debug:spawnPal`), hoặc chỉ coi là chồng nhau khi cặp đó còn chồng sau quá `LABEL_REVEAL_MS` + thời gian chuyển CSS (đo hai lần cách nhau ~300 ms, báo cặp có ở cả hai lần); (b) kiểm xem `layoutTags` có tính đến vị trí đang trôi (`drawnRise`) và nhãn đang mờ dần hay không. Nếu chồng nhau thật quá 200 ms thì đó là lỗi bố cục nhãn, không phải lỗi test.
-2. **(thấp, từ PLAN.md)** Lỗi khi game đã chạy (ngoại lệ trong `frame()`, `webglcontextlost`): hiện màn che "Game gặp lỗi" kèm Tải lại.
-3. **(thấp, từ PLAN.md)** Bắt `vite:preloadError` ở bản build để tự tải lại một lần khi tab cũ gặp file băm đã bị xoá.
-4. **(thấp)** Kiểm dạng từng mục trong chỉ mục ảnh (`doll.ts` `heads`/`bodies`/sheet, `pictures.ts`), để một mục hỏng chỉ làm mục đó vẽ bằng code thay vì làm hỏng cả game.
+- `lastingLabelOverlaps`: thêm một `setTimeout(…, 20_000)` dự phòng để resolve cả khi rAF dừng hẳn (tab ẩn). Khi đó test sẽ hỏng với thông báo `frames < 60` rõ ràng thay vì hết thời gian chung.
+- Theo kế hoạch, một khung không đè là ngắt lần đè. Vì vậy một lỗi bố cục kiểu **nhấp nháy** (hai nhãn đè nhau cách khung một) sẽ không bị báo, trong khi kiểm một khoảnh khắc cũ bắt được nó khoảng 50% số lần. Test 12 đã che phía bố cục, nên điều này chấp nhận được. Nếu muốn chặt hơn, có thể báo thêm cặp nào đè trong hơn khoảng 25% số khung theo dõi.
+- Test 12: ghi seed, khung và cặp vào thông báo lỗi, ví dụ `expect(a.forced || b.forced, \`seed ${seed} f ${f}\`).toBe(true)`. Hiện lỗi chỉ in "expected false to be true", khó lần ra. Theo lần thử của tôi, nhánh `forced` không xảy ra lần nào (0 cặp đè có `forced`), và kiểm "thú đang nhắm không ẩn" trùng với kiểm "nhãn ghim không ẩn" (`aimed` ≤ `PINNED_RANK`). Cả hai vô hại. Có thể thêm hạng `follower`/`leader` và thú hoang yên (`named: false`, không thanh máu) để phủ rộng hơn.
+- Khoá cặp là chữ của nhãn. Hai nhãn trùng chữ (hai "Lv 3 Leafkit") sẽ gộp vào cùng một khoá. Như vậy test chỉ chặt hơn, có thể báo nhầm chứ không bỏ sót; hiện chưa thấy xảy ra.
+- `PROGRESS.md` (phần tester) viết nhầm "labelPayout".
+- Ghi chú về T28 trong PLAN.md (Rủi ro 4: thú lành lặn đi ngang lấy chỗ thú đang nhắm khoảng 5 s) nên được agent chính chép vào mục T28 trong `TASKS.md`.

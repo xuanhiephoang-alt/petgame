@@ -199,4 +199,48 @@ describe("layoutTags", () => {
     layoutTags(second, second.length, 0);
     expect(second.map((it) => [it.seq - second[0].seq, it.form, it.rise])).toEqual(first.map((it) => [it.seq - first[0].seq, it.form, it.rise]));
   });
+
+  it("12: frame after frame, while the aimed pal changes and tags drift, placed tags only overlap when forced", () => {
+    const kinds = [LABEL_RANK.player, LABEL_RANK.companion, LABEL_RANK.wild, LABEL_RANK.camp];
+    for (let seed = 1; seed <= 100; seed++) {
+      const random = mulberry32(seed);
+      // layoutTags sorts `items` in place, so keep stable references and base ranks by tag.
+      const items: LayoutItem[] = [];
+      const base = new Map<LayoutItem, number>();
+      for (let i = 0; i < 20; i++) {
+        const rank = i === 0 ? LABEL_RANK.me : kinds[Math.floor(random() * kinds.length)];
+        const bar = random() < 0.5;
+        const it = tag({
+          x: random() * 240, y: random() * 160, rank, width: bar ? 80 : 60,
+          height: bar ? 24 : 17, barWidth: bar ? 36 : 0, barHeight: bar ? 5 : 0,
+        });
+        items.push(it);
+        base.set(it, rank);
+      }
+      const wild = items.filter((it) => base.get(it) === LABEL_RANK.wild);
+      for (let f = 0; f < 200; f++) {
+        const aimed = wild.length > 0 && random() < 0.5 ? wild[Math.floor(random() * wild.length)] : undefined;
+        items.forEach((it) => {
+          it.rank = it === aimed ? LABEL_RANK.aimed : base.get(it)!;
+          if (random() < 0.1) {
+            it.x += (random() * 2 - 1) * 3;
+            it.y += (random() * 2 - 1) * 3;
+          }
+        });
+        layoutTags(items, items.length, f * 33);
+        if (aimed) expect(aimed.form).not.toBe(TAG_FORM.hidden);
+        for (const it of items) if (it.rank <= PINNED_RANK) expect(it.form).not.toBe(TAG_FORM.hidden);
+        for (let i = 0; i < items.length; i++) {
+          for (let j = i + 1; j < items.length; j++) {
+            const a = items[i], b = items[j];
+            if (!a.placed || !b.placed) continue;
+            const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+            const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+            if (w > 0 && h > 0) expect(a.forced || b.forced).toBe(true);
+          }
+        }
+        for (const it of items) it.fresh = false;
+      }
+    }
+  });
 });

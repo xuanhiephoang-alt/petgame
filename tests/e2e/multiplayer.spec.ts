@@ -941,38 +941,107 @@ test("pack leaders: a caught leader keeps its ★ on its card, its name tag and 
 });
 
 /**
- * The pairs of name tags whose visible parts (the name text, the HP bar) overlap on screen, as "<text A> | <text B>".
- * A tag hidden by opacity, or a part with no opacity or display, does not count; floating texts are not name tags.
- * Parts must overlap by more than 1 px both ways (sizes are rounded and tags keep a 2 px gap).
+ * Installs window.__labelPairs(): the pairs of name tags whose visible parts (the name text, the HP bar) overlap on
+ * screen, as "<text A> | <text B>". A tag hidden by opacity, or a part with no opacity or display, does not count;
+ * floating texts are not name tags. Parts must overlap by more than 1 px both ways (sizes are rounded and tags keep
+ * a 2 px gap). It lives on the page so the one-moment check and the continuous watch share the same measurement.
  */
-const labelOverlaps = (page: Page) =>
+const installLabelPairs = (page: Page) =>
   page.evaluate(() => {
-    const boxes: { text: string; parts: DOMRect[] }[] = [];
-    for (const el of document.querySelectorAll<HTMLElement>(".labels > .label")) {
-      if (el.style.display === "none" || Number(getComputedStyle(el).opacity) < 0.5) continue;
-      const parts: DOMRect[] = [];
-      const span = el.querySelector("span");
-      if (span && Number(getComputedStyle(span).opacity) > 0.5) parts.push(span.getBoundingClientRect());
-      const bar = el.querySelector(".hp-bar");
-      if (bar && getComputedStyle(bar).display !== "none") parts.push(bar.getBoundingClientRect());
-      if (parts.length > 0) boxes.push({ text: el.textContent ?? "", parts });
-    }
-    const pairs: string[] = [];
-    for (let i = 0; i < boxes.length; i++) {
-      for (let j = i + 1; j < boxes.length; j++) {
-        const hit = boxes[i].parts.some((a) => boxes[j].parts.some((b) =>
-          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1));
-        if (hit) pairs.push(`${boxes[i].text} | ${boxes[j].text}`);
+    (window as any).__labelPairs = () => {
+      const boxes: { text: string; parts: DOMRect[] }[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>(".labels > .label")) {
+        if (el.style.display === "none" || Number(getComputedStyle(el).opacity) < 0.5) continue;
+        const parts: DOMRect[] = [];
+        const span = el.querySelector("span");
+        if (span && Number(getComputedStyle(span).opacity) > 0.5) parts.push(span.getBoundingClientRect());
+        const bar = el.querySelector(".hp-bar");
+        if (bar && getComputedStyle(bar).display !== "none") parts.push(bar.getBoundingClientRect());
+        if (parts.length > 0) boxes.push({ text: el.textContent ?? "", parts });
       }
-    }
-    return pairs;
+      const pairs: string[] = [];
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const hit = boxes[i].parts.some((a) => boxes[j].parts.some((b) =>
+            Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1));
+          if (hit) pairs.push(`${boxes[i].text} | ${boxes[j].text}`);
+        }
+      }
+      return pairs;
+    };
   });
+
+/** The overlapping tag pairs at this moment (needs installLabelPairs). */
+const labelOverlaps = (page: Page) => page.evaluate(() => (window as any).__labelPairs() as string[]);
+
+/**
+ * A tag overlap counts as a layout bug only when it lasts this long AND this many drawn frames. Tags may touch for
+ * about 0.2 s by design while one fades (CSS opacity 0.15-0.2 s in index.html) or slides (LABEL_EASE_MS in
+ * labelLayout.ts) to make room; docs/design/pals.md "Lúc chuyển". 400 ms is twice that. At 60 fps a handoff is
+ * ~120 ms; at 5 fps it is <= 3 frames: needing both limits keeps a handoff from counting at any frame rate.
+ */
+const LASTING_OVERLAP_MS = 400;
+const LASTING_OVERLAP_FRAMES = 8;
+
+/**
+ * Watches the tags frame by frame for watchMs (and at least minFrames drawn frames) and returns the overlaps that
+ * stayed continuous for LASTING_OVERLAP_MS and LASTING_OVERLAP_FRAMES, as "<A> | <B> (<ms> ms, <n> khung)".
+ * `frames` is how many drawn frames were sampled (the watch gives up after 20 s if the page stops drawing).
+ */
+const lastingLabelOverlaps = (page: Page, watchMs = 3000, minFrames = 60) =>
+  page.evaluate(([watchMs, minFrames, lastMs, lastFrames]) => new Promise<{ frames: number; pairs: string[] }>((resolve) => {
+    type Run = { start: number; last: number; frames: number };
+    const open = new Map<string, Run>();
+    const worst = new Map<string, Run>();
+    const begin = performance.now();
+    let frames = 0;
+    let seen = (window as any).__petgame.game.frames as number;
+    const close = (pair: string, run: Run) => {
+      if (run.last - run.start < lastMs || run.frames < lastFrames) return;
+      const old = worst.get(pair);
+      if (!old || run.last - run.start > old.last - old.start) worst.set(pair, run);
+    };
+    const tick = () => {
+      const now = performance.now();
+      const drawn = (window as any).__petgame.game.frames as number;
+      if (drawn > seen) {
+        seen = drawn;
+        frames++;
+        const current = new Set<string>((window as any).__labelPairs() as string[]);
+        for (const [pair, run] of open) {
+          if (!current.has(pair)) {
+            close(pair, run);
+            open.delete(pair);
+          }
+        }
+        for (const pair of current) {
+          const run = open.get(pair);
+          if (run) {
+            run.last = now;
+            run.frames++;
+          } else open.set(pair, { start: now, last: now, frames: 1 });
+        }
+      }
+      const elapsed = now - begin;
+      if ((elapsed >= watchMs && frames >= minFrames) || elapsed > 20_000) {
+        for (const [pair, run] of open) close(pair, run);
+        resolve({
+          frames,
+          pairs: [...worst].map(([pair, run]) => `${pair} (${Math.round(run.last - run.start)} ms, ${run.frames} khung)`),
+        });
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }), [watchMs, minFrames, LASTING_OVERLAP_MS, LASTING_OVERLAP_FRAMES] as const);
 
 test("labels: in a crowd on a phone, no name tag covers another, and mine, my pal's and the aimed pal's stay shown", async ({ browser }) => {
   test.slow();
   const page = await join(browser, "Hiệp", "/", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   await waitForWorld(page);
   await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  await installLabelPairs(page);
   const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
   await sendFrom(page, "debug:givePal", { species: "emberpup", level: 8 });
   // Four more explorers with a pal each, crowded around the spawn clearing.
@@ -996,10 +1065,10 @@ test("labels: in a crowd on a phone, no name tag covers another, and mine, my pa
   await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size), { timeout: 30_000 }).toBeGreaterThanOrEqual(5);
 
   await expect.poll(() => labelOverlaps(page), { timeout: 20_000 }).toEqual([]);
-  // Stable, not just one lucky moment.
-  const frames = await page.evaluate(() => (window as any).__petgame.game.frames as number);
-  await page.waitForFunction((start) => (window as any).__petgame.game.frames - start >= 30, frames);
-  expect(await labelOverlaps(page)).toEqual([]);
+  // Watched for 3 s: tags may touch while one fades or slides (about 0.2 s, by design), never for longer.
+  const watched = await lastingLabelOverlaps(page);
+  expect(watched.frames).toBeGreaterThanOrEqual(60);
+  expect(watched.pairs).toEqual([]);
 
   // Mine and my pal's tags are fully shown.
   const opacities = (selector: string, text?: string) =>
@@ -1012,7 +1081,8 @@ test("labels: in a crowd on a phone, no name tag covers another, and mine, my pa
   expect(await opacities(".labels > .label.companion", "Lv 8 Emberpup")).toEqual(["1", "1"]);
 
   // The aimed pal (nearest within the throwing range, not in a ball) is shown, with its bar when hurt.
-  const aimed = await page.evaluate(() => {
+  // The aimed pal may have just changed (its tag fades in over 0.15 s), so poll briefly.
+  const aimedTag = () => page.evaluate(() => {
     const game = (window as any).__petgame.game;
     const me = game.me().pos;
     let best: any;
@@ -1027,11 +1097,10 @@ test("labels: in a crowd on a phone, no name tag covers another, and mine, my pa
     if (!best) return null;
     const el = best.tag.element as HTMLElement;
     const bar = el.querySelector(".hp-bar");
-    return { opacity: getComputedStyle(el).opacity, hurt: el.classList.contains("hurt"), bar: bar ? getComputedStyle(bar).display : "none" };
+    const hurt = el.classList.contains("hurt");
+    return { opacity: getComputedStyle(el).opacity, hurt, barShown: !hurt || (!!bar && getComputedStyle(bar).display !== "none") };
   });
-  expect(aimed).not.toBeNull();
-  expect(aimed!.opacity).toBe("1");
-  if (aimed!.hurt) expect(aimed!.bar).not.toBe("none");
+  await expect.poll(aimedTag, { timeout: 2_000 }).toEqual({ opacity: "1", hurt: expect.any(Boolean), barShown: true });
 
   // A still scene reads no layout: tags are measured only when they change.
   const measured = () => page.evaluate(() => (window as any).__petgame.game.debugInfo().labels.measured as number);
