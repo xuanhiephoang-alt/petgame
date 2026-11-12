@@ -8,6 +8,8 @@ primary_region = "sin" # Singapore: closest to Vietnam
   PORT = "8080"
   # Saved players live in SQLite on the persistent volume below.
   PETGAME_DB = "/data/petgame.db"
+  # fly-proxy is one hop in front of the machine and appends the player's address to X-Forwarded-For; check with /whoami.
+  PETGAME_TRUST_PROXY = "1"
 
 [mounts]
   source = "petgame_data"

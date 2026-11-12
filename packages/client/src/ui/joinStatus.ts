@@ -1,4 +1,4 @@
-import { MAX_PLAYERS } from "@petgame/shared";
+import { EMPTY_WORLD_HOLD_MS, MAX_PLAYERS } from "@petgame/shared";
 import type { JoinFailure } from "../net/connection.ts";
 
 /** Lobby hint when the page was opened again at the world the player was in (same tab). */
@@ -61,6 +61,24 @@ export function joinCard(failure: JoinFailure, returning: boolean): JoinCard {
       };
     case "unreachable":
       return { title: "Không kết nối được server", detail: "Kiểm tra mạng rồi bấm Thử lại.", retry: true, newWorld: false, reload: false, primary: "retry" };
+    case "busy":
+      return {
+        title: "Server đang có quá nhiều thế giới",
+        detail: "Chưa tạo thêm được thế giới mới. Chờ một lát rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời.",
+        retry: true,
+        newWorld: false,
+        reload: false,
+        primary: "retry",
+      };
+    case "tooMany":
+      return {
+        title: "Đã mở nhiều thế giới quá",
+        detail: `Mạng bạn đang dùng đã mở nhiều thế giới cùng lúc. Thế giới không còn ai sẽ tự đóng sau ${EMPTY_WORLD_HOLD_MS / 60_000} phút: chờ chút rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời.`,
+        retry: true,
+        newWorld: false,
+        reload: false,
+        primary: "retry",
+      };
     case "failed":
       return { title: "Không vào được thế giới", detail: "Có lỗi khi vào. Chờ giây lát rồi bấm Thử lại.", retry: true, newWorld: false, reload: false, primary: "retry" };
   }

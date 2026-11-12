@@ -1,65 +1,71 @@
 PASS
-# REVIEW: T49 Giữ thế giới trống thêm một lúc, vòng 1
+# REVIEW: T64 Giới hạn số thế giới được tạo, vòng 1
 
 ## Kết luận
-Thay đổi làm đúng PLAN.md và `docs/design/multiplayer.md`. Đã đối chiếu vòng đời phòng với mã nguồn Colyseus 0.18.18 (`Room.mjs`: setter `autoDispose`, `_onJoin`, `_onLeave`/`#_onAfterLeave`, `_reserveSeat`, `#_disposeIfEmpty`, `disconnect`) và không thấy đường nào làm phòng mất bình thường bị treo mãi. Lần lưu hồ sơ vẫn đúng một lần, `debug:emptyHold` có cổng và chỉ rút ngắn được. Client ghi `?room=` và `petgame:friends` đúng bảng trong PLAN. Không có lỗi phải sửa; các góp ý bên dưới là việc theo sau.
+Thay đổi làm đủ các bước 1-12 và mọi tiêu chí trong PLAN.md, khớp `docs/design/multiplayer.md`. Ba chỗ lệch kế hoạch trong PROGRESS.md đều hợp lý. Tôi đã đối chiếu mã nguồn Colyseus 0.18.18 trong `node_modules`, cả `src` lẫn bản `build/*.mjs` chạy thật: cách gắn địa chỉ, chỗ chặn `invokeMethod` và sổ đếm đều đúng với mã thật, không chỉ đúng trên giấy. Chạy lại `worldLimits.test.ts`, `connection.test.ts` và `joinStatus.test.ts`: 53/53 qua. Không còn lỗi phải sửa; vài chỗ nên làm cứng thêm, ghi ở dưới.
 
-Đã tự chạy lại để kiểm: `npm run typecheck` sạch; `joinStatus.test.ts` và `connection.test.ts` 22/22; describe "keeping an empty world open" 6/6 (test "hook absent" mất 306 ms, không treo).
-
-## Lỗi phải sửa
+## Lỗi phải sửa (FAIL khi còn mục này)
 (không có)
 
-## Đã kiểm, không có lỗi
-- **Vòng đời phòng:**
-  - `autoDispose = false` khai báo như trường của class. `__init` chép giá trị này qua accessor khi `#_ready` còn tắt, nên `resetAutoDisposeTimeout(seatReservationTimeout)` không hẹn gì.
-  - Phòng tạo ra mà không ai vào: chỗ giữ 15 s hết hạn thì `#_disposeIfEmpty` không đóng phòng vì `autoDispose` đang tắt. Đến 60 s thì hẹn giờ của phòng bật `autoDispose`, và phòng đóng sau 1 s (test 3).
-  - Mọi đường ra đều đi qua `onLeave`: rời chủ động; hết chờ nối lại; `endSession` (cả `reject` lẫn `leave(CLOSE_REPLACED)`, kể cả khi gọi từ phòng khác); `onJoin` ném lỗi (`_onLeave(WITH_ERROR)`, rồi `onDrop`, nơi `allowReconnection` bị từ chối "not joined", rồi `onLeave`). Vì `keepWorldOpen` là dòng đầu của `onJoin`, mỗi lần vào luôn có một lần ra hẹn lại giờ.
-  - Không còn chỗ nào `players` rỗng mà không có hẹn giờ.
-- **Hết giữ đúng lúc có người vào:**
-  - Có người giữ chỗ trước khi hết giữ: `#_disposeIfEmpty` đếm `_reservedSeats` nên không đóng phòng. Họ vào thì `_onJoin` xoá hẹn giờ của Colyseus, rồi `keepWorldOpen` tắt lại `autoDispose`. Họ không vào thì chỗ giữ hết hạn, `#_decrementClientCount` chạy và phòng đóng.
-  - Có người giữ chỗ trong 1 s sau khi hết giữ: `_reserveSeat` hẹn lại 15 s. Kết quả giống trường hợp trên.
-  - Khoảng hở giữa lúc phát "dispose" và lúc listing bị xoá vẫn có từ trước T49. Nay nó chỉ còn xảy ra lúc hết giữ, không phải mỗi lần người cuối rời, nên hiếm hơn.
-- **Chờ nối lại:** người `offline` vẫn nằm trong `players`, nên trong lúc chờ không có hẹn giờ giữ. `reject` của `allowReconnection` có gọi `resetAutoDisposeTimeout()`, nhưng `autoDispose` đang tắt nên lời gọi đó không làm gì. Server tắt (`disconnect`) thì `#_autoDispose` được bật thẳng, setter chặn `keepWorldOpen` khi phòng đang DISPOSING, và `clock.clear()` dọn hẹn giờ.
-- **Lưu hồ sơ:**
-  - `onDrop` và `removePlayer` lưu như cũ.
-  - `scheduleSave` của phiên đã ra gặp `saveNow` không còn `player` nên thôi. Test 4 dùng spy để chứng minh điều này.
-  - Sau `endSession`, `onLeave` chạy `removePlayer` lần hai cũng không lưu thêm.
-  - Hẹn giờ đang chờ trong lúc phòng trống (tin bắt thú, thông báo 1,5 s ở `onJoin`) đều đã kiểm `players`.
-- **CPU khi trống:** mô phỏng vẫn chạy, tốn 0,13% một nhân mỗi phòng và chỉ trong tối đa 60 s. Đã ghi ở "Đã cân nhắc".
-- **`debug:emptyHold`:**
-  - Chỉ đăng ký trong khối `PETGAME_DEBUG === "1"`.
-  - Giá trị bị kẹp trong `[0, EMPTY_WORLD_HOLD_MS]`. Chuỗi, NaN và Infinity bị bỏ qua.
-  - Chỉ đổi phòng của người gửi.
-  - Có test cho cả lúc có hook và lúc không có. Đột biến (e) của tester bắt được việc bỏ cổng.
-- **Client:**
-  - `arrival` và `arrivalHint` đúng bảng ở Thiết kế 7.
-  - `quietRetry` chỉ thử thêm một lần, chỉ khi lỗi là "closed", và chỉ khi địa chỉ vẫn là `invited`. Nhờ vậy nút "Tạo thế giới mới" không kích hoạt nó.
-  - Lỗi "closed" lần đầu không `console.error`. `joining` bật suốt cả hai lần thử, và không tải lại trang (e2e đếm `load`).
-  - `syncAddress` chỉ ghi khi "có bạn bè hay không" đổi, nên không ghi gì theo từng nhịp.
-  - `keepWorld` chỉ tắt khi server khởi động lại. `failToStart` luôn ghi địa chỉ và cả hai khoá.
-  - Link cũ hoặc sai mở ở tab khác vẫn ra `invited`, kèm thẻ "đã đóng" chữ cũ.
-- **Lệch kế hoạch trong PROGRESS.md:** cả ba đều hợp lý.
-  - Bỏ tham số `previous`, vì `noUnusedParameters` sẽ báo lỗi.
-  - Thêm bước chờ `playerCount === 2` trước khi tải lại. Bước này cần, vì địa chỉ giờ không còn cho biết trang đã thấy bạn bè chưa.
-  - Đếm `load` là 3.
-- **Test "hook absent" không gọi `leave()`:** không rò client hay phòng.
-  - Không có handler thì Colyseus (không ở dev mode) gọi `client.leave(WITH_ERROR)`, rồi tới `onDrop`, nơi người chơi được giữ chờ nối lại. Vì vậy `leave()` phía SDK treo.
-  - `afterEach` gọi `colyseus.cleanup()`, tức `disconnectAll`. Lệnh này từ chối mọi lần chờ nối lại và đóng phòng.
-  - Test "debug:xp is not there" có từ trước cũng làm đúng kiểu này. Bộ test vẫn ổn định (tester chạy 3 lần, 131/131).
-- **Tài liệu:**
-  - `architecture.md` có mục "Giữ thế giới trống (T49)", hook `emptyHold`, đoạn T23 của `main.ts` và helper `closedWorld`.
-  - Danh sách hook trong `CLAUDE.md` đã có `emptyHold`.
-  - `multiplayer.md` khớp với hành vi đã làm.
+## Đã xác minh
 
-## Góp ý không bắt buộc (nên thêm vào TASKS.md)
-- **[nên làm sớm] Chặn tạo thế giới hàng loạt.**
-  - Trước T49, một yêu cầu `create` mà không ai vào giữ phòng 15 s. Vào rồi rời thì phòng đóng ngay (0 s).
-  - Nay cả hai trường hợp đều giữ 60 s. Script gọi `POST /matchmake/create/world` với tốc độ r lần mỗi giây sẽ giữ khoảng 60r thế giới đang chạy, gấp 4 lần trước, và không cần giữ socket nào. Ví dụ r = 5 cho khoảng 300 thế giới: khoảng 39% một nhân và 105 MB.
-  - Một client cũng giữ được nhiều thế giới mãi mà không cần socket nào đang mở, chỉ bằng cách vào rồi rời mỗi thế giới trước khi hết 60 s. Trước T49, muốn vậy phải giữ một socket cho mỗi thế giới.
-  - Thiết kế đã chấp nhận và ghi ở "Đã cân nhắc", nên không làm FAIL. Đề xuất một nhiệm vụ riêng: trần tổng số thế giới (ví dụ `MAX_WORLDS`, quá trần thì `create` trả lỗi rõ ràng) và/hoặc giới hạn tốc độ `/matchmake/create` theo IP.
-- **[nhỏ] Phòng treo khi `removePlayer` ném lỗi.** `GameRoom.ts`, `onLeave`: nếu `removePlayer` ném lỗi (chỉ xảy ra khi có bug, vì `saveNow` đã tự bắt lỗi của store), `holdEmptyWorld` không chạy. Phòng khi đó không bao giờ đóng: trước T49 Colyseus vẫn đóng nó, nay nó chạy 20 nhịp/giây mãi. Phòng thủ rẻ: đặt `holdEmptyWorld` trong `finally`. Ở `closeIfStillEmpty`, xem như trống khi `this.clients.length === 0 && this.holds.size === 0`, kể cả khi `players` còn sót người.
-- **[nhỏ] Test 1 dùng hold 400 ms**, trong khi từ lúc rời đến lúc vào lại đã khoảng 350 ms (chờ, 5 nhịp, `joinById`). Trên máy chậm, test vẫn qua nhờ 1 s đóng trễ của Colyseus cộng chỗ giữ, nên nó chưa thật sự chứng minh "vào lại kịp trong khoảng giữ". Nên đặt khoảng 1000 ms.
-- **[nhỏ] Chưa có e2e cho "một mình, rớt mạng, Về sảnh, về đúng thế giới cũ"** (Mục tiêu 3). Hiện mới có test server 2 (giữ sau khi chờ nối lại) và lý lẽ trong code (`keepWorld = true`). Nên thêm một bước vào test `connection:` có sẵn, dùng `openWithSwitch` + `cut` + `debug:endGrace`.
-- **[nhỏ] Link cũ của chính người chơi mở ở tab mới.** Trước T49 chỉ địa chỉ lúc có bạn bè mới mang `room`. Nay địa chỉ khi chơi một mình cũng có, nên dấu trang lưu lúc chơi một mình, hay địa chỉ dán sang tab mới, sẽ thành `invited`: sảnh hiện "Bạn được mời…", rồi thẻ "đã đóng" với dòng "Xin bạn bè link mời mới". Hiếm và có đường đi tiếp (Tạo thế giới mới). Có thể ghi thêm vào "Đã cân nhắc", hoặc gộp vào T13/T50.
-- **[nhỏ] `closedWorld` chờ tối đa 20 s.** Nếu tin rời phòng lúc `pagehide` bị mất, server sẽ chờ nối lại 20 s trước khi giữ, và lần chờ này sẽ hết giờ. Chưa xảy ra (30/30). Nếu sau này thấy chập chờn thì nâng lên khoảng 30 s.
-- PROGRESS.md ghi nhầm "Test unit đếm `load`": đó là e2e.
+**Gắn địa chỉ (`x-real-ip`)**
+- `Server.listen()` gọi `bindRoutes()` trong callback của `transport.listen`, trước `resolve()`. `bindRouterToTransport` gỡ app Express rồi `prependListener("request", cors+next)`.
+- `guardWorldCreation` chạy ngay khi `await server.listen` xong, tức chỉ sau vài microtask và trước khi vòng sự kiện kịp nhận request nào. Nên thực tế không có khoảng hở (Rủi ro 5 của PLAN không xảy ra). `stamp` đứng đầu danh sách listener.
+- `next` gọi `getRequest({ request: req })` một cách đồng bộ, và hàm này dùng `headers: request.headers` (better-call `adapters/node/request.mjs:74`). Nên header đã ghi đè được chép vào `Request`.
+- `resolveClientIp` (`build/Transport.mjs:50`) đọc `x-real-ip` đầu tiên. Đường HTTP không truyền `remoteAddress`. Test "cannot be fooled…" là bằng chứng cho thứ tự listener: nếu `stamp` chạy sau thì `8.8.8.8` đã thắng.
+- **WebSocket upgrade:** `stamp` không chạy cho sự kiện `upgrade`, nên `authContext.ip` phía WS vẫn lấy từ header client gửi (`buildAuthContext` trong ws-transport). Điều này không ảnh hưởng trần: WS chỉ dùng chỗ đã đặt, không tạo được phòng, và `GameRoom` không dùng `onAuth` hay IP của client. Xem góp ý 3.
+
+**Chặn `invokeMethod`**
+- Router gọi `matchMaker.controller.invokeMethod(...)` qua đúng object này, nên `this` vẫn là `controller` và lệnh kiểm `exposedMethods` gốc vẫn chạy.
+- `matchMaker` chỉ có hai method tạo phòng là `create` và `joinOrCreate`; `joinOrCreate` đã bị gỡ. `join` không tạo phòng, nhưng vẫn gỡ vì nó ghép người lạ vào thế giới.
+- Gọi `Create`, `createRoom` hay tên lạ khác đều không có trong `exposedMethods`, nên trả 520.
+- `@colyseus/testing` dùng `joinById`, và `reconnect` không đổi.
+- **Khi nâng Colyseus:** nếu `controller` bị đóng băng, hoặc `exposedMethods` không còn là mảng, thì server sập lúc khởi động. Đó là hỏng đóng, có ồn.
+  - Nếu route thôi gọi `controller.invokeMethod` thì chặn mất im lặng (hỏng mở). Test tích hợp 5, 6 và 11 sẽ đỏ trong CI.
+  - Lockfile ghim `colyseus` 0.18.9 và `@colyseus/core` 0.18.18. Chấp nhận như Rủi ro 2 của PLAN.
+
+**Sổ đếm**
+- `onCreate` ném lỗi: `opened` chưa chạy, vì nó là lệnh cuối và `onCreate` là hàm đồng bộ. Colyseus gọi `discardRoom`, phát `dispose`, rồi `#_dispose`, rồi `onDispose`. `closed(id lạ)` không làm gì.
+- Phòng bị huỷ giữa `opened` và `settle` (ví dụ `releaseIfShuttingDown`, hay `recordRoom` trả `owner`): `onDispose` xoá phòng, và `settle` không gán phòng đã đóng. Đóng hai lần thì `Map.delete` không làm gì. Listener `dispose` là `once`.
+- `opened` luôn chạy trước `settle` vì `handleCreateRoom` chờ `onCreate` xong. `pending` luôn được trả trong `finally`.
+- Địa chỉ đi vào phòng qua `authContext.ip` mà `stamp` đã ghi đè, không qua `options` của client.
+
+**Client**
+- 429 được xét sau nhánh `unreachable` và trước 522. Hai thẻ mới có chữ đúng bảng trong `multiplayer.md`, và số phút tính từ `EMPTY_WORLD_HOLD_MS`.
+- Không có `switch` nào khác trên `JoinFailure` cần thêm `case`.
+- Các luồng T23, T42, T49 không đổi:
+  - Tạo thế giới mới bỏ `room` trước khi gọi `enter()`;
+  - thử lại lặng lẽ bỏ `room` trước khi tạo;
+  - Thử lại sau `busy`/`tooMany` là tạo lại.
+- Test e2e trả `origin` của trang kèm `allow-credentials`, đúng vì SDK gửi credentials. Yêu cầu `OPTIONS` vẫn đi tới server thật, và server trả 204 kèm CORS.
+
+**`/whoami` và log**
+- `/whoami` chỉ trả địa chỉ của chính người gọi. Listener CORS của Colyseus thêm `Access-Control-Allow-Origin: <origin>` cho mọi đường, nên trang khác đọc được `/whoami` của khách. Nhưng đó là địa chỉ mà trang ấy vốn đã biết, nên không lộ gì.
+- Log không ghi IP: cảnh báo `X-Forwarded-For` in một lần, log chặn in tối đa một dòng mỗi 60 s, dòng khởi động chỉ in số.
+
+**Cấu hình**
+- `fly.toml` dùng `[http_service]` (bộ xử lý HTTP), và fly-proxy nối thẳng vào máy rồi thêm địa chỉ vào cuối `X-Forwarded-For`, nên `1` là đúng.
+- Render chưa chắc (có thể có Cloudflare phía trước). Chú thích, cách kiểm bằng `/whoami` trong `deploy.md`, và chiều sai còn lại không hại người chơi là đủ cho vòng này (Rủi ro 1).
+- `PETGAME_TRUST_PROXY` lấy mục thứ N tính từ cuối, giống `trust proxy` dạng số của Express.
+- IPv6 gộp /64 đúng với `::`, IPv4 lồng trong IPv6, và zone. Dạng `::ffff:a.b.c.d` được bóc ra thành IPv4.
+- Playwright đặt hai trần 1000 kèm chú thích; không test nào bị nới.
+
+## Góp ý không bắt buộc
+1. `packages/server/src/worldLimits.ts:202`: khi `clientAddress` trả `undefined`, code `delete` header `x-real-ip`. Colyseus khi đó rơi về `x-forwarded-for` rồi `x-client-ip` **của client**, nên khoá đếm do kẻ gửi chọn. Điều này trái ý "địa chỉ không xác định được gộp vào `unknown`, không được miễn" (PLAN Thiết kế 1).
+   - Thực tế gần như không xảy ra, vì `remoteAddress` vẫn còn lúc có sự kiện `request`.
+   - Sửa một dòng: `req.headers["x-real-ip"] = address ?? "unknown"`. `addressKey("unknown")` vẫn ra `"unknown"`. Đây là chỗ duy nhất hỏng theo hướng mở.
+2. `worldLimits.ts:66`: IPv4 lồng trong IPv6 viết dạng hex (`::ffff:cb00:7105`) không được bóc, nên mọi địa chỉ dạng này rơi chung vào khoá `0:0:0:0::/64`. Node luôn viết dạng chấm và Fly cũng vậy, nên chỉ là làm cứng: nhận dạng tiền tố `0:0:0:0:0:ffff` sau khi mở rộng.
+3. Ghi vào `docs/architecture.md` (mục `worldLimits.ts`) rằng `stamp` chỉ chạy cho `request`. `authContext.ip` và `client.ip` ở đường WebSocket upgrade vẫn lấy từ header client gửi, nên ai sau này dùng IP trong `onAuth` hay `onJoin` phải tự tính lại bằng `clientAddress`.
+4. `worldLimits.ts:163-171`: các lần bị chặn sau dòng log đầu chỉ được in khi có lần chặn kế tiếp, mà lần đó có thể cách hàng giờ. Khi ấy chữ "in the last minute" sai. Sửa bằng cách in khoảng thời gian thật (`since Xs`), hoặc bỏ cụm "in the last minute".
+5. `worldLimits.ts:126`: hàm `positiveInt` nhận cả 0 (cho `PETGAME_TRUST_PROXY`) nên tên và JSDoc chưa đúng; đổi thành `intFromEnv`.
+6. Có thể cho `guardWorldCreation` tự kiểm lúc cài: `typeof controller.invokeMethod === "function"` và `exposedMethods` có `"create"`, sai thì ném lỗi rõ ràng. Như vậy lỗi khi nâng Colyseus lộ ra ngay lúc khởi động chứ không chờ tới CI.
+
+## Việc mới cho TASKS.md
+- **Kiểm `/whoami` sau lần deploy tới**, trên Fly và Render: dùng điện thoại 4G, rồi thử hai mạng khác nhau. Nếu Render ra địa chỉ của Cloudflare hay địa chỉ nội bộ thì nâng `PETGAME_TRUST_PROXY` (Rủi ro 1 của PLAN).
+- **IPv6 làm trần cả server dễ bị chiếm** (thấp-trung bình): nhà mạng thường cấp /56 hoặc /48 cho mỗi thuê bao, nên một người có IPv6 có 256 khối /64 trở lên. Một máy nhà là đủ chiếm hết 50 chỗ và chặn mọi người tạo thế giới. Thiết kế đã chấp nhận "kẻ phá nhiều địa chỉ", nhưng chưa tính tới việc với IPv6 thì chỉ cần một người. Đề xuất thêm trần thứ hai theo /48 (ví dụ 20). Cần game-designer xét.
+- **Dev và shots dùng trần 10 từ localhost:**
+  - `npm run shots` tạo 8 thế giới trong vài phút (2 + 3 + 3), sát trần; thêm một cảnh nữa là hỏng.
+  - `npm run dev` mà mở nhiều tab hay bấm Tạo thế giới mới liên tục thì gặp 429.
+  - Đề xuất: `scripts/shots.mjs` và `scripts/dev.mjs` đặt `PETGAME_MAX_WORLDS_PER_ADDRESS` cao như `playwright.config.ts`.
+- **Gom các góp ý 1, 2, 4, 5, 6** vào một việc nhỏ "làm cứng worldLimits".

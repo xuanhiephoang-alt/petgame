@@ -1,29 +1,33 @@
-# PROGRESS: T49 Giữ thế giới trống thêm một lúc
+# PROGRESS: T64 Giới hạn số thế giới được tạo
 
 ## Vòng 1: coder
-- [x] Bước 1: `EMPTY_WORLD_HOLD_MS = 60_000` kèm JSDoc (`packages/shared/src/constants.ts`).
-- [x] Bước 2: `GameRoom` (`packages/server/src/rooms/GameRoom.ts`): `autoDispose = false` (kèm chú thích về listing), `emptyHoldMs`, `emptyHold`; `holdEmptyWorld()` ở cuối `onCreate` và ở `onLeave` khi `players` rỗng; `keepWorldOpen()` ở đầu `onJoin`; `closeIfStillEmpty()` chỉ đặt `autoDispose = true`; hook `debug:emptyHold { ms }` (chỉ khi `PETGAME_DEBUG=1`, chỉ rút ngắn, bỏ qua giá trị không phải số hữu hạn).
-- [x] Bước 3: `lobbyUrl(roomId, keepWorld)` đổi tên tham số và JSDoc (`packages/client/src/net/connection.ts`).
-- [x] Bước 4: `Arrival`, `arrival`, `arrivalHint` (`packages/client/src/ui/joinStatus.ts`).
-- [x] Bước 5: `packages/client/src/main.ts`: `FRIENDS_KEY`, `rememberWorld`, `failToStart` luôn ghi địa chỉ, `syncAddress` theo "có bạn bè hay không", `keepWorld` thay `withFriends`, `quietRetry` trong `enter` (vào thẳng thế giới mới một lần khi `backAlone` gặp "closed"), JSDoc cho `enter`.
-- [x] Bước 6: `docs/architecture.md` (mục giữ thế giới trống, hook `emptyHold`, đoạn T23 của `main.ts`, helper `closedWorld`); `CLAUDE.md` chỉ thêm tên `emptyHold` vào danh sách hook.
-- [x] Test: unit `joinStatus.test.ts` (describe `arrival`), `connection.test.ts` (đổi mô tả); tích hợp server `GameRoom.test.ts` describe "keeping an empty world open" (5 test); e2e `tests/e2e/multiplayer.spec.ts`: helper `closedWorld`, sửa test "a reload goes back to the world…" và test T42, thêm test "lobby: alone, a reload comes back to the same world…".
-- Lệch kế hoạch:
-  - `react` trong `startGame` bỏ tham số `previous` (không còn dùng sau khi bỏ `withFriends`; `noUnusedParameters` sẽ báo lỗi), và lời gọi `react(watch.status)` bỏ đối số thứ hai.
-  - Test e2e "a reload goes back to the world…": thêm hai chỗ chờ `playerCount(page) === 2` (trước `page.reload()` và trước khi `page.goto("about:blank")` ở đoạn friend2) vì địa chỉ giờ luôn có `room` nên chờ địa chỉ không còn chứng tỏ trang đã thấy bạn; không chờ thì `petgame:friends` là "0" và sảnh hiện `backAlone` thay vì `back`. Phần 2 (điện thoại): sau "Tạo thế giới mới" địa chỉ giờ có `room` của thế giới mới (kiểm bằng `expect.poll` thay vì `toBeNull`).
-  - Test unit đếm `load` trong test mới: 3 (tải lại, about:blank, goto(back)) vì listener gắn sau lần mở đầu; ý đồ trong kế hoạch (không tải thêm khi vào thẳng thế giới mới) vẫn được kiểm.
-- Lệnh đã chạy: typecheck ✓, test ✓ (411 test), build ✓; e2e mới `--repeat-each=5 --retries=0` ✓ (test mới 5/5; test "a reload goes back to the world" 5/5; test T42 5/5). E2E đầy đủ `npm run test:e2e` ✓ (47 test).
+- [x] Bước 1: `WORLD_LIMITS`, `WORLD_LIMIT_STATUS`, `WORLD_LIMIT_ERROR` kèm JSDoc (`packages/shared/src/constants.ts`).
+- [x] Bước 2: module mới `packages/server/src/worldLimits.ts`: `clientAddress`, `addressKey`, `WorldCensus`/`worldCensus`, `worldLimitsFromEnv`, `trustProxyFromEnv`, `guardWorldCreation` (ghi đè `x-real-ip`, tắt `join`/`joinOrCreate`, bọc `invokeMethod` cho `create`, hàm gỡ), log chặn tối đa 1 dòng/60 s không có IP, cảnh báo `X-Forwarded-For` một lần.
+- [x] Bước 3: `GameRoom.ts`: `worldCensus.opened` cuối `onCreate`, `worldCensus.closed` đầu `onDispose`.
+- [x] Bước 4: `index.ts`: đọc cấu hình, `GET /whoami`, `guardWorldCreation` sau `listen()`, in dòng cấu hình.
+- [x] Bước 5-6: client `net/connection.ts` (`busy`, `tooMany` trong `joinFailure`) và `ui/joinStatus.ts` (hai thẻ mới).
+- [x] Bước 7-9: `playwright.config.ts` (hai trần 1000 kèm chú thích), `fly.toml`, `render.yaml` (`PETGAME_TRUST_PROXY=1`).
+- [x] Bước 10-11: `docs/deploy.md` (mục "Giới hạn số thế giới và proxy"), `docs/architecture.md`.
+- [x] Test: `packages/server/src/worldLimits.test.ts` (unit + describe "creating worlds over HTTP", 29 test, chạy 3 lần đều qua), `connection.test.ts` (test mới), `joinStatus.test.ts` (`ALL` thêm hai loại + test mới), e2e `lobby: a refused new world says why...` (`--repeat-each=5 --retries=0`: 5/5 qua).
+- Lệch kế hoạch (nhỏ):
+  - Test e2e: trả lời giả 429 phải kèm `access-control-allow-origin` bằng đúng origin của trang và `access-control-allow-credentials: true` (SDK gửi credentials, `*` bị trình duyệt chặn bằng CORS). Plan ghi `*`.
+  - Test e2e viết chuỗi lỗi trực tiếp (có chú thích nguồn) thay vì import `@petgame/shared`, vì spec chưa import shared.
+  - Test unit "accepts the header as an array" và "drops empty entries" đưa `remote` vào (với `remote` undefined và trustProxy 1, công thức của plan coi mục cuối là proxy nên ra mục đầu).
+- Lệnh đã chạy: typecheck ✓, test ✓ (443 test), build ✓, `npm run test:e2e` đầy đủ ✓ (48 test).
+- Không commit; `.claude/settings.json` không đổi.
 
 ## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (411 trước khi thêm test; 412 sau)   build ✓   e2e ✓ (47/47, 7,8 phút)   photo3d (không chạy, không đụng)
-- Lặp: 3 test e2e liên quan (reload về thế giới cũ, một mình tải lại, T42) `--repeat-each=10 --workers=1 --retries=0`: 30/30 ✓. `GameRoom.test.ts` chạy 3 lần: 130/130 ✓ mỗi lần; sau khi thêm test mới 131/131 ✓ ba lần. Log ở scratchpad `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad`.
-- Tiêu chí hoàn thành: [x] hằng số `EMPTY_WORLD_HOLD_MS` + JSDoc  [x] `GameRoom` (autoDispose=false, holdEmptyWorld ở onCreate/onLeave, keepWorldOpen ở onJoin, hết giữ chỉ đặt autoDispose=true)  [x] người chờ nối lại tính là có người (test 2)  [x] không lưu trong lúc trống, vào lại đọc đúng (test 4)  [x] `debug:emptyHold` chỉ khi `PETGAME_DEBUG=1`, chỉ rút ngắn (test 5 + test mới)  [x] client: `?room=` một mình, `petgame:friends`, vào thẳng thế giới mới không thẻ, thẻ T23 khi có bạn (e2e)  [x] `schema.ts`/`messages.ts`/`Profile` không đổi (git diff không đụng)  [x] test unit/tích hợp/e2e có đủ  [x] lệnh sạch  [x] docs/architecture.md đã sửa (không kiểm nội dung từng dòng)
-- Đột biến (mỗi cái đã hoàn nguyên, `cmp` với bản gốc khớp):
-  - a) `closeIfStillEmpty` đặt `autoDispose = false`: 4 test "keeping an empty world open" hỏng (giữ/đóng, grace, tạo-chưa-vào, hook) ✓ bắt được.
-  - b) bỏ `keepWorldOpen()` ở `onJoin`: 2 test hỏng ("expected Delayed{active:true} to be undefined") ✓.
-  - c) bỏ `Math.min(..., EMPTY_WORLD_HOLD_MS)` trong hook: test hook hỏng ("expected 1000000000 to be 60000") ✓.
-  - d) `arrival` luôn trả `"back"`: `joinStatus.test.ts` "is backAlone when..." hỏng ✓. Thêm: tắt `quietRetry` (`let quietRetry = false`) thì e2e "lobby: alone, a reload comes back..." hỏng ("Still in the lobby", thẻ lỗi) ✓.
-  - e) (thêm) bỏ cổng `PETGAME_DEBUG` (`if (true)`): test mới hỏng ✓.
-- `debug:emptyHold` nằm trong khối `if (process.env.PETGAME_DEBUG === "1")` (GameRoom.ts:417 trở đi). Khi không đặt biến, server ngắt hoặc bỏ qua tin; `emptyHoldMs` giữ 60 000.
-- Test đã thêm: `GameRoom.test.ts` trong describe "keeping an empty world open": "the hold hook is not there on a real server (PETGAME_DEBUG not 1)" (PLAN chưa liệt kê, thiếu trước đó). Lưu ý khi viết: gửi `debug:emptyHold` mà không có handler thì `client.leave()` treo (server dường như đóng client), nên test không gọi `leave()`.
-- Lưu ý không phải lỗi: khi chạy lặp e2e, log WebServer có `Failed to fetch dynamically imported module .../browserAll-*.js` và `MatchMakeError: room ... not found` (dự kiến, từ test thế giới đã đóng); không test nào hỏng.
+- typecheck ✓   test ✓ (443, 33 file)   build ✓   e2e ✓ (48, 7,8 phút)   photo3d (không chạy, không đụng)
+- Lặp lại: `worldLimits.test.ts` 3 lần, 29/29 mỗi lần; `GameRoom.test.ts` 2 lần, 131/131 mỗi lần (móc sổ đếm không làm hỏng gì); e2e `a refused new world says why` với `--repeat-each=10 --workers=1 --retries=0`: 10/10 qua. Không có test chập chờn. Output ở scratchpad.
+- Tiêu chí hoàn thành: [x] hằng số + JSDoc  [x] 429 đúng loại trước khi tạo phòng  [x] đếm theo địa chỉ, đóng thì trả chỗ, tạo hỏng không giữ chỗ  [x] trần cả server gồm phòng không qua HTTP  [x] trust proxy 0/N, IPv6 /64  [x] chặn cài sau `listen()` (test "cannot be fooled" chứng minh)  [x] `joinById` không bị chặn, `join`/`joinOrCreate` 520  [x] `GameRoom` chỉ thêm `opened`/`closed`  [x] `/whoami`, cấu hình fly/render, deploy.md, log cảnh báo một lần  [x] env sai thì dùng mặc định + cảnh báo  [x] thẻ `busy`/`tooMany` (unit + e2e: focus, Enter)  [x] test 1-13 đủ, e2e mới, không test cũ bị nới  [x] `playwright.config.ts` env 1000 + chú thích  [x] docs cập nhật. Không phải thêm test nào.
+- Kiểm tra đột biến (mỗi cái đã hoàn nguyên, so sánh với bản sao, cây làm việc không đổi):
+  - a) bỏ ghi đè `x-real-ip` / tin header client: 2 test hỏng ("cannot be fooled...", "counts the last X-Forwarded-For entry...").
+  - b) `closed()` không xoá: 12 test hỏng (gồm "gives the place back when a world closes", "frees both caps...").
+  - c) chặn cả `joinById`: hỏng "never refuses joining a world that exists".
+  - d) để `joinOrCreate` bật: hỏng "switches off join and joinOrCreate".
+  - e) client ánh xạ 429 thành `failed` (hai biến thể): hỏng "tells the server's world cap from the address cap".
+- Kiểm tra tay với server thật (`npx tsx packages/server/src/index.ts`, `PETGAME_DEBUG` không đặt, `PETGAME_DB=:memory:`):
+  - `PETGAME_TRUST_PROXY` không đặt: 10 lần `POST /matchmake/create/world` từ localhost trả 200; lần 11 trả 429 `{"code":429,"error":"too many worlds from this address"}`. Lần 12 kèm `X-Forwarded-For: 9.9.9.9`, `X-Real-IP: 8.8.8.8`, `X-Client-IP: 7.7.7.7` vẫn 429 (không vượt được trần). `joinOrCreate` trả 520. `/whoami` trả `127.0.0.1`. Log: một dòng "refused 1 world creation ... 10 worlds open" (không có IP) và đúng một cảnh báo `X-Forwarded-For`.
+  - `PETGAME_TRUST_PROXY=1`: mỗi `X-Forwarded-For` khác (không có, 203.0.113.1, 203.0.113.2) có trần 10 riêng (10 lần 200, lần 11 là 429); `/whoami` với `X-Forwarded-For: 1.2.3.4, 203.0.113.9` trả `203.0.113.9` (mục cuối).
+  - Lần chạy tay đầu có nhầm: server cũ chưa tắt nên lượt "proxy1" gặp 429 ngay. Đó là lỗi cách chạy của tester, không phải lỗi sản phẩm; đã chạy lại riêng như trên.
+- Test đã thêm: không (đủ theo PLAN).

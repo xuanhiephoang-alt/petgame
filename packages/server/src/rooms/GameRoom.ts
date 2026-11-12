@@ -205,6 +205,7 @@ import { detourLimit, PathPlanner } from "../ai/pathing.ts";
 import { findNearestTarget, stepChase, stepFlee, type CombatTarget, type WildAggro } from "../ai/wildCombat.ts";
 import { chooseSkill } from "../ai/skillAi.ts";
 import { emptyProfile, isValidToken, openStore, type Profile, type ProfileStore } from "../persistence/store.ts";
+import { worldCensus } from "../worldLimits.ts";
 
 /** Server-only per-player data that is never synced. */
 interface PlayerControl {
@@ -505,6 +506,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.setSimulationInterval((dt) => this.tick(dt), TICK_MS);
     // A world made but never joined (the creator never connected) must not live forever either.
     this.holdEmptyWorld();
+    worldCensus.opened(this.roomId);
   }
 
   onJoin(client: Client, options?: JoinOptions) {
@@ -631,6 +633,7 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   /** The room is closing: none of its sessions is anyone's live session any more. */
   onDispose() {
+    worldCensus.closed(this.roomId);
     for (const [token, live] of liveSessions) if (live.room === this) liveSessions.delete(token);
   }
 

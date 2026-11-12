@@ -30,6 +30,25 @@ Cả hai đọc được `Dockerfile` ở thư mục gốc:
 - Health check path: `/healthz`.
 - Chỉ chạy **1 instance**.
 
+## Giới hạn số thế giới và proxy (T64)
+
+Mỗi lần tạo thế giới tốn một ít CPU và bộ nhớ, nên server giới hạn việc **tạo** (luật ở `docs/design/multiplayer.md`). Ba biến môi trường:
+
+| Biến | Mặc định | Ý nghĩa |
+|---|---|---|
+| `PETGAME_MAX_WORLDS` | 50 | số thế giới tối đa trên cả server |
+| `PETGAME_MAX_WORLDS_PER_ADDRESS` | 10 | số thế giới tối đa mỗi địa chỉ mạng (IPv6 tính theo khối /64) |
+| `PETGAME_TRUST_PROXY` | 0 | số proxy đứng trước server (0-9); server lấy địa chỉ người chơi là mục thứ N tính từ cuối `X-Forwarded-For` |
+
+Giá trị sai (không phải số nguyên dương) bị bỏ qua kèm cảnh báo trong log. `fly.toml` và `render.yaml` đặt `PETGAME_TRUST_PROXY=1`.
+
+**Kiểm sau khi deploy:** tắt Wi-Fi trên điện thoại (dùng 4G), mở `https://<app>/whoami`, rồi so với địa chỉ một trang "what is my IP" báo.
+- Khớp: đúng.
+- Ra địa chỉ nội bộ (`10.*`, `172.16-31.*`, `192.168.*`, `fdaa:*`, `fd*`): có thêm một proxy nữa, tăng `PETGAME_TRUST_PROXY` thêm 1 rồi kiểm lại.
+- Hai mạng khác nhau mà ra cùng một địa chỉ cũng là chưa đúng.
+
+Đặt thấp hơn số proxy thật thì mọi người chung một địa chỉ và trần 10 chặn nhầm người chơi; đặt cao hơn thì chỉ để kẻ phá giả được địa chỉ. Dòng log "World limits: requests carry X-Forwarded-For but PETGAME_TRUST_PROXY is 0" nghĩa là có proxy mà chưa khai báo: đặt biến này.
+
 ## Ghi chú
 
 - Dữ liệu người chơi lưu trong SQLite ở `PETGAME_DB` (mặc định trong Docker: `/data/petgame.db`). Phải gắn ổ lưu trữ vào `/data`, nếu không mỗi lần deploy lại sẽ mất dữ liệu. Sao lưu: `fly ssh sftp get /data/petgame.db`.

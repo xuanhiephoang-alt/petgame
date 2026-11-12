@@ -3030,3 +3030,30 @@ test("keys: a dialog or a panel the keyboard is in keeps the world's keys, a cli
   await hold("d");
   await expect.poll(async () => (await me()).x - again.x).toBeGreaterThan(20);
 });
+
+test("lobby: a refused new world says why, and Thử lại opens one once allowed", async ({ browser }) => {
+  const param = (target: Page, key: string) => new URL(target.url()).searchParams.get(key);
+  const page = await openPage(browser, "/", "Limit");
+  // The server's answer to a creation over the per-address cap (WORLD_LIMIT_ERROR.address in packages/shared).
+  const refuse = (route: import("@playwright/test").Route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({
+          status: 429,
+          contentType: "application/json",
+          // The SDK sends credentials, so the browser wants the page's origin echoed, as Colyseus does.
+          headers: { "access-control-allow-origin": route.request().headers()["origin"] ?? "*", "access-control-allow-credentials": "true" },
+          body: JSON.stringify({ code: 429, error: "too many worlds from this address" }),
+        })
+      : route.continue();
+  await page.route(/:2567\/matchmake\/create\//, refuse);
+  await enterLobby(page, "Limit", "enter");
+  await expect(page.locator("#join-status")).toContainText("Đã mở nhiều thế giới quá");
+  await expect(page.locator("#join-status")).toContainText("link mời");
+  await expect(page.locator("#retry-btn")).toBeFocused();
+  await expect(page.locator("#new-world-btn")).toBeHidden();
+  expect(param(page, "room")).toBeNull();
+
+  await page.unroute(/:2567\/matchmake\/create\//, refuse);
+  await page.keyboard.press("Enter");
+  await waitForWorld(page);
+});

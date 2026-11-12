@@ -3,7 +3,7 @@ import { MAX_PLAYERS } from "@petgame/shared";
 import type { JoinFailure } from "../net/connection.ts";
 import { INVITE_HINT, RETURN_HINT, arrival, arrivalHint, joinCard, startCard, startFailure } from "./joinStatus.ts";
 
-const ALL: JoinFailure[] = ["closed", "full", "unreachable", "failed"];
+const ALL: JoinFailure[] = ["closed", "full", "unreachable", "busy", "tooMany", "failed"];
 
 describe("arrival", () => {
   it("is new without ?room=, whatever the tab remembers", () => {
@@ -42,6 +42,17 @@ describe("joinCard", () => {
       expect(card.title).not.toBe("");
       expect(card.detail).not.toBe("");
     }
+  });
+
+  it("offers only retry when too many worlds are open, and says how to go on", () => {
+    const busy = joinCard("busy", false);
+    const tooMany = joinCard("tooMany", false);
+    for (const card of [busy, tooMany]) {
+      expect([card.retry, card.newWorld, card.reload, card.primary]).toEqual([true, false, false, "retry"]);
+      expect(card.detail).toContain("link mời");
+    }
+    expect(tooMany.detail).toContain("1 phút");
+    expect(busy.title).not.toBe(tooMany.title);
   });
 
   it("offers only a new world when the world is closed, with words that depend on coming back", () => {

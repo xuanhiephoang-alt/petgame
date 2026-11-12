@@ -56,6 +56,22 @@ export const RECONNECT_TRY_MS = RECONNECT_GRACE_MS + 10_000;
  */
 export const EMPTY_WORLD_HOLD_MS = 60_000;
 /**
+ * Caps on creating worlds (T64); see docs/design/multiplayer.md "Giới hạn số thế giới". An empty world costs about
+ * 0.13% of one core and 0.35 MB, so 50 worlds are about 6.5% and 17.5 MB: more than a shared 512 MB machine can play.
+ * 10 per address fits a household of 5 that each open a world and one more while the old one is still held.
+ * The per-address cap is also the rate limit: a world lives at least EMPTY_WORLD_HOLD_MS after it is made, so an
+ * address makes at most `perAddress` worlds a minute. If worlds can ever close sooner than that (a shorter hold,
+ * closing at once when creation fails...), revisit this and add a rate counter over time.
+ */
+export const WORLD_LIMITS = { maxWorlds: 50, perAddress: 10 } as const;
+/** HTTP status of a world creation refused by WORLD_LIMITS (Too Many Requests). */
+export const WORLD_LIMIT_STATUS = 429;
+/** Error text of each refusal; the lobby tells them apart by it. Never shown to players. */
+export const WORLD_LIMIT_ERROR = {
+  server: "too many worlds on this server",
+  address: "too many worlds from this address",
+} as const;
+/**
  * Close code of a session ended because the same device joined again. 4000-4999 is free for applications
  * (Colyseus uses 4000-4003 and 4010), and the client does not try to reconnect after it.
  */

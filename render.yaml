@@ -11,3 +11,6 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # One proxy in front; verify with /whoami after deploying (docs/deploy.md).
+      - key: PETGAME_TRUST_PROXY
+        value: "1"

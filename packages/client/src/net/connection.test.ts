@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MatchMakeError } from "@colyseus/sdk";
+import { WORLD_LIMIT_ERROR } from "@petgame/shared";
 import { joinFailure, lobbyUrl } from "./connection.ts";
 
 /** Pretends the page is open at `href`: lobbyUrl reads the global `location`, which Node does not have (a URL has the same parts). */
@@ -59,6 +60,13 @@ describe("joinFailure", () => {
     expect(joinFailure({ code: "ECONNREFUSED", message: "fetch failed" })).toBe("unreachable");
     expect(joinFailure(new MatchMakeError("shutting down", 503))).toBe("unreachable");
     expect(joinFailure(new Error("x"))).toBe("unreachable");
+  });
+
+  it("tells the server's world cap from the address cap", () => {
+    expect(joinFailure(new MatchMakeError(WORLD_LIMIT_ERROR.address, 429))).toBe("tooMany");
+    expect(joinFailure(new MatchMakeError(WORLD_LIMIT_ERROR.server, 429))).toBe("busy");
+    // A proxy rate limit has other words: still a "try again later".
+    expect(joinFailure({ code: 429, message: "Too Many Requests" })).toBe("busy");
   });
 
   it("calls everything else failed", () => {
