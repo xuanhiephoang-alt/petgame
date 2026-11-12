@@ -49,6 +49,13 @@ export const RECONNECT_GRACE_MS = 20_000;
  */
 export const RECONNECT_TRY_MS = RECONNECT_GRACE_MS + 10_000;
 /**
+ * How long (ms) a world with no player in it (a waiting-to-reconnect player still counts) stays open, so a page
+ * reload, an invite link or "back to the lobby" still finds it. 60 s covers a slow-3G lobby load (about 25 s with
+ * the click) and a player who drops, then taps "back to the lobby" after RECONNECT_TRY_MS, with plenty to spare.
+ * Colyseus closes the world up to about 1 s after the hold runs out.
+ */
+export const EMPTY_WORLD_HOLD_MS = 60_000;
+/**
  * Close code of a session ended because the same device joined again. 4000-4999 is free for applications
  * (Colyseus uses 4000-4003 and 4010), and the client does not try to reconnect after it.
  */

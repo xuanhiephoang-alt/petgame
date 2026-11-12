@@ -52,13 +52,14 @@ export function inviteLink(roomId: string): string {
 }
 
 /**
- * Where "Về sảnh" goes after the world was lost: this page again, which starts at the lobby. With friends still in
- * that world it carries `?room=<roomId>`, so the player walks back into it (the profile comes back by token); alone,
- * the world is closed, so there is no `room` and a new world opens on the same map. Other parameters are kept.
+ * The address of this page with or without the world in it. With `keepWorld` it carries `?room=<roomId>`, so the
+ * player walks back into that world (the profile comes back by token); the world stays open while anyone is in it,
+ * and for EMPTY_WORLD_HOLD_MS after the last one. Without it there is no `room` and a new world opens on the same
+ * map: only for after the server restarted and for a world known to be closed. Other parameters are kept.
  */
-export function lobbyUrl(roomId: string, withFriends: boolean): string {
+export function lobbyUrl(roomId: string, keepWorld: boolean): string {
   const url = new URL(location.href);
-  if (withFriends) url.searchParams.set("room", roomId);
+  if (keepWorld) url.searchParams.set("room", roomId);
   else url.searchParams.delete("room");
   return url.toString();
 }

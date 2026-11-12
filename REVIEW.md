@@ -1,68 +1,65 @@
 PASS
-# REVIEW: T30 Thanh máu trùm che HUD, vòng 3
+# REVIEW: T49 Giữ thế giới trống thêm một lúc, vòng 1
 
 ## Kết luận
-Code sản phẩm (`index.html`, `hud.ts`) vẫn như vòng 1 và đúng PLAN; không đổi `Game.ts`, server, shared hay `toastQueue.ts`. Hai lỗi phải sửa của vòng 1 đã được sửa. Phép kiểm "thông báo không chồng phần nào, kể cả tên mình" giữ nguyên, không bị nới. Còn vài chỗ test có thể chạy sai trong tình huống hiếm, cộng một chỗ sửa nhầm vào test `toasts (...)` có sẵn. Không chỗ nào đủ nặng để chặn commit; ghi thành việc nối tiếp ở cuối.
+Thay đổi làm đúng PLAN.md và `docs/design/multiplayer.md`. Đã đối chiếu vòng đời phòng với mã nguồn Colyseus 0.18.18 (`Room.mjs`: setter `autoDispose`, `_onJoin`, `_onLeave`/`#_onAfterLeave`, `_reserveSeat`, `#_disposeIfEmpty`, `disconnect`) và không thấy đường nào làm phòng mất bình thường bị treo mãi. Lần lưu hồ sơ vẫn đúng một lần, `debug:emptyHold` có cổng và chỉ rút ngắn được. Client ghi `?room=` và `petgame:friends` đúng bảng trong PLAN. Không có lỗi phải sửa; các góp ý bên dưới là việc theo sau.
 
-## 1. Các lỗi FAIL của vòng 1
-- **Đo lúc trạng thái đang chuyển:** đã sửa. `settledBossLayout` chỉ nhận số đo khi đủ các điều kiện sau, trong **cùng một** `evaluate`; không đủ thì thử lại, hết 10 lần thì `throw`:
-  - thanh đang hiện (`barShown`);
-  - camera lệch < 1 px so với người chơi;
-  - không có thông báo `.out` và không có hiệu ứng thông báo đang chạy;
-  - ở chỗ trong cột thì có lớp `boss-near`;
-  - không trúng đòn nào trong lúc chờ và đo;
-  - không có thú hoang trong 250 px;
-  - `accept` đồng ý.
+Đã tự chạy lại để kiểm: `npm run typecheck` sạch; `joinStatus.test.ts` và `connection.test.ts` 22/22; describe "keeping an empty world open" 6/6 (test "hook absent" mất 306 ms, không treo).
 
-  Đoạn desktop 1248/1024 dùng chung helper, không còn `goNearBoss` nằm trong `expect.poll`.
-- **`expectBarClear` qua khi thanh ẩn:** đã sửa. Hàm mở đầu bằng `expect(layout.barShown).toBe(true)`.
-- **Bảng trong `docs/design/hud.md` bị cắt đôi:** đã sửa. Đoạn "Lề trái/phải" nay nằm sau bảng; bảng liền mạch và khớp với CSS.
+## Lỗi phải sửa
+(không có)
 
-## 2. Có phép kiểm nào bị nới, vòng thử lại có qua "cho có" được không?
-- Phép kiểm chồng, `expectBarClear`, `expectBarInColumn`, vùng an toàn, chỗ A/B và hai mốc khi cầm ngang đều giữ nguyên. Riêng thông báo lỗi của phép kiểm chồng nay có thêm toạ độ.
-- Các điều kiện để vòng lặp nhận số đo chỉ nói về **môi trường**: camera, đòn đánh, thú hoang, hiệu ứng. Chúng không phải chính phép kiểm bố cục, nên vòng lặp không thể chọn đúng lúc bố cục "đẹp". Với desktop, `accept` đòi rộng 280 hoặc `position: static`; không đạt thì test `throw` (hỏng), không bỏ qua. Lần đo nào cũng là số mới.
-- Không thể đo khi không có thông báo: `accept` đòi đúng `screen.room` thông báo.
-- **Còn một khe hẹp, hiếm gặp (góp ý 2).** `pushToasts` thoát ngay khi đang có bất kỳ thông báo nào, và `accept` chỉ đếm số thông báo, không xem nội dung. Giả sử hai thông báo dài hết hạn trong lúc tìm chỗ, rồi đúng lúc `prepare` chạy lại có một thông báo khác đang hiện (ngất rồi hồi sinh, "Đến 🌋 Núi lửa", cảnh báo nóng, cảnh báo máu thấp…). Khi đó vòng lặp đo với thông báo khác. Ở cấu hình cầm ngang (`room` 1) có thể qua với một thông báo ngắn hơn. Đây là trường hợp đo nhẹ đi ở một số lần chạy, không phải lỗi bị che vĩnh viễn: lần chạy bình thường vẫn đo đúng hai thông báo dài nhất.
+## Đã kiểm, không có lỗi
+- **Vòng đời phòng:**
+  - `autoDispose = false` khai báo như trường của class. `__init` chép giá trị này qua accessor khi `#_ready` còn tắt, nên `resetAutoDisposeTimeout(seatReservationTimeout)` không hẹn gì.
+  - Phòng tạo ra mà không ai vào: chỗ giữ 15 s hết hạn thì `#_disposeIfEmpty` không đóng phòng vì `autoDispose` đang tắt. Đến 60 s thì hẹn giờ của phòng bật `autoDispose`, và phòng đóng sau 1 s (test 3).
+  - Mọi đường ra đều đi qua `onLeave`: rời chủ động; hết chờ nối lại; `endSession` (cả `reject` lẫn `leave(CLOSE_REPLACED)`, kể cả khi gọi từ phòng khác); `onJoin` ném lỗi (`_onLeave(WITH_ERROR)`, rồi `onDrop`, nơi `allowReconnection` bị từ chối "not joined", rồi `onLeave`). Vì `keepWorldOpen` là dòng đầu của `onJoin`, mỗi lần vào luôn có một lần ra hẹn lại giờ.
+  - Không còn chỗ nào `players` rỗng mà không có hẹn giờ.
+- **Hết giữ đúng lúc có người vào:**
+  - Có người giữ chỗ trước khi hết giữ: `#_disposeIfEmpty` đếm `_reservedSeats` nên không đóng phòng. Họ vào thì `_onJoin` xoá hẹn giờ của Colyseus, rồi `keepWorldOpen` tắt lại `autoDispose`. Họ không vào thì chỗ giữ hết hạn, `#_decrementClientCount` chạy và phòng đóng.
+  - Có người giữ chỗ trong 1 s sau khi hết giữ: `_reserveSeat` hẹn lại 15 s. Kết quả giống trường hợp trên.
+  - Khoảng hở giữa lúc phát "dispose" và lúc listing bị xoá vẫn có từ trước T49. Nay nó chỉ còn xảy ra lúc hết giữ, không phải mỗi lần người cuối rời, nên hiếm hơn.
+- **Chờ nối lại:** người `offline` vẫn nằm trong `players`, nên trong lúc chờ không có hẹn giờ giữ. `reject` của `allowReconnection` có gọi `resetAutoDisposeTimeout()`, nhưng `autoDispose` đang tắt nên lời gọi đó không làm gì. Server tắt (`disconnect`) thì `#_autoDispose` được bật thẳng, setter chặn `keepWorldOpen` khi phòng đang DISPOSING, và `clock.clear()` dọn hẹn giờ.
+- **Lưu hồ sơ:**
+  - `onDrop` và `removePlayer` lưu như cũ.
+  - `scheduleSave` của phiên đã ra gặp `saveNow` không còn `player` nên thôi. Test 4 dùng spy để chứng minh điều này.
+  - Sau `endSession`, `onLeave` chạy `removePlayer` lần hai cũng không lưu thêm.
+  - Hẹn giờ đang chờ trong lúc phòng trống (tin bắt thú, thông báo 1,5 s ở `onJoin`) đều đã kiểm `players`.
+- **CPU khi trống:** mô phỏng vẫn chạy, tốn 0,13% một nhân mỗi phòng và chỉ trong tối đa 60 s. Đã ghi ở "Đã cân nhắc".
+- **`debug:emptyHold`:**
+  - Chỉ đăng ký trong khối `PETGAME_DEBUG === "1"`.
+  - Giá trị bị kẹp trong `[0, EMPTY_WORLD_HOLD_MS]`. Chuỗi, NaN và Infinity bị bỏ qua.
+  - Chỉ đổi phòng của người gửi.
+  - Có test cho cả lúc có hook và lúc không có. Đột biến (e) của tester bắt được việc bỏ cổng.
+- **Client:**
+  - `arrival` và `arrivalHint` đúng bảng ở Thiết kế 7.
+  - `quietRetry` chỉ thử thêm một lần, chỉ khi lỗi là "closed", và chỉ khi địa chỉ vẫn là `invited`. Nhờ vậy nút "Tạo thế giới mới" không kích hoạt nó.
+  - Lỗi "closed" lần đầu không `console.error`. `joining` bật suốt cả hai lần thử, và không tải lại trang (e2e đếm `load`).
+  - `syncAddress` chỉ ghi khi "có bạn bè hay không" đổi, nên không ghi gì theo từng nhịp.
+  - `keepWorld` chỉ tắt khi server khởi động lại. `failToStart` luôn ghi địa chỉ và cả hai khoá.
+  - Link cũ hoặc sai mở ở tab khác vẫn ra `invited`, kèm thẻ "đã đóng" chữ cũ.
+- **Lệch kế hoạch trong PROGRESS.md:** cả ba đều hợp lý.
+  - Bỏ tham số `previous`, vì `noUnusedParameters` sẽ báo lỗi.
+  - Thêm bước chờ `playerCount === 2` trước khi tải lại. Bước này cần, vì địa chỉ giờ không còn cho biết trang đã thấy bạn bè chưa.
+  - Đếm `load` là 3.
+- **Test "hook absent" không gọi `leave()`:** không rò client hay phòng.
+  - Không có handler thì Colyseus (không ở dev mode) gọi `client.leave(WITH_ERROR)`, rồi tới `onDrop`, nơi người chơi được giữ chờ nối lại. Vì vậy `leave()` phía SDK treo.
+  - `afterEach` gọi `colyseus.cleanup()`, tức `disconnectAll`. Lệnh này từ chối mọi lần chờ nối lại và đóng phòng.
+  - Test "debug:xp is not there" có từ trước cũng làm đúng kiểu này. Bộ test vẫn ổn định (tester chạy 3 lần, 131/131).
+- **Tài liệu:**
+  - `architecture.md` có mục "Giữ thế giới trống (T49)", hook `emptyHold`, đoạn T23 của `main.ts` và helper `closedWorld`.
+  - Danh sách hook trong `CLAUDE.md` đã có `emptyHold`.
+  - `multiplayer.md` khớp với hành vi đã làm.
 
-## 3. Thiết lập test đã đủ ổn định chưa? Đòn từ nguồn khác thú hoang thì sao?
-- Bộ đếm `watchHurt` đếm **mọi** tin `damage` trúng người chơi, không chỉ đòn của thú hoang: trùm cắn hay dậm, thú đầu đàn, cả nóng ở núi lửa. Ghi chú trong code nói "a pal's blow" là hẹp hơn thực tế. Đếm cả nóng chỉ làm thử lại nhiều hơn chút: cứ 2 s lại có một tick.
-- Mọi dịch chuyển của người chơi, dù do đâu, đều bị điều kiện lệch camera < 1 px bắt. Lý do: nhãn tên bám theo `actor.pos`, còn camera theo `pos − (0, 16)`.
-- Thứ duy nhất làm tên dịch mà camera không thấy là **rung màn hình** (`this.shake`, chỉ cộng trong `stage.look`). Mức rung có giới hạn:
-  - trùm bước: ±0,7 px;
-  - vừa trúng đòn trước cửa sổ đếm: ±1,8 px;
-  - trùm dậm (chỉ khi trùm nổi giận): ±5,3 px.
-
-  Cả ba đều dưới khe hở nhỏ nhất 12 px.
-- Lớp `.hurt` đẩy tên lên 8 px và kiểu tóc đẩy thêm tới 8 px. Cả hai đã nằm sẵn trong con số khe hở 12-22 px.
-- Thực nghiệm: tester chạy toàn bộ e2e 46/46, `boss bar` lặp 75/75; coder chạy 50/50.
-- Một lần hỏng trong 50 lần ở vòng 3, trước khi có thông báo lỗi chi tiết, chưa giải thích được. Khả năng cao nhất là đúng khe hẹp ở mục 2: một thông báo khác thay chỗ, làm cột thông báo khác đi trên khe 12 px. Từ giờ thông báo lỗi đã ghi toạ độ; nếu lặp lại thì lưu trace vào T62.
-
-## 4. Giới hạn bố cục 12-22 px có được để lại cho T62 đúng cách không?
-Đúng, test không che giới hạn này:
-- Test vẫn khẳng định thông báo không chồng tên mình ở 390×844 có tai thỏ khi thanh đang hiện. Khe 12 px là có thật và test kiểm đúng nó.
-- Trường hợp chồng thật (thanh ẩn, ô nhiệm vụ hiện, đang mất máu, tóc cao: chồng 2 px, đo ở vòng 1) có từ trước T30. Nó nằm ngoài phạm vi T30 và không bị test này giấu đi.
-
-Có điều `TASKS.md` mục T62 hiện chỉ nói 390×760. **Agent chính cần mở rộng T62** (xem cuối file); không thì giới hạn này chỉ còn nằm trong PROGRESS.md, và PROGRESS.md sẽ bị ghi đè.
-
-## Lỗi phải sửa (FAIL khi còn mục này)
-(không còn)
-
-## Góp ý không bắt buộc
-1. **Sửa nhầm test có sẵn**, trái với dòng "Test có sẵn … không sửa" của PLAN. `tests/e2e/multiplayer.spec.ts:2389-2397`: test `toasts (...)` (T6/T18) đã bị đổi `page.evaluate` thành `pushToasts`, có điều kiện thoát sớm. Kèm theo là một chú thích chép nhầm, "put back when they have run out while the test looked for a calm spot", trong khi test này không tìm chỗ nào. Có vẻ do một lần thay thế hàng loạt.
-   - Điều kiện thoát sớm không làm test qua sai được. Nó chỉ thêm một kiểu hỏng hiếm: có thông báo lạc lọt vào giữa `toHaveCount(0)` và lúc đẩy thông báo.
-   - Nên hoàn tác đúng 6 dòng đó về bản HEAD.
-2. Trong test `boss bar`:
-   - `pushToasts`/`prepare` nên đẩy lại hai thông báo cao **khi chúng không còn hiện**, không phải khi cột thông báo trống. `showToast` không sinh thông báo trùng, và thông báo cao thay được thông báo thấp hoặc thường.
-   - `accept` nên kiểm cả **nội dung**: mọi thông báo đều bắt đầu bằng "Hạ được trùm" hoặc "Frostfang".
-   - Nhờ vậy khe hẹp ở mục 2 được bịt.
-3. `watchHurt`: chú thích nên nói nó đếm mọi tin `damage`, kể cả nóng hoặc lạnh. Nếu chỉ muốn đếm đòn có đẩy lùi thì lọc `!m.cause`, để bớt thử lại và bớt nguy cơ ngất vì nóng khi vòng lặp kéo dài.
-4. Dòng 2687, giữ từ vòng 1: `Promise.all(... a.finished)` nên thêm `.catch(() => {})` cho từng hiệu ứng. Nếu một thông báo `.out` bị gỡ khi transition còn chạy, `finished` bị từ chối và `evaluate` ném lỗi.
-5. Kiểm đáy bảng ở dòng 2741 dùng `max(safe.bottom, 8)` cho mọi cấu hình. Khi cầm dọc và trên desktop, thiết kế là `max(12, inset dưới)`.
-
-## Việc nối tiếp cho TASKS.md
-- **Mở rộng T62** (P2): 390×844 có tai thỏ trên 47, hai thông báo cao dài nhất, mỗi cái 3 dòng.
-  - Khi thanh trùm hiện: khe tới tên mình chỉ 12-22 px. Phụ thuộc kiểu tóc (khoảng 8 px) và `.hurt` (8 px).
-  - Khi ô nhiệm vụ hiện, người chơi đang mất máu, tóc `curly`/`bun`: **chồng 2 px**.
-  - Nguyên nhân: `toastRoom` không trừ `safe-area-inset-top` và không tính thanh máu dưới tên.
-  - Thêm bản có tai thỏ, người chơi đang mất máu, tóc cao vào e2e `toasts`.
-- **Dọn test của T30** (P3, chỉ đụng test): làm góp ý 1 (hoàn tác 6 dòng ở test `toasts (...)`), cộng góp ý 2, 3, 4. Nếu quy trình cho phép thì nên làm góp ý 1 trước khi commit T30, vì chỉ là đưa về đúng bản HEAD.
+## Góp ý không bắt buộc (nên thêm vào TASKS.md)
+- **[nên làm sớm] Chặn tạo thế giới hàng loạt.**
+  - Trước T49, một yêu cầu `create` mà không ai vào giữ phòng 15 s. Vào rồi rời thì phòng đóng ngay (0 s).
+  - Nay cả hai trường hợp đều giữ 60 s. Script gọi `POST /matchmake/create/world` với tốc độ r lần mỗi giây sẽ giữ khoảng 60r thế giới đang chạy, gấp 4 lần trước, và không cần giữ socket nào. Ví dụ r = 5 cho khoảng 300 thế giới: khoảng 39% một nhân và 105 MB.
+  - Một client cũng giữ được nhiều thế giới mãi mà không cần socket nào đang mở, chỉ bằng cách vào rồi rời mỗi thế giới trước khi hết 60 s. Trước T49, muốn vậy phải giữ một socket cho mỗi thế giới.
+  - Thiết kế đã chấp nhận và ghi ở "Đã cân nhắc", nên không làm FAIL. Đề xuất một nhiệm vụ riêng: trần tổng số thế giới (ví dụ `MAX_WORLDS`, quá trần thì `create` trả lỗi rõ ràng) và/hoặc giới hạn tốc độ `/matchmake/create` theo IP.
+- **[nhỏ] Phòng treo khi `removePlayer` ném lỗi.** `GameRoom.ts`, `onLeave`: nếu `removePlayer` ném lỗi (chỉ xảy ra khi có bug, vì `saveNow` đã tự bắt lỗi của store), `holdEmptyWorld` không chạy. Phòng khi đó không bao giờ đóng: trước T49 Colyseus vẫn đóng nó, nay nó chạy 20 nhịp/giây mãi. Phòng thủ rẻ: đặt `holdEmptyWorld` trong `finally`. Ở `closeIfStillEmpty`, xem như trống khi `this.clients.length === 0 && this.holds.size === 0`, kể cả khi `players` còn sót người.
+- **[nhỏ] Test 1 dùng hold 400 ms**, trong khi từ lúc rời đến lúc vào lại đã khoảng 350 ms (chờ, 5 nhịp, `joinById`). Trên máy chậm, test vẫn qua nhờ 1 s đóng trễ của Colyseus cộng chỗ giữ, nên nó chưa thật sự chứng minh "vào lại kịp trong khoảng giữ". Nên đặt khoảng 1000 ms.
+- **[nhỏ] Chưa có e2e cho "một mình, rớt mạng, Về sảnh, về đúng thế giới cũ"** (Mục tiêu 3). Hiện mới có test server 2 (giữ sau khi chờ nối lại) và lý lẽ trong code (`keepWorld = true`). Nên thêm một bước vào test `connection:` có sẵn, dùng `openWithSwitch` + `cut` + `debug:endGrace`.
+- **[nhỏ] Link cũ của chính người chơi mở ở tab mới.** Trước T49 chỉ địa chỉ lúc có bạn bè mới mang `room`. Nay địa chỉ khi chơi một mình cũng có, nên dấu trang lưu lúc chơi một mình, hay địa chỉ dán sang tab mới, sẽ thành `invited`: sảnh hiện "Bạn được mời…", rồi thẻ "đã đóng" với dòng "Xin bạn bè link mời mới". Hiếm và có đường đi tiếp (Tạo thế giới mới). Có thể ghi thêm vào "Đã cân nhắc", hoặc gộp vào T13/T50.
+- **[nhỏ] `closedWorld` chờ tối đa 20 s.** Nếu tin rời phòng lúc `pagehide` bị mất, server sẽ chờ nối lại 20 s trước khi giữ, và lần chờ này sẽ hết giờ. Chưa xảy ra (30/30). Nếu sau này thấy chập chờn thì nâng lên khoảng 30 s.
+- PROGRESS.md ghi nhầm "Test unit đếm `load`": đó là e2e.

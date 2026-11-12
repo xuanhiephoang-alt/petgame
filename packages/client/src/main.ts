@@ -8,7 +8,7 @@ import { loadDollArt } from "./game/art/doll.ts";
 import { DollPreview, LookPicker } from "./ui/wardrobe.ts";
 import { ConnectionOverlay } from "./ui/connection.ts";
 import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
-import { INVITE_HINT, RETURN_HINT, joinCard, startCard, startFailure, type JoinCard } from "./ui/joinStatus.ts";
+import { arrival, arrivalHint, joinCard, startCard, startFailure, type JoinCard } from "./ui/joinStatus.ts";
 import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
 
 const lobby = document.getElementById("lobby")!;
@@ -28,8 +28,10 @@ const lookBox = document.getElementById("look")!;
 /** Dispatched on document once this script has loaded and set the lobby up; index.html's load watchdog (T15) listens for this exact name. */
 const LOBBY_READY_EVENT = "petgame:lobby-ready";
 
-/** sessionStorage key of the world this tab joined last: only used to pick the lobby's words (coming back or invited). */
+/** sessionStorage key of the world this tab joined last: picks the lobby's words and how a closed world is reported (coming back or invited). */
 const ROOM_KEY = "petgame:room";
+/** sessionStorage key of whether that world had other players when last seen ("1") or only this tab ("0"). */
+const FRIENDS_KEY = "petgame:friends";
 
 /** Canvas pixels per CSS pixel: phones' 3x screens are drawn at 2x to save battery. */
 const resolution = Math.min(window.devicePixelRatio || 1, 2);
@@ -61,14 +63,24 @@ const dollArt = loadDollArt().then((ok) => {
 });
 const assets: Promise<GameAssets> = Promise.all([loadPalSprites(), loadPictures(), dollArt]).then(([pals]) => ({ pals }));
 
-// Opened at ?room=X: coming back (this tab joined X) or invited (anything else). Runs before the lobby unlocks and must not throw.
+// Opened at ?room=X: coming back (this tab joined X, alone or with friends) or invited (anything else). Runs before the lobby unlocks and must not throw.
 const invited = new URLSearchParams(location.search).get("room");
-const returning = invited !== null && safeStorage(() => sessionStorage.getItem(ROOM_KEY)) === invited;
-roomHint.textContent = returning ? RETURN_HINT : invited ? INVITE_HINT : "";
+const arrived = arrival(invited, safeStorage(() => sessionStorage.getItem(ROOM_KEY)), safeStorage(() => sessionStorage.getItem(FRIENDS_KEY)));
+const returning = arrived === "back" || arrived === "backAlone";
+roomHint.textContent = arrivalHint(arrived);
+/** Coming back alone to a world that has closed is no news: one quiet retry opens a new world, with no card. */
+let quietRetry = arrived === "backAlone";
 
 /** Changes the address bar without loading the page. */
 function setAddress(url: string) {
   if (url !== location.href) safeStorage(() => history.replaceState(history.state, "", url));
+}
+
+/** Notes the world this tab is in, and whether friends are there, and puts it in the address so a reload comes back to it. */
+function rememberWorld(roomId: string, friends: boolean) {
+  safeStorage(() => sessionStorage.setItem(ROOM_KEY, roomId));
+  safeStorage(() => sessionStorage.setItem(FRIENDS_KEY, friends ? "1" : "0"));
+  setAddress(lobbyUrl(roomId, true));
 }
 
 /** The world in the address is gone: the next join creates a new one. */
@@ -106,15 +118,18 @@ function failToStart(room: GameRoom, watch: ConnectionWatch, err: unknown) {
   broken = true;
   // No canvas, HUD or connection screen of a half-built game.
   container.replaceChildren();
-  // The address as in a running game: friends there, a reload comes back to this world; alone the world closes on leaving.
-  const size = room.state.players?.size ?? 0;
-  if (size > 0) setAddress(lobbyUrl(room.roomId, size > 1));
+  // The address as in a running game: the world is held for a reload to come back to.
+  rememberWorld(room.roomId, (room.state.players?.size ?? 0) > 1);
   watch.leave();
   nameInput.hidden = true;
   lookBox.hidden = true;
   showJoinCard(startCard(startFailure(err)));
 }
 
+/**
+ * Joins a world (the one in the address, or a new one) while the pictures load. Does nothing while a join is under
+ * way or the game is broken. Failures show a card; a quiet retry (coming back alone to a closed world) opens a new world instead.
+ */
 async function enter() {
   if (joining || broken) return;
   joining = true;
@@ -128,7 +143,19 @@ async function enter() {
   try {
     // The connection is watched from the moment the room is joined, so a drop while the pictures still load is not missed.
     // Both are awaited even when one fails first: a room that was joined must never be left behind unheld.
-    const [joined, art] = await Promise.allSettled([connect({ name, look }).then((room) => ({ room, watch: new ConnectionWatch(room) })), assets]);
+    const attempt = () => Promise.allSettled([connect({ name, look }).then((room) => ({ room, watch: new ConnectionWatch(room) })), assets]);
+    let [joined, art] = await attempt();
+    if (
+      joined.status === "rejected" &&
+      quietRetry &&
+      joinFailure(joined.reason) === "closed" &&
+      new URLSearchParams(location.search).get("room") === invited
+    ) {
+      // Alone, back to a world that closed: nobody to be told, so go straight into a new world (once per page).
+      quietRetry = false;
+      dropWorldFromAddress();
+      [joined, art] = await attempt();
+    }
     if (joined.status === "rejected") {
       console.error(joined.reason);
       const failure = joinFailure(joined.reason);
@@ -182,34 +209,32 @@ document.dispatchEvent(new Event(LOBBY_READY_EVENT));
 async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets) {
   // Expose for debugging and end-to-end tests (the room first: tests poll it).
   (window as any).__petgame = { room };
-  safeStorage(() => sessionStorage.setItem(ROOM_KEY, room.roomId));
-  // The address is where the next page load takes the player. With friends that is this world; alone the world closes
-  // when the player leaves, so there is no `room` (a new world opens on the same map).
-  let shared: boolean | undefined; // whether the address names this world
+  // The address is where the next page load takes the player: this world, alone or not (it stays open a while
+  // after the last player leaves). Written again whenever whether friends are there changes.
+  let friends: boolean | undefined;
   const syncAddress = () => {
-    const size = room.state.players?.size ?? 0;
-    if (size === 0 || size > 1 === shared) return;
-    shared = size > 1;
-    setAddress(lobbyUrl(room.roomId, shared));
+    const now = (room.state.players?.size ?? 0) > 1;
+    if (now === friends) return;
+    friends = now;
+    rememberWorld(room.roomId, now);
   };
   room.onStateChange(syncAddress);
   syncAddress();
   // Closing the page is leaving on purpose: the server frees the place at once instead of holding it for a reconnection.
   window.addEventListener("pagehide", () => watch.leave());
 
-  // Whether friends were in the world when the connection went (it stays open for them), for "Về sảnh".
-  let withFriends = false;
-  const overlay = new ConnectionOverlay(container, () => location.assign(lobbyUrl(room.roomId, withFriends)));
-  const react = (status: NetStatus, previous: NetStatus) => {
-    if (previous.state === "online") withFriends = room.state.players.size > 1;
+  // Whether "Về sảnh" and the address name this world: it is kept for a while even when empty.
+  let keepWorld = true;
+  const overlay = new ConnectionOverlay(container, () => location.assign(lobbyUrl(room.roomId, keepWorld)));
+  const react = (status: NetStatus) => {
     // A server that went down took every world with it: there is nothing to rejoin.
-    if (status.state === "lost" && status.reason === "shutdown") withFriends = false;
-    if (status.state === "lost") setAddress(lobbyUrl(room.roomId, withFriends));
+    if (status.state === "lost" && status.reason === "shutdown") keepWorld = false;
+    if (status.state === "lost") setAddress(lobbyUrl(room.roomId, keepWorld));
     overlay.show(status);
   };
   watch.onChange(react);
   // It may have dropped while the pictures were still loading.
-  if (!watch.online) react(watch.status, { state: "online" });
+  if (!watch.online) react(watch.status);
 
   const game = await Game.create(container, room, art, resolution, watch);
   // The lobby covers the world while it is built and goes only once it is drawn (T42).

@@ -1663,7 +1663,7 @@ test("lobby: nothing is sent before the lobby script is ready, by click or by En
   await expect(page.locator("#load-status")).toBeHidden();
 });
 
-test("lobby: a reload goes back to the world friends are in; a closed world or an unreachable server says so, with a way on", async ({ browser }) => {
+test("lobby: a reload goes back to the world; a closed world or an unreachable server says so, with a way on", async ({ browser }) => {
   test.slow();
   // Part 1: desktop, keyboard.
   const page = await join(browser, "Back");
@@ -1672,11 +1672,12 @@ test("lobby: a reload goes back to the world friends are in; a closed world or a
   const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
   const param = (target: Page, key: string) => new URL(target.url()).searchParams.get(key);
 
-  // Alone, the world closes when the player leaves, so the address names no world.
-  await expect.poll(() => param(page, "room")).toBeNull();
+  // Alone too, the address names the world: it stays open for a while after the last player leaves (T49).
+  await expect.poll(() => param(page, "room")).toBe(roomId);
   expect(param(page, "quality")).toBe("low");
   const friend = await observer(roomId, "Friend");
-  await expect.poll(() => param(page, "room")).toBe(roomId);
+  // The page has seen the friend (the tab notes it for the lobby's words) before it reloads.
+  await expect.poll(() => playerCount(page)).toBe(2);
 
   await page.reload();
   await expect(page.locator("#room-hint")).toHaveText("Quay lại thế giới bạn đang chơi cùng bạn bè");
@@ -1689,17 +1690,20 @@ test("lobby: a reload goes back to the world friends are in; a closed world or a
   expect(await playerCount(page)).toBe(2);
   await expect.poll(() => friend.state.players.size).toBe(2);
 
-  // The friend leaves: alone again, the address drops the world.
+  // The friend leaves: alone again, the address still names the world.
   await friend.leave();
-  await expect.poll(() => param(page, "room")).toBeNull();
+  await expect.poll(() => playerCount(page)).toBe(1);
+  expect(param(page, "room")).toBe(roomId);
 
   // The world closes while the player is away (same tab): the way back says so.
   const friend2 = await observer(roomId, "Friend2");
-  await expect.poll(() => param(page, "room")).toBe(roomId);
+  await expect.poll(() => playerCount(page)).toBe(2); // the tab notes the friend: the way back keeps the friends' card
   const back = page.url();
   await page.goto("about:blank");
   await expect.poll(() => friend2.state.players.size).toBe(1);
+  friend2.send("debug:emptyHold", { ms: 0 });
   await friend2.leave();
+  await closedWorld(roomId);
   await page.goto(back);
   await enterLobby(page, "Back");
   await expect(page.locator("#join-status")).toContainText("Thế giới này đã đóng");
@@ -1710,7 +1714,9 @@ test("lobby: a reload goes back to the world friends are in; a closed world or a
   // Part 2: a phone upright, touch.
   const gone = await new Client(SERVER).create("world", { name: "Gone" });
   const closedId = gone.roomId;
+  gone.send("debug:emptyHold", { ms: 0 });
   await gone.leave();
+  await closedWorld(closedId);
   const context = await browser.newContext({ ...PHONE_SCREENS[0].options });
   contexts.push(context);
   const phone = await context.newPage();
@@ -1740,11 +1746,51 @@ test("lobby: a reload goes back to the world friends are in; a closed world or a
 
   await phone.locator("#new-world-btn").tap();
   await waitForWorld(phone);
-  expect(await phone.evaluate(() => (window as any).__petgame.room.roomId as string)).not.toBe(closedId);
-  expect(param(phone, "room")).toBeNull();
+  const newId = await phone.evaluate(() => (window as any).__petgame.room.roomId as string);
+  expect(newId).not.toBe(closedId);
+  await expect.poll(() => param(phone, "room")).toBe(newId); // the new world is in the address now (T49)
   expect(param(phone, "quality")).toBe("low");
   // Only the opening loaded the page; every address change was replaceState.
   expect(navigations).toBe(1);
+});
+
+test("lobby: alone, a reload comes back to the same world while it is kept; once it has closed, a new one opens without a card", async ({ browser }) => {
+  test.slow();
+  const param = (target: Page, key: string) => new URL(target.url()).searchParams.get(key);
+  const roomOf = (target: Page) => target.evaluate(() => (window as any).__petgame.room.roomId as string);
+  const page = await join(browser, "Solo");
+  let loads = 0;
+  page.on("load", () => loads++);
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const world = await roomOf(page);
+  await expect.poll(() => param(page, "room")).toBe(world);
+  expect(param(page, "quality")).toBe("low");
+
+  // A reload comes back to the same world, with no hint, and the button ready.
+  await page.reload();
+  await expect(page.locator("#room-hint")).toHaveText("");
+  await page.locator("#join-btn:enabled").waitFor();
+  await expect(page.locator("#join-btn")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await waitForWorld(page);
+  expect(await roomOf(page)).toBe(world);
+  expect(await playerCount(page)).toBe(1);
+
+  // The world closes while the player is away: the way back goes straight into a new one, with no card.
+  await sendFrom(page, "debug:emptyHold", { ms: 0 });
+  const back = page.url();
+  await page.goto("about:blank");
+  await closedWorld(world);
+  await page.goto(back);
+  await expect(page.locator("#room-hint")).toHaveText("");
+  await enterLobby(page, "Solo");
+  await waitForWorld(page);
+  expect(await roomOf(page)).not.toBe(world);
+  await expect.poll(() => param(page, "room")).toBe(await roomOf(page));
+  expect(param(page, "quality")).toBe("low");
+  // Counted since the opening: the reload, about:blank and goto(back). The quiet retry did not load the page again.
+  expect(loads).toBe(3);
 });
 
 test("lobby: a script that cannot load or breaks while starting says so at once, and Tải lại brings the invite back", async ({ browser }) => {
@@ -1866,7 +1912,7 @@ test("lobby: when the game cannot start after joining, the lobby says why, the w
   expect(await playerCount(page)).toBe(2);
   expect(loads).toBe(2);
 
-  // Part 2: a phone upright, touch, alone: the world closed when it left, so Tải lại opens a new one.
+  // Part 2: a phone upright, touch, alone: the world is kept for a reload, so Tải lại goes back to it (T49).
   const phoneContext = await browser.newContext({ ...PHONE_SCREENS[0].options });
   contexts.push(phoneContext);
   const phone = await phoneContext.newPage();
@@ -1876,12 +1922,12 @@ test("lobby: when the game cannot start after joining, the lobby says why, the w
   await enterLobby(phone, "Solo");
   await expect(phone.locator("#join-status")).toContainText("Không tải được game");
   const oldRoom = await roomOf(phone);
-  expect(param(phone, "room")).toBeNull();
+  expect(param(phone, "room")).toBe(oldRoom);
   await phone.unroute(PIXI_ENV_CHUNK);
   await phone.locator("#join-reload-btn").tap();
   await enterLobby(phone, "Solo");
   await waitForWorld(phone);
-  expect(await roomOf(phone)).not.toBe(oldRoom);
+  expect(await roomOf(phone)).toBe(oldRoom);
 });
 
 test("lobby: broken picture indexes and missing pictures still let the player in, drawn from code", async ({ browser }) => {
@@ -2019,6 +2065,28 @@ async function observer(roomId: string, name: string): Promise<Room> {
   const room = await new Client(SERVER).joinById(roomId, { name });
   observers.push(room);
   return room;
+}
+
+/**
+ * Waits until a world is closed: joining it by id is refused as "not found" (522, not "is locked"). Send
+ * `debug:emptyHold { ms: 0 }` and leave first, or the world stays open for the full hold. A probe that gets in leaves
+ * at once; the polls are further apart than the world takes to close, so a probe never holds it open.
+ */
+async function closedWorld(roomId: string) {
+  await expect
+    .poll(
+      async () => {
+        try {
+          const probe = await new Client(SERVER).joinById(roomId, { name: "Probe" });
+          await probe.leave();
+          return "open";
+        } catch (err: any) {
+          return err?.code === 522 && !/is locked/.test(String(err?.message)) ? "closed" : `other: ${err?.code} ${err?.message}`;
+        }
+      },
+      { intervals: [1500], timeout: 20_000 },
+    )
+    .toBe("closed");
 }
 
 test("connection: a dropped player comes back as themselves, where they stood, with nothing doubled", async ({ browser }) => {

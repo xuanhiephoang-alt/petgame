@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Deferred, Room, type Client } from "colyseus";
+import { Deferred, Room, type Client, type Delayed } from "colyseus";
 import {
   BITE_KNOCKBACK,
   CRIT_CHANCE,
@@ -108,6 +108,7 @@ import {
   AGGRESSIVE_SIGHT,
   BERRY_HEAL,
   EAT_COOLDOWN_MS,
+  EMPTY_WORLD_HOLD_MS,
   DAY_LENGTH_MS,
   DAY_START,
   FAINT_REST_MS,
@@ -285,6 +286,11 @@ const liveSessions = new Map<string, { room: GameRoom; sessionId: string }>();
 
 export class GameRoom extends Room<{ state: GameState }> {
   maxClients = MAX_PLAYERS;
+  /**
+   * The room does not close by itself when the last player leaves: holdEmptyWorld decides when. Note the world
+   * stays listed while empty; anyone adding random matchmaking (join/joinOrCreate) must skip empty worlds.
+   */
+  autoDispose = false;
   state = new GameState();
 
   private controls = new Map<string, PlayerControl>();
@@ -292,6 +298,10 @@ export class GameRoom extends Room<{ state: GameState }> {
   private holds = new Map<string, Deferred<Client>>();
   /** How long (ms) a dropped player is waited for; tests shorten it. */
   private reconnectGraceMs = RECONNECT_GRACE_MS;
+  /** How long (ms) a world with nobody in it stays open; tests and debug:emptyHold shorten it. */
+  private emptyHoldMs = EMPTY_WORLD_HOLD_MS;
+  /** Counts down the hold of an empty world; undefined while someone is in. */
+  private emptyHold: Delayed | undefined;
   private brains = new Map<string, WanderBrain>();
   private companionTimers = new Map<string, CompanionTimers>();
   private nextPalId = 1;
@@ -484,12 +494,21 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.onMessage("debug:endGrace", () => {
         for (const hold of this.holds.values()) hold.reject(false);
       });
+      // Shortens the hold of an empty world (this sender's room); never lengthens it. Applies from the next hold.
+      this.onMessage("debug:emptyHold", (_client, message?: { ms?: number }) => {
+        const ms = Number(message?.ms);
+        if (typeof message?.ms !== "number" || !Number.isFinite(ms)) return;
+        this.emptyHoldMs = Math.min(Math.max(Math.floor(ms), 0), EMPTY_WORLD_HOLD_MS);
+      });
     }
 
     this.setSimulationInterval((dt) => this.tick(dt), TICK_MS);
+    // A world made but never joined (the creator never connected) must not live forever either.
+    this.holdEmptyWorld();
   }
 
   onJoin(client: Client, options?: JoinOptions) {
+    this.keepWorldOpen();
     const token = isValidToken(options?.token) ? options.token : undefined;
     // One live session per device: an older one (here or in another world) is saved and ended before the
     // profile is read, so it cannot be doubled or overwrite what this one is about to do.
@@ -601,9 +620,13 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (player) player.offline = false;
   }
 
-  /** The player is gone for good: they left on purpose, their wait to reconnect ran out, or their device joined again. */
+  /**
+   * The player is gone for good: they left on purpose, their wait to reconnect ran out, or their device joined again.
+   * When the last one goes, the world is held open for a while (a waiting-to-reconnect player is still in `players`).
+   */
   onLeave(client: Client) {
     this.removePlayer(client.sessionId);
+    if (this.state.players.size === 0) this.holdEmptyWorld();
   }
 
   /** The room is closing: none of its sessions is anyone's live session any more. */
@@ -643,6 +666,29 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.removePlayer(sessionId);
     if (hold) hold.reject(false);
     else this.clients.find((c) => c.sessionId === sessionId)?.leave(CLOSE_REPLACED);
+  }
+
+  /** Starts (or restarts) the countdown after which an empty world closes. Safe to call twice. */
+  private holdEmptyWorld() {
+    this.emptyHold?.clear();
+    this.emptyHold = this.clock.setTimeout(() => this.closeIfStillEmpty(), this.emptyHoldMs);
+  }
+
+  /** Someone is joining: stop the countdown, and undo autoDispose in case it just ran out. */
+  private keepWorldOpen() {
+    this.emptyHold?.clear();
+    this.emptyHold = undefined;
+    this.autoDispose = false;
+  }
+
+  /**
+   * The hold ran out. Only lets Colyseus close the room (it does so within about 1 s, once nobody is joining or
+   * leaving). Never calls disconnect(): that would cut off a friend who has just reserved a seat.
+   */
+  private closeIfStillEmpty() {
+    this.emptyHold = undefined;
+    if (this.state.players.size > 0) return;
+    this.autoDispose = true;
   }
 
   // -------------------------------------------------------------------------

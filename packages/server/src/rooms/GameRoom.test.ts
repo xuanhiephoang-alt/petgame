@@ -1,9 +1,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ColyseusTestServer } from "@colyseus/testing";
-import { CloseCode, defineRoom, defineServer } from "colyseus";
+import { CloseCode, ErrorCode, defineRoom, defineServer } from "colyseus";
 import type { AddressInfo } from "node:net";
 import {
   CLOSE_REPLACED,
+  EMPTY_WORLD_HOLD_MS,
   COMPANION_FOLLOW_DISTANCE,
   CollisionGrid,
   NavGrid,
@@ -2867,6 +2868,126 @@ describe("reconnecting after a dropped connection", () => {
       expect(stray).toEqual([]);
     } finally {
       process.off("unhandledRejection", note);
+    }
+  });
+});
+
+describe("keeping an empty world open", () => {
+  const isOpen = (room: GameRoom) => colyseus.getRoomById(room.roomId) !== undefined;
+  const emptyHoldOf = (room: GameRoom) => (room as any).emptyHold as { active: boolean; time: number } | undefined;
+
+  it("keeps a world nobody is in open for the hold, still running; whoever comes back in time finds it, then it closes once the hold runs out", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "hold-token-0123456789";
+    const { room, client, player } = await setup(token);
+    (room as any).emptyHoldMs = 400;
+    await capture(room, client, player);
+    await client.leave();
+    await vi.waitFor(() => expect(room.state.players.size).toBe(0));
+    expect(emptyHoldOf(room)?.active).toBe(true);
+    expect(isOpen(room)).toBe(true);
+    const dayBefore = (room as any).dayTime;
+    await ticks(room, 5);
+    expect((room as any).dayTime).toBeGreaterThan(dayBefore); // the world keeps running
+
+    const back = await colyseus.sdk.joinById<any>(room.roomId, { name: "Back", token });
+    expect(back.roomId).toBe(room.roomId);
+    await vi.waitFor(() => expect(room.state.players.size).toBe(1));
+    expect(emptyHoldOf(room)).toBeUndefined();
+    expect(room.autoDispose).toBe(false);
+    expect(room.state.players.get(back.sessionId)!.pals.length).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 800)); // twice the hold: still open, someone is in
+    expect(isOpen(room)).toBe(true);
+
+    await back.leave();
+    await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 4000 });
+    const err: any = await colyseus.sdk.joinById(room.roomId, {}).then(
+      () => undefined,
+      (e) => e,
+    );
+    expect(err?.code).toBe(ErrorCode.MATCHMAKE_INVALID_ROOM_ID);
+    expect(String(err?.message)).not.toContain("is locked");
+  });
+
+  it("the hold starts only when a dropped player's grace has run out", async () => {
+    const { room, client, player } = await setup();
+    (room as any).reconnectGraceMs = 500;
+    (room as any).emptyHoldMs = 400;
+    client.reconnection.enabled = false;
+    (room.clients.find((c) => c.sessionId === client.sessionId) as any).ref.terminate();
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    expect(emptyHoldOf(room)).toBeUndefined();
+    expect(room.autoDispose).toBe(false);
+    await vi.waitFor(() => expect(room.state.players.size).toBe(0), { timeout: 4000 });
+    expect(emptyHoldOf(room)?.active).toBe(true);
+    expect(isOpen(room)).toBe(true);
+    await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 4000 });
+  });
+
+  it("a world made but never joined closes after the hold", async () => {
+    const room = await colyseus.createRoom<GameRoom>(ROOM_NAME);
+    expect(emptyHoldOf(room)?.active).toBe(true);
+    expect(emptyHoldOf(room)!.time).toBe(EMPTY_WORLD_HOLD_MS);
+    (room as any).emptyHoldMs = 300;
+    const first = emptyHoldOf(room)!;
+    (room as any).holdEmptyWorld(); // starting again replaces the old countdown
+    expect(first.active).toBe(false);
+    expect(emptyHoldOf(room)!.time).toBe(300);
+    await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 4000 });
+  });
+
+  // Waits 2.3 s for real (past SAVE_DELAY_MS): about 2.6 s in all.
+  it("saves a player once as they leave and not again while the world is empty; the next session reads it", { timeout: 8000 }, async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "hold-save-token-0123456789";
+    const { room, client, player } = await setup(token);
+    player.wood = 33;
+    client.send(ClientMessage.PalAuto, { on: false }); // queues a save in 2 s
+    await ticks(room, 2);
+    await client.leave();
+    await vi.waitFor(() => expect(room.state.players.size).toBe(0));
+    expect(db.load(token)?.resources.wood).toBe(33);
+
+    const save = vi.spyOn(db, "save");
+    await new Promise((resolve) => setTimeout(resolve, 2300));
+    expect(save).not.toHaveBeenCalled();
+    expect(isOpen(room)).toBe(true);
+
+    const back = await colyseus.sdk.joinById<any>(room.roomId, { name: "Back", token });
+    await vi.waitFor(() => expect(room.state.players.get(back.sessionId)?.wood).toBe(33));
+  });
+
+  it("the test hook shortens the hold of the sender's world, never lengthens it", async () => {
+    process.env.PETGAME_DEBUG = "1";
+    try {
+      const { room, client } = await setup();
+      client.send("debug:emptyHold", { ms: 10 ** 9 });
+      await ticks(room, 2);
+      expect((room as any).emptyHoldMs).toBe(EMPTY_WORLD_HOLD_MS);
+      client.send("debug:emptyHold", { ms: "x" });
+      await ticks(room, 2);
+      expect((room as any).emptyHoldMs).toBe(EMPTY_WORLD_HOLD_MS);
+      client.send("debug:emptyHold", { ms: 0 });
+      await vi.waitFor(() => expect((room as any).emptyHoldMs).toBe(0));
+      await client.leave();
+      await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 3000 });
+    } finally {
+      delete process.env.PETGAME_DEBUG;
+    }
+  });
+
+  it("the hold hook is not there on a real server (PETGAME_DEBUG not 1)", async () => {
+    vi.stubEnv("PETGAME_DEBUG", undefined); // unset, as in production; the hooks are registered when the room is created
+    try {
+      const { room, client } = await setup();
+      client.send("debug:emptyHold", { ms: 0 }); // no handler: the server ignores or drops this client, never shortens the hold
+      await ticks(room, 5);
+      expect((room as any).emptyHoldMs).toBe(EMPTY_WORLD_HOLD_MS);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

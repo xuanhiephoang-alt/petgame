@@ -6,6 +6,25 @@ export const RETURN_HINT = "Quay lại thế giới bạn đang chơi cùng bạ
 /** Lobby hint when the page was opened from an invite link. */
 export const INVITE_HINT = "Bạn được mời vào thế giới của bạn bè";
 
+/** How the lobby was opened: fresh, from an invite link, or coming back to the world this tab was in (with or without friends). */
+export type Arrival = "new" | "invited" | "back" | "backAlone";
+
+/**
+ * Sorts how the page was opened. `invited` is `?room=` from the address; `lastRoom` and `lastFriends` are what this
+ * tab remembered (`petgame:room`, `petgame:friends`). A tab from before T49 has no `lastFriends`: it only wrote
+ * `room` when friends were there, so that counts as friends.
+ */
+export function arrival(invited: string | null, lastRoom: string | null | undefined, lastFriends: string | null | undefined): Arrival {
+  if (!invited) return "new";
+  if (lastRoom !== invited) return "invited";
+  return lastFriends === "0" ? "backAlone" : "back";
+}
+
+/** The lobby's hint line for an arrival; coming back alone needs none. */
+export function arrivalHint(a: Arrival): string {
+  return a === "back" ? RETURN_HINT : a === "invited" ? INVITE_HINT : "";
+}
+
 /** What the lobby's join card says and offers. `primary` gets the focus and comes first. */
 export interface JoinCard {
   title: string;

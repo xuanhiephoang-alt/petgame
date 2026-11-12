@@ -1,9 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PLAYERS } from "@petgame/shared";
 import type { JoinFailure } from "../net/connection.ts";
-import { joinCard, startCard, startFailure } from "./joinStatus.ts";
+import { INVITE_HINT, RETURN_HINT, arrival, arrivalHint, joinCard, startCard, startFailure } from "./joinStatus.ts";
 
 const ALL: JoinFailure[] = ["closed", "full", "unreachable", "failed"];
+
+describe("arrival", () => {
+  it("is new without ?room=, whatever the tab remembers", () => {
+    expect(arrival(null, "X", "1")).toBe("new");
+    expect(arrival("", "X", "0")).toBe("new");
+  });
+
+  it("is invited when ?room= is not the world this tab was in", () => {
+    expect(arrival("X", "Y", "1")).toBe("invited");
+    expect(arrival("X", null, null)).toBe("invited");
+    expect(arrival("X", undefined, "0")).toBe("invited");
+  });
+
+  it("is backAlone when this tab was alone in that world", () => {
+    expect(arrival("X", "X", "0")).toBe("backAlone");
+  });
+
+  it("is back when friends were there, or the tab is from before T49 and did not note it", () => {
+    expect(arrival("X", "X", "1")).toBe("back");
+    expect(arrival("X", "X", null)).toBe("back");
+    expect(arrival("X", "X", undefined)).toBe("back");
+  });
+
+  it("words the lobby hint: only back and invited have one", () => {
+    expect(arrivalHint("back")).toBe(RETURN_HINT);
+    expect(arrivalHint("invited")).toBe(INVITE_HINT);
+    expect(arrivalHint("backAlone")).toBe("");
+    expect(arrivalHint("new")).toBe("");
+  });
+});
 
 describe("joinCard", () => {
   it("has a title and an explanation for every failure", () => {
