@@ -1,320 +1,385 @@
-# PLAN: T30 Thanh máu trùm che HUD
+# PLAN: T49 Giữ thế giới trống thêm một lúc
 
-Đọc code ở HEAD `60ae2d0`. File liên quan:
-- `packages/client/index.html`:
-  - `.boss-bar`, `.boss-hp` ở dòng 64-68;
-  - `.hud-left` ở dòng 102-103 (desktop: rộng tối đa `min(460px, 100vw − 190px)`, gap 6);
-  - `.minimap` ở dòng 113;
-  - `.party-panel` ở dòng 148-150 (`top: 204px` cố định);
-  - khối điện thoại `@media (max-width: 600px)` ở dòng 370-384 (`.hud-left` dòng 371, `.minimap` dòng 380, `.party-panel { top: 196px }` dòng 381);
-  - khối điện thoại ngang `@media (max-height: 520px) and (min-width: 601px)` ở dòng 386-416 (`.hud-left { max-width: 300px }` dòng 388, `.boss-bar { width: 200px }` dòng 399, `.minimap` dòng 404, `.party-panel` dòng 405, `.wardrobe-panel` dòng 406).
-- `packages/client/src/ui/hud.ts`:
-  - tạo `.boss-bar` ở dòng 63-66, gắn thẳng vào `.hud`, không vào cột;
-  - cột trái ở dòng 67-70;
-  - `setBoss` ở dòng 139-145: ghi DOM ở **mọi khung hình** khi ở gần trùm.
-- `packages/client/src/game/Game.ts`: `updateBossBar()` ở dòng 1371-1377 (hiện thanh khi người chơi cách trùm ≤ 450 px, tính ở client), gọi mỗi khung ở dòng 1030. `QuestTracker` gắn vào `hud.left` ở dòng 327. Không sửa.
-- `tests/e2e/multiplayer.spec.ts`:
-  - `openPage` ở dòng 47, `join` ở dòng 72;
-  - `touchTargets` ở dòng 431;
-  - `toastLayout` ở dòng 2347 (danh sách phần HUD đã có `.boss-bar`), `boxesOverlap` ở dòng 2367, `TOAST_SCREENS` ở dòng 2370.
+Đọc code ở HEAD `a19086a`. Luật chơi đã ghi vào `docs/design/multiplayer.md` (mục mới "Thế giới không còn ai: giữ thêm 60 giây (T49)", và các mục "Tải lại trang", "Vào thế giới: lỗi", T42, "Quay lại", "Đã cân nhắc" đã sửa theo). PLAN này là phần kỹ thuật.
 
-### Số đo hiện tại (script tạm, đã xoá)
+File liên quan:
+- `packages/server/src/rooms/GameRoom.ts`:
+  - trường `holds`, `reconnectGraceMs` ở dòng 291-294;
+  - `onCreate` ở dòng 354, hook `debug:endGrace` ở dòng 483-486, `setSimulationInterval` ở dòng 489;
+  - `onJoin` ở dòng 492, `onDrop` 572, `onReconnect` 598, `onLeave` 605-607, `onDispose` 610-612, `removePlayer` 618, `endSession` 641;
+  - `scheduleSave`/`saveNow` ở dòng 2130-2164 (`saveNow` không làm gì khi người chơi đã bị xoá).
+- `packages/shared/src/constants.ts`: `RECONNECT_GRACE_MS`, `RECONNECT_TRY_MS`, `CLOSE_REPLACED` ở dòng 40-55.
+- `packages/client/src/main.ts`:
+  - `ROOM_KEY` dòng 31-32; `invited`/`returning`/`roomHint` dòng 64-67;
+  - `dropWorldFromAddress` dòng 74-79; `failToStart` dòng 105-116; `enter` dòng 118-153;
+  - `startGame` dòng 182-218 (`syncAddress` 186-196, `withFriends` và `react` 200-212).
+- `packages/client/src/net/connection.ts`: `lobbyUrl(roomId, withFriends)` dòng 54-64; `connect` đọc `?room=` từ `location` mỗi lần gọi.
+- `packages/client/src/ui/joinStatus.ts`: `RETURN_HINT`, `INVITE_HINT`, `joinCard(failure, returning)`.
+- Test: `packages/server/src/rooms/GameRoom.test.ts` (describe "reconnecting after a dropped connection" dòng 2449, helper `cutConnection`, `holdReconnect`, `crowd`, `holdsOf`); `packages/client/src/net/connection.test.ts`; `packages/client/src/ui/joinStatus.test.ts`; `tests/e2e/multiplayer.spec.ts` (test "lobby: a reload goes back…" dòng 1666-1748, test T42 "lobby: when the game cannot start…" dòng 1817-1885, `observer` dòng 2018, `sendFrom` dòng 1392, `playerCount` dòng 93).
 
-**Cách đo.**
-- Chạy game thật (server `PETGAME_DEBUG=1`, Vite) với Chromium ở `/opt/pw-browsers/chromium`.
-- Cảnh: cho một Emberpup cấp 8 (`debug:givePal`), dịch chuyển tới 260 px phía nam trùm (`debug:teleport`), chờ `.boss-bar` hiện, rồi đẩy 2 thông báo dài nhất (như test `toasts (...)`).
-- Vùng an toàn (tai thỏ) giả lập bằng CDP `Emulation.setSafeAreaInsetsOverride` trước khi mở trang. Đã kiểm `env(safe-area-inset-*)` đọc ra đúng số đặt vào. Chrome 153 trong container hỗ trợ lệnh này.
-- Toạ độ trong bảng là hộp `[trái, trên, phải, dưới]`, đơn vị px.
+### Colyseus 0.18.18 làm gì (đã đọc `node_modules/@colyseus/core/build/Room.mjs`)
 
-| Màn hình | Thanh trùm | Chồng lên |
-|---|---|---|
-| Desktop 1280×720 | `[430,12,850,47]` | hàng máu 42×35 |
-| Desktop 1024×768 | `[302,12,722,47]` | hàng máu 170×35 |
-| Dọc 390×844 | `[78,12,312,47]` | hàng máu 184×35, 🔊 37×11, nút 🐾 Thú 17×27 |
-| Dọc 360×640 | `[72,12,288,64]` (xuống 2 dòng) | hàng máu 160×52, 🔊 43×28, 🐾 Thú 23×27, 🏕️ 25×4 |
-| Ngang 844×390 | `[322,12,522,45]` | không có (cột tới 312) |
-| Ngang 844×390, tai thỏ trái/phải 47 | như trên | hàng máu 25×33. Cột `[47..347]` vượt mốc 322 (giữa − 100) |
-| Ngang 852×393, tai thỏ 59 (iPhone 14 Pro) | `[326..526]` | hàng máu 33×33. Cột tới 359 > 326 |
-| Ngang 812×375, tai thỏ 44 (iPhone X/11 Pro) | `[306..506]` | hàng máu 38×33. Cột tới 344 > 306 |
-| Ngang 667×375 (iPhone SE, không tai thỏ) | `[234..434]` | hàng máu 78×33, bản đồ nhỏ 35×33. Cột tới 312 > 233 |
+- `autoDispose` là accessor. Khai báo như trường của class (giống `maxClients = MAX_PLAYERS`) thì `__init()` chép giá trị vào accessor trước `onCreate`. Với `autoDispose = false`, lần hẹn `resetAutoDisposeTimeout(seatReservationTimeout)` cuối `__init` không đặt hẹn giờ nào.
+- Phòng tự đóng qua `#_disposeIfEmpty`, chạy sau mỗi lần một client ra hẳn (`#_decrementClientCount`), khi chỗ giữ hết hạn, và khi hẹn giờ tự đóng chạy. Nó chỉ đóng khi đủ cả 4 điều kiện: `autoDispose` bật, không có hẹn giờ tự đóng đang chờ, `clients.length === 0`, không còn chỗ giữ (`_reservedSeats`, gồm người đang vào dở và người đang chờ nối lại), và không có `onLeave` nào đang chạy.
+- Gán `autoDispose` một giá trị **khác** giá trị cũ (sau `__init`, khi phòng chưa đóng) thì setter gọi `resetAutoDisposeTimeout()`. Hàm này xoá hẹn giờ cũ. Nếu `autoDispose` bật thì nó hẹn kiểm tra `#_disposeIfEmpty` sau **1 giây**; nếu tắt thì không hẹn gì. `resetAutoDisposeTimeout` là private trong `Room.d.ts`, nên không đổi được con số 1 giây.
+- `_onJoin` xoá hẹn giờ tự đóng trước khi gọi `onJoin`.
+- `disconnect()` (server tắt, `matchMaker.disconnectAll()` trong `colyseus.cleanup()` của test) tự bật `#_autoDispose` và đóng phòng bất kể ta đặt gì.
+- `this.clock` chỉ chạy khi có người gọi `clock.tick()`, và chỉ vòng mô phỏng (`setSimulationInterval`) gọi nó. Nếu dừng mô phỏng thì mọi `this.clock.setTimeout` cũng dừng: hồi sinh trùm, đầu đàn, rương, quả, và cả hẹn giờ đóng thế giới.
+- `onLeave` luôn chạy cho mọi đường ra:
+  - rời chủ động (4000);
+  - hết hạn chờ nối lại: `onDrop`, rồi `#_onAfterLeave` gọi `onLeave`;
+  - bị thay bởi `endSession`: `reject(false)`, hoặc `leave(CLOSE_REPLACED)` (đi qua `onDrop`, `onDrop` trả về sớm, rồi `onLeave`);
+  - `onJoin` ném lỗi.
 
-**Bảng khi cầm dọc có tai thỏ** (390×844, trên 47, dưới 34):
-- Nút 👕 Tủ đồ dời xuống `[303,191,378,218]`, vì các nút cột phải có cộng `env(safe-area-inset-top)`.
-- Ba bảng vẫn mở ở `top: 196px`, nên **đè nút Tủ đồ 75×22 px**. Ở 430×932 (tai thỏ 59) đè 75×27.
-- Bảng kéo xuống tới 832, nằm dưới thanh Home (mép dưới an toàn là 810).
+  `onLeave` chạy trước `#_decrementClientCount`. Phần dọn của `removePlayer` (lưu rồi xoá) đã đúng cho cả 4 đường.
 
-**Thông báo đè tên mình (`.label.me`), có từ trước, không do thanh trùm:**
-- Dọc 390×760 (`TOAST.roomyPortraitPx = 760` nên vẫn cho 2 thông báo): 2 thông báo dài nhất đè tên mình 5 px.
-- Dọc 360×640: cột đè tên mình.
+### Số đo (script tạm trong scratchpad, chỉ đọc, đã chạy bằng `npx tsx`)
+
+- Một `GameRoom` không người (87 thú hoang): `tick` tốn trung bình **0,064 ms**, tức 1,3 ms mỗi giây ở 20 nhịp, **0,13% một nhân CPU**. Patch không có client nào thì Colyseus chỉ bỏ thay đổi đi, cùng cỡ hoặc rẻ hơn.
+- Bộ nhớ heap: khoảng **0,35 MB mỗi phòng**.
 
 ## Mục tiêu
 
-Lúc đánh trùm là lúc người chơi cần nhìn máu của chính mình nhất. Hiện giờ thanh máu trùm lại đè đúng lên hàng máu, trên điện thoại dọc gần hết hàng (184×35 px), và còn đè 🔊 với nút 🐾 Thú. Sau nhiệm vụ này:
-- Ở mọi cỡ màn hình, kể cả iPhone có tai thỏ cầm dọc hay ngang, thanh máu trùm không đè hàng máu, thông báo, cột nút phải hay bản đồ nhỏ.
-- Các bảng không bao giờ đè nút cột phải, cũng không lấn vào vùng tai thỏ và thanh Home.
+- Người chơi một mình tải lại trang (hoặc iOS dỡ tab rồi mở lại) trong vòng một phút thì về **đúng thế giới cũ**, nên link mời họ vừa gửi bạn bè vẫn dùng được.
+- Cả nhóm cùng tải lại (ví dụ sau khi server đổi bản) không còn gặp "Thế giới này đã đóng".
+- Người rớt mạng bấm **Về sảnh** sau 30 giây vẫn kịp về thế giới cũ, kể cả khi chơi một mình.
+- Người chơi một mình quay lại muộn (thế giới đã đóng) **không** bị thẻ lỗi: vào thẳng thế giới mới, như trước T23.
 
 ## Phạm vi
 
 Làm:
-- Đặt lại chỗ của thanh máu trùm theo cỡ màn hình. Thanh có chữ dài thì tên rút gọn bằng "…", còn số máu luôn hiện đủ.
-- Cột trái khi cầm ngang trừ phần tai thỏ bên trái, để luôn kết thúc trước giữa màn hình − 100 px.
-- Bảng Thú, Chế tạo, Tủ đồ cộng vùng an toàn trên và dưới (desktop, dọc, ngang).
-- `setBoss` chỉ ghi DOM khi số đổi (giống `setHealth`).
-- E2E mới ở 5 cấu hình màn hình (2 cấu hình có tai thỏ giả lập), cộng các mốc bề rộng của desktop.
-- Cập nhật `docs/design/hud.md`.
+1. Server: thế giới không còn ai thì mở thêm `EMPTY_WORLD_HOLD_MS` (60 s) rồi mới đóng. Có người vào thì thôi đếm. Thế giới vừa tạo mà chưa ai vào cũng theo luật này.
+2. Server: hook thử nghiệm `debug:emptyHold { ms }` rút ngắn khoảng giữ của phòng (chỉ khi `PETGAME_DEBUG=1`).
+3. Client: luôn ghi `?room=` khi đang chơi, cả khi một mình (trừ sau khi server khởi động lại). Tab nhớ lần cuối có bạn bè không. Quay lại một mình mà thế giới đã đóng thì vào thẳng thế giới mới, không có thẻ.
+4. Test server, unit client, e2e; cập nhật `docs/architecture.md`.
 
-**Không** làm:
-- Không đổi luật trùm, khoảng cách 450 px hiện thanh, hay `Game.ts`.
-- Không đổi hàng đợi thông báo (`toastQueue.ts`, `TOAST.roomyPortraitPx`).
-- Không đổi cỡ, chỗ của bảng ngoài phần vùng an toàn: bảng Thú/Tủ đồ rộng 490 px khi cầm ngang vẫn đè một phần cột trái như T18.
-- Không đổi server, schema, message, hồ sơ lưu.
-- Không sửa lỗi "thông báo đè tên mình" có từ trước ở 390×760 và 360×640 (đề xuất tách việc, xem cuối).
+KHÔNG làm:
+- Không đổi `RECONNECT_GRACE_MS`, `RECONNECT_TRY_MS` hay cách nối lại.
+- Không tự vào thế giới từ sảnh. Không dùng mã kết nối lại khi tải lại trang.
+- Không đổi `schema.ts`, `messages.ts`, `Profile`.
+- Không đổi listing hay `setPrivate` của phòng. Client chỉ dùng `create` và `joinById`, nên không ai bị ghép vào thế giới trống.
+- Không thêm thông báo trong game kiểu "thế giới cũ đã đóng".
+- Không giới hạn số thế giới mỗi IP.
+- Không làm PWA `start_url` (T13), không làm các việc dọn của T50 (502/504, `location.reload` khi có `#`).
 
 ## Thiết kế
 
-### 1. Thanh máu trùm có hai chỗ
+### 1. Khoảng giữ: 60 giây, nằm trong bảng hằng số
 
-**A. Giữa trên** (như bây giờ). Dùng khi:
-- desktop rộng ≥ 1248 px;
-- màn thấp ≤ 520 px và rộng ≥ 601 px (điện thoại cầm ngang).
+`packages/shared/src/constants.ts`, cạnh `RECONNECT_*`: `EMPTY_WORLD_HOLD_MS = 60_000`. Đặt ở shared (dù client chưa dùng) để mọi số về vào/rời nằm một chỗ, như `RECONNECT_GRACE_MS`.
 
-**B. Trong cột trái, thế chỗ ô nhiệm vụ.** Dùng khi:
-- rộng ≤ 600 px (điện thoại dọc);
-- rộng 601-1247 px và cao > 520 px (desktop hẹp, máy tính bảng).
+Lý do chọn 60 (nhiệm vụ cho 30-60):
+- **Tải lại một mình:** sảnh sẵn sàng sau 5,3 s ở 4G chậm, 11,3 s ở 3G, 20,7 s ở 3G chậm (`docs/design/multiplayer.md`, mục "Mở game"), cộng 2-5 s để bấm "Vào chơi". Vậy 3G chậm cần khoảng 25 s. 30 s thì quá sát, 45 s còn khoảng 20 s cho người chơi đọc sảnh.
+- **Rớt mạng rồi Về sảnh:** quyết định chọn 60.
+  - Thế giới đóng lúc: mất mạng + d_server (0-9 s) + 20 s chờ nối lại + H.
+  - Nút Về sảnh hiện lúc: mất mạng + d_client (đến khoảng 8 s, watchdog) + 30 s.
+  - Xấu nhất (d_server = 0, d_client = 8), thời gian còn lại là 20 + H − 38. Với H = 45 chỉ còn 27 s, vừa đủ cho 3G chậm (khoảng 25 s). Với H = 60 còn 42 s, dư rộng.
+- **Chi phí** không đáng kể: 0,13% CPU và 0,35 MB mỗi thế giới trống (số đo ở trên).
 
-Media query của chỗ B: `@media (max-width: 600px), (max-width: 1247px) and (min-height: 521px)`.
+### 2. Thế giới trống vẫn chạy, không tạm dừng
 
-**Vì sao thế chỗ ô nhiệm vụ, không chèn thêm vào cột:**
-- Chèn thêm thì cột dài ra khoảng 22-38 px, đẩy thông báo xuống. Đo bản thử: dọc 390×844 có tai thỏ (iPhone ở Màn hình chính), 2 thông báo đè tên mình 14 px; ở 390×760 thì 17 px.
-- Ẩn ô nhiệm vụ (57 px + gap 4) trong lúc thanh trùm hiện thì cột còn **ngắn hơn** bây giờ. Đo bản thử: thông báo cuối cách tên mình 25 px (có tai thỏ), 7 px (390×760), 28 px (360×640).
-- Ô nhiệm vụ hiện lại ngay khi đi xa trùm hơn 450 px, hoặc khi trùm bị hạ (thanh ẩn khi trùm biến khỏi state).
-- Lúc đánh trùm, nhiệm vụ thường chính là "Hạ Vua Đá Boulderhorn", và thanh trùm nói đúng điều đó.
+- `this.clock` chỉ chạy theo vòng mô phỏng. Dừng mô phỏng là dừng cả hẹn giờ đóng thế giới lẫn mọi hồi sinh. Muốn dừng thì phải viết lại phần hẹn giờ bằng `setTimeout` của Node, trái quy ước "hẹn giờ bằng `this.clock.setTimeout`".
+- Chạy tiếp rẻ (0,13% CPU).
+- Người quay lại thấy thế giới trôi đi một phút: thú hoang khác chỗ, giờ trong ngày đã đổi, trùm hay đầu đàn có thể đã hồi. Điều này đúng với cảm giác "vắng mặt một lúc", giống khi bạn bè vẫn ở lại.
+- Hẹn giờ của người vừa ra vẫn chạy trong lúc giữ (ví dụ tin bắt thú `CAPTURE_NEWS_DELAY_MS`, `scheduleSave`). Chúng đã được viết để chịu được người chơi không còn (vì khi có người khác ở lại, phòng vốn không đóng): `saveNow` thấy không còn `player` hay `token` thì thôi; hẹn giờ của tin bắt thú kiểm `players.get(...)`. Không cần sửa gì.
 
-**Vì sao đặt sau trạng thái, trước thông báo**, không ngay dưới hàng máu: hàng máu và trạng thái không nhảy lên xuống khi người chơi đi ra vào vùng 450 px. Chỉ thông báo dời theo, và chúng vốn đã dời theo cột.
+### 3. Cơ chế: `autoDispose` tắt, một hẹn giờ của phòng
 
-**Cách làm bằng CSS.**
-- `.boss-bar` chuyển vào trong `.hud-left` (DOM). Có `order: 5`: sau ô nhiệm vụ (order 0, gắn sau), trước thông báo (`order: 10`).
-- Ở chỗ A, thanh `position: absolute` so với `.hud-left`:
-  - `top: 0`, trùng mép trên của cột, tức `max(12px, env(safe-area-inset-top))` như cũ;
-  - `left: calc(50vw - max(12px, env(safe-area-inset-left)))` và `transform: translateX(-50%)`, nên tâm thanh đúng giữa màn hình.
-  - Không dùng `position: fixed`, để không phụ thuộc cách Safari xử lý fixed.
-- Ở chỗ B: `position: static`, `align-self: stretch` (rộng bằng cột).
-- `Hud.setBoss` bật lớp `boss-near` trên `.hud-left` khi thanh hiện. CSS chỗ B: `.hud-left.boss-near > .hud-quest { display: none; }`. Dùng lớp chứ không dùng `:has()`: rõ ràng, dễ kiểm trong e2e.
+Trạng thái của phòng:
 
-### 2. Bề rộng và các con số
-
-**Desktop, chỗ A:** `width: min(420px, calc(100vw - 2 * max(12px, env(safe-area-inset-left)) - 944px))`.
-- Lý do: cột desktop rộng tối đa 460 px, nên mép phải cột là L + 460, với L = `max(12px, inset trái)`. Muốn thanh nằm giữa và cách cột 12 px thì nửa bề rộng ≤ 50vw − L − 472, tức bề rộng ≤ 100vw − 2L − 944.
-- Đo bản thử:
-
-| Bề rộng màn hình | Bề rộng thanh |
-|---|---|
-| 1248 | 280 |
-| 1280 | 312 (bây giờ 420 và đè cột 42 px) |
-| 1366 | 398 |
-| 1440 trở lên | 420 |
-
-- Phía phải không ràng buộc gì: nút cột phải bắt đầu từ khoảng 100vw − 118.
-- **Mốc 1248:** chữ "👑 Vua Đá Boulderhorn" cỡ 14 px rộng khoảng 155 px (tên 137 + vương miện), cộng "1152/1152" khoảng 70 px và khoảng cách. Vậy 280 px là bề rộng nhỏ nhất còn hiện đủ tên và số. Đo: ở 1248 tên không bị cắt. Hẹp hơn thì thanh vào cột (chỗ B), ở đó thanh rộng 460 px.
-
-**Điện thoại ngang, chỗ A:**
-- **Cột trái:** `max-width: min(300px, calc(50vw - 110px - max(12px, env(safe-area-inset-left))))`.
-  - Mép phải cột luôn ≤ 50vw − 110. Vậy luật "cột kết thúc trước giữa màn hình ≥ 100 px" (T6) đúng cả khi có tai thỏ, và cột cách thanh trùm (rộng 200, bắt đầu ở 50vw − 100) ít nhất 10 px.
-  - Ở 844×390 không tai thỏ vẫn đúng 300 px như cũ (422 − 110 − 12 = 300).
-  - Có tai thỏ: 265 px (844, inset 47), 257 px (852, inset 59), 252 px (812, inset 44).
-- **Thanh trùm:** `width: min(200px, calc(100vw - 528px - 2 * max(12px, env(safe-area-inset-right))))`.
-  - Lý do: bản đồ nhỏ khi cầm ngang có mép trái ở 100vw − R − 252 (right R + 140, rộng 112), với R = `max(12px, inset phải)`. Cách nó 12 px thì nửa bề rộng ≤ 50vw − R − 264.
-  - Bề rộng thanh: 200 ở 844 (có hay không tai thỏ), 196 ở 812 có tai thỏ 44, 115 ở 667×375. Ở 667 bây giờ thanh đè cả cột lẫn bản đồ.
-  - Giữ cỡ chữ 12 px.
-
-**Chữ trong thanh**, ở mọi chỗ:
-- Một dòng `<strong>`: `<span class="boss-name">👑 Vua Đá Boulderhorn</span><span class="boss-num">1152/1152</span>`, cách nhau 4 px, `white-space: nowrap`.
-- `.boss-name` có `min-width: 0; overflow: hidden; text-overflow: ellipsis`. `.boss-num` có `flex: none`, nên **số máu không bao giờ bị cắt**, chỉ tên rút gọn khi thiếu chỗ.
-- Đo ở cỡ 12 px: tên kèm vương miện khoảng 137 px, cả dòng khoảng 200 px. Vậy tên có thể mất vài chữ cuối ở thanh 196-200 px, và rút còn "👑 Vua…" ở 115 px. Chấp nhận được: tên trùm luôn hiện trên đầu nó ngoài thế giới (`👑 Vua Đá Boulderhorn`).
-- Chỗ A: chữ canh giữa, không nền (như bây giờ).
-
-**Chỗ B (trong cột)** trông như các ô khác của cột:
-- nền `rgba(0,0,0,0.45)`, `padding: 4px 10px`, `border-radius: 8px`, viền trái 3 px màu cam `#ff6d00` (ô nhiệm vụ viền vàng, nên hai ô khác nhau);
-- tên bên trái, số bên phải (`justify-content: space-between`).
-- Điện thoại dọc: chữ 12 px, thanh máu cao 10 px. Cả ô khoảng 38 px, thấp hơn ô nhiệm vụ 57 px mà nó thế chỗ.
-
-**Chạm:** thanh không có nút. Nó nằm trong `.hud` (`pointer-events: none`) và không bật lại, nên trên cảm ứng chạm vào thanh vẫn bật cần điều khiển (như các ô khác của cột, T39).
-
-**Lớp vẽ:** thanh không đặt z-index. Bảng (z 3) và thông báo (z 4) vẽ trên nó.
-- Khi cầm ngang, bảng Thú/Tủ đồ rộng 490 px che thanh trong lúc mở. Người chơi tự mở bảng, ✕ hay Escape là đóng.
-- Thanh không bao giờ được vẽ đè lên bảng: nếu đè thì che tiêu đề bảng và nút 🕊️ Thả bớt.
-
-### 3. Bảng và vùng an toàn
-
-Mép trên của bảng theo đúng công thức của bản đồ nhỏ, để bảng luôn nằm dưới nút 👕 Tủ đồ (kể cả vùng chạm vô hình 44 px):
-
-| Chỗ | `top` | `max-height` |
+| Trạng thái | `autoDispose` | `emptyHold` |
 |---|---|---|
-| Desktop (khối gốc, dòng 148-149) | `max(204px, calc(env(safe-area-inset-top) + 192px))` | `calc(100% - <top> - max(12px, env(safe-area-inset-bottom)))` |
-| Dọc (dòng 381) | `max(196px, calc(env(safe-area-inset-top) + 184px))` | `calc(100% - <top> - max(12px, env(safe-area-inset-bottom)))` |
-| Ngang (dòng 405-406) | giữ `max(8px, env(safe-area-inset-top))` | `calc(100% - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)))`; `.wardrobe-panel` dùng đúng biểu thức này cho `height` (thay `calc(100% - 16px)`) |
+| Có người (kể cả người đang chờ nối lại, `offline`) | `false` | không có |
+| Không còn ai, đang giữ | `false` | đang đếm `emptyHoldMs` |
+| Hết giữ | `true` | không có (Colyseus đóng phòng sau tối đa 1 s, khi không còn ai và không ai đang vào dở) |
 
-`<top>` viết lại nguyên biểu thức `max(...)` của cột `top`. CSS không có biến cho nó; nếu muốn gọn thì dùng custom property `--panel-top` đặt cạnh `top`.
+- **Khi tạo** (`onCreate`, cuối hàm): `holdEmptyWorld()`. Phòng do `client.create` tạo ra mà người tạo không bao giờ kết nối (mạng hỏng giữa chừng) vẫn đóng sau 60 s. Nếu không có bước này, khi `autoDispose` tắt, phòng đó sẽ sống mãi (trước T49 Colyseus đóng nó sau 15 s giữ chỗ).
+- **Khi vào** (`onJoin`, dòng đầu tiên): `keepWorldOpen()` huỷ hẹn giờ và đặt `autoDispose = false`. Việc đặt lại này cần cho trường hợp có người vào trong 1 giây sau khi hết giữ.
+- **Khi ra** (`onLeave`, sau `removePlayer`): nếu `this.state.players.size === 0` thì `holdEmptyWorld()`.
+  - Đếm `players` chứ không đếm `clients`: người đang chờ nối lại vẫn nằm trong `players`. Nhờ vậy khoảng giữ 60 s chỉ bắt đầu sau khi 20 s chờ nối lại kết thúc. Hai khoảng nối tiếp nhau, không chồng.
+  - Thiết bị vào lại đúng thế giới này khi phiên cũ đang chờ nối lại: `endSession` trong `onJoin` xoá phiên cũ, nhưng `onLeave` của phiên cũ chạy sau (promise bị reject chạy ở microtask). Lúc đó người mới đã có trong `players`, nên không có hẹn giờ thừa.
+  - Chỉ hẹn trong `onLeave`, không hẹn trong `removePlayer`: `removePlayer` cũng chạy giữa `onJoin` (qua `endSession`), khi người mới chưa được thêm.
+- **Hết giữ** (`closeIfStillEmpty`): xoá tham chiếu `emptyHold`. Còn người thì thôi (lưới an toàn; người đó ra sẽ hẹn lại). Không còn ai thì `this.autoDispose = true`. Setter của Colyseus hẹn `#_disposeIfEmpty` sau 1 s. Hàm này tự chờ người đang vào dở (chỗ giữ của matchmaker) và `onLeave` đang chạy, nên không cắt ngang ai.
+  - **Không** gọi `this.disconnect()` thẳng. Người bạn vừa bấm link (đã giữ chỗ, socket chưa mở) sẽ bị cắt, và client xếp lỗi đó là "failed" chứ không phải "closed".
+- **Server tắt** và `colyseus.cleanup()`: `disconnect()` vẫn đóng ngay. Hẹn giờ của phòng bị `clock.clear()` dọn trong `#_dispose`. `onLeave` chạy trong lúc đóng có thể hẹn `emptyHold`, vô hại vì nó bị dọn ngay sau đó.
+- `holdEmptyWorld()` luôn `clear()` hẹn giờ cũ trước khi hẹn mới, nên gọi hai lần vẫn an toàn.
 
-Kiểm theo số đo:
-- Dọc có tai thỏ 47: Tủ đồ có tâm ở 204,5, vùng chạm tới 226,5; bảng bắt đầu ở 231 (đo bản thử: không còn đè). Đáy bảng ở 844 − 34 = 810.
-- Không tai thỏ: mọi số giống hệt bây giờ (196/204, đáy cách mép 12, ngang 8). Vì vậy test T18 (`touch targets`, `panelFits`, 2 thẻ trọn khi cầm ngang) không đổi.
+### 4. Vào bằng `?room=` trong lúc giữ
 
-### 4. Trường hợp đã biết, chấp nhận trong nhiệm vụ này
+- Phòng trống không bị khoá (Colyseus mở khoá khi số client giảm dưới `maxClients`) và vẫn nằm trong listing. Vì vậy `joinById` vào được như lúc có người.
+- Hết giữ và đã đóng: `joinById` trả 522 không có chữ "is locked", nên `joinFailure` cho ra "closed", như trước.
+- Listing: phòng vẫn công khai như trước T49. Không đổi, vì client không bao giờ vào theo tên (`join`/`joinOrCreate`). Ghi vào rủi ro: nếu sau này có ghép ngẫu nhiên thì phải loại thế giới trống.
 
-Điện thoại ngang thấp 375 px (812×375 có tai thỏ 44, 667×375 không tai thỏ):
-- Cột hẹp lại (252 và 212 px) nên ô trạng thái xuống 2 dòng. Thông báo (1 cái) kết thúc ở 246 và 260 px, quá mốc 375 − 140 = 235 của T18.
-- Ở 844×390 có tai thỏ 47 và 852×393 có tai thỏ 59 vẫn đạt: 246 ≤ 250 và 246 ≤ 253.
-- Chọn giữ luật "cột trước giữa màn hình 100 px" và luật "thanh trùm không đè cột", bỏ luật "góc ngón cái" ở hai màn này. Lý do:
-  - cột nằm đó mãi, che nhãn tên quanh nhân vật;
-  - thông báo chỉ hiện vài giây và cho chạm xuyên (`pointer-events: none`), nên không chặn cần điều khiển.
-- Bây giờ chính hai màn này đang vi phạm cả hai luật kia: cột tới 344 > 306 và 312 > 233, thanh trùm đè cột 38 và 78 px.
-- Đề xuất tách việc (cuối file).
+### 5. Lưu hồ sơ: không mất, không lưu đôi
+
+- Người chơi được lưu đúng như trước:
+  - lúc rớt mạng (`onDrop` gọi `saveNow`);
+  - lúc ra hẳn (`removePlayer` gọi `saveNow`);
+  - theo lô (`scheduleSave`).
+- Trong lúc giữ không còn ai, nên không có gì để lưu. `scheduleSave` đang chờ chạy vào lúc đó thì `saveNow` không làm gì (không còn `player`).
+- Người vào lại đọc hồ sơ vừa lưu bằng token (`onJoin`), như vào một thế giới mới. Không có trạng thái người chơi nào sống trong phòng giữa hai phiên. Vị trí và máu không được giữ: vào lại vẫn ở giữa bản đồ, đầy máu.
+- `liveSessions`: `removePlayer` đã xoá mục của phiên. `onDispose` vẫn dọn như cũ. Không đổi.
+- Không đổi `Profile`, không cần chuyển dữ liệu cũ.
+
+### 6. Hook thử nghiệm `debug:emptyHold`
+
+- `{ ms: number }` đặt `this.emptyHoldMs = clamp(floor(ms), 0, EMPTY_WORLD_HOLD_MS)` cho **phòng của người gửi**. Chỉ rút ngắn, không kéo dài. `ms` không phải số hữu hạn thì bỏ qua.
+- Có tác dụng từ lần giữ **sau** (người gửi đang ở trong phòng, nên lúc đó chưa có lần giữ nào chạy).
+- Chỉ đăng ký khi `PETGAME_DEBUG=1`, đặt cạnh `debug:endGrace`.
+- Dùng trong e2e: muốn có một thế giới đã đóng thì người cuối gửi `{ ms: 0 }` trước khi rời. Thế giới đóng khoảng 1,05 s sau đó (1 nhịp + 1 s của Colyseus).
+
+### 7. Client: địa chỉ luôn ghi thế giới
+
+Luật (đã ghi ở `docs/design/multiplayer.md`):
+
+| Lúc | Địa chỉ |
+|---|---|
+| Đang chơi, có bạn bè hay một mình | `?room=<thế giới>` |
+| Mất hẳn kết nối (thất bại, bị thay, bị đá) | `?room=<thế giới>` |
+| Server khởi động lại (`reason === "shutdown"`) | không có `room` |
+| Biết thế giới đã đóng (thẻ "closed", hoặc vào thẳng thế giới mới) | không có `room` (`dropWorldFromAddress`, như T23) |
+
+`sessionStorage` của tab có hai khoá:
+- `petgame:room` (`ROOM_KEY`, đã có): thế giới vừa vào.
+- `petgame:friends` (`FRIENDS_KEY`, mới): `"1"` nếu lần cuối tab thấy thế giới có người khác, `"0"` nếu một mình.
+
+Cả hai được ghi cùng địa chỉ, mỗi khi "có bạn bè hay không" đổi. Tab của bản trước T49 không có `FRIENDS_KEY` thì coi như `"1"`: hồi đó địa chỉ chỉ có `room` khi có bạn bè.
+
+**Sảnh khi mở trang** (`arrival`, hàm thuần mới trong `ui/joinStatus.ts`):
+
+| `?room=` | `petgame:room` | `petgame:friends` | `Arrival` | Chữ `#room-hint` | Focus nút "Vào chơi" |
+|---|---|---|---|---|---|
+| không có | bất kỳ | bất kỳ | `"new"` | "" | không (như cũ) |
+| X | khác X hoặc không có | bất kỳ | `"invited"` | `INVITE_HINT` "Bạn được mời vào thế giới của bạn bè" | không |
+| X | X | `"0"` | `"backAlone"` | "" | có |
+| X | X | `"1"` hoặc không có | `"back"` | `RETURN_HINT` "Quay lại thế giới bạn đang chơi cùng bạn bè" | có |
+
+**Vào hỏng** (`enter`):
+- `"backAlone"`, lỗi `closed`, và địa chỉ vẫn còn `room`: không hiện thẻ. Gọi `dropWorldFromAddress()` rồi thử vào **một lần nữa**, lần này không có `room`, nên `connect` gọi `create`. Nút giữ chữ "Đang vào...". Lần thử thêm này chỉ có một lần cho mỗi trang (một cờ được tắt khi dùng). Sau khi bỏ `room` thì lỗi "closed" cũng không thể xảy ra lại.
+  - Lần thử thêm mà hỏng (ví dụ mất mạng đúng lúc đó) thì hiện thẻ của lỗi đó như thường.
+  - Lỗi "closed" lần đầu là chuyện bình thường, không `console.error` (e2e chỉ in log khi test lỗi, nhưng đừng làm nhiễu).
+- `"back"` + `closed`: thẻ "Thế giới này đã đóng" với chữ "Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn." (`joinCard(failure, true)`), như T23.
+- Các lỗi khác: không đổi. `joinCard(failure, returning)` với `returning = arrived === "back" || arrived === "backAlone"`.
+
+**Điện thoại và bàn phím:** không có nút hay phím mới. Enter vẫn vào (nút có focus khi quay lại). Thẻ lỗi không đổi kích cỡ.
 
 ## Kế hoạch triển khai
 
-1. **`packages/client/src/ui/hud.ts`**
-   - Dòng 63-70: tạo `bossBar` với nội dung `<strong><span class="boss-name"></span><span class="boss-num"></span></strong><div class="boss-hp"><div></div></div>` (vẫn `hidden = true`). **Không** gắn vào `this.root` nữa: `this.left.append(this.health, this.status, this.bossBar, this.toasts)`.
-     - Chú thích (tiếng Anh): thanh nằm trong cột; CSS đặt nó giữa trên hoặc trong cột thay ô nhiệm vụ (T30, `docs/design/hud.md`).
-   - Thêm trường `private lastBoss = ""` (khoá `name|hp|maxHp`). Viết lại `setBoss(boss)`:
-     - Chỉ đổi `hidden` và lớp `boss-near` của `this.left` khi trạng thái hiện/ẩn thật sự đổi (so với `this.bossBar.hidden`).
-     - Khi có trùm: tính khoá `${boss.name}|${Math.ceil(boss.hp)}|${boss.maxHp}`; trùng `lastBoss` thì `return`. Không trùng thì ghi `.boss-name` = `👑 ${boss.name}`, `.boss-num` = `${Math.ceil(boss.hp)}/${boss.maxHp}`, và bề rộng thanh như cũ.
-     - Giữ tham chiếu tới ba phần tử con trong trường riêng (như `eatCover`), không `querySelector` mỗi khung.
-   - Chữ "👑 " giữ như cũ, ghép trong `.boss-name`.
-2. **`packages/client/index.html`, khối gốc**
-   - Thay dòng 64-66 (`.boss-bar`, `.boss-bar[hidden]`) bằng:
-     - `.boss-bar`: `order: 5; box-sizing: border-box; position: absolute; top: 0; left: calc(50vw - max(12px, env(safe-area-inset-left))); transform: translateX(-50%); width: min(420px, calc(100vw - 2 * max(12px, env(safe-area-inset-left)) - 944px)); text-align: center; color: #fff; font-size: 14px; text-shadow: 0 1px 2px #000;`
-     - `.boss-bar[hidden] { display: none; }` (giữ).
-     - `.boss-bar strong { display: flex; justify-content: center; align-items: baseline; gap: 4px; white-space: nowrap; }`
-     - `.boss-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }` và `.boss-num { flex: none; }`.
-   - Ngay sau `.boss-hp div` (dòng 68), thêm khối chỗ B: `@media (max-width: 600px), (max-width: 1247px) and (min-height: 521px)` gồm
-     - `.boss-bar { position: static; transform: none; width: auto; align-self: stretch; text-align: left; background: rgba(0,0,0,0.45); border-left: 3px solid #ff6d00; padding: 4px 10px; border-radius: 8px; }`
-     - `.boss-bar strong { justify-content: space-between; }`
-     - `.hud-left.boss-near > .hud-quest { display: none; }`
-     - Chú thích CSS (tiếng Anh) ghi lý do: thế chỗ ô nhiệm vụ để cột không dài thêm và thông báo không chạm tên mình; mốc 1247 từ 100vw − 968 ≥ 280.
-   - `.party-panel` (dòng 148-149): `top` và `max-height` theo bảng ở Thiết kế mục 3, kèm chú thích.
-3. **`packages/client/index.html`, khối `@media (max-width: 600px)`** (dòng 370-384)
-   - Thêm `.boss-bar { font-size: 12px; }` và `.boss-hp { height: 10px; margin-top: 3px; }`.
-   - `.party-panel` (dòng 381): `top` và `max-height` theo bảng ở mục 3.
-4. **`packages/client/index.html`, khối ngang** (dòng 386-416)
-   - Dòng 388: `.hud-left { max-width: min(300px, calc(50vw - 110px - max(12px, env(safe-area-inset-left)))); gap: 4px; }`. Sửa chú thích: "ends 110 px left of the middle, notch or not (T6, T30)".
-   - Dòng 399: `.boss-bar { width: min(200px, calc(100vw - 528px - 2 * max(12px, env(safe-area-inset-right)))); font-size: 12px; }`, chú thích nói khe giữa cột và bản đồ nhỏ.
-   - Dòng 405: `max-height` theo mục 3. Dòng 406: `height` của `.wardrobe-panel` theo mục 3.
-5. **`tests/e2e/multiplayer.spec.ts`**: test mới, xem mục Test.
-6. **`docs/design/hud.md`**: game-designer đã cập nhật cùng PLAN này. Coder chỉ sửa nếu con số làm thật khác với tài liệu, và ghi lý do vào `PROGRESS.md`.
+Một commit cho cả nhiệm vụ: server, client, test, tài liệu. Thứ tự làm:
 
-Không có logic dùng chung mới, nên không có gì vào `packages/shared`.
+1. **`packages/shared/src/constants.ts`:** thêm sau `RECONNECT_TRY_MS`:
+   - `EMPTY_WORLD_HOLD_MS = 60_000`;
+   - JSDoc tiếng Anh: thế giới không còn người chơi (kể cả người chờ nối lại) thì mở thêm chừng này để tải lại, link mời và Về sảnh còn tìm thấy nó; con số đến từ đâu (3G chậm, và Về sảnh sau `RECONNECT_TRY_MS`); Colyseus đóng thế giới thêm tối đa khoảng 1 s sau đó.
+
+2. **`packages/server/src/rooms/GameRoom.ts`:**
+   - Import `type Delayed` từ `"colyseus"` (cùng dòng với `Deferred, Room, type Client`) và `EMPTY_WORLD_HOLD_MS` từ `@petgame/shared`.
+   - Trường của class, đặt cạnh `maxClients`:
+     - `autoDispose = false;` với JSDoc: phòng không tự đóng khi người cuối rời đi; `holdEmptyWorld` quyết định lúc đóng;
+     - `private emptyHoldMs = EMPTY_WORLD_HOLD_MS;` với JSDoc "tests and debug:emptyHold shorten it", như `reconnectGraceMs`;
+     - `private emptyHold: Delayed | undefined;`.
+   - `onCreate`: sau `this.setSimulationInterval(...)`, gọi `this.holdEmptyWorld();` kèm chú thích: thế giới được tạo mà người tạo chưa vào cũng không sống mãi.
+   - Hook mới trong khối `PETGAME_DEBUG`, cạnh `debug:endGrace`: `this.onMessage("debug:emptyHold", (_client, message?: { ms?: number }) => { ... })`, luật ở Thiết kế 6.
+   - `onJoin`: dòng đầu `this.keepWorldOpen();`.
+   - `onLeave`: sau `this.removePlayer(client.sessionId);`, thêm `if (this.state.players.size === 0) this.holdEmptyWorld();`. Cập nhật JSDoc: người cuối ra thì thế giới được giữ.
+   - Ba method mới, đặt sau `endSession`, có JSDoc tiếng Anh:
+     - `private holdEmptyWorld()`: `this.emptyHold?.clear(); this.emptyHold = this.clock.setTimeout(() => this.closeIfStillEmpty(), this.emptyHoldMs);`
+     - `private keepWorldOpen()`: `this.emptyHold?.clear(); this.emptyHold = undefined; this.autoDispose = false;`
+     - `private closeIfStillEmpty()`: `this.emptyHold = undefined; if (this.state.players.size > 0) return; this.autoDispose = true;`. Chú thích nói vì sao không gọi `disconnect()` (Thiết kế 3).
+   - Không đổi `onDrop`, `onReconnect`, `removePlayer`, `endSession`, `onDispose`.
+
+3. **`packages/client/src/net/connection.ts`:**
+   - `lobbyUrl(roomId, withFriends)` đổi tên tham số thành `keepWorld`. Logic giữ nguyên.
+   - Viết lại JSDoc: `keepWorld` thì địa chỉ ghi thế giới (thế giới còn mở khi có người, và thêm `EMPTY_WORLD_HOLD_MS` sau người cuối); không thì mở thế giới mới. Chỉ dùng `false` sau khi server khởi động lại và khi biết thế giới đã đóng.
+
+4. **`packages/client/src/ui/joinStatus.ts`:**
+   - Thêm `export type Arrival = "new" | "invited" | "back" | "backAlone";`.
+   - Thêm `export function arrival(invited: string | null, lastRoom: string | null | undefined, lastFriends: string | null | undefined): Arrival`, theo bảng ở Thiết kế 7.
+   - Thêm `export function arrivalHint(a: Arrival): string`: `"back"` cho `RETURN_HINT`, `"invited"` cho `INVITE_HINT`, còn lại "".
+   - JSDoc tiếng Anh. `RETURN_HINT`, `INVITE_HINT`, `joinCard` giữ nguyên.
+
+5. **`packages/client/src/main.ts`:**
+   - Thêm `const FRIENDS_KEY = "petgame:friends";` có JSDoc. Sửa JSDoc `ROOM_KEY`: nó chọn chữ trên sảnh và cách báo khi thế giới đã đóng.
+   - Dòng 64-67:
+     - `const arrived = arrival(invited, safeStorage(() => sessionStorage.getItem(ROOM_KEY)), safeStorage(() => sessionStorage.getItem(FRIENDS_KEY)));`
+     - `const returning = arrived === "back" || arrived === "backAlone";`
+     - `roomHint.textContent = arrivalHint(arrived);`
+     - Dòng 179 `if (returning) joinBtn.focus(...)` giữ nguyên.
+   - Hàm mới `rememberWorld(roomId: string, friends: boolean)`:
+     - ghi `ROOM_KEY`;
+     - ghi `FRIENDS_KEY` (`"1"`/`"0"`);
+     - `setAddress(lobbyUrl(roomId, true))`.
+   - `failToStart`: thay dòng 109-111 bằng `rememberWorld(room.roomId, (room.state.players?.size ?? 0) > 1);`. Sửa chú thích: thế giới được giữ cho lần tải lại. Cách này cũng sửa luôn lỗi nhỏ: khi `assets` hỏng thì `startGame` không chạy, nên trước đây `ROOM_KEY` không được ghi và tải lại hiện sai chữ "Bạn được mời…".
+   - `startGame`:
+     - bỏ dòng 185 (`ROOM_KEY`);
+     - `syncAddress` thành: `const friends = size > 1; if (friends === last) return; last = friends; rememberWorld(room.roomId, friends);`. Bỏ điều kiện `size === 0`: trước khi state tới thì coi là một mình;
+     - gọi một lần ngay và theo `onStateChange`, như cũ;
+     - sửa chú thích dòng 186-188.
+   - `react`/overlay:
+     - bỏ `withFriends` và dòng 204;
+     - thêm `let keepWorld = true;`, đổi thành `false` khi `status.state === "lost" && status.reason === "shutdown"`;
+     - khi `lost`: `setAddress(lobbyUrl(room.roomId, keepWorld))`;
+     - callback của `ConnectionOverlay` dùng `lobbyUrl(room.roomId, keepWorld)`;
+     - sửa chú thích dòng 200 và 205.
+   - `enter`: thực hiện luật "Vào hỏng" ở Thiết kế 7.
+     - Gợi ý: thêm `let quietRetry = arrived === "backAlone";` ở cấp module.
+     - Trong `enter`, gói lần gọi `Promise.allSettled([connect(...)..., assets])` vào một hàm nhỏ.
+     - Khi `joinFailure(...) === "closed"`, `quietRetry` đang bật và `new URLSearchParams(location.search).get("room") === invited`: tắt `quietRetry`, gọi `dropWorldFromAddress()`, rồi gọi lại hàm đó một lần.
+     - Giữ chú thích cũ "Both are awaited even when one fails first…".
+     - `joining` vẫn bật suốt hai lần thử.
+     - Thêm JSDoc cho `enter()` vì đang sửa nó (T50 có nhắc).
+
+6. **`docs/architecture.md`** (coder sửa; `docs/design/multiplayer.md` đã xong):
+   - Mục `rooms/GameRoom.ts`, sau gạch "Kết nối lại", thêm gạch **Giữ thế giới trống (T49)** tóm tắt Thiết kế 3: `autoDispose = false`, `emptyHold`/`emptyHoldMs`, `holdEmptyWorld` ở `onCreate` và ở `onLeave` khi `players` rỗng, `keepWorldOpen` ở `onJoin`, hết giữ thì `autoDispose = true` (Colyseus đóng sau ≤ 1 s, chờ người vào dở), mô phỏng vẫn chạy (hẹn giờ của phòng theo nhịp mô phỏng).
+   - Danh sách hook `debug:*`: thêm `emptyHold` (`{ ms }`, chỉ rút ngắn khoảng giữ của phòng người gửi).
+   - Mục `main.ts`, đoạn **Vào lại thế giới (T23)**: luôn ghi `?room=` (T49), `rememberWorld`, `FRIENDS_KEY`, `arrival`/`arrivalHint`, vào thẳng thế giới mới khi `backAlone` gặp "closed".
+   - Mục Kiểm thử, helper e2e: thêm `closedWorld`.
 
 ## Giao thức
 
-Không đổi `schema.ts`, `messages.ts`, `Profile`. Không ảnh hưởng server hay dữ liệu đã lưu. Chỉ client: DOM của `Hud` và CSS.
+- `schema.ts`, `messages.ts`: **không đổi**. `debug:emptyHold` là tin thử nghiệm dạng chuỗi, chỉ có khi `PETGAME_DEBUG=1`, như các hook khác.
+- `Profile`/`store.ts`: **không đổi**, hồ sơ cũ đọc như cũ.
+- Hành vi mạng đổi theo hướng có thể đảo ngược: thế giới sống thêm 60 s sau người cuối. Client cũ (tab mở từ trước khi deploy) vẫn chạy đúng: nó chỉ không ghi `room` khi một mình, như T23.
+- Client: thêm khoá `sessionStorage` `petgame:friends` (chỉ trong tab, không ảnh hưởng dữ liệu lưu).
+
+Không có gì CHẶN.
 
 ## Test
 
-**Unit:** không có. Thay đổi là CSS và DOM của client; không có hàm thuần mới. `toastQueue.test.ts` không đổi.
+### Unit (Vitest)
 
-**Tích hợp server:** không.
+`packages/client/src/ui/joinStatus.test.ts`, describe mới `arrival`:
+- không có `?room=` thì `"new"` (dù `lastRoom` có giá trị);
+- `?room=X` mà `lastRoom` khác hoặc `null` thì `"invited"`;
+- `X` = `lastRoom` và `"0"` thì `"backAlone"`;
+- `"1"` thì `"back"`;
+- `null`/`undefined` (tab trước T49) thì `"back"`;
+- `arrivalHint`: `"back"` cho `RETURN_HINT`, `"invited"` cho `INVITE_HINT`, `"backAlone"` và `"new"` cho "".
 
-**E2E** (`tests/e2e/multiplayer.spec.ts`, đặt ngay sau khối `toasts (...)`, dùng lại `boxesOverlap`).
+`packages/client/src/net/connection.test.ts`: sửa mô tả các test `lobbyUrl` theo nghĩa mới của tham số (`keepWorld`). Kỳ vọng giữ nguyên.
 
-### a. Giả lập tai thỏ
+### Tích hợp server (`GameRoom.test.ts`)
 
-Thêm tham số tuỳ chọn `before?: (page: Page) => Promise<void>` cho `openPage` (chạy sau `newPage`, trước `goto`) và cho `join` (truyền xuống). Các lời gọi cũ không đổi.
+Describe mới `"keeping an empty world open"`, đặt sau describe kết nối lại. Dùng hold ngắn `(room as any).emptyHoldMs = 400` (không dùng fake timer: Colyseus dùng `setTimeout`/`setInterval` thật cho socket và hẹn giờ tự đóng). Helper trong describe:
+- `isOpen(room)`: `colyseus.getRoomById(room.roomId) !== undefined`;
+- `emptyHoldOf(room)`: `(room as any).emptyHold`.
 
-Hàm `safeArea(insets: { top?: number; right?: number; bottom?: number; left?: number })` trả về hàm `before`:
-1. Thử CDP: `context.newCDPSession(page)` rồi `send("Emulation.setSafeAreaInsetsOverride", { insets: { top, topMax: top, left, leftMax: left, bottom, bottomMax: bottom, right, rightMax: right } })`. Đã chạy được với Chrome 153 trong container.
-2. Nếu lệnh ném lỗi (CI chạy Chromium 141 của Playwright, chưa chắc có lệnh này): `page.route` cho tài liệu `/` (pathname `/`), `route.fetch()`, rồi thay chuỗi `env(safe-area-inset-<cạnh>)` trong HTML bằng `<n>px` và `route.fulfill`. Mọi `env()` của game chỉ nằm trong `<style>` của `index.html` (`grep` trong `src/` không có).
+Mọi chờ đều qua `vi.waitFor(..., { timeout: 4000 })`. Các test:
 
-Sau khi vào thế giới, test **kiểm vùng an toàn đã có tác dụng**, dù đi đường nào:
-- mép trái `.hud-left` = `max(12, left)` ±1;
-- mép trên `.party-btn` = `max(12, top)` ±1.
+1. **"keeps a world nobody is in open for the hold, still running; whoever comes back in time finds it, then it closes once the hold runs out"**
+   - `setup(token)` với `SqliteStore(":memory:")` + `useStore`; `emptyHoldMs = 400`; cho người chơi một thú (`capture`).
+   - `client.leave()`, chờ `players.size === 0`. Kiểm:
+     - `emptyHoldOf(room)?.active === true`;
+     - `isOpen(room)`;
+     - `(room as any).dayTime` tăng sau `ticks(room, 5)` (thế giới vẫn chạy).
+   - Trong lúc giữ, `colyseus.sdk.joinById(room.roomId, { name: "Back", token })` vào được. Kiểm:
+     - cùng phòng;
+     - `emptyHoldOf(room)` là `undefined`;
+     - `room.autoDispose === false`;
+     - người chơi có lại 1 thú (đọc từ hồ sơ đã lưu).
+   - Chờ 800 ms (gấp đôi hold): phòng **vẫn mở** vì có người.
+   - Rời lần nữa, rồi `vi.waitFor(() => expect(isOpen(room)).toBe(false))`.
+   - `colyseus.sdk.joinById(room.roomId, {})` bị từ chối với `code === ErrorCode.MATCHMAKE_INVALID_ROOM_ID` và `message` không chứa `"is locked"` (đúng dạng lỗi `joinFailure` xếp là "closed"). Import `ErrorCode` từ `"colyseus"`.
 
-### b. Năm cấu hình (`BOSS_SCREENS`)
+2. **"the hold starts only when a dropped player's grace has run out"**
+   - `crowd(1)` hoặc `setup()`; `reconnectGraceMs = 500`; `emptyHoldMs = 400`; `client.reconnection.enabled = false`; `cutConnection`.
+   - Trong lúc chờ nối lại (`player.offline`): `emptyHoldOf(room)` là `undefined`, `room.autoDispose === false`.
+   - Chờ người chơi bị xoá: ngay lúc đó `emptyHoldOf(room)?.active === true` và `isOpen(room)`.
+   - Sau đó phòng đóng.
 
-| Tên | Viewport | Cảm ứng | Tai thỏ | Thanh ở | Thông báo |
-|---|---|---|---|---|---|
-| desktop | 1280×720 | không | | giữa trên | 2 |
-| phone upright | 390×844 | có, `isMobile` | | cột | 2 |
-| phone sideways | 844×390 | có | | giữa trên | 1 |
-| phone upright, notch | 390×844 | có | trên 47, dưới 34 | cột | 2 |
-| phone sideways, notch | 844×390 | có | trái 47, phải 47, dưới 21 | giữa trên | 1 |
+3. **"a world made but never joined closes after the hold"**
+   - `colyseus.createRoom(ROOM_NAME)`. Kiểm `emptyHoldOf(room)?.active === true` và `emptyHoldOf(room).time === EMPTY_WORLD_HOLD_MS`.
+   - Đặt `emptyHoldMs = 300`, gọi lại `(room as any).holdEmptyWorld()` (đồng thời kiểm việc hẹn lại huỷ hẹn cũ: sau lời gọi chỉ còn một hẹn với `time === 300`).
+   - Phòng đóng trong `vi.waitFor`.
 
-### c. Mỗi cấu hình một test
+4. **"saves a player once as they leave and not again while the world is empty; the next session reads it"**
+   - `SqliteStore(":memory:")` + `useStore`, `setup(token)`.
+   - Đặt `player.wood = 33` và gửi `ClientMessage.PalAuto { on: false }` (hẹn một `scheduleSave` 2 s).
+   - `client.leave()`, chờ `players.size === 0`. `db.load(token)?.resources.wood === 33`.
+   - Sau đó `const save = vi.spyOn(db, "save")`, chờ thật 2,3 s (quá `SAVE_DELAY_MS`; `emptyHoldMs` mặc định 60 s nên phòng còn mở). `expect(save).not.toHaveBeenCalled()`.
+   - Vào lại cùng token: `wood === 33`.
+   - Đặt hạn riêng cho test này (khoảng 8 s, ghi số đo trong chú thích) như các test chờ thật khác.
 
-Tên: `boss bar (<tên>): clear of the health row, the toasts, the right column and the panels`, có `test.slow()`.
-1. `join` (kèm `safeArea` nếu có), `waitForWorld`, chờ `frames > 0`. Kiểm vùng an toàn (mục a).
-2. `debug:givePal` emberpup cấp 8, chờ `.skill-bar` hiện và `.hud-quest` có chữ (như test `toasts`). Ghi lại vị trí xuất phát của mình.
-3. Tìm trùm trong `room.state.pals` (`boss === true`), `debug:teleport` tới `{ x: boss.x, y: boss.y + 260 }`, chờ `.boss-bar` hiện (timeout 30 s). Trùm hiền khi không bị đánh; trong lần đo nó không tấn công.
-4. Chờ hết thông báo (`toHaveCount(0, 20 s)`). Đẩy 2 thông báo dài nhất (đúng chuỗi của test `toasts`). Chờ số thông báo hiện bằng cột "Thông báo".
-5. Đo bằng helper mới `bossLayout(page)`, trả về:
-   - hộp thanh trùm, `.boss-num`, `strong`;
-   - hộp các phần: `.hud-health, .hud-status, .hud-quest, .eat-btn, .sound-btn, .invite-btn, .party-btn, .base-btn, .craft-btn, .wardrobe-btn, .minimap, .skill-btn, .skill-auto, .ball-btn, .action-btn`, các thông báo `:not(.out)`, `.label.me span`. Chỉ lấy phần đang hiện, như `toastLayout`;
-   - `columnRight`, `.hud-quest` có đang hiện không (`display`), `.hud-left` có lớp `boss-near` không;
-   - `elementFromPoint` ở tâm thanh;
-   - kích thước màn hình.
-6. Kiểm:
-   - Thanh không chồng (`boxesOverlap`) phần nào trong danh sách.
-   - Mỗi thông báo không chồng phần nào, kể cả thanh trùm và tên mình. Thông báo nằm trong màn hình.
-   - Thanh nằm trong vùng an toàn: trái ≥ L, phải ≤ rộng − R, trên ≥ `max(12, top)` −1 (L, R là inset của cấu hình, 0 nếu không có).
-   - `.boss-num` hiện đủ: `scrollWidth ≤ clientWidth + 1`, hộp nằm trong hộp thanh. `strong` cao ≤ 22 px (một dòng).
-   - Chỗ A (giữa trên):
-     - |tâm thanh − rộng/2| ≤ 1;
-     - trên của thanh = trên của `.hud-left` ±1;
-     - trái của thanh ≥ `columnRight` + 8;
-     - phải của thanh ≤ (cầm ngang: trái `.minimap`; desktop: trái nhỏ nhất của 4 nút cột phải) − 8;
-     - `.hud-quest` vẫn hiện.
-   - Chỗ B (trong cột):
-     - `.hud-left` có `boss-near`, `.hud-quest` không hiện;
-     - trên của thanh ≥ dưới `.hud-status` + 2, dưới của thanh ≤ trên thông báo đầu − 2;
-     - trái và rộng của thanh bằng `.hud-left` ±1;
-     - trên cảm ứng, `elementFromPoint` ở tâm thanh nằm trong `.joystick-zone`.
-   - Cầm ngang (cả có tai thỏ):
-     - `columnRight ≤ rộng/2 − 100`;
-     - mọi thông báo kết thúc ≤ cao − 140. Đo bản thử: 210 và 246, mốc 250.
-7. **Bảng:** lần lượt mở `.party-btn` → `.pals-panel`, `.craft-btn` → `.craft-panel`, `.wardrobe-btn` → `.wardrobe-panel` (desktop `click`, cảm ứng `tap`). Mỗi bảng, kiểm:
-   - Bảng nằm trong vùng an toàn: trên ≥ `top` (inset), dưới ≤ cao − `max(bottom, 8)` + 1.
-   - 4 nút cột phải không bị bảng che: `elementFromPoint` ở tâm mỗi nút, và ở tâm ± 21 px theo chiều dọc (vùng chạm 44 px), đều thuộc nút đó.
-   - Nếu hộp bảng giao hộp thanh trùm: `elementFromPoint` ở tâm phần giao thuộc bảng (bảng vẽ trên thanh).
-   - Đóng bằng `.party-close` của bảng, chờ bảng ẩn.
-8. Dịch chuyển về chỗ xuất phát. `.boss-bar` ẩn, `.hud-quest` hiện lại, `.hud-left` không còn `boss-near`.
-9. **Chỉ cấu hình desktop**, sau bước 8 thì quay lại gần trùm (bước 3) rồi:
-   - `page.setViewportSize({ width: 1248, height: 720 })`: thanh ở giữa trên, rộng 280 ±1, tên không bị cắt (`.boss-name` có `scrollWidth ≤ clientWidth + 1`).
-   - `page.setViewportSize({ width: 1024, height: 768 })`: chờ (`expect.poll`) đến khi thanh vào cột. Kiểm như chỗ B, và kiểm lại "thanh không chồng phần nào".
+5. **"the test hook shortens the hold of the sender's world, never lengthens it"**
+   - `process.env.PETGAME_DEBUG = "1"` trong `try/finally`, như test `debug:endGrace`.
+   - Gửi `debug:emptyHold { ms: 10 ** 9 }`, chờ một nhịp: `emptyHoldMs === EMPTY_WORLD_HOLD_MS`.
+   - Gửi `{ ms: "x" }`: không đổi.
+   - Gửi `{ ms: 0 }`: `emptyHoldMs === 0`.
+   - `client.leave()`: phòng đóng trong `vi.waitFor({ timeout: 3000 })`.
 
-**Test có sẵn phải vẫn qua, không sửa:**
-- `toasts (...)`: `toastLayout` đã có `.boss-bar` trong danh sách; không có trùm thì không đổi.
-- `touch targets (...)` và `touch (...)` (T18, T39): không tai thỏ thì số của bảng giữ nguyên.
+Các test có sẵn phải qua mà không sửa. Đặc biệt:
+- "closing the world saves everyone…" (`disconnect(SERVER_SHUTDOWN)` vẫn đóng ngay);
+- "a player who leaves on purpose is gone at once";
+- các test `client.leave()` + `colyseus.cleanup()`.
+
+### E2E (`tests/e2e/multiplayer.spec.ts`)
+
+**Helper mới `closedWorld(roomId)`** (đặt cạnh `observer`):
+- Chờ đến khi `new Client(SERVER).joinById(roomId, { name: "Probe" })` bị từ chối với `code === 522` và message không có "is locked".
+- Vào được thì `leave()` ngay rồi thử lại. Thế giới đã đặt hold 0 thì tự đóng lại khoảng 1 s sau.
+- Dùng `expect.poll` với `intervals: [1500]` (lớn hơn 1,05 s đóng, để lần dò không giữ thế giới mở mãi), `timeout: 20_000`.
+- JSDoc nói phải gửi `debug:emptyHold { ms: 0 }` trước.
+
+**Sửa "lobby: a reload goes back to the world friends are in; …"** (dòng 1666). Đổi tên thành "lobby: a reload goes back to the world; a closed world or an unreachable server says so, with a way on".
+- Dòng 1675-1676: một mình thì địa chỉ **có** `room` = `roomId` (`expect.poll`). Sửa chú thích.
+- Dòng 1692-1694: bạn rời đi thì địa chỉ **vẫn** là `roomId`.
+- Dòng 1696-1702:
+  - `friend2` gửi `friend2.send("debug:emptyHold", { ms: 0 })` trước `friend2.leave()`;
+  - sau đó `await closedWorld(roomId)` trước `page.goto(back)`;
+  - thẻ vẫn là "Thế giới này đã đóng" + "vẫn còn" (lúc trang rời có `friend2`, nên `petgame:friends` là `"1"`).
+- Phần 2 (dòng 1711-1713): `gone.send("debug:emptyHold", { ms: 0 })`, rồi `gone.leave()`, rồi `await closedWorld(closedId)`. Phần còn lại không đổi.
+
+**Sửa test T42** (dòng 1869-1884), phần 2, điện thoại dọc, chạm, một mình:
+- Sau thẻ "Không tải được game", địa chỉ **có** `room === oldRoom`. Sửa dòng 1879 và chú thích dòng 1869.
+- Bấm Tải lại, `enterLobby`, `waitForWorld`: `roomOf(phone)` **bằng** `oldRoom` (thế giới còn được giữ).
+- Đây là e2e "một mình tải lại về đúng thế giới" bằng cảm ứng.
+
+**Test mới** "lobby: alone, a reload comes back to the same world while it is kept; once it has closed, a new one opens without a card" (desktop, bàn phím, `test.slow()`):
+1. `join(browser, "Solo")`, `waitForWorld`, chờ `frames > 0`. Kiểm địa chỉ có `room = W` (`expect.poll`) và `quality=low` còn.
+2. `page.reload()`. Kiểm:
+   - `#room-hint` có chữ rỗng (`toHaveText("")`);
+   - `#join-btn:enabled` rồi `toBeFocused()`;
+   - Enter, `waitForWorld`;
+   - `roomId === W`, `playerCount === 1`.
+3. `sendFrom(page, "debug:emptyHold", { ms: 0 })`, `const back = page.url()`, `page.goto("about:blank")`, `await closedWorld(W)`.
+4. `page.goto(back)`. Kiểm:
+   - `#room-hint` rỗng;
+   - `enterLobby(page, "Solo")` rồi `waitForWorld(page)` (`waitForWorld` báo lỗi ngay nếu `#join-status` hiện, tức là không có thẻ);
+   - `roomId !== W`;
+   - địa chỉ có `room` = thế giới mới, `quality=low` còn.
+5. Đếm `load` của trang: đúng 3 lần (mở, tải lại, `goto(back)`). Lần vào thẳng thế giới mới không tải lại trang.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `npm run typecheck`, `npm test`, `npm run build` sạch. `npm run test:e2e` qua toàn bộ, kể cả 5 test `boss bar (...)` mới.
-- [ ] `.boss-bar` là con của `.hud-left`, `order: 5`. `setBoss` không ghi DOM khi tên, máu, máu tối đa và trạng thái hiện/ẩn đều không đổi; không `querySelector` mỗi khung.
-- [ ] Desktop ≥ 1248 px: thanh giữa trên, rộng `min(420, 100vw − 2L − 944)`, ở 1280 rộng 312. Cách cột trái ≥ 12 px. Ô nhiệm vụ vẫn hiện.
-- [ ] Desktop 601-1247 px (cao > 520) và mọi màn rộng ≤ 600: thanh nằm trong cột, sau ô trạng thái, trước thông báo. Ô nhiệm vụ ẩn trong lúc thanh hiện, hiện lại khi thanh ẩn.
-- [ ] Điện thoại ngang: thanh giữa trên, rộng `min(200, 100vw − 2R − 528)`. Cột trái kết thúc ≤ 50vw − 110 cả khi có tai thỏ; ở 844×390 không tai thỏ cột vẫn rộng 300.
-- [ ] Ở cả 5 cấu hình e2e: thanh không chồng hàng máu, 🫐 Ăn, 🔊, trạng thái, ô nhiệm vụ, thông báo, 4 nút cột phải, bản đồ nhỏ, thanh chiêu, nút cảm ứng, nút bóng, tên mình. Thông báo không chồng thanh, cũng không chồng tên mình.
-- [ ] Số máu trùm không bao giờ bị cắt; chỉ tên rút gọn bằng "…". Chữ một dòng.
-- [ ] Thanh không nhận chạm: trên cảm ứng, chạm vào thanh trong cột là bật cần điều khiển.
-- [ ] Bảng Thú, Chế tạo, Tủ đồ:
-  - mép trên = `max(204, inset trên + 192)` (desktop), `max(196, inset trên + 184)` (dọc);
-  - đáy cách mép dưới `max(12, inset dưới)` (ngang `max(8, …)`);
-  - không bao giờ che nút cột phải hay vùng chạm 44 px của chúng;
-  - vẽ trên thanh trùm.
-  Không tai thỏ thì số giống hệt trước.
-- [ ] Không đổi `Game.ts`, server, shared, `toastQueue.ts`.
-- [ ] `docs/design/hud.md` khớp với code (bảng bố cục, mục "Thanh máu trùm", mục "Vùng an toàn"). Dòng "Còn tồn tại …" đã bỏ.
+- [ ] `EMPTY_WORLD_HOLD_MS = 60_000` ở `packages/shared/src/constants.ts`, có JSDoc kèm lý do. Trong code server và client không có số 60 000 hay 60 nào khác cho việc này.
+- [ ] `GameRoom`:
+  - `autoDispose = false`;
+  - `holdEmptyWorld` gọi ở cuối `onCreate`, và ở `onLeave` khi `state.players.size === 0`;
+  - `keepWorldOpen` ở đầu `onJoin`;
+  - hết giữ chỉ đặt `autoDispose = true` (không `disconnect()`);
+  - mọi hẹn giờ bằng `this.clock.setTimeout`;
+  - mô phỏng không bị dừng.
+- [ ] Người chờ nối lại vẫn tính là "có người": khoảng giữ chỉ bắt đầu sau khi chờ nối lại kết thúc (test 2).
+- [ ] Không có lần lưu nào trong lúc thế giới trống; người vào lại đọc đúng tiến trình đã lưu lúc rời (test 4).
+- [ ] `debug:emptyHold` chỉ có khi `PETGAME_DEBUG=1`, chỉ rút ngắn, chỉ cho phòng người gửi.
+- [ ] Client:
+  - địa chỉ có `?room=` khi đang chơi một mình;
+  - bỏ `room` khi server khởi động lại;
+  - `petgame:friends` được ghi;
+  - quay lại một mình thì sảnh không có chữ gợi ý, nút có focus;
+  - thế giới đã đóng thì vào thẳng thế giới mới, không có thẻ, không tải lại trang;
+  - quay lại thế giới có bạn bè đã đóng thì vẫn thẻ T23.
+- [ ] `failToStart` luôn ghi `room`, `ROOM_KEY`, `FRIENDS_KEY`.
+- [ ] `schema.ts`, `messages.ts`, `Profile` không đổi.
+- [ ] Test unit, tích hợp và e2e ở mục Test đã thêm hoặc sửa. Không test nào bị tắt hay nới.
+- [ ] Các lệnh `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` đều sạch.
+- [ ] `docs/architecture.md` cập nhật theo bước 6. `docs/design/multiplayer.md` khớp với hành vi đã làm (coder đọc lại; lệch thì báo, không tự đổi luật).
 
 ## Rủi ro, câu hỏi mở
 
-- **CDP `Emulation.setSafeAreaInsetsOverride` là lệnh thử nghiệm.** Container có Chrome 153 chạy được; CI dùng Chromium 141 của Playwright 1.56.1, không thử được ở đây (không được `playwright install`). Vì vậy đường dự phòng `page.route` là bắt buộc, không tuỳ chọn. Bước "kiểm vùng an toàn đã có tác dụng" bảo đảm test không âm thầm chạy mà không có tai thỏ.
-- **Mức sát của số đo.**
-  - Thông báo cầm ngang có tai thỏ kết thúc ở 246 so với mốc 250. Nếu font trên CI khác làm ô trạng thái xuống 3 dòng thì sẽ hỏng. Khi đó báo lại; **không** nới mốc.
-  - Dọc 844 có tai thỏ: thông báo cuối cách tên mình 25 px, đủ rộng.
-- **Trùm đi lang thang.** Thanh hiện khi cách ≤ 450 px, tính theo vị trí vẽ ở client. Đứng cách 260 px là còn dư. Nếu trùm đang trên đường về (`bossReturning`) thì dùng vị trí đọc lúc dịch chuyển; nếu thanh không hiện trong 30 s thì dịch chuyển lại một lần.
-- **Thông báo "nóng" ở vùng núi lửa** có thể chen vào. Chúng ở mức thường, nên 2 thông báo mức cao vẫn thay được, hoặc chúng phải chờ. Bước "chờ hết thông báo" ở trên xử lý được.
-- Không có "CHẶN:".
-
-### Đề xuất tách việc (agent chính thêm vào `TASKS.md`)
-
-1. **Điện thoại ngang thấp 375 px: thông báo quá mốc ngón cái** (P2). Ở 812×375 có tai thỏ 44 và 667×375, cột hẹp lại (252 và 212 px) làm ô trạng thái xuống 2 dòng. Thông báo kết thúc ở 246 và 260 px, quá mốc cao − 140 = 235. Hướng làm: ô trạng thái gọn hơn khi cầm ngang (bỏ `&nbsp;` thừa, nút 🔗 nhỏ lại), hoặc ẩn dòng gợi ý của ô nhiệm vụ khi cao ≤ 380. Thêm 812×375 có tai thỏ vào e2e `toasts`.
-2. **Dọc 390×760: 2 thông báo đè tên mình 5 px** (P2, có từ T6). Chỉ ra chỗ sai là `TOAST.roomyPortraitPx = 760`: cột với 2 thông báo dài nhất kết thúc ở 327, tên mình bắt đầu ở cao/2 − 65, nên cần cao ≥ 2 × (327 + 65 + 2) ≈ 790. Đề xuất nâng lên 790 sau khi đo lại ở 360 và 390 rộng. Màn 360×640 thì cột đè tên mình cả khi chỉ có 1 thông báo: cân nhắc ẩn dòng "Thưởng" của ô nhiệm vụ khi cầm dọc và thấp.
+- **Dựa vào hành vi của Colyseus 0.18.18:** setter `autoDispose` gọi `resetAutoDisposeTimeout()` 1 s, và `#_disposeIfEmpty` chờ chỗ giữ. Nâng Colyseus có thể đổi điều này. Test 1, 3 và 5 sẽ bắt được (phòng không đóng, hoặc đóng sớm).
+- **Thời gian trong test:** dùng hold 300-400 ms và chờ bằng `vi.waitFor` tới 4 s. Riêng test 4 chờ thật 2,3 s nên có hạn riêng. Máy CI chậm (làm nóng phòng 1,6 s) vẫn dư.
+- **E2E:** server e2e dùng chung cho mọi test. Thế giới trống của các test trước giờ sống thêm 60 s: với khoảng 20 thế giới cùng lúc là 2,6% CPU, chấp nhận được. Không đặt hold ngắn cho cả server e2e, vì test tải lại một mình cần hold thật.
+- **Link mời của người chơi một mình chết lặng lẽ sau 60 s:** đã chấp nhận và ghi ở `docs/design/multiplayer.md`, "Đã cân nhắc".
+- **Tạo thế giới rồi bỏ đi giờ sống 60 s** (trước: 15 s nếu chưa ai vào, 0 s nếu đã vào rồi rời). Chi phí nhỏ. Nếu sau này cần giới hạn số thế giới mỗi IP thì là việc riêng; chưa đề xuất thêm vào `TASKS.md`.
+- **Listing:** thế giới trống vẫn công khai trong matchmaker. Hiện vô hại vì client không vào theo tên. Ai thêm ghép ngẫu nhiên (`joinOrCreate`) thì phải loại thế giới trống. Coder thêm một dòng chú thích tại `autoDispose = false` để nhắc.
+- Không có câu hỏi CHẶN.
