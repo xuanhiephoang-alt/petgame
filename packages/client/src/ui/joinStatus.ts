@@ -12,7 +12,9 @@ export interface JoinCard {
   detail: string;
   retry: boolean;
   newWorld: boolean;
-  primary: "retry" | "newWorld";
+  /** Reload the page (the game could not open: only a reload helps). */
+  reload: boolean;
+  primary: "retry" | "newWorld" | "reload";
 }
 
 /** The card shown when joining failed; `returning` is whether the player came back to a world they were playing in. */
@@ -26,6 +28,7 @@ export function joinCard(failure: JoinFailure, returning: boolean): JoinCard {
           : "Mọi người đã rời đi. Xin bạn bè link mời mới, hoặc tạo thế giới mới.",
         retry: false,
         newWorld: true,
+        reload: false,
         primary: "newWorld",
       };
     case "full":
@@ -34,11 +37,36 @@ export function joinCard(failure: JoinFailure, returning: boolean): JoinCard {
         detail: "Chờ chút rồi bấm Thử lại, hoặc tạo thế giới mới.",
         retry: true,
         newWorld: true,
+        reload: false,
         primary: "retry",
       };
     case "unreachable":
-      return { title: "Không kết nối được server", detail: "Kiểm tra mạng rồi bấm Thử lại.", retry: true, newWorld: false, primary: "retry" };
+      return { title: "Không kết nối được server", detail: "Kiểm tra mạng rồi bấm Thử lại.", retry: true, newWorld: false, reload: false, primary: "retry" };
     case "failed":
-      return { title: "Không vào được thế giới", detail: "Có lỗi khi vào. Chờ giây lát rồi bấm Thử lại.", retry: true, newWorld: false, primary: "retry" };
+      return { title: "Không vào được thế giới", detail: "Có lỗi khi vào. Chờ giây lát rồi bấm Thử lại.", retry: true, newWorld: false, reload: false, primary: "retry" };
   }
+}
+
+/** Why the game could not open after the room was joined: a part of the game did not download, or the browser failed to run it. */
+export type StartFailure = "download" | "broken";
+
+/**
+ * Errors of a part of the game that could not be fetched (lost network, or an old tab whose hashed files are gone after a deploy).
+ * Chrome: "Failed to fetch dynamically imported module: ..."; Firefox: "error loading dynamically imported module: ...";
+ * Safari: "Importing a module script failed." or "Load failed".
+ */
+const DOWNLOAD_ERROR = /dynamically imported module|module script failed|Failed to fetch|NetworkError|Load failed/i;
+
+/** Sorts an error thrown while opening the game by its shape (not `instanceof`: it may come from another realm). */
+export function startFailure(err: unknown): StartFailure {
+  const message = typeof err === "object" && err !== null ? (err as { message?: unknown }).message : undefined;
+  return typeof message === "string" && DOWNLOAD_ERROR.test(message) ? "download" : "broken";
+}
+
+/** The card shown when the room was joined but the game could not open: one button, Tải lại. */
+export function startCard(failure: StartFailure): JoinCard {
+  const card = { retry: false, newWorld: false, reload: true, primary: "reload" } as const;
+  return failure === "download"
+    ? { ...card, title: "Không tải được game", detail: "Kiểm tra mạng rồi bấm Tải lại." }
+    : { ...card, title: "Không mở được game", detail: "Trình duyệt gặp lỗi khi mở thế giới. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt." };
 }

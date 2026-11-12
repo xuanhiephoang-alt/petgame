@@ -75,12 +75,15 @@ async function join(browser: Browser, name: string, path = "/", options: Browser
   return page;
 }
 
-/** Waits until the player is in the world; fails at once if the lobby shows the join card (#join-status) instead. */
+/**
+ * Waits until the world is drawn and the lobby has gone (main.ts removes it once Game.create is done); fails at once
+ * if the lobby shows a card (#join-status) instead.
+ */
 async function waitForWorld(page: Page) {
   const state = await page.waitForFunction(() => {
-    if ((window as any).__petgame?.room?.state?.players?.size > 0) return "ok";
     const card = document.getElementById("join-status");
-    return card && !card.hidden ? card.textContent : false;
+    if (card && !card.hidden) return card.textContent;
+    return !document.getElementById("lobby") && (window as any).__petgame?.room?.state?.players?.size > 0 ? "ok" : false;
   });
   const value = await state.jsonValue();
   if (value !== "ok") throw new Error(`Still in the lobby: ${value}`);
@@ -1637,6 +1640,99 @@ test("lobby: a script that cannot load or breaks while starting says so at once,
   const url = new URL(page.url());
   expect(url.searchParams.get("room")).toBe(host.roomId);
   expect(url.searchParams.get("quality")).toBe("low");
+});
+
+/** PixiJS 8 loads this chunk on demand in app.init (renderer init: loadEnvironmentExtensions); nothing in the lobby needs it.
+    Vite dev serves it from /node_modules/.vite/deps/, a build from /build/. */
+const PIXI_ENV_CHUNK = /\/browserAll-[\w-]+\.js(\?.*)?$/;
+
+test("lobby: when the game cannot start after joining, the lobby says why, the world is left at once, and Tải lại gets back in", async ({ browser }) => {
+  test.slow();
+  const param = (target: Page, key: string) => new URL(target.url()).searchParams.get(key);
+  const roomOf = (target: Page) => target.evaluate(() => (window as any).__petgame.room.roomId as string);
+
+  // Part 1: desktop, keyboard, invited.
+  const host = await new Client(SERVER).create("world", { name: "Host" });
+  observers.push(host);
+  const context = await browser.newContext();
+  contexts.push(context);
+  const page = await context.newPage();
+  watch(page, "Broken");
+  let loads = 0;
+  page.on("load", () => loads++);
+  let blocked = 0;
+  await page.route(PIXI_ENV_CHUNK, (route) => {
+    blocked++;
+    return route.abort();
+  });
+  await page.goto(`/?room=${host.roomId}&quality=low`);
+  await enterLobby(page, "Broken");
+  await expect(page.locator("#join-status")).toBeVisible();
+  await expect(page.locator("#join-status")).toContainText("Không tải được game");
+  await expect(page.locator("#join-status")).toContainText("Kiểm tra mạng");
+  await expect(page.locator("#join-reload-btn")).toBeFocused();
+  for (const hidden of ["#retry-btn", "#new-world-btn", "#join-btn", "#name"]) await expect(page.locator(hidden)).toBeHidden();
+  await expect(page.locator("#lobby")).toBeVisible();
+  // The test is not empty: the chunk was asked for (PixiJS may rename it one day).
+  expect(blocked).toBeGreaterThan(0);
+  await expect(page.locator("#game canvas")).toHaveCount(0);
+  await expect(page.locator(".hud")).toHaveCount(0);
+  // It went in, then left on purpose: the host sees the place free well before the 20 s a dropped connection is held.
+  expect(await roomOf(page)).toBe(host.roomId);
+  await expect.poll(() => host.state.players.size).toBe(1);
+  expect(param(page, "room")).toBe(host.roomId);
+  expect(param(page, "quality")).toBe("low");
+  for (const size of [{ width: 844, height: 390 }, { width: 390, height: 844 }, { width: 1280, height: 720 }]) {
+    await page.setViewportSize(size);
+    const box = (await page.locator("#join-reload-btn").boundingBox())!;
+    expect(box.width, `Tải lại width at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+    expect(box.height, `Tải lại height at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44);
+    await expect(page.locator("#join-reload-btn")).toBeInViewport();
+  }
+  await page.unroute(PIXI_ENV_CHUNK);
+  await page.locator("#join-reload-btn").focus();
+  await page.keyboard.press("Enter");
+  await enterLobby(page, "Broken");
+  await waitForWorld(page);
+  expect(await roomOf(page)).toBe(host.roomId);
+  expect(await playerCount(page)).toBe(2);
+  expect(loads).toBe(2);
+
+  // Part 2: a phone upright, touch, alone: the world closed when it left, so Tải lại opens a new one.
+  const phoneContext = await browser.newContext({ ...PHONE_SCREENS[0].options });
+  contexts.push(phoneContext);
+  const phone = await phoneContext.newPage();
+  watch(phone, "Solo");
+  await phone.route(PIXI_ENV_CHUNK, (route) => route.abort());
+  await phone.goto("/?quality=low");
+  await enterLobby(phone, "Solo");
+  await expect(phone.locator("#join-status")).toContainText("Không tải được game");
+  const oldRoom = await roomOf(phone);
+  expect(param(phone, "room")).toBeNull();
+  await phone.unroute(PIXI_ENV_CHUNK);
+  await phone.locator("#join-reload-btn").tap();
+  await enterLobby(phone, "Solo");
+  await waitForWorld(phone);
+  expect(await roomOf(phone)).not.toBe(oldRoom);
+});
+
+test("lobby: broken picture indexes and missing pictures still let the player in, drawn from code", async ({ browser }) => {
+  test.slow();
+  const context = await browser.newContext();
+  contexts.push(context);
+  // Before the page opens: the pictures start loading as soon as the lobby script runs.
+  await context.route(/\/assets\/characters\/index\.json(\?.*)?$/, (route) => route.fulfill({ contentType: "application/json", body: "null" }));
+  await context.route(/\/assets\/nature\/index\.json(\?.*)?$/, (route) => route.fulfill({ contentType: "application/json", body: "[1]" }));
+  await context.route(/\/assets\/pals\//, (route) => route.abort());
+  const page = await context.newPage();
+  watch(page, "NoArt");
+  await page.goto("/?quality=low");
+  await page.locator("#join-btn:enabled").waitFor();
+  await expect(page.locator("#look")).toBeHidden();
+  await enterLobby(page, "NoArt");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  await expect(page.locator("#join-status")).toHaveCount(0);
 });
 
 test("lobby: on a slow network it only says it is still loading, then opens by itself; without JavaScript it says so", async ({ browser }) => {

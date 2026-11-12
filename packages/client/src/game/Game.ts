@@ -234,8 +234,22 @@ export class Game {
 
   static async create(container: HTMLElement, room: GameRoom, assets: GameAssets, resolution: number, watch: ConnectionWatch): Promise<Game> {
     const game = new Game(container, room, assets, watch);
-    await game.init(resolution);
+    try {
+      await game.init(resolution);
+    } catch (err) {
+      game.abandon();
+      throw err;
+    }
     return game;
+  }
+
+  /** Stops what a half-done init left running (the PixiJS ticker and canvas); never throws. */
+  private abandon() {
+    try {
+      this.stage.app.destroy({ removeView: true });
+    } catch {
+      // init stopped before the renderer existed
+    }
   }
 
   /** Sends a message to the server, but only while the connection is up: nothing is kept to be sent when it comes back. */

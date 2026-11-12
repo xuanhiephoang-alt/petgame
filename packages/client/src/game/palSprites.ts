@@ -1,6 +1,7 @@
 import { Assets, Rectangle, Texture } from "pixi.js";
 import { PAL_SPECIES, getSpecies } from "@petgame/shared";
 import { paint } from "./art/draw.ts";
+import { fetchIndex } from "./assetIndex.ts";
 import { PAL_DRAWINGS, fallbackDrawing } from "./art/pals.ts";
 import type { View } from "./art/creature.ts";
 
@@ -93,13 +94,8 @@ async function fromSheet(folder: string, entry: SheetEntry, height: number): Pro
 
 /** The sheets listed in public/assets/<folder>/index.json (none if it is missing). */
 async function sheetIndex(folder: string): Promise<Record<string, SheetEntry>> {
-  try {
-    const res = await fetch(`${import.meta.env.BASE_URL}assets/${folder}/index.json`);
-    if (res.ok) return await res.json();
-  } catch {
-    // No sheets: everything is drawn.
-  }
-  return {};
+  // No sheets: everything is drawn.
+  return (await fetchIndex(`${import.meta.env.BASE_URL}assets/${folder}/index.json`)) ?? {};
 }
 
 /**

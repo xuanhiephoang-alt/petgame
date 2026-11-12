@@ -1,21 +1,32 @@
-# PROGRESS: T23 Vào lại đúng thế giới sau khi tải lại trang; thẻ lỗi khi vào
+# PROGRESS: T42 Sảnh giữ đến khi thế giới vẽ xong
 
 ## Vòng 1: coder
-- [x] Bước 1: `joinFailure` + kiểu `JoinFailure` (`packages/client/src/net/connection.ts`)
-- [x] Bước 2: unit test `joinFailure` (`packages/client/src/net/connection.test.ts`)
-- [x] Bước 3: `ui/joinStatus.ts` (`joinCard`, `RETURN_HINT`, `INVITE_HINT`) + `ui/joinStatus.test.ts`
-- [x] Bước 4: `#join-status` thay `#join-error`, CSS `.lobby-actions`, `.lobby-action.quiet`, chú thích HTML (`packages/client/index.html`)
-- [x] Bước 5: `main.ts`: `enter()` + cờ `joining`, `showJoinCard`, `setAddress`/`dropWorldFromAddress`, gợi ý "Quay lại…" + focus nút, `sessionStorage` `petgame:room`, `syncAddress` trong lúc chơi, địa chỉ khi mất hẳn kết nối (`packages/client/src/main.ts`)
-- [x] Bước 6: e2e (`tests/e2e/multiplayer.spec.ts`): sửa `waitForWorld`, test "6th" (thử lại khi có chỗ), test `lobby:` T15 (thẻ "đã đóng"), test "let the player go" (địa chỉ có `room` ngay khi mất, chờ `load`, gợi ý "Quay lại…"), thêm test `lobby:` mới (tải lại, thế giới đóng, server không tới được, nút ≥ 44×44, một lần tải trang)
-- [x] Bước 7: `docs/architecture.md` (2 chỗ)
-- Lệch kế hoạch: đếm "số lần tải trang" trong e2e bằng sự kiện `load` của trang, không phải `framenavigated`. `framenavigated` của Playwright cũng bắn cho `history.replaceState` (điều hướng cùng tài liệu), nên giá trị là 2 dù trang chỉ tải một lần. Đã đổi ở test `lobby:` của T15 (chỉ phần đếm) và ở test mới; test "connection: one device…" (dòng ~1613) không đụng.
-- Lệnh đã chạy: typecheck ✓, test ✓ (353 test), build ✓, e2e đầy đủ: 36 qua, 2 test `lobby:` lỗi do đếm `framenavigated` ở trên; sau khi sửa chạy lại `-g "lobby:"` ✓ (4/4). Chưa chạy lại cả bộ sau sửa này.
+- [x] Bước 1: `joinStatus.ts`: `JoinCard.reload`, `primary` thêm `"reload"`, `StartFailure`, `DOWNLOAD_ERROR`, `startFailure`, `startCard`; test trong `joinStatus.test.ts` (packages/client/src/ui/)
+- [x] Bước 2: `game/assetIndex.ts` (`fetchIndex`) + `assetIndex.test.ts`; dùng trong `palSprites.ts`, `art/pictures.ts`, `art/doll.ts`
+- [x] Bước 3: `Game.create` gọi `abandon()` (huỷ PixiJS app, không ném) khi `init` hỏng (`game/Game.ts`)
+- [x] Bước 4: `index.html`: nút `#join-reload-btn`, `#lobby { z-index: 10 }`, chú thích form
+- [x] Bước 5: `main.ts`: `Promise.allSettled`, `lobby.remove()` sau `Game.create` (rồi mới gán `__petgame.game`), `failToStart` (dọn `#game`, ghi địa chỉ, `watch.leave()`, ẩn tên/ngoại hình, thẻ Tải lại), cờ `broken`, nút Tải lại (click + Space)
+- [x] Bước 6: e2e `tests/e2e/multiplayer.spec.ts`: `waitForWorld` chờ sảnh biến mất, `PIXI_ENV_CHUNK`, test A và B
+- [x] Bước 7: `docs/architecture.md` (đoạn `main.ts`; `assetIndex.ts` nhắc trong đoạn đó, không thêm dòng riêng vì mục `game/` gộp theo nhóm)
+- Lệch kế hoạch: không có.
+- Lệnh đã chạy: typecheck ✓, test ✓ (365 test), build ✓, `npx playwright test -g "lobby:"` ✓ (6 test), `npm run test:e2e` đầy đủ: ✓ (40 passed, 5.9 phút).
 
 ## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (353, thêm 1 sau đó = 354)   build ✓   e2e ✓ (38/38 cả bộ)   photo3d (không chạy, không đụng)
-- Lặp `-g "lobby:|6th" --repeat-each=3 --workers=1`: 15/15 qua, không chập chờn.
-- Độ lệch "đếm bằng `load` thay `framenavigated`": hợp lý. Đã kiểm bằng spec tạm (đã xoá): `replaceState` làm `framenavigated` tăng nhưng `load` không đổi (1); `location.assign` và `page.reload()` làm `load` tăng (2, 3). Nên bộ đếm `load` vẫn bắt được tải trang thật và không bị `replaceState` làm sai. Test "connection: one device..." còn dùng `framenavigated` nhưng không bị ảnh hưởng (qua).
-- Tiêu chí hoàn thành: [x] joinFailure + unit  [x] joinCard + unit (MAX_PLAYERS)  [x] `#join-error` và chữ lỗi cũ không còn (grep sạch)  [x] thẻ `.lobby-alert.failed`, nút `type="button"`, `.quiet`, ≥ 44×44 ở 3 cỡ (e2e)  [x] vào hỏng/đang vào/chống chồng  [x] closed bỏ `room` bằng replaceState (load = 1)  [x] full giữ `room`, Thử lại vào được (6th)  [x] địa chỉ theo `players.size` (e2e poll) và `#fragment`/tham số khác (unit mới)  [x] mất hẳn = URL nút Về sảnh (e2e "let the player go")  [x] tải lại khi có bạn: gợi ý, focus, Enter (e2e)  [x] `lobby-ready` đồng bộ sau mở khoá (3 test `lobby:` T15 qua; đọc diff: không có await trước)  [x] sessionStorage/replaceState qua `safeStorage`  [x] không đổi server/shared/script canh tải (git status sạch ở đó)  [x] docs/architecture.md cập nhật  [x] mọi lệnh sạch
-- Không có lỗi.
-- Test đã thêm: `packages/client/src/net/connection.test.ts`: "keeps the #fragment of the address" (lobbyUrl giữ `#…`).
-- Lưu ý nhỏ: log Vite "Unhandled error: test: the lobby script broke" là chủ ý của test T15, không phải lỗi.
+- typecheck ✓   test ✓ (365, 30 file)   build ✓   e2e ✓ (40; lần chạy đầy đủ: 39 qua, 1 chập chờn)   photo3d (không chạy)
+- Chập chờn: `labels: in a crowd on a phone, no name tag covers another...` (multiplayer.spec.ts:971) lần đầu hỏng ở dòng 1002 (`labelOverlaps` trả `["Tuấn | Lv 6 Leafkit"]`), chạy lại riêng thì qua. Đây là test bố cục nhãn, không đi qua đường sảnh/failToStart; nghi do thời điểm mô phỏng thú đi lại, không do T42. Nên theo dõi nếu lặp lại.
+- Test A và B: `--repeat-each=3 --workers=1` qua cả 6 lần (A ~10 s, B ~2.8 s).
+- Kiểm tra test B hỏng trên code cũ: tạm chép `doll.ts` của HEAD vào (không dùng `fetchIndex`), test B hỏng ở `await expect(page.locator("#look")).toBeHidden()` (multiplayer.spec.ts:1731). Đã khôi phục, `cmp` với bản lưu giống hệt.
+- Tiêu chí hoàn thành:
+  - [x] Sảnh chỉ gỡ sau `Game.create`; `__petgame.game` gán sau `lobby.remove()` (main.ts)
+  - [x] `#lobby { z-index: 10 }` (đọc diff; không có test hình riêng cho khoảng dựng)
+  - [x] `Promise.allSettled`; vào được mà hỏng thì `failToStart` gọi `watch.leave()`
+  - [x] Lỗi vào phòng giữ nguyên bốn thẻ T23 (các test `lobby:` cũ qua)
+  - [x] `#game` rỗng (test A: 0 canvas, 0 `.hud`); địa chỉ giữ `room`/`quality` khi có bạn, bỏ `room` khi một mình; host thấy số người về 1 trong timeout 5 s mặc định của `expect.poll` (< 20 s giữ chỗ, nên là rời chủ động)
+  - [x] Thẻ đúng chữ, chỉ nút Tải lại, có focus, Enter và chạm tải lại được; ≥ 44x44 và trong khung nhìn ở 3 cỡ. Phím Space chỉ kiểm bằng đọc code (chưa có e2e)
+  - [x] `#name` ẩn (test A); `broken` chặn `enter()` (đọc code)
+  - [x] `fetchIndex` dùng ở cả ba hàm tải ảnh; test B qua với `null`/`[1]`/pals bị chặn
+  - [x] `Game.create` gọi `abandon()` (đọc code, không có test riêng)
+  - [x] Test A khẳng định route bị gọi (`expect(blocked).toBeGreaterThan(0)`)
+  - [x] Unit mới cho `startFailure`, `startCard`, `fetchIndex`
+  - [x] `docs/architecture.md` cập nhật
+- Test đã thêm: không thêm (bộ test của coder đã đủ theo PLAN.md). Ghi chú nhỏ: Space trên nút Tải lại và `#look` ẩn sau thẻ chưa có e2e; không bắt buộc.

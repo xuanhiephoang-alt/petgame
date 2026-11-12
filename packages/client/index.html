@@ -318,8 +318,10 @@
       .skill-bar.touch .skill-btn .key { display: none; }
       .skill-bar.touch .skill-btn .icon { font-size: 22px; }
       .skill-bar.touch .skill-btn .value { font-size: 10px; }
+      /* z-index: above the game's layers (labels 1, HUD 2 ... connection screen 6): the world is built under the lobby,
+         which goes once it is drawn (T42). */
       #lobby {
-        position: fixed; inset: 0; display: flex; overflow-y: auto; touch-action: pan-y;
+        position: fixed; inset: 0; z-index: 10; display: flex; overflow-y: auto; touch-action: pan-y;
         font-family: system-ui, sans-serif; color: #fff; background: #1b2a1b;
       }
       #lobby form { display: flex; flex-direction: column; gap: 12px; width: min(340px, 92vw); margin: auto; padding: 16px 0; }
@@ -420,7 +422,8 @@
       <!-- The name box and the button are locked until src/main.ts has attached the submit handler (it unlocks them).
            A press before that would make the browser submit the form itself and reload the page: the typed name and
            the ?room= of an invite link would be lost. The end-to-end tests wait for the button to be enabled.
-           #join-status is the card for a failed join (T23): world closed or full, server unreachable.
+           #join-status is the card for a failed join (T23): world closed or full, server unreachable; it is also the card
+           for a game that could not open after joining (T42), with only a reload button.
            #load-status is the notice of the load watchdog (the inline script after #lobby, T15): slow or broken loading. -->
       <form id="join-form">
         <h1>🐾 PetGame</h1>
@@ -433,6 +436,7 @@
           <div class="lobby-actions">
             <button type="button" id="retry-btn" class="lobby-action">Thử lại</button>
             <button type="button" id="new-world-btn" class="lobby-action">Tạo thế giới mới</button>
+            <button type="button" id="join-reload-btn" class="lobby-action" hidden>Tải lại</button>
           </div>
         </div>
         <div id="load-status" class="lobby-alert" role="status" aria-live="polite" hidden>

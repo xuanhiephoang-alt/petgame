@@ -8,7 +8,7 @@ import { loadDollArt } from "./game/art/doll.ts";
 import { DollPreview, LookPicker } from "./ui/wardrobe.ts";
 import { ConnectionOverlay } from "./ui/connection.ts";
 import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
-import { INVITE_HINT, RETURN_HINT, joinCard, type JoinCard } from "./ui/joinStatus.ts";
+import { INVITE_HINT, RETURN_HINT, joinCard, startCard, startFailure, type JoinCard } from "./ui/joinStatus.ts";
 import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
 
 const lobby = document.getElementById("lobby")!;
@@ -20,6 +20,8 @@ const joinTitle = document.getElementById("join-title")!;
 const joinDetail = document.getElementById("join-detail")!;
 const retryBtn = document.getElementById("retry-btn") as HTMLButtonElement;
 const newWorldBtn = document.getElementById("new-world-btn") as HTMLButtonElement;
+const reloadGameBtn = document.getElementById("join-reload-btn") as HTMLButtonElement;
+const container = document.getElementById("game")!;
 const roomHint = document.getElementById("room-hint")!;
 const lookBox = document.getElementById("look")!;
 
@@ -83,17 +85,38 @@ function showJoinCard(card: JoinCard) {
   newWorldBtn.hidden = !card.newWorld;
   retryBtn.classList.toggle("quiet", card.primary !== "retry");
   newWorldBtn.classList.toggle("quiet", card.primary !== "newWorld");
+  reloadGameBtn.hidden = !card.reload;
+  reloadGameBtn.classList.toggle("quiet", card.primary !== "reload");
   joinStatus.hidden = false;
   joinBtn.hidden = true;
   // The lobby may scroll on short screens; the reason must show.
   joinStatus.scrollIntoView({ block: "nearest" });
-  (card.primary === "retry" ? retryBtn : newWorldBtn).focus({ preventScroll: true });
+  ({ retry: retryBtn, newWorld: newWorldBtn, reload: reloadGameBtn })[card.primary].focus({ preventScroll: true });
 }
 
 let joining = false;
+/** The game could not start in this page (it joined, then failed): only a reload helps, so the lobby takes no more joins. */
+let broken = false;
+
+/**
+ * The room was joined but the game could not be shown. Leaves on purpose so no idle player stays behind for the
+ * others, and offers a reload.
+ */
+function failToStart(room: GameRoom, watch: ConnectionWatch, err: unknown) {
+  broken = true;
+  // No canvas, HUD or connection screen of a half-built game.
+  container.replaceChildren();
+  // The address as in a running game: friends there, a reload comes back to this world; alone the world closes on leaving.
+  const size = room.state.players?.size ?? 0;
+  if (size > 0) setAddress(lobbyUrl(room.roomId, size > 1));
+  watch.leave();
+  nameInput.hidden = true;
+  lookBox.hidden = true;
+  showJoinCard(startCard(startFailure(err)));
+}
 
 async function enter() {
-  if (joining) return;
+  if (joining || broken) return;
   joining = true;
   const name = nameInput.value.trim();
   safeStorage(() => localStorage.setItem("petgame:name", name));
@@ -104,18 +127,26 @@ async function enter() {
   joinBtn.textContent = "Đang vào...";
   try {
     // The connection is watched from the moment the room is joined, so a drop while the pictures still load is not missed.
-    const joined = connect({ name, look }).then((room) => ({ room, watch: new ConnectionWatch(room) }));
-    const [{ room, watch }, art] = await Promise.all([joined, assets]);
-    lobby.remove();
-    await startGame(room, watch, art);
-  } catch (err) {
-    console.error(err);
-    const failure = joinFailure(err);
-    // The address tells the truth: the world is gone, so a reload opens a new one instead of meeting this card again.
-    if (failure === "closed") dropWorldFromAddress();
-    joinBtn.disabled = false;
-    joinBtn.textContent = "Vào chơi";
-    showJoinCard(joinCard(failure, returning));
+    // Both are awaited even when one fails first: a room that was joined must never be left behind unheld.
+    const [joined, art] = await Promise.allSettled([connect({ name, look }).then((room) => ({ room, watch: new ConnectionWatch(room) })), assets]);
+    if (joined.status === "rejected") {
+      console.error(joined.reason);
+      const failure = joinFailure(joined.reason);
+      // The address tells the truth: the world is gone, so a reload opens a new one instead of meeting this card again.
+      if (failure === "closed") dropWorldFromAddress();
+      joinBtn.disabled = false;
+      joinBtn.textContent = "Vào chơi";
+      showJoinCard(joinCard(failure, returning));
+      return;
+    }
+    const { room, watch } = joined.value;
+    try {
+      if (art.status === "rejected") throw art.reason;
+      await startGame(room, watch, art.value);
+    } catch (err) {
+      console.error(err);
+      failToStart(room, watch, err);
+    }
   } finally {
     joining = false;
   }
@@ -130,6 +161,13 @@ newWorldBtn.addEventListener("click", () => {
   dropWorldFromAddress();
   void enter();
 });
+reloadGameBtn.addEventListener("click", () => location.reload());
+// Space is taken here too: the game's Keyboard (if it was built before the failure) swallows it on buttons.
+reloadGameBtn.addEventListener("keydown", (event) => {
+  if (event.key !== " ") return;
+  event.preventDefault();
+  location.reload();
+});
 
 // The lobby is ready from here on. index.html keeps the name box and the button locked until the handler above
 // exists (a press before that would make the browser submit the form itself); the e2e tests wait for the button.
@@ -142,7 +180,6 @@ if (returning) joinBtn.focus({ preventScroll: true });
 document.dispatchEvent(new Event(LOBBY_READY_EVENT));
 
 async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets) {
-  const container = document.getElementById("game")!;
   // Expose for debugging and end-to-end tests (the room first: tests poll it).
   (window as any).__petgame = { room };
   safeStorage(() => sessionStorage.setItem(ROOM_KEY, room.roomId));
@@ -175,6 +212,8 @@ async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets
   if (!watch.online) react(watch.status, { state: "online" });
 
   const game = await Game.create(container, room, art, resolution, watch);
+  // The lobby covers the world while it is built and goes only once it is drawn (T42).
+  lobby.remove();
   (window as any).__petgame.game = game;
 }
 

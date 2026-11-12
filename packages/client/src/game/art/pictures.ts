@@ -1,4 +1,5 @@
 import { Assets, Rectangle, Texture } from "pixi.js";
+import { fetchIndex } from "../assetIndex.ts";
 
 /** An object drawn from an image: a frame of an atlas, standing on its bottom edge. */
 export interface Picture {
@@ -26,13 +27,8 @@ const pictures = new Map<string, Picture>();
  * world: the art caches keep what they first made.
  */
 export async function loadPictures(): Promise<void> {
-  let index: Record<string, AtlasEntry> = {};
-  try {
-    const res = await fetch(`${import.meta.env.BASE_URL}assets/nature/index.json`);
-    if (res.ok) index = await res.json();
-  } catch {
-    // No atlases: everything is drawn.
-  }
+  // No atlases: everything is drawn.
+  const index: Record<string, AtlasEntry> = (await fetchIndex(`${import.meta.env.BASE_URL}assets/nature/index.json`)) ?? {};
   await Promise.all(
     Object.entries(index).map(async ([sheet, entry]) => {
       try {

@@ -1,5 +1,6 @@
 import { ImageSource, Rectangle, Texture } from "pixi.js";
 import { HAIR_COLORS, SKIN_TONES, getWearable, type Look, type Worn } from "@petgame/shared";
+import { fetchIndex } from "../assetIndex.ts";
 
 /**
  * Explorers as paper dolls of AI-drawn parts (public/assets/characters,
@@ -50,15 +51,9 @@ let BODY = 200;
  */
 export async function loadDollArt(): Promise<boolean> {
   const base = `${import.meta.env.BASE_URL}assets/characters/`;
-  let index: Record<string, any>;
-  try {
-    const res = await fetch(`${base}index.json`);
-    if (!res.ok) return false;
-    index = await res.json();
-  } catch {
-    return false;
-  }
-  BODY = index.bodyHeight ?? BODY;
+  const index = await fetchIndex(`${base}index.json`);
+  if (!index) return false;
+  BODY = typeof index.bodyHeight === "number" ? index.bodyHeight : BODY;
   const jobs: Promise<void>[] = [];
   for (const [group, into] of [["heads", heads], ["bodies", bodies]] as const) {
     for (const [id, entry] of Object.entries((index[group] ?? {}) as Record<string, PartEntry>)) {
