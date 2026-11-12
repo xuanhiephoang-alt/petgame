@@ -1,145 +1,167 @@
-# PLAN: T54 Test trùm lang thang "does not squeeze through a gap" chập chờn
+# PLAN: T27 Voltmouse bỏ chạy nhanh hơn người chơi
 
-Đọc code ở HEAD `ba339ba` (sau T53). File liên quan: `packages/server/src/rooms/GameRoom.test.ts` (`describe("boss movement")` dòng 742-817, test (a) dòng 764-777, `calmBoss` dòng 751-762, `afterEach` gọi `vi.restoreAllMocks()` dòng 119-122), `packages/server/src/ai/wander.ts` (`stepWander`), `packages/server/src/ai/wander.test.ts`, `packages/server/src/rooms/GameRoom.ts` (nhánh lang thang dòng 744-761, hồi sinh thú hoang dòng 773-780), `packages/shared/src/collision.ts` (`resolve`, `blocked`). Kế hoạch T21 (`1062c06`) nói câu kiểm cuối "đi ít nhất 20 px khỏi `C`" chỉ để test "không trống". Cách T17 (`632fa73`) sửa test chập chờn: cố định phần ngẫu nhiên bằng `vi.spyOn(Math, "random")` ngay trong test, không thêm retry, không nới ngưỡng, kiểm bằng chạy lặp và đột biến.
+Đọc code ở HEAD `88a3917` (commit `BALANCE.md` của T27). File liên quan: `packages/shared/src/combat.ts` (`WILD_CHASE_SPEED_FACTOR` dòng 24, `FLEE_MS` dòng 53; đã import `constants.ts`), `packages/shared/src/constants.ts` (`PLAYER_SPEED` 160), `packages/server/src/ai/wildCombat.ts` (`stepFlee`), `packages/server/src/rooms/GameRoom.ts` (nhánh bỏ chạy dòng 692-702, `provoke` dòng 1709-1720, import từ `@petgame/shared` dòng 110-125), `packages/server/src/rooms/GameRoom.test.ts` (`placeWild` dòng 567, `plantTrees` dòng 672, test "passive pals run away when hit" dòng 2170), `packages/server/src/ai/wildCombat.test.ts`, `packages/shared/src/combat.test.ts`, `docs/design/pals.md` (mục "Tính khí"). Số liệu cân bằng: `BALANCE.md` (balance-analyst, T27).
 
 ## Mục tiêu
 
-`npm test` là thước đo PASS/FAIL của cả đội. Test (a) của T21 hỏng khoảng 1 lần trên 27 lần chạy mà không có lỗi thật, làm đỏ CI và vòng kiểm thử vô cớ. Sau T54, test (a) cho cùng một kết quả mỗi lần chạy, vẫn bắt được lỗi trùm lọt khe như T21 muốn, và bắt thêm một lỗi nhỏ có thật vừa tìm ra (thú lang thang lấn vào cây tối đa một bước khi tới đích).
+Người mới ở đồng cỏ gặp thú hiền 6/10 lần, và cứ khoảng 9-10 lần gặp lại có một con Voltmouse. Hiện nay đánh Voltmouse một cái là nó chạy 171 px/s, nhanh hơn người chơi (160 px/s): người chơi không bao giờ đuổi kịp mà phải chờ nó hết chạy (2,5 giây) rồi mới đánh tiếp. Hạ một con cấp 3 bằng tay không mất 9 giây, gấp 3,5-4,5 lần thú cùng cấp, và thú bỏ xa người chơi tới khoảng 430 px. Mothlume (135 px/s, ban đêm) cũng thoát được khi người chơi bám không chuẩn (cảm ứng, vòng qua cây): 11,7 giây.
 
-Người chơi thấy rất ít: thú hoang (cả trùm) không còn lấn 1-2 px vào cây, đá khi dừng ở đích lang thang nằm sát vật cản.
+Sau T27: mọi thú hiền chạy trốn **chậm hơn hẳn người chơi** (tối đa 96 px/s = 0,6 × 160). Người chơi đi bộ đuổi vẫn rút ngắn ít nhất 64 px mỗi giây, nên hạ thú hiền mất gần bằng đánh một con đứng yên (Voltmouse cấp 3 tay không: 2,0 giây thay vì 9,0). Thú vẫn chạy trốn rõ ràng (tối đa khoảng 240 px mỗi lần, đủ ra khỏi tầm ném bóng 180 px nếu người chơi bỏ mặc nó).
 
-## Kết quả điều tra
+## Quyết định: tách phần "chạy về phía thoáng" ra nhiệm vụ mới
 
-Script thử và log nằm trong scratchpad của phiên, ngoài repo, đã xoá sau khi đo.
+Dòng T27 trong `TASKS.md` gồm hai phần: (A) kẹp tốc độ bỏ chạy, (B) "Sau T9: cho thú hiền chạy về phía thoáng theo `NavGrid.clearanceAt`". **T27 chỉ làm (A). (B) tách thành nhiệm vụ mới T57** (đề xuất ở cuối file). Lý do:
 
-1. **Tái hiện trong phòng thật.** `npx vitest run packages/server/src/rooms/GameRoom.test.ts -t "squeeze" --repeats 80` (81 lần, 414 s, máy 4 nhân): **3/81 hỏng**, cả ba ở câu kiểm cuối:
-   ```
-   AssertionError: expected 18.73563527366105 to be greater than or equal to 20
-   AssertionError: expected 14.012092694923556 to be greater than or equal to 20
-   AssertionError: expected 12.271090508930838 to be greater than or equal to 20
-   ```
-   Không lần nào hỏng ở hai câu kiểm từng tick (không qua tường, không lấn cây).
-
-2. **Nguyên nhân chính: giả định của test, không phải trùm lọt khe.** Mô phỏng đúng cảnh của test (cùng `stepWander`, cùng tường cây, thân 40, 45 px/s, 100 tick) với 20.000 hạt giống `mulberry32`:
-   - Trùm luôn đi thẳng xuống, dừng ở miệng khe sâu đúng **23,72 px** (= 60 − √(54² − 40²): thân 40 cộng cây 14 chạm cả hai cây hai bên khe) ở tick 11. Đến lúc đó **chưa rút số ngẫu nhiên nào** (đích do test đặt, `idleMs = 0`).
-   - Bị chặn, `stepWander` chọn đích mới ngẫu nhiên trong ô ±150 px quanh chỗ đứng. Trong 4 giây còn lại trùm có thể đi lại về gần `C`. Khoảng cách **cuối** tới `C` dưới 20 px ở **3,8%** số lần (760/20.000), khớp 3/81 đo trong phòng.
-   - Số 20 px cuối cùng vì thế đo vị trí ngẫu nhiên lúc hết giờ, không đo việc trùm có tới khe hay không. Không có lần nào trùm qua tường (y ≥ C.y + 60) ở tick 50 ms.
-
-3. **Nguyên nhân phụ: lỗi nhỏ có thật trong `stepWander`.** Nhánh tới đích (`dist <= step`) gán thẳng `pos = brain.target` **không qua `resolve`**. Đích ngẫu nhiên có thể nằm lấn vào vùng cấm quanh một cây; thú tiến tới bằng các bước đã `resolve` nên vẫn sạch, nhưng bước cuối "nhảy" vào đích và lấn vào cây tới một bước (2,25 px với trùm ở 50 ms, nhiều hơn khi tick dài). Sau đó nó đứng yên (nghỉ 1-4 giây) trong cây.
-   - Mô phỏng 5.000 hạt giống, tick 50 ms: **36 lần (0,7%)** câu kiểm `blocked(boss, BOSS.radius - 1)` của test (a) sẽ hỏng; lấn sâu nhất 2,16 px. Ví dụ hạt 42: tick 46 trùm đứng ở (C.x + 30,3; C.y + 8,2), lấn cây (C.x + 40; C.y + 60) 1,32 px, giữ nguyên tới hết lần nghỉ.
-   - Tăng số vòng lặp trong `resolve` (3 → 20) không đổi gì: lỗi nằm ở nhánh tới đích, không ở `resolve`.
-   - Sửa nhánh tới đích bằng `resolve` (bản mẫu): **0/5.000** lấn quá 1 px, 0 lần qua tường, ở tick 50 / 100 / 150 / 200 ms cố định và tick ngẫu nhiên 20-250 ms; lấn sâu nhất 0,0004 px (sai số dấu phẩy động).
-   - Ảnh hưởng mọi thú hoang lang thang (thân 10-20 px thì lấn tối đa một bước, khó thấy). Không ảnh hưởng client (`stepWander` chỉ chạy ở server), không ảnh hưởng thú đi theo (không dùng `stepWander`).
-
-4. **Hạt giống cố định cho test (a).** Trong lúc trùm lang thang yên, chỉ `stepWander` của nó rút `Math.random` (đã soát: chí mạng, bắt, rơi đồ, rương, nhặt, chiêu thú hoang chỉ chạy khi có giao tranh hay thao tác), trừ **hồi sinh thú hoang**: `calmBoss` xoá các thú khác nên `respawnTimer` bắt đầu cộng và tới 5.000 ms (`PAL_RESPAWN_MS`), sát cuối 100 tick, `spawnPal` rút số. Chặn hồi sinh trong test thì dãy số trùm nhận là cố định.
-   - Với `mulberry32(42)` và code cũ, mô phỏng lấn cây > 1 px ở **100%** lần chạy với tick dao động 45-65, 40-120 và 30-200 ms (300 lần mỗi kiểu). Với code đã sửa: 0%. Vậy test (a) dùng hạt 42 bắt được cả lỗi ở mục 3, không chỉ nhờ test unit.
-   - Hạt 42 với code đã sửa: trùm bị chặn ở miệng khe, đổi đích vài lần, đi men tường; mọi câu kiểm từng tick đều qua.
-
-5. **Ngoài phạm vi, ghi nhận:** khi tick dài 250 ms **liên tục** (server chỉ còn 4 tick/giây), bước 11 px của trùm có thể xuyên qua khe 52 px (6/5.000 lần trong mô phỏng, cả khi đã sửa mục 3), vì `resolve` không quét đường đi. Ở 50-200 ms: 0 lần. Đề xuất việc mới ở cuối.
+1. **Thứ tự đúng như BALANCE.md đòi.** Balance-analyst yêu cầu trần tốc độ có trước hoặc cùng lúc với (B), vì (B) làm thú hiền chạy hiệu quả hơn (bỏ mất những lần nó kẹt vào cây, vốn là lợi thế ngẫu nhiên của người đuổi). Làm (A) trước thỏa điều đó; (B) không cần gì của (A) ngoài trần đã có.
+2. **(A) là sửa lỗi trải nghiệm của người mới, nhỏ và ít rủi ro**: một hằng số, một hàm thuần, một dòng ở server, không đổi giao thức. (B) là một hành vi AI mới (lấy mẫu hướng trên `NavGrid`, giữ hướng vài tick, xử lý bờ biển và mép thế giới, trạng thái mới trong `fleeing`, chi phí CPU), có bộ số riêng cần chỉnh và bộ test riêng trên địa hình thật. Gộp chung thì nếu (B) cần nhiều vòng sửa (tối đa 3), bản sửa (A) mà người chơi cần bị giữ lại theo.
+3. **Hai phần đi ngược chiều nhau về độ khó**: (A) làm thú dễ đuổi hơn, (B) làm thú chạy khôn hơn. Tách ra thì reviewer chấm từng thay đổi độc lập, và có thể đo (B) trên nền (A) đã ổn định.
+4. **(B) đụng vùng đang có việc nợ kỹ thuật**: T41 (tinh chỉnh `PathPlanner`), T10 (đưa `paths` vào module di chuyển của thú). BALANCE.md gợi ý (B) có thể đi qua ngân sách `paths.run(now)`; quyết định đó nên nằm trong nhiệm vụ riêng, không làm T27 phình ra.
 
 ## Phạm vi
 
-Làm:
-- `wander.ts`: nhánh tới đích dừng ở chỗ trống gần nhất thay vì nhảy vào đích lấn vật cản.
-- `wander.test.ts`: một test unit cho đúng lỗi đó.
-- `GameRoom.test.ts`, chỉ test (a): cố định dãy số ngẫu nhiên của trùm, chặn hồi sinh thú hoang trong test, và thay câu kiểm cuối bằng câu đo đúng điều cần đo, **vẫn ngưỡng 20 px**.
+**Làm:**
+- Hằng số `WILD_FLEE_SPEED_CAP` và hàm thuần `fleeSpeed(speciesSpeed)` trong `packages/shared/src/combat.ts`, có unit test.
+- Nhánh bỏ chạy trong `GameRoom.ts` dùng `fleeSpeed(species.speed)`.
+- Test: unit (shared), unit (`wildCombat.test.ts`: người chơi đuổi kịp), tích hợp (`GameRoom.test.ts`: Voltmouse bị đánh chạy đúng 96 px/s).
+- Cập nhật `docs/design/pals.md` (đã sửa trong bước lập kế hoạch này, xem "Tài liệu").
 
-KHÔNG làm:
-- Không đổi `collision.ts` (`resolve`, `blocked`), `pathfind.ts`, `pathing.ts`, `stepChase`, `GameRoom.ts`.
-- Không đổi test (b), (c), `calmBoss`, hàm `wall`, hình tường, số tick (100), timeout (15.000 ms), ngưỡng 20 px, sai số `BOSS.radius - 1`.
-- Không thêm retry, không tăng timeout, không bỏ hay nới câu kiểm nào.
-- Không sửa chuyện xuyên khe khi tick dài (mục 5): việc mới.
-- Không đổi schema, message, `Profile`.
+**KHÔNG làm:**
+- Không đổi `WILD_CHASE_SPEED_FACTOR` (1,8), `FLEE_MS`, `stepFlee`, đòn đẩy lùi, tốc độ lang thang. Đổi hệ số chung sẽ làm yếu mọi thú đuổi, trùm và thú đầu đàn về hang, và hằng số `max` (648 px) ở `GameRoom.ts:264` mà `pathing.test.ts` kiểm.
+- Không kẹp tốc độ đuổi của thú đầu đàn (Voltmouse đầu đàn đuổi 171 px/s): việc riêng, đề xuất T58 ở cuối file.
+- Không làm "chạy về phía thoáng" (T57).
+- Không đổi client, schema, message, hồ sơ lưu game.
 
 ## Thiết kế
 
-Luật mới của thú lang thang: **tới đích thì đứng ở đích, trừ khi đích lấn vào vật cản; khi đó đứng ở chỗ trống gần nhất mà `resolve` đẩy ra** (sát mép vật cản), rồi nghỉ và chọn đích mới như cũ. Mọi thứ khác của `stepWander` giữ nguyên: thời gian nghỉ, cách chọn đích, ngưỡng "bị chặn" (`progress < step * 0.3`).
+### Luật
 
-Lý do chọn `resolve` đích thay vì "không bước nếu bị lấn": `resolve` là đúng cách mọi bước đi khác đang dùng, tất định, và chỗ đẩy ra cách đích không quá chừng một bước (đích nằm trong một bước tính từ một chỗ sạch). Thú không "nhảy" xa.
+- Tốc độ chạy trốn của thú hiền = `min(speed × 1,8, 96)` px/s, với 96 = 0,6 × `PLAYER_SPEED`.
+- Áp cho **mọi đường dẫn tới bỏ chạy**: đòn của người chơi, đòn và chiêu của thú đi theo, và thú hiền thoát khỏi bóng (`breakOut` → `provoke`). Cả ba đều đi qua cùng nhánh `fleeing` trong `tick`, nên chỉ cần sửa một chỗ.
+- Thú đầu đàn không bỏ chạy (`provoke` chỉ đặt `fleeing` khi `!pal.alpha`), nên không đổi.
 
-Không có chữ hiển thị, không có thao tác mới (cảm ứng, bàn phím không đổi).
+| Loài (hiền) | speed | Chạy trốn cũ | Chạy trốn mới | So với người chơi | Quãng tối đa mỗi lần chạy (2,5 s) |
+|---|---|---|---|---|---|
+| Leafkit | 50 | 90 | 90 | 0,56 | 225 px |
+| Bubbloon | 40 | 72 | 72 | 0,45 | 180 px |
+| Voltmouse | 95 | 171 | **96** | **0,60** | 240 px (cũ 427) |
+| Mothlume | 75 | 135 | **96** | **0,60** | 240 px (cũ 338) |
+| Bogbloom | 40 | 72 | 72 | 0,45 | 180 px |
 
-**Ý nghĩa câu kiểm 20 px của test (a).** T21 đặt nó để test "không trống": trùm thật sự có đi, chứ không đứng yên làm các câu kiểm từng tick tự qua. Câu đúng là: **trùm đã tiến vào khe ít nhất 20 px** (`boss.y - C.y`, lấy lớn nhất qua 100 tick). Câu này:
-- giữ ngưỡng 20 px và chặt hơn về hướng (phải đi về phía khe, không phải đi đâu cũng được);
-- tất định: trùm tới miệng khe (sâu 23,72 px) trước khi rút số ngẫu nhiên đầu tiên, ở mọi độ dài tick;
-- cùng câu kiểm từng tick `boss.y < C.y + 60` cho thấy đúng điều tên test nói: trùm đi vào khe bằng cả thân và bị hai cây chặn lại. Thân 20 (đột biến T21) thì lọt qua và hỏng mọi lần.
+### Vì sao trần 0,6 (không phải 0,9 như dòng TASKS gợi ý)
+
+Theo bảng độ nhạy trong `BALANCE.md` (Voltmouse cấp 3, tay không, giây đến khi hạ gục; "hiệu quả" là tốc độ đuổi thực tế của người chơi so với 160):
+
+| Hiệu quả đuổi | Hiện nay | Trần 0,9 (144) | Trần 0,75 (120) | **Trần 0,6 (96)** | Đánh đứng yên |
+|---|---|---|---|---|---|
+| 1,0 (đuổi hoàn hảo) | 9,0 | 2,0 | 2,0 | **2,0** | 2,0 |
+| 0,9 | 12,4 | 8,5 | 2,0 | **2,0** | |
+| 0,8 (joystick cảm ứng, vòng qua cây) | 13,9 | 9,5 | 3,2 | **2,0** | |
+| 0,7 | 15,9 | 13,5 | 9,1 | **2,0** | |
+
+- Trần 0,9 chỉ để lại 16 px/s chênh lệch: người chơi điện thoại bám kém 10% là quay về 8,5 giây. Trần 0,6 giữ mức "đánh đứng yên" tới khi người chơi chỉ còn đuổi được 70% tốc độ.
+- Sau khi kẹp, Voltmouse cấp 3 (2,0 s) ngang Leafkit (2,4 s), Mothlume (2,4 s), Bubbloon (2,8 s) cùng cấp; cấp 8 (3,6 s) cũng nằm trong khoảng 3,6-8,8 s của thú cùng cấp.
+- Một trần phẳng thay vì hệ số riêng từng loài: chỉ hai loài vượt 96 (Voltmouse, Mothlume); ba loài còn lại không đổi gì, nên test và hành vi hiện có của chúng giữ nguyên.
+- Nút chỉnh nếu sau này muốn thú hiền "chạy trốn" rõ hơn: 0,65 (104 px/s) vẫn an toàn tới hiệu quả 0,75. Không dùng 0,75 hay 0,9.
+
+### Trải nghiệm người chơi (điện thoại và bàn phím)
+
+Không có chữ hay nút mới. Người chơi thấy Voltmouse bị đánh vẫn giật mình chạy đi, nhưng chỉ cần giữ joystick (hoặc phím mũi tên/WASD) về phía nó là theo kịp và đánh tiếp đúng nhịp vũ khí (tay không: mỗi 0,4 giây). Không cần biết lướt (Shift / nút lướt) mới hạ được nó. Lúc lang thang Voltmouse vẫn là loài nhanh nhất (95 px/s), nên vẫn giữ cảm giác "chuột điện nhanh nhẹn".
+
+### Tác dụng phụ đã kiểm (theo BALANCE.md)
+
+- Thú tự vệ, hung dữ, trùm, thú đầu đàn đuổi và về nhà: không đổi (dòng 684, 720, 1620, 264 của `GameRoom.ts` vẫn dùng `species.speed * WILD_CHASE_SPEED_FACTOR`).
+- Thú đi theo (190 px/s) vẫn nhanh hơn mọi thú hiền chạy trốn.
+- Bắt thú: công thức không đổi; thú thoát bóng chạy chậm hơn nên dễ ném lại trong tầm 180 px.
+- Kinh nghiệm và đồ rơi: Voltmouse cho như cũ nhưng tốn 2 s thay vì 9 s, tức ngang thú khác; Voltmouse chỉ chiếm 5,1% thế giới nên không lệch mục tiêu lên cấp 7 trong buổi đầu (T4).
 
 ## Kế hoạch triển khai
 
-1. **`packages/server/src/ai/wander.ts`, `stepWander`**
-   - Nhánh `if (dist <= step)`: thay hai dòng gán `pos.x = brain.target.x; pos.y = brain.target.y;` bằng:
+1. **`packages/shared/src/combat.ts`**
+   - Sửa dòng import đầu: `import { PLAYER_SPEED, WORLD_HEIGHT, WORLD_WIDTH } from "./constants.ts";` (không tạo vòng import: `constants.ts` không import gì).
+   - Sửa JSDoc của `WILD_CHASE_SPEED_FACTOR` cho đúng: "Chasing wild pals move this much faster than when wandering; fleeing passive pals too, but never faster than WILD_FLEE_SPEED_CAP."
+   - Thêm ngay dưới `WILD_CHASE_SPEED_FACTOR`:
      ```ts
-     // The target was picked blindly: if it overlaps an obstacle, stop at the nearest clear spot instead.
-     const at = obstacles ? obstacles.grid.resolve(brain.target, obstacles.radius) : brain.target;
-     pos.x = at.x;
-     pos.y = at.y;
+     /**
+      * Fleeing passive pals never run faster than this (px/s): 0.6 of a walking player's speed, so a player who
+      * follows even at 70% of full speed (touch joystick, weaving round trees) keeps hitting at the weapon's own
+      * pace instead of waiting out FLEE_MS (BALANCE.md of T27, docs/design/pals.md "Tính khí").
+      */
+     export const WILD_FLEE_SPEED_CAP = PLAYER_SPEED * 0.6;
+
+     /** How fast a passive pal of this wandering speed runs away when hit (px/s): its chase speed, capped. */
+     export function fleeSpeed(speciesSpeed: number): number {
+       return Math.min(speciesSpeed * WILD_CHASE_SPEED_FACTOR, WILD_FLEE_SPEED_CAP);
+     }
      ```
-     Hai dòng sau (`brain.target = nearbyPoint(pos, random)`, `brain.idleMs = 1000 + random() * 3000`) giữ nguyên, cùng thứ tự rút số.
-   - JSDoc của `stepWander`: thêm ý "never ends a step inside an obstacle, not even on arrival at a target that overlaps one". Viết bằng tiếng Anh như chú thích hiện có.
+   - Hệ số 0,6 chỉ nằm ở định nghĩa hằng số (bảng cân bằng), không rải ở chỗ khác. `index.ts` đã `export * from "./combat.ts"`, không cần sửa.
 
-2. **`packages/server/src/ai/wander.test.ts`**, trong `describe("wandering with obstacles")` (dùng lại `grid` có sẵn: cây `{ x: 150, y: 100, r: 30 }`):
-   - Test mới `"stops next to an obstacle when its target overlaps it, not inside"`:
-     - `pos = { x: 108, y: 100 }` (sạch: cách tâm 42 ≥ 30 + 10), `brain = { target: { x: 112, y: 100 }, idleMs: 0 }` (đích lấn 2 px).
-     - `stepWander(pos, brain, 100, 100, () => 0.5, { grid, radius: 10 })` (bước 10 px ≥ khoảng cách 4: nhánh tới đích).
-     - Kiểm `pos` bằng `{ x: 110, y: 100 }` (dùng `toBeCloseTo` cho từng toạ độ), `grid.blocked(pos, 10)` là `false`, `brain.idleMs > 0`, `brain.target` khác `{ x: 112, y: 100 }`.
-     - Code cũ: `pos` = (112, 100), `blocked` = `true`, test hỏng.
-   - Ba test không vật cản và hai test có vật cản đang có phải qua không sửa.
+2. **`packages/server/src/rooms/GameRoom.ts`**
+   - Thêm `fleeSpeed` vào danh sách import từ `@petgame/shared` (theo thứ tự chữ cái của khối hàm thường, cạnh `companionMaxHp`, `biomeAt`...). Giữ import `WILD_CHASE_SPEED_FACTOR` (còn dùng ở 4 chỗ khác).
+   - Dòng 695: `stepFlee(pos, from, species.speed * WILD_CHASE_SPEED_FACTOR, dtMs, radius, this.obstacles)` → `stepFlee(pos, from, fleeSpeed(species.speed), dtMs, radius, this.obstacles)`. Có thể thêm chú thích ngắn phía trên `if (from)`: `// A passive pal runs away, slower than a walking player (fleeSpeed).`
+   - Không đổi gì khác trong `GameRoom.ts`.
 
-3. **`packages/server/src/rooms/GameRoom.test.ts`**
-   - Thêm `mulberry32` vào khối `import { ... } from "@petgame/shared"` đầu file (đã được `packages/shared/src/index.ts` xuất qua `noise.ts`).
-   - Test (a) (dòng 764-777), giữ nguyên tên, tường, `calmBoss(room, player, C, C)`, đích `{ x: C.x, y: C.y + 180 }`, `idleMs = 0`, 100 tick, hai câu kiểm từng tick, timeout `15_000`. Thay đổi:
-     - Sau `calmBoss`: `(room as any).respawnTimer = -Infinity;` kèm chú thích tiếng Anh: no wild pal respawns during the test, so the boss's wandering takes every roll (see below).
-     - Ngay trước vòng lặp: `vi.spyOn(Math, "random").mockImplementation(mulberry32(42));` kèm chú thích: where the boss turns to once the trees stop it is a fixed sequence, so a failure replays; this one later walks it into the notch between two trees of the wall, where it used to stop overlapping a tree by up to one step (stepWander arrival).
-     - Trong vòng lặp, sau hai câu kiểm: `deepest = Math.max(deepest, boss.y - C.y);` (khai báo `let deepest = -Infinity;` trước vòng).
-     - Sau vòng lặp: `vi.restoreAllMocks();` (như T17; `afterEach` cũng khôi phục nếu test hỏng giữa chừng).
-     - Thay `expect(distance(boss, C)).toBeGreaterThanOrEqual(20);` bằng `expect(deepest).toBeGreaterThanOrEqual(20);` kèm chú thích: it walked into the gap until the trees on both sides stopped its body (23.7 px deep at radius 40; a radius-20 body goes through). The end spot is not checked: random turns can bring it back near the start.
-   - Nếu `distance` không còn dùng ở chỗ nào khác thì `noUnusedLocals` sẽ báo; nó còn được dùng nhiều nơi trong file, giữ import.
+3. **`packages/server/src/ai/wildCombat.ts`**: không đổi code. Chỉ sửa JSDoc của `stepFlee` nếu muốn nói rõ tốc độ do người gọi truyền vào (`fleeSpeed`); tuỳ coder, không bắt buộc.
 
-4. **Tài liệu:** không đổi `docs/`. `docs/architecture.md` dòng `ai/` đã ghi `wander.ts` là hàm thuần có test; hành vi mới là sửa lỗi, không đổi thiết kế.
+4. **Test**: xem mục "Test".
 
-Commit đề xuất (một commit): `Keep wandering pals out of trees on arrival; fix flaky boss gap test (T54)`.
+5. **Tài liệu**: `docs/design/pals.md` đã được game-designer cập nhật trong bước này; coder kiểm lại cho khớp tên hằng số, hàm đã viết (nếu đổi tên thì sửa cả tài liệu).
 
 ## Giao thức
 
-Không đổi `schema.ts`, `messages.ts`, `Profile`, hồ sơ đã lưu. Client không đổi (`stepWander` chỉ chạy ở server; vị trí thú vẫn đồng bộ như cũ).
+Không đổi `schema.ts`, `messages.ts`, `Profile`. Client không đổi: vị trí thú vẫn do server gửi qua schema, client chỉ vẽ. Không cần e2e mới.
 
 ## Test
 
-**Unit:** 1 test mới trong `wander.test.ts` (bước 2).
+**Unit, shared: `packages/shared/src/combat.test.ts`**, thêm `describe("fleeing passive pals")` (import thêm `fleeSpeed`, `WILD_FLEE_SPEED_CAP`, `WILD_CHASE_SPEED_FACTOR` từ `./combat.ts`, `PLAYER_SPEED` từ `./constants.ts`):
+1. "Voltmouse and Mothlume are capped at 0.6 of a player's speed": `fleeSpeed(getSpecies("voltmouse").speed)` và mothlume đều `toBe(WILD_FLEE_SPEED_CAP)`, và `WILD_FLEE_SPEED_CAP` `toBeCloseTo(96)`.
+2. "slower pals keep their chase speed": leafkit `toBeCloseTo(90)`, bubbloon và bogbloom `toBeCloseTo(72)`; tổng quát: với mọi `speed` mà `speed * WILD_CHASE_SPEED_FACTOR <= WILD_FLEE_SPEED_CAP`, `fleeSpeed(speed)` bằng `speed * WILD_CHASE_SPEED_FACTOR`.
+3. "every passive pal runs away slower than a walking player": lặp `PAL_SPECIES` lọc `temperament === "passive"`, mỗi loài `fleeSpeed(s.speed) <= PLAYER_SPEED * 0.6 + 1e-9` và `< PLAYER_SPEED`. Test này giữ đúng khi sau này thêm loài hiền mới.
 
-**Tích hợp:** test (a) sửa như bước 3. Phải còn qua: cả `describe("boss movement")`, `describe("finding a way around trees")`, `describe("pack leaders")`, `describe("regions and climate")` (có "walks the boss back home when it strays"), và cả file.
+**Unit, server: `packages/server/src/ai/wildCombat.test.ts`**, thêm 1 test (import `fleeSpeed`, `PLAYER_SPEED`, `getSpecies` từ `@petgame/shared`):
+4. "a player walking after a fleeing Voltmouse closes in": người chơi ở (0, 0), Voltmouse ở (100, 0), 20 bước 50 ms. Mỗi bước: `pal = stepFlee(pal, player, fleeSpeed(getSpecies("voltmouse").speed), 50, 12)`, rồi người chơi đi thẳng về phía thú `min(PLAYER_SPEED * 0.05, khoảng cách)` px. Kiểm: khoảng cách sau 1 giây `toBeLessThan(40)` (mô phỏng lúc lập kế hoạch: 36,0 px với 96 px/s; với tốc độ cũ 171 px/s là 111,0 px, nên test bắt được nếu ai đó bỏ trần), và khoảng cách không bao giờ vượt khoảng cách ban đầu cộng một bước của thú (≤ 100 + 96 × 0,05 + 0,01).
 
-**E2E:** không thêm. Tester chạy cả bộ một lượt vì `stepWander` đổi cho mọi thú hoang.
+**Tích hợp: `packages/server/src/rooms/GameRoom.test.ts`**, trong `describe("combat")` ngay sau "passive pals run away when hit" (import thêm `fleeSpeed`, `PLAYER_SPEED` nếu chưa có):
+5. "a hit Voltmouse runs away slower than the player": tất định, không phụ thuộc giờ thật.
+   - `const { room, client, player } = await setup(); room.state.pals.clear(); plantTrees(room, []);` (bỏ hết cây, đá; địa hình thật vẫn còn). Đặt `player.x = 3200; player.y = 2560;` (điểm `C` mà `describe("finding a way around trees")` dùng, trên đất liền).
+   - `const id = placeWild(room, "voltmouse", player);` (cách 30 px về phía đông), `const pal = room.state.pals.get(id)!`.
+   - `(room as any).provoke(id, { kind: "player", id: client.sessionId });` (dùng `provoke` thay vì đánh để không có đòn đẩy lùi, chí mạng ngẫu nhiên).
+   - Ghi `const start = { x: pal.x, y: pal.y }`, rồi trong **một vòng lặp đồng bộ** (không `await`) gọi `(room as any).tick(TICK_MS)` 20 lần. Vì không `await`, đồng hồ phòng không chạy và vòng tick thật không chen vào, nên `fleeing.until` còn hiệu lực suốt 20 lần.
+   - Kiểm: `distance(pal, start)` `toBeCloseTo(fleeSpeed(getSpecies("voltmouse").speed) * (20 * TICK_MS) / 1000, 0)` (96 px); `toBeLessThan(PLAYER_SPEED * (20 * TICK_MS) / 1000)`; `pal.x > start.x` (chạy ra xa người chơi). Với code cũ quãng là 171 px nên test hỏng, đúng như muốn.
+   - Nếu `tick` gặp vấn đề không lường trước khi gọi trực tiếp (ví dụ thú khác hồi sinh rồi chen vào), coder ghi vào `PROGRESS.md` và dùng cách dự phòng: `await ticks(room, 20)`, đo quãng đi so với `room.clock.currentTime` trước và sau, kiểm quãng ≤ `fleeSpeed × (elapsed + TICK_MS) / 1000 + 1` và < `PLAYER_SPEED × elapsed / 1000`. Không nới các điều kiện khác.
+6. Test có sẵn giữ nguyên, phải qua: "passive pals run away when hit" (Leafkit 90 < 96), test thú đầu đàn Voltmouse không bỏ chạy (dòng 1309), `wildCombat.test.ts` "runs straight away when fleeing" (tốc độ 200 truyền thẳng), `pathing.test.ts`.
 
-**Tester chạy:**
-1. `npm run typecheck`, `npm test`: toàn bộ qua.
-2. `npx vitest run packages/server/src/ai/wander.test.ts --repeats 20`: 0 hỏng.
-3. `npx vitest run packages/server/src/rooms/GameRoom.test.ts -t "squeeze" --repeats 80` (81 lần, khoảng 7 phút): **0 hỏng**. Trước sửa đã đo 3/81 hỏng; với tỉ lệ cũ 3,8% thì xác suất 81 lần đều qua chỉ khoảng 4%.
-4. Cả file dưới tải: `npx vitest run packages/server/src/rooms/GameRoom.test.ts` 3 lần, trong đó ít nhất 1 lần chạy cùng lúc với `npm run typecheck`: 0 hỏng.
-5. Đột biến (mỗi cái chạy `-t "squeeze" --repeats 4` hoặc test unit tương ứng, ghi kết quả vào `PROGRESS.md`, rồi trả lại code):
-   - `GameRoom.ts` dòng 753: `radius` → `species.size` (đột biến của T21): test (a) hỏng **5/5** lần ở `boss.y < C.y + 60`.
-   - `wander.ts`: trả nhánh tới đích về `pos.x = brain.target.x; pos.y = brain.target.y;`: test unit mới hỏng; test (a) hỏng **5/5** lần ở `blocked(boss, BOSS.radius - 1)`.
-   - Bỏ dòng `stepWander(...)` ở `GameRoom.ts` (trùm đứng yên): test (a) hỏng 5/5 lần ở câu `deepest >= 20`.
-6. `npm run build`, `npm run test:e2e` một lượt.
+**E2E:** không thêm (không đổi giao diện hay giao thức). Tester chạy `npm run test:e2e` như thường lệ để chắc không vỡ gì.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `stepWander`: nhánh tới đích dùng `obstacles.grid.resolve(brain.target, obstacles.radius)` khi có vật cản, không có vật cản thì như cũ; thứ tự rút số ngẫu nhiên không đổi; JSDoc nói rõ không dừng trong vật cản.
-- [ ] `wander.test.ts` có test "stops next to an obstacle when its target overlaps it, not inside", hỏng với code cũ, qua với code mới.
-- [ ] Test (a): `respawnTimer = -Infinity`, `Math.random` = `mulberry32(42)` trong vòng 100 tick rồi khôi phục, câu kiểm cuối là `deepest >= 20` (không còn `distance(boss, C) >= 20`), ngưỡng 20, số tick 100, timeout 15.000, hai câu kiểm từng tick và tên test giữ nguyên.
-- [ ] Không file nào khác đổi ngoài `wander.ts`, `wander.test.ts`, `GameRoom.test.ts` (cùng `PLAN.md`, `PROGRESS.md`, `REVIEW.md`, `TASKS.md`).
-- [ ] `-t "squeeze" --repeats 80`: 81/81 qua. `wander.test.ts --repeats 20`: 0 hỏng. Cả file `GameRoom.test.ts` 3 lần (1 lần có tải): 0 hỏng.
-- [ ] Ba đột biến ở mục Test bước 5 đều làm test hỏng 5/5 lần (đột biến 2 hỏng cả test unit).
+- [ ] `packages/shared/src/combat.ts` có `WILD_FLEE_SPEED_CAP = PLAYER_SPEED * 0.6` và `fleeSpeed(speciesSpeed)` = `min(speciesSpeed × WILD_CHASE_SPEED_FACTOR, WILD_FLEE_SPEED_CAP)`, mỗi cái có JSDoc tiếng Anh nói lý do.
+- [ ] `GameRoom.ts`: nhánh bỏ chạy dùng `fleeSpeed(species.speed)`; bốn chỗ còn lại dùng `WILD_CHASE_SPEED_FACTOR` (dòng 264, 684, 720, 1620) **không đổi**. `git diff` của `GameRoom.ts` chỉ gồm dòng import và dòng gọi `stepFlee` (cộng tối đa một dòng chú thích).
+- [ ] `WILD_CHASE_SPEED_FACTOR`, `FLEE_MS`, `stepFlee` không đổi giá trị hay hành vi.
+- [ ] Unit test 1-3 (shared) và 4 (`wildCombat.test.ts`), tích hợp test 5 (Voltmouse 96 px/s) có và qua; thử đột biến: tạm đổi `fleeSpeed` trả `speciesSpeed * WILD_CHASE_SPEED_FACTOR` thì test 1, 3, 4, 5 hỏng (reviewer có thể làm lại trên bản tạm, không commit).
+- [ ] Mọi test có sẵn qua không sửa (đặc biệt "passive pals run away when hit", test thú đầu đàn Voltmouse, `pathing.test.ts`).
 - [ ] `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` sạch.
-- [ ] Không có retry, không tăng timeout, không nới ngưỡng hay sai số nào.
+- [ ] Không đổi schema, message, `Profile`, client.
+- [ ] `docs/design/pals.md` mục "Tính khí" khớp code: tên `WILD_FLEE_SPEED_CAP`, `fleeSpeed`, 96 px/s, bảng tốc độ.
+
+## Tài liệu (đã sửa trong bước lập kế hoạch)
+
+`docs/design/pals.md`:
+- Mục "Tính khí": tách "Chạy trốn và đuổi theo đều nhanh gấp 1,8 lần" thành luật đuổi (1,8) và luật chạy trốn (1,8 nhưng tối đa 96 px/s), thay câu "Voltmouse chạy 171 px/s, nhanh hơn người chơi (việc T27)" bằng bảng tốc độ mới và lý do chọn 0,6.
+- Mục "Thú đầu đàn": ghi rõ thú đầu đàn đuổi không bị trần này, Voltmouse đầu đàn đuổi 171 px/s, nhanh hơn người chơi (việc đề xuất T58).
+- Mục "Đi vòng cây, đá": câu "thú hiền chạy trốn không tìm đường" thêm "chưa chọn hướng thoáng (việc đề xuất T57)".
 
 ## Rủi ro, câu hỏi mở
 
-- **Hạt giống 42 phụ thuộc thứ tự rút số.** Nếu sau này có code mới rút `Math.random` trong tick lúc trùm lang thang yên (ví dụ thời tiết ngẫu nhiên), dãy số trùm nhận sẽ lệch. Test vẫn đúng (mô phỏng: mọi hạt giống trong 5.000 đều qua với code đã sửa, câu `deepest` không phụ thuộc số ngẫu nhiên), chỉ có thể mất khả năng bắt lỗi ở mục 3 qua test tích hợp; test unit vẫn bắt. Ghi ý này trong chú thích của test.
-- **Độ dài tick là giờ thật.** Colyseus truyền `deltaTime` thật nên đường đi của trùm sau lần chặn đầu xê dịch theo tải máy. Đã mô phỏng tick dao động 20-250 ms: code đã sửa không hỏng lần nào; câu `deepest` không phụ thuộc độ dài tick (miệng khe luôn sâu 23,72 px).
-- **Thú hoang khác đổi hành vi rất ít:** chỉ khi đích lang thang lấn vật cản, thú dừng sớm tối đa một bước. Không test nào khác dựa vào việc thú đứng đúng điểm đích lấn vật cản.
-- Không có mục CHẶN.
+Không có mục CHẶN.
 
-## Đề xuất việc mới (cho agent chính thêm vào `TASKS.md`)
+- **Cảm giác "Voltmouse mất chất nhanh nhẹn".** Chấp nhận: lúc lang thang nó vẫn nhanh nhất (95 px/s); chạy trốn vẫn rõ (240 px mỗi lần). Nếu người chơi thử thấy quá dễ, nút chỉnh là đổi 0,6 thành 0,65 trong một hằng số (BALANCE.md: vẫn an toàn tới hiệu quả đuổi 0,75).
+- **Mothlume cũng chậm lại (135 → 96).** Có chủ ý: nó cũng thoát được người bám kém (11,7 s ở hiệu quả 0,8).
+- **Gọi `tick` trực tiếp trong test tích hợp** là cách mới trong `GameRoom.test.ts` (các test khác gọi `handleAttack`, `provoke`, `daze`... trực tiếp nhưng chờ tick thật). Đã có cách dự phòng ở test 5; ghi lý do vào `PROGRESS.md` nếu dùng.
 
-- **P3: Thú bước dài có thể xuyên khe hẹp khi server chậm.** `CollisionGrid.resolve` chỉ đẩy ra ở điểm đích, không quét đường đi. Khi tick dài 250 ms liên tục (4 tick/giây), trùm bước 11 px và lọt khe 52 px ở 6/5.000 lần trong mô phỏng tường của test (a) (0 lần ở 50-200 ms). Cân nhắc chia bước dài thành các bước nhỏ (ví dụ ≤ bán kính / 2) trong `stepWander`/`stepChase`, hoặc giới hạn `dtMs` ở `GameRoom.tick`. Ưu tiên thấp: server thường chạy 20 tick/giây.
+## Đề xuất cho TASKS.md (agent chính cập nhật)
+
+1. **Sửa dòng T27**: bỏ câu "Sau T9: cho thú hiền chạy về phía thoáng..." khỏi T27, ghi "phần chạy về phía thoáng tách sang T57".
+
+2. **Thêm T57 (P2, sau T27): Thú hiền chạy trốn về phía thoáng.** Hiện `stepFlee` chạy thẳng tới điểm cách 200 px ngược hướng kẻ đánh; gặp cây, đá thì kẹt hoặc trượt chậm, gặp biển thì đứng yên ở bờ (`GameRoom.ts` bỏ bước nếu `isSea`). Gợi ý thiết kế (từ `BALANCE.md` của T27): lấy mẫu khoảng 9 hướng trong ±70° quanh hướng thẳng ra xa kẻ đánh (không quá ±90° để thú không chạy ngang qua người chơi), cho điểm bằng `NavGrid.clearanceAt` ở khoảng 60-120 px phía trước, loại hướng mà `NavGrid.lineClear` (thân thú, `sea: false`) sai, ưu tiên hướng gần thẳng khi điểm ngang nhau, giữ hướng đã chọn khoảng 250 ms (5 tick) để không rung; số liệu đặt trong một bảng hằng số (ví dụ `FLEE` trong `ai/wildCombat.ts`). Trạng thái hướng giữ trong `fleeing` của `GameRoom` (chỉ server). Chi phí: ít thú chạy cùng lúc; cân nhắc đi qua ngân sách `paths.run(now)` của `PathPlanner` (liên quan T10, T41). Phải giữ trần `fleeSpeed` của T27; test unit với `NavGrid` dựng từ vòng tròn giả (như `pathing.test.ts`), test tích hợp: thú hiền bị đánh khi phía sau là hàng cây vẫn đi được ít nhất X px trong 1 giây; Voltmouse cạnh bờ biển chạy dọc bờ thay vì đứng yên. Cập nhật mục "Đi vòng cây, đá" trong `docs/design/pals.md`. Gọi balance-analyst kiểm lại thời gian hạ gục ở rừng (đầm lầy, núi tuyết) sau khi có bản mẫu.
+
+3. **Thêm T58 (P2): Voltmouse đầu đàn đuổi nhanh hơn người chơi.** Phát hiện phụ của balance-analyst ở T27: thú đầu đàn đuổi và về hang với `species.speed × WILD_CHASE_SPEED_FACTOR`; Voltmouse đầu đàn ở đồng cỏ (cấp 15, máu 399, thú đầu đàn đầu tiên người mới gặp) đuổi 171 px/s, nhanh hơn người chơi 7%, nên chạy bộ không thoát được, chỉ lướt hoặc chờ hết dây (`ALPHA.leash` 384 px, `WILD_AGGRO_MS` 8 s). Các thú đầu đàn khác đều chậm hơn người chơi (Scorchtail 153, Frostfang 135). Cần quyết định thiết kế: (a) kẹp tốc độ đuổi của thú đầu đàn (ví dụ tối đa 0,95 × `PLAYER_SPEED`, số trong bảng `ALPHA`), (b) giữ nguyên vì thú đầu đàn là thử thách và có dây giới hạn, chỉ ghi vào tài liệu. Đề xuất: gọi balance-analyst đo tỉ lệ người chơi bỏ chạy thoát được và tỉ lệ chết ở trận Voltmouse đầu đàn với (a) và (b), rồi game-designer chọn; nghiêng về (a) vì đây là thú đầu đàn đầu tiên và mốc thiết kế "người biết né thì sống" đã có, còn "không chạy thoát được" chỉ đúng với riêng loài này. Không đổi `WILD_CHASE_SPEED_FACTOR` toàn cục (làm đổi trùm và hằng số 648 px).

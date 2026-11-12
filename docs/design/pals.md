@@ -61,6 +61,7 @@ Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) ca
 - Vì sao không bù khi T7 giảm đường cắn: trước T7 cú cắn tăng 15% mỗi cấp (16-42), người né được nửa số đòn vẫn chết 30-94% ở sa mạc, núi tuyết, núi lửa và đảo, tức không đạt mốc trên.
 - Nút chỉnh: `ALPHA.damageMultiplier` 1,25 làm trận gắt hơn (cùng điều kiện, né nửa số đòn: chết 18-43% ở sa mạc, núi tuyết, núi lửa; đảo 86%); 1,5 gần như trước T7.
 - Canh lãnh địa: tấn công ai lại gần (170 px), kể cả loài vốn hiền, không bỏ chạy. Bị kéo xa hơn 12 m khỏi chỗ ở thì bỏ trận, đi về, và hồi máu (4% mỗi giây) khi không ai làm phiền.
+- Đuổi và về hang nhanh gấp 1,8 lần lúc lang thang như thú hoang khác; trần 96 px/s của thú hiền chạy trốn (mục "Tính khí") không áp cho thú đầu đàn. Vì vậy Voltmouse đầu đàn đuổi 171 px/s, nhanh hơn người chơi đi bộ (160): muốn thoát phải lướt hoặc kéo nó quá dây 12 m. Các thú đầu đàn khác đều chậm hơn người chơi (Scorchtail 153, Frostfang 135). Có nên kẹp hay không: việc đề xuất T58 (sau T27).
 - Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm (`ALPHA.xp`, thay cho kinh nghiệm hạ gục thường), cả thế giới được báo tin, kể cả người hạ ("★ Hiệp đã hạ Voltmouse đầu đàn!"). Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; khi bóng khép, thú đi theo nhận một lần kinh nghiệm bắt theo cấp như mọi lần bắt (60-78) cộng 300; túi đầy thì không ném được.
 - **Tin khi bắt được** (đặt ra ở nhiệm vụ T8):
   - Người bắt thấy "★ Bắt được Voltmouse đầu đàn! 🎉" lúc bóng khép (chữ của chính lần bắt).
@@ -209,8 +210,17 @@ Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì
 | **aggressive** (hung dữ) | Boulderhorn, Scorchtail | tấn công người chơi hoặc thú đi theo gần nhất trong 120 px (`AGGRESSIVE_SIGHT`) | như thú tự vệ |
 
 - **Bị đánh** gồm đòn của người chơi, đòn và chiêu của thú đi theo, và cả **bóng không giữ được**: thú thoát khỏi bóng coi như vừa bị người ném đánh.
-- **Chạy trốn và đuổi theo** đều nhanh gấp 1,8 lần lúc lang thang (`WILD_CHASE_SPEED_FACTOR`).
-  - **Thú hiền** chạy thẳng ra xa kẻ đánh trong 2,5 giây (`FLEE_MS`), tính lại sau mỗi đòn. Voltmouse chạy 171 px/s, nhanh hơn người chơi (160 px/s, việc T27), nên đi được khoảng 430 px; Leafkit khoảng 225 px. Không bị ném lại ngay thì nó ra khỏi tầm ném bóng (180 px).
+- **Đuổi theo** nhanh gấp 1,8 lần lúc lang thang (`WILD_CHASE_SPEED_FACTOR`). **Chạy trốn** cũng gấp 1,8 lần nhưng không quá 96 px/s, tức 0,6 lần tốc độ đi bộ của người chơi (`WILD_FLEE_SPEED_CAP`, hàm `fleeSpeed` trong `combat.ts`; đặt ra ở nhiệm vụ T27).
+  - **Thú hiền** chạy thẳng ra xa kẻ đánh trong 2,5 giây (`FLEE_MS`), tính lại sau mỗi đòn:
+
+    | Loài | Chạy trốn | Quãng tối đa mỗi lần chạy |
+    |---|---|---|
+    | Voltmouse, Mothlume | 96 px/s (bị kẹp; không kẹp sẽ là 171 và 135) | 240 px |
+    | Leafkit | 90 px/s | 225 px |
+    | Bubbloon, Bogbloom | 72 px/s | 180 px |
+
+    Người chơi đi bộ đuổi luôn rút ngắn ít nhất 64 px mỗi giây, nên đánh tiếp được đúng nhịp vũ khí, không cần lướt. Không ai đuổi thì thú ra khỏi tầm ném bóng (180 px).
+  - **Vì sao kẹp ở 0,6** (`BALANCE.md` của T27): trước T27 Voltmouse chạy 171 px/s, nhanh hơn người chơi (160), nên sau mỗi hai đòn người chơi phải chờ nó hết chạy; hạ một con cấp 3 tay không mất 9 giây, gấp 3,5-4,5 lần thú cùng cấp. Kẹp ở 0,9 (144 px/s) chỉ đủ khi đuổi hoàn hảo: người chơi điện thoại bám kém 10% là lại mất 8,5 giây. Kẹp ở 0,6 giữ thời gian hạ gục bằng lúc đánh thú đứng yên (Voltmouse cấp 3: khoảng 2 giây, ngang Leafkit 2,4) tới khi người chơi chỉ đuổi được 70% tốc độ. Nút chỉnh nếu muốn thú chạy rõ hơn: 0,65 (104 px/s) vẫn an toàn tới 75%.
   - **Thú tự vệ** đuổi theo kẻ đánh nó sau cùng trong 8 giây (`WILD_AGGRO_MS`), tính lại sau mỗi đòn, **bất kể người chơi chạy xa bao nhiêu** (Emberpup đuổi 126 px/s). Không có dây giới hạn, nên chạy ra xa không cắt đuôi được; núp sau cây, đá cũng không, vì thú tìm đường vòng (mục "Đi vòng cây, đá"). Lướt chỉ làm trượt cú cắn đang gồng. Mỗi cú cắn đẩy người chơi lùi 16 px, ra xa con thú.
 - Thú đang choáng (6 giây) hoặc đang trong bóng thì đứng yên, không cắn. Thú hiền bị đánh tới choáng thì thôi chạy trốn.
 - Thú đầu đàn không theo bảng này: canh lãnh địa, tấn công cả khi là loài hiền, không bỏ chạy, có dây giới hạn (mục "Thú đầu đàn").
@@ -239,7 +249,7 @@ Trường `spawn.biomes` (`meadow`, `lake`, `snow`, `desert`, `swamp`, `volcano`
 | Thú đi theo bám chủ | chủ | 56 px (khoảng bám) | theo loài | được |
 | Thú đi theo lao vào thú hoang chủ đang đánh | con thú đó | tầm đánh, 40 px cộng thân nó | theo loài | được |
 
-Không tìm đường (giữ như cũ): thú hiền chạy trốn (chạy thẳng, không có đích), lang thang (đã tự đổi đích khi bị chặn), thú làm việc đi tới chỗ làm ở trại.
+Không tìm đường (giữ như cũ): thú hiền chạy trốn (chạy thẳng, không có đích, chưa chọn hướng thoáng: việc đề xuất T57), lang thang (đã tự đổi đích khi bị chặn), thú làm việc đi tới chỗ làm ở trại.
 
 **Cách đi:**
 - Đường thẳng tới mục tiêu đủ rộng cho thân nó thì đi thẳng, y như trước T9.
