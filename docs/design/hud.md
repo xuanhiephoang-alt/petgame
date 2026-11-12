@@ -6,16 +6,68 @@ Chữ, nút và bảng nằm đè lên thế giới: phần tử DOM, CSS trong 
 
 | Vùng | Desktop | Điện thoại dọc | Điện thoại ngang |
 |---|---|---|---|
-| Cột trái trên (`.hud-left`), từ trên xuống: hàng máu và giờ (kèm nút 🫐 Ăn, 🔊), trạng thái, nhiệm vụ, rồi **thông báo** | rộng tối đa 460 px | rộng 100vw − 140 px | rộng tối đa 300 px, chữ 12 px, ẩn tên vùng và dòng "Thưởng" của nhiệm vụ |
+| Cột trái trên (`.hud-left`), từ trên xuống: hàng máu và giờ (kèm nút 🫐 Ăn, 🔊), trạng thái, nhiệm vụ (hoặc thanh máu trùm, xem dưới), rồi **thông báo** | rộng tối đa 460 px | rộng 100vw − 140 px | rộng `min(300 px, 50vw − 110 px − lề trái)`, chữ 12 px, ẩn tên vùng và dòng "Thưởng" của nhiệm vụ |
 | Cột phải trên: 🐾 Thú, 🏕️ Đặt trại, 🔨 Chế tạo, 👕 Tủ đồ (cách nhau 48 px), bản đồ nhỏ | bản đồ dưới các nút (top 204) | bản đồ dưới các nút (top 196) | bản đồ bên trái các nút |
 | Bảng Thú, Chế tạo, Tủ đồ | dưới cột nút phải (top 204), rộng 340 | top 196, rộng 340 | bên trái cột nút; Thú và Tủ đồ rộng 490 |
-| Giữa trên: thanh máu trùm (khi ở gần trùm) | rộng 420 px | rộng 60vw | rộng 200 px, nằm giữa cột trái và bản đồ |
+| Thanh máu trùm (khi cách trùm ≤ 450 px) | rộng ≥ 1248 px: giữa trên, rộng `min(420, 100vw − 2 × lề trái − 944)` (1280: 312 px). Hẹp hơn: trong cột, thế chỗ ô nhiệm vụ | trong cột, thế chỗ ô nhiệm vụ | giữa trên, rộng `min(200, 100vw − 2 × lề phải − 528)`, nằm giữa cột trái và bản đồ |
+
+"Lề trái/phải" là `max(12 px, env(safe-area-inset-*))`: 12 px, hoặc phần tai thỏ nếu lớn hơn (mục "Vùng an toàn"). Top 204 và 196 ở trên là khi không có tai thỏ.
 | Dưới: thanh chiêu, nút bóng, nút cảm ứng (Đánh, Bắt, 💨) | thanh chiêu ở giữa, nút bóng góc phải dưới | bên phải; nút bóng bên trái nút Bắt | bên phải; nút bóng bên trái nút Bắt |
 | Cần điều khiển (chỉ cảm ứng) | không có | hiện ở chỗ ngón trái chạm, ở bất cứ đâu trong nửa trái màn hình trừ trên nút (kể cả trên các ô của cột trái và thông báo) | như dọc |
 
-- Nhân vật luôn ở giữa màn hình. Ở điện thoại ngang, cột trái phải kết thúc trước giữa màn hình ít nhất 100 px (844×390: cột đến x = 312, giữa là 422), để không che nhãn tên của người và thú quanh nhân vật.
-- Lớp vẽ, từ dưới lên: nhãn tên (z 1), HUD (z 2). Trong HUD: **vùng cần điều khiển (−1, dưới cùng)**, các ô và nút (không đặt z), bảng Thú, Chế tạo, Tủ đồ (3), **thông báo (4)**, bản đồ phóng to (4, vẽ sau thông báo), hộp xác nhận thả thú (5), màn mất kết nối (6). Thông báo không nhận chạm; chạm xuyên qua nó.
-- Còn tồn tại, làm ở việc riêng: trên điện thoại dọc, thanh máu trùm đè lên hàng máu của người chơi.
+- Nhân vật luôn ở giữa màn hình. Ở điện thoại ngang, cột trái phải kết thúc trước giữa màn hình ít nhất 100 px (844×390: cột đến x = 312, giữa là 422), để không che nhãn tên của người và thú quanh nhân vật. Từ T30 luật này đúng cả khi có tai thỏ: cột hẹp lại theo lề trái, mép phải luôn ≤ 50vw − 110.
+- Lớp vẽ, từ dưới lên: nhãn tên (z 1), HUD (z 2). Trong HUD: **vùng cần điều khiển (−1, dưới cùng)**, các ô, nút và thanh máu trùm (không đặt z), bảng Thú, Chế tạo, Tủ đồ (3), **thông báo (4)**, bản đồ phóng to (4, vẽ sau thông báo), hộp xác nhận thả thú (5), màn mất kết nối (6). Thông báo không nhận chạm; chạm xuyên qua nó.
+
+## Thanh máu trùm
+
+Đặt ra ở nhiệm vụ T30. Trước đó thanh luôn nằm giữa trên và đè hàng máu của người chơi, đúng lúc đánh trùm:
+- điện thoại dọc 184×35 px, còn đè cả 🔊 và nút 🐾 Thú;
+- desktop 1280×720: 42×35 px;
+- điện thoại ngang có tai thỏ: 25-38 px.
+
+**Hiện khi nào:** người chơi cách trùm ≤ 450 px. Ẩn khi đi xa hơn, hoặc khi trùm bị hạ.
+
+**Chữ:** một dòng "👑 Vua Đá Boulderhorn" và số máu "1152/1152", dưới là thanh máu. Thiếu chỗ thì tên rút gọn bằng "…", **số máu không bao giờ bị cắt**. Tên trùm vẫn luôn hiện trên đầu nó ngoài thế giới.
+
+**Hai chỗ:**
+
+**Giữa trên**, khi có đủ chỗ giữa cột trái và cột phải:
+- desktop rộng ≥ 1248 px;
+- điện thoại ngang (cao ≤ 520 px).
+
+Thanh nằm đúng giữa màn hình, mép trên ngang mép trên cột, không nền. Bề rộng tính để cách cột trái và bản đồ nhỏ ít nhất 12 px:
+- desktop: `min(420, 100vw − 2 × lề trái − 944)`. Cột desktop rộng tối đa 460 px, nên 944 = 2 × (460 + 12). Mốc 1248 là chỗ thanh còn 280 px, đủ hiện tên và số cỡ 14 px.
+- ngang: `min(200, 100vw − 2 × lề phải − 528)`. Bản đồ nhỏ có mép trái ở 100vw − lề phải − 252.
+
+**Trong cột trái, thế chỗ ô nhiệm vụ**, ở mọi màn rộng ≤ 600 px và desktop/máy tính bảng rộng 601-1247 px:
+- Thanh là một ô như các ô khác của cột: nền tối, viền trái màu cam (ô nhiệm vụ viền vàng), tên bên trái, số bên phải. Thanh đứng sau ô trạng thái, trước thông báo.
+- **Ô nhiệm vụ ẩn trong lúc thanh hiện**, hiện lại khi thanh ẩn.
+  - Lý do: chèn thêm thanh vào cột thì cột dài thêm 22-38 px. Trên iPhone cầm dọc có tai thỏ, 2 thông báo khi đó đè tên mình 14 px.
+  - Ô thanh (khoảng 38 px) thấp hơn ô nhiệm vụ (khoảng 57 px), nên cột còn ngắn hơn lúc thường.
+  - Lúc đánh trùm, nhiệm vụ thường chính là "Hạ Vua Đá Boulderhorn".
+- Đặt sau ô trạng thái để hàng máu và trạng thái không nhảy lên xuống khi người chơi đi ra vào vùng 450 px.
+
+**Chạm và lớp vẽ:**
+- Thanh không có nút và không nhận chạm. Trên cảm ứng, chạm vào nó là bật cần điều khiển.
+- Bảng (z 3) và thông báo (z 4) vẽ trên thanh. Khi cầm ngang, bảng Thú/Tủ đồ rộng 490 px che thanh trong lúc mở; ✕ hoặc Escape là đóng.
+
+## Vùng an toàn (tai thỏ, thanh Home)
+
+Đặt ra ở nhiệm vụ T30. Trang dùng `viewport-fit=cover`, nên trên iPhone có tai thỏ, trang vẽ cả dưới tai thỏ và thanh Home. Phần đó là `env(safe-area-inset-*)`:
+- iPhone cầm dọc ở Màn hình chính: trên 47-59 px, dưới 34 px;
+- iPhone cầm ngang: trái và phải 44-59 px, dưới 21 px.
+
+Luật: mọi thứ trên HUD nằm cách mép **ít nhất 12 px, hoặc phần vùng an toàn của cạnh đó nếu lớn hơn**, viết là `max(12px, env(...))`.
+- Cột trái, cột nút phải, bản đồ nhỏ, thanh chiêu, nút cảm ứng, thanh máu trùm cộng phần đó. Các nút cột phải xuống theo lề trên, mỗi nút cách nhau 48 px như cũ.
+- **Bảng Thú, Chế tạo, Tủ đồ** cùng công thức với bản đồ nhỏ:
+  - mép trên `max(204, lề trên + 192)` (desktop), `max(196, lề trên + 184)` (dọc), luôn dưới vùng chạm 44 px của nút 👕 Tủ đồ;
+  - đáy cách mép dưới `max(12, lề dưới)` (ngang `max(8, …)`), không nằm dưới thanh Home.
+  - Trước T30, bảng khi cầm dọc mở ở top 196 cố định, nên trên iPhone có tai thỏ nó đè nút Tủ đồ 75×22 px.
+- **Còn tồn tại (làm ở việc riêng):** ở điện thoại ngang chỉ cao 375 px, cột hẹp lại làm ô trạng thái xuống 2 dòng, và thông báo kết thúc quá mốc cao − 140 px:
+  - 812×375 có tai thỏ: 246 > 235;
+  - 667×375: 260 > 235.
+  Chọn giữ luật "cột trước giữa màn hình 100 px", vì cột nằm đó mãi, còn thông báo chỉ hiện vài giây và chạm xuyên được.
+- **Kiểm thử:** e2e giả lập tai thỏ bằng CDP `Emulation.setSafeAreaInsetsOverride`. Chromium chưa có lệnh này thì viết lại `env(safe-area-inset-*)` trong `index.html` thành số px. Test kiểm lại rằng lề đã có tác dụng.
 
 ## Cần điều khiển và nút cảm ứng
 
@@ -87,7 +139,7 @@ Bảng đóng (bằng bất kỳ cách nào) thì focus rời bảng, phím th�
   - Vùng chạm vô hình cao 44 px quanh nút nhỏ hình, khi tăng cỡ làm vỡ bố cục gọn: bốn nút cột phải và 🔗 Mời bạn. Hai vùng chạm không được chồng nhau, nên bốn nút cột phải cách nhau 48 px.
 - **Đo bằng vùng chạm thật** (chạm thử từng điểm từ tâm nút ra), không bằng hộp bao: vùng vô hình không nằm trong hộp bao, còn phần bị nút khác đè thì không bấm được.
 - **Hàng máu:** 🫐 Ăn và 🔊 luôn đi cùng nhau. Không đủ chỗ cạnh thanh máu thì cả cặp xuống dòng 2. Nhờ vậy khi cầm ngang hàng máu luôn cao 72 px, không đổi theo chữ giờ (trước đó 52-87 px), và thông báo vẫn kết thúc trên mốc màn hình − 140 px.
-- **Bảng không bao giờ tràn khỏi màn hình:** đáy cách mép dưới 12 px (ngang 8 px).
+- **Bảng không bao giờ tràn khỏi màn hình:** đáy cách mép dưới 12 px (ngang 8 px), hoặc phần thanh Home nếu lớn hơn (T30, mục "Vùng an toàn").
 - **Thẻ thú:**
   - Cầm dọc và desktop: nút xếp một cột.
   - Cầm ngang: bảng Thú rộng 490 px như Tủ đồ, nút xếp 2 cột (nút thứ ba trải cả hai cột), nên thẻ cao khoảng 120 px và thấy 2 thẻ trọn trong bảng.
@@ -113,7 +165,7 @@ Bảng đóng (bằng bất kỳ cách nào) thì focus rời bảng, phím th�
 
 ## Thông báo (toast)
 
-**Chỗ hiện.** Ngay dưới ô nhiệm vụ, trong cột trái. Cột cao bao nhiêu thì thông báo tự xuống theo, nên không bao giờ đè lên các ô của cột, các nút bên phải hay bản đồ. Rộng theo cột, desktop tối đa 420 px. Chữ đậm 15 px (điện thoại 13 px) trên nền đen mờ. Thông báo quan trọng có viền vàng bên trái.
+**Chỗ hiện.** Ngay dưới ô nhiệm vụ (hoặc dưới thanh máu trùm khi nó thế chỗ ô nhiệm vụ), trong cột trái. Cột cao bao nhiêu thì thông báo tự xuống theo, nên không bao giờ đè lên các ô của cột, các nút bên phải hay bản đồ. Rộng theo cột, desktop tối đa 420 px. Chữ đậm 15 px (điện thoại 13 px) trên nền đen mờ. Thông báo quan trọng có viền vàng bên trái.
 
 **Bao nhiêu cái cùng lúc.** Tối đa 2, xếp theo thứ tự hiện, cái mới ở dưới. Chỉ 1 cái khi:
 - điện thoại ngang (màn hình cao ≤ 520 px): để góc ngón cái trái trống cho cần điều khiển;
