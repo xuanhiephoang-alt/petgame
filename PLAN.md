@@ -1,189 +1,340 @@
-# PLAN: T67 Trần thế giới với IPv6
+# PLAN: T63 Dọn test boss bar sau T30 (kèm mục 1 của T71)
 
-Đọc code ở HEAD `b85c430`. Nguồn: mục "Việc mới cho TASKS.md" trong `REVIEW.md` của T64 (`git show 004f6ac:REVIEW.md`, dòng 66) và mục góp ý cuối của T66 (`git show 8ca488d:REVIEW.md`, dòng 46). File liên quan:
-- `packages/shared/src/constants.ts` dòng 58-73: `WORLD_LIMITS`, `WORLD_LIMIT_STATUS`, `WORLD_LIMIT_ERROR`.
-- `packages/server/src/worldLimits.ts`: `WorldRefusal` 7, `WorldLimits` 9-12, `ipv6Groups` 42-56, `addressKey` 62-72, `WorldCensus` 79-124, `worldLimitsFromEnv` 139-150, `warnedForwarded` 157, `RefusalLog` 163-188, `stampClientAddress` 199-201, `guardWorldCreation` 221-269 (khoá tính ở 255, ném lỗi ở 259).
-- `packages/server/src/worldLimits.test.ts`: `describe("addressKey")` 57-85, `RefusalLog` 87-115, `stampClientAddress` 117-138, `WorldCensus` 140-209, `limits from env` 211-241, `creating worlds over HTTP` 243-417 (`settings` 248, `beforeEach` 270-273).
-- `packages/server/src/index.ts` dòng 42-44 (dòng log lúc khởi động).
-- `scripts/dev.mjs` dòng 15, `scripts/shots.mjs` dòng 38, `playwright.config.ts` dòng 21.
-- `docs/deploy.md` dòng 39-45, `docs/architecture.md` dòng 42.
-- `docs/design/multiplayer.md`: **game-designer đã cập nhật** (mục "Giới hạn số thế giới", "Vì sao các số này", "Đã cân nhắc và chấp nhận"). Coder không cần sửa file này.
+Đọc code ở HEAD `e1f3007`. Nhiệm vụ **chỉ đổi test**, trong một file: `tests/e2e/multiplayer.spec.ts`. Code sản phẩm không có lỗi (xem "Nguyên nhân"), nên không sửa.
+
+Nguồn:
+- `TASKS.md` dòng 49 (T63).
+- `REVIEW.md` của T30 (`git show 2ee7271:REVIEW.md`, "Góp ý không bắt buộc" 1-5).
+- `REVIEW.md` của T61 (`git show 5ddcda1:REVIEW.md`, mục 8).
+- `REVIEW.md` của T62 (`git show 0990723:REVIEW.md`).
+- `PROGRESS.md` của T67 (`git show 23b1846:PROGRESS.md`, dòng 39: lần hỏng).
+
+Chỗ liên quan trong `tests/e2e/multiplayer.spec.ts` (số dòng ở HEAD):
+
+| Dòng | Nội dung |
+|---|---|
+| 2548-2596 | test `toasts (${screen.name})`; khối phải trả lại ở 2560-2568 |
+| 2630-2693 | `bossLayout`; chú thích đặt lệch ở 2667-2668 |
+| 2695-2701 | `watchHurt` |
+| 2707-2714 | `bossPosition` |
+| 2716-2750 | `settledBossLayout` |
+| 2784-2942 | test `boss bar (...)` |
+| 2813-2844 | `goNearBoss` của test boss bar |
+| 2846-2860 | đẩy thông báo, đếm, chờ trượt vào, đo |
+| 2912 | lề dưới của bảng |
+| 2925-2940 | đoạn desktop 1248/1024 |
+| 2944-2976 | `nearBoss` (bản chép của T61) |
+| 2984-3099 | test `short sideways phone (...)` của T61; `pushToasts` 3049-3055, `slideIn` 3056, đoạn có trùm 3076-3082 |
+| 3120-3124 | `LONGEST_TOASTS` |
+
+Code sản phẩm đã đọc để tìm nguyên nhân:
+- `packages/client/src/ui/hud.ts` 175-192 (`setBoss`), 259-292 (`showToast`, `measureSlots`, `toastFit`, `tickToasts`);
+- `packages/client/src/ui/toastQueue.ts` 72-80 (`toastRoom`), 103-138 (`push`);
+- `packages/client/src/game/Game.ts` 789-815 (tin `damage`), 1377-1382 (`updateBossBar`: ẩn khi xa hơn 450 px);
+- `packages/server/src/rooms/GameRoom.ts` 813-822 (trùm đi lang thang), 1793-1811 (`wildTarget`), 2095-2120 (`tickClimate`);
+- `packages/server/src/ai/wander.ts` 30-35, 51-66;
+- `packages/shared/src/boss.ts`; `packages/shared/src/combat.ts:22` (`AGGRESSIVE_SIGHT` 120).
+
+## Nguyên nhân lần hỏng (đã đo)
+
+**Kết luận:** trùm đi lang thang ra xa hơn 450 px **trước lúc đẩy thông báo**. Thanh máu trùm ẩn, ô nhiệm vụ hiện lại. Trên 390×844 có tai thỏ 47, HUD khi đó chỉ cho 1 chỗ, đúng luật T62. Thông báo thứ hai phải chờ. Nếu trùm còn ở xa suốt 5 s (timeout của `toHaveCount`) thì test thấy 1 thay vì 2. **HUD làm đúng thiết kế; lỗi nằm ở test**: test giả định thanh vẫn hiện mà không kiểm lại ở đúng lúc đẩy.
+
+Cách đo: script Playwright chỉ đọc, server ở cổng 2767, Vite ở 5373, đã tắt sau khi đo. Script nằm ở `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t63/` (`measure.mjs`, `hairs.mjs`, `repro.mjs`, `odds.mjs`).
+
+### 1. Số chỗ chỉ phụ thuộc thanh có hiện hay không
+
+Gọi thẳng `hud.toastFit()` rồi tính như `toastRoom`, cho cả 8 kiểu tóc ngẫu nhiên của sảnh. "Dư" là `nameTop − (toastsTop + 2×61 + 4) − 4`, âm thì chỉ còn 1 chỗ.
+
+| 390×844 | Ô nhiệm vụ hiện (thanh ẩn) | Thanh trùm hiện |
+|---|---|---|
+| tai thỏ 47 | **1 chỗ** với mọi kiểu tóc, dư −1,3 (twintails) đến −9,8 (curly) | **2 chỗ** với mọi kiểu tóc, dư +9,2 (curly) đến +17,7 (twintails) |
+| không tai thỏ | 2 chỗ, dư +25 đến +34 | 2 chỗ, dư +44 đến +53 |
+
+Kết quả khớp bảng của T62 trong `hud.md`: "390×844, tai thỏ 47, ô nhiệm vụ: 1 cái; thanh máu trùm: 2 cái". Vì vậy:
+- Chỉ cấu hình `phone upright, notch` bị ảnh hưởng.
+- Trên desktop và khi cầm ngang, `toastRoom` không đo gì. Cầm dọc không tai thỏ luôn có 2 chỗ.
+- Trước T62, số chỗ chỉ tính theo chiều cao màn hình, nên T30 lặp 75/75 lần mà không gặp lỗi này.
+
+### 2. Thanh ẩn lúc đẩy thì chỉ hiện 1, cho đến khi thanh hiện lại
+
+Đặt người chơi cách trùm 470 px rồi đẩy hai thông báo, `odds.mjs` cho kết quả `{"bar":false,"shown":1,"waiting":1,"slots":1}`. Nửa giây sau trùm đi lại gần, thanh hiện, và thông báo đang chờ hiện theo, vì `tickToasts` đo lại mỗi 250 ms.
+
+Vậy thanh ẩn đúng lúc đẩy chưa đủ để hỏng: thanh còn phải ẩn suốt 5 s sau đó. Thông báo đầu dài khoảng 5,4 s, nên trong suốt cửa sổ 5 s ấy số đếm đứng yên ở 1. Khớp đúng thông báo lỗi "kỳ vọng 2, nhận 1, timeout 5 s".
+
+### 3. Trùm không đứng yên
+
+Chú thích "it stands still when not hit" ở dòng 2813 sai.
+- **Trùm đi lang thang:** 45 px/s. Mỗi chặng đi tới một điểm lệch tối đa ±150 px mỗi trục (tới 212 px), nghỉ 1-4 s giữa hai chặng. Nó chỉ bị kéo về khi ra xa nhà quá 256 px.
+- **Chỗ đứng của test cách trùm 180-340 px.** `goNearBoss` chọn chỗ xa thú hoang nhất, thường là vòng 340 px. Như vậy chỉ còn dư 110 px trước mốc 450: một chặng đi ra xa là đủ làm thanh ẩn.
+- **Giữa lúc dịch chuyển và lúc đẩy, test chờ 2,5-6,5 s** (`toHaveCount(0)` chờ "Đến 🌋 Núi lửa" và cảnh báo nóng hết).
+- **Đo tần suất (`odds.mjs`, 22 lần):** thanh ẩn đúng lúc đẩy và còn ẩn thêm 5 s ở 1/22 lần với lúc đẩy 2,5 s, 0/22 với 4,5 s, 1/22 với 6,5 s. Tức khoảng 4-5% mỗi lần chạy cấu hình tai thỏ. `measure.mjs` lần 3: thanh ẩn từ giây 4,3 và ẩn đến hết 30 s.
+- Máy bận khi chạy cả bộ e2e làm cửa sổ chờ dài ra, nên dễ gặp hơn.
+
+### 4. Đã loại các khả năng khác
+
+- **`fit` đo lúc thanh đang chuyển:** không phải.
+  - `setBoss` đổi `hidden` và lớp `boss-near` cùng lúc.
+  - `showToast` đo đồng bộ ngay trong lời gọi; `getBoundingClientRect` ép tính bố cục mới.
+  - `nameTop` chỉ phụ thuộc chiều cao màn hình, độ phóng và chiều cao nhân vật, không đổi trong lúc test.
+- **Thông báo hết hạn:** hai thông báo cao sống 5,1-5,4 s, dài hơn cửa sổ 5 s. Chúng không làm số đếm xuống 1 trong cửa sổ đó.
+- **`pushToasts` thoát sớm vì có thông báo của game chen vào:** có thể xảy ra (góp ý 2 của T30), nhưng không khớp với lỗi. Cảnh báo nóng chỉ gửi một lần khi vào núi lửa. Thông báo mức thường sống 2,5-3 s, ngắn hơn 5 s, nên số đếm sẽ về 0 chứ không đứng ở 1. `repro.mjs`, 14 lần: không lần nào thoát sớm. Chỗ này vẫn phải sửa (Thiết kế 2), vì nó làm đo nhầm thông báo.
+
+### 5. Hai điều khác đo được, ảnh hưởng tới cách sửa
+
+- **Trùm hung dữ, tầm nhìn 120 px.** Lang thang lại gần người chơi hoặc thú đi theo là nó lao vào đánh. `measure.mjs` lần 0: trùm nổi giận ở giây 3,8, người chơi ngất ở giây 14 và tỉnh dậy ở trại, rất xa trùm.
+- **Núi lửa trừ 3 máu mỗi 2 s** (Emberpup hệ lửa không chống nóng): ngất sau khoảng 66 s nếu ở lì đó. `watchHurt` đếm cả những lần trừ máu này, nên `settledBossLayout` phải thử lại thường xuyên. Tin `damage` vì khí hậu có `cause`, và client không rung màn hình hay đẩy lùi khi nhận nó (`Game.ts:794-797` trả về trước đoạn rung và đẩy).
 
 ## Mục tiêu
 
-1. **Một khách hàng IPv6 không chiếm hết được 50 chỗ của server.** Hiện trần mỗi địa chỉ tính theo khối /64. Nhà mạng cấp cho mỗi khách hàng /56 (256 khối /64) hoặc /48 (65 536 khối), nên chỉ cần một máy ở nhà, đổi địa chỉ qua 5 khối /64, là cả server không ai tạo được thế giới mới. Thêm trần thứ ba: **20 thế giới mỗi khối IPv6 /48**.
-2. **Chuỗi địa chỉ không phải IP chung một khoá.** Hiện `addressKey` trả nguyên chuỗi lạ làm khoá, nên khi `PETGAME_TRUST_PROXY` đặt cao hơn số proxy thật, kẻ phá gửi chuỗi rác khác nhau mỗi lần và không bị trần mỗi địa chỉ chặn. Từ nay mọi chuỗi không phải IP đều vào khoá `unknown` (trần 10). Để proxy hợp lệ ghi kèm cổng không bị dồn nhầm vào `unknown`, bỏ cổng và ngoặc vuông trước khi nhận dạng.
+- `boss bar (...)` hết chập chờn **vì đã sửa đúng nguyên nhân**: số thông báo mong đợi chỉ được kiểm khi chắc chắn thanh đang hiện ở đúng lúc HUD quyết định số chỗ.
+- Không nới phép kiểm nào.
+- Dọn các góp ý còn lại của rà soát T30.
+- Bỏ bản chép `goNearBoss` (T71 mục 1).
 
-Người chơi không thấy gì mới: bị chặn vì trần /48 thì gặp đúng thẻ "Đã mở nhiều thế giới quá" đã có.
+Người chơi không thấy gì khác.
 
 ## Phạm vi
 
-Làm:
-- `WORLD_LIMITS.perNetwork = 20`; biến môi trường `PETGAME_MAX_WORLDS_PER_NETWORK`.
-- `worldLimits.ts`: khoá /48 (`networkKey`), cặp khoá mỗi lần tạo (`creationKeys`), `WorldCensus` đếm cả hai khoá, gộp chuỗi không phải IP vào `unknown`, bỏ cổng và ngoặc, cảnh báo một lần khi gặp địa chỉ không dùng được, đếm riêng lần chặn "network" trong `RefusalLog`.
-- Nâng trần mới lên 1000 ở `dev.mjs`, `shots.mjs`, `playwright.config.ts` (như trần mỗi địa chỉ).
-- Test unit và tích hợp trong `worldLimits.test.ts`.
-- Cập nhật `docs/deploy.md`, `docs/architecture.md`, dòng log ở `index.ts`.
+Làm (chỉ `tests/e2e/multiplayer.spec.ts`):
+1. Thêm `pushBossToasts` và `bossToasts`: chỉ đẩy thông báo thử khi thanh đang hiện, kiểm trong cùng một `evaluate`.
+2. `settledBossLayout`: dùng `nearBoss` chung, bỏ tham số `goNearBoss`. `prepare` đẩy lại thông báo thử khi chúng không còn hiện. `accept` kiểm cả chữ.
+3. Test `boss bar (...)`: bỏ `goNearBoss` và `pushToasts` riêng, dùng các helper trên. Thêm `.catch(() => {})` cho từng `a.finished`. Lề dưới của bảng theo `max(12, inset)` khi cầm dọc và trên desktop.
+4. `watchHurt`: chỉ đếm đòn đánh (`!m.cause`), sửa chú thích. Sửa chú thích đặt lệch trong `bossLayout`.
+5. Trả test `toasts (${screen.name})` về đúng bản trước T30.
+6. Test `short sideways phone (...)` của T61 (cùng dùng `settledBossLayout`): đổi theo chữ ký mới, dùng helper mới thay bản `pushToasts` có thoát sớm, thêm `.catch` cho `slideIn`.
+7. Dời `nearBoss` và `LONGEST_TOASTS` lên khối helper của trùm, giữ nguyên văn. Sửa JSDoc của `nearBoss`.
 
 KHÔNG làm:
-- **Không đổi giao thức:** không đổi `WORLD_LIMIT_STATUS`, `WORLD_LIMIT_ERROR`, schema, message, `Profile`. Không sửa client (`connection.ts`, `joinStatus.ts`) hay chữ của thẻ.
-- Không thêm trần cho IPv4 theo /24 hay khối nào khác.
-- Không thêm trần /56 (chỉ /48, lý do ở Thiết kế 1).
-- Không có danh sách ngoại lệ cho nhà mạng di động.
-- Không đổi `clientAddress`, `/whoami`, `PETGAME_TRUST_PROXY`, luật đếm `pending`.
-- Không làm phần của T68 (đổi `Date.now()` sang `performance.now()`, câu "in the last 0 s", "1 worlds open", tài liệu Windows, stderr của `shots.mjs`). T67 chỉ thêm số đếm `network` vào câu log; T68 sửa câu sau.
+- **Không sửa code sản phẩm** (`hud.ts`, `toastQueue.ts`, `Game.ts`, server, CSS) và không thêm hook `debug:*` (ví dụ khoá trùm đứng yên). HUD làm đúng luật T62. Muốn trùm không đi thì phải đổi server, mà chỉ cần nó cho một test.
+- Không nới hay bỏ phép kiểm nào. Danh sách phép kiểm phải còn nguyên ở "Tiêu chí hoàn thành".
+- Không đổi người chơi trong test (tóc, mũ, thú đi theo hệ nước để chống nóng): đổi thế là đổi bố cục mà T30 đã đo.
+- Không đổi test `toasts (upright phone, …)` của T62, trừ việc `LONGEST_TOASTS` được dời chỗ.
+- Không làm các mục còn lại của T71 (chữ giờ "visually hidden", `setStatus`), T72, T73.
+- Không đổi `docs/design/hud.md`: luật không đổi.
 
 ## Thiết kế
 
-### 1. Trần theo khối /48: chọn khối và số
+### 1. Đẩy thông báo thử chỉ khi thanh đang hiện, kiểm ngay lúc đó
 
-**Vì sao /48, không phải /56.** /48 là khối lớn nhất mà một khách hàng thường được cấp (RIPE khuyên cấp /48 hoặc /56 cho mỗi nơi dùng; vài nhà mạng gia đình và tunnel IPv6 miễn phí cấp /48). Gộp theo /56 thì người có /48 vẫn có 256 khối /56, tức trần không có tác dụng với đúng nhóm dễ phá nhất. Gộp theo /48 thì chặn được cả người có /56 lẫn /48. Thêm cả trần /56 lẫn /48 thì phức tạp hơn mà không thêm gì cho mục tiêu "một khách hàng không chiếm hết server".
+Có hai hướng sửa. Chọn hướng (a).
 
-**Vì sao 20.**
-- Phải nhỏ hơn 50 rõ rệt. Với 20, một khách hàng giữ được tối đa 20 thế giới (20 × 0,13% = 2,6% một nhân, 20 × 0,35 MB = 7 MB khi trống), còn 30 chỗ cho người khác. Muốn chiếm hết phải có 3 khối /48 riêng (20 + 20 + 10), tức là trường hợp "kẻ phá nhiều địa chỉ" mà T64 đã chấp nhận (với IPv4 là 5 địa chỉ). Chọn 25 thì 2 khối /48 đã đủ chiếm hết.
-- Chặn nhầm người thật. Nhà mạng di động cấp mỗi điện thoại một /64 riêng (chuẩn 3GPP) nhưng xếp nhiều thuê bao lạ chung một /48 hay /56. Một nhóm 5 bạn cùng nhà mạng, cùng thành phố (rất có thể chung /48), mỗi người một thế giới cộng mỗi người lỡ mở thêm một (như lý do của trần 10) là 10 thế giới. Trần 20 = 2 × `perAddress`: đủ cho cả nhóm đó và còn 10 cho người lạ chung khối. Chọn 10 (bằng `perAddress`) thì nhóm bạn đó đã chạm trần, và người lạ chung khối bị chặn ngay.
-- Muốn bị chặn nhầm thì riêng một khối /48 phải đang mở 20 thế giới, tức 40% sức chứa của server. Với game chơi cùng bạn bè trên một máy 512 MB, lúc đó server cũng gần chạm trần 50 rồi. Mức này nhẹ hơn IPv4 qua CGNAT mà T64 đã chấp nhận (nhiều thuê bao lạ chung một địa chỉ IPv4 với trần 10).
-- Điện thoại chỉ có IPv6 mà vào server qua NAT64/464XLAT thì server thấy địa chỉ IPv4 của nhà mạng. Trường hợp đó vẫn đi theo trần mỗi địa chỉ như trước, trần /48 không áp.
-- Người vận hành nâng được bằng `PETGAME_MAX_WORLDS_PER_NETWORK` nếu thấy dòng log chặn "network" mà không có kẻ phá.
+**(a) Kiểm thanh và đẩy trong cùng một `evaluate`.**
+- `showToast` quyết định số chỗ một cách đồng bộ, theo DOM ngay lúc gọi.
+- Nếu ngay trước đó, trong cùng một lượt JS, thanh đang hiện và `.hud-left` có `boss-near`, thì HUD chắc chắn quyết định 2 chỗ trên 390×844 có tai thỏ. Hai thông báo được gắn vào DOM ngay trong lời gọi.
+- Sau đó thanh có ẩn thì HUD cũng không cắt thông báo đang hiện.
+- Nếu trùm đã đi xa thì không đẩy gì, dịch chuyển lại gần trùm rồi thử lại, có giới hạn số lần.
+- Số mong đợi vẫn là hằng số độc lập `screen.room`, lấy từ thiết kế ("thanh máu trùm, tai thỏ: 2 cái"). Nếu HUD sai mà cho 1 chỗ lúc thanh đang hiện thì test vẫn hỏng.
 
-**Luật đếm.**
-- Mỗi lần tạo có hai khoá:
-  - `address`: như hiện nay. IPv4 giữ nguyên, IPv6 tính khối /64, IPv4 viết dạng IPv6 (`::ffff:…`) tính như IPv4. Từ T67 thêm: không phải IP thì là `unknown`.
-  - `network`: khối /48 nếu là IPv6 (không phải dạng `::ffff:`); `undefined` với IPv4, `unknown` và mọi thứ khác.
-- Thứ tự kiểm: cả server (`maxWorlds`) → `address` (`perAddress`) → `network` (`perNetwork`, chỉ khi có khoá này). Chạm trần nào trước thì trả lần chặn đó.
-- Được nhận thì cả hai khoá đều được đếm (pending, rồi gán cho phòng ở `settle`). Thế giới đóng thì trả chỗ cho cả hai.
-- Dạng khoá /48: ba nhóm đầu ở hệ 16, chữ thường, không số 0 đứng đầu, rồi `::/48`, giống cách viết khoá /64 hiện có. Ví dụ `2001:db8:a:b::1` → `2001:db8:a::/48`, `::1` → `0:0:0::/48`. Khoá /64 kết thúc `::/64`, IPv4 có dấu chấm, `unknown` là chữ, nên các khoá không bao giờ trùng nhau trong cùng một bảng đếm.
+**(b) Lấy số mong đợi từ `hud.toastSlots` hay `debugInfo`: không chọn.**
+- Test sẽ thành "HUD đồng ý với chính nó", mất phép kiểm luật T62 ngay trong cảnh có trùm.
+- Còn phải thêm trường vào `debugInfo`, tức là sửa code sản phẩm.
 
-**Thẻ và thông báo lỗi.** Chặn vì trần /48 thì ném `ServerError(WORLD_LIMIT_STATUS, WORLD_LIMIT_ERROR.address)`, tức đúng chữ của chặn theo địa chỉ. Sảnh (`joinFailure`) nhận ra chữ đó là `"tooMany"` và hiện thẻ "Đã mở nhiều thế giới quá": "Mạng bạn đang dùng đã mở nhiều thế giới cùng lúc. Thế giới không còn ai sẽ tự đóng sau 1 phút: chờ chút rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời." Câu "Mạng bạn đang dùng" đúng cho cả hai trường hợp. Không thêm chữ mới vào `WORLD_LIMIT_ERROR`: client cũ sẽ đọc chữ lạ thành `"busy"` (thẻ server đầy), sai thẻ. Bên trong server vẫn phân biệt `"network"` để ghi log.
+Đưa người chơi lại gần trùm hơn (ví dụ chỉ dùng vòng 180 px) cũng không đủ: trùm đi hai chặng ra xa là vượt 450 px, và tới quá gần thì nó nổi giận (tầm nhìn 120 px, thú đi theo đứng cách người chơi 56 px). Chỉ có kiểm ngay lúc đẩy mới chắc chắn.
 
-### 2. Chuỗi không phải IP và địa chỉ kèm cổng
+### 2. Thông báo thử trong `settledBossLayout`
 
-`addressKey` (và `networkKey`) nhận dạng địa chỉ theo thứ tự:
-1. Bỏ ngoặc vuông và cổng: chuỗi khớp `^\[([^\]]+)\](?::\d{1,5})?$` thì lấy phần trong ngoặc (`[2001:db8::1]:443` → `2001:db8::1`, `[::1]` → `::1`). Chuỗi khớp `^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$` thì lấy phần trước dấu `:` (`1.2.3.4:5678` → `1.2.3.4`). Một số proxy (ví dụ Azure Application Gateway) ghi `X-Forwarded-For` kèm cổng. Nếu không bỏ cổng thì sau khi gộp, mọi người chơi sau proxy đó chung khoá `unknown` và trần 10 chặn nhầm.
-2. Bỏ phần zone sau `%` (như hiện có, nhưng làm sau bước 1, để `[fe80::1%eth0]:443` cũng nhận được).
-3. `isIPv4` → khoá IPv4. `isIPv6` → khoá như mục 1. Còn lại (kể cả `undefined`, `""`, `"unknown"`, chuỗi rác, `1.2.3.4:` thiếu cổng, `::ffff:1.2.3.4:5`) → `UNKNOWN_KEY` (`"unknown"`).
+- **`prepare` đẩy lại cả hai thông báo, có điều kiện thanh đang hiện như mục 1.** Nó không thoát sớm khi cột đang có thông báo khác.
+  - `showToast` với chữ đang hiện chỉ làm thông báo đó ở lâu thêm, không thêm bản sao.
+  - Chữ đang chờ trong hàng thì bị bỏ qua.
+  - Thông báo cao thay được thông báo thấp hoặc thường của game (cảnh báo nóng, "Đến 🌋 Núi lửa", "Bạn bị ngất…").
+  - Vì vậy mỗi lần thử, hai thông báo dài nhất hoặc hiện lại, hoặc ở lâu thêm.
+- **`accept` kiểm chữ:** đúng `screen.room` thông báo, mỗi cái trùng **nguyên văn** một chuỗi trong `LONGEST_TOASTS`.
+  - Không bao giờ đo nhầm thông báo của game.
+  - Khi cầm ngang chỉ hiện 1, cái nào trong hai cái cũng được (cả hai đều là "dài nhất"), giống phép kiểm hiện nay.
+- `settledBossLayout` tự gọi `nearBoss(page)` khi thanh ẩn hoặc có thú hoang gần. Điều kiện nhận số đo giữ nguyên: thanh hiện, `boss-near` khi ở trong cột, camera lệch < 1, không thông báo đang mờ dần hay trượt, không trúng đòn, thú hoang ≥ 250 px.
 
-Vì sao một khoá chung (giữ chữ `unknown`, không thêm khoá `invalid` riêng):
-- Chuỗi rác chỉ tới được `addressKey` trong hai trường hợp: socket không còn địa chỉ (client đã cắt kết nối, `stampClientAddress` đã ghi `unknown`), hoặc `PETGAME_TRUST_PROXY` đặt cao hơn số proxy thật. Cả hai đều nghĩa là "server không xác định được người gửi", nên chung một trần là đúng nghĩa. Tách hai khoá chỉ cho kẻ phá thêm 10 chỗ.
-- Proxy ghi `unknown` cho mọi người (RFC 7239 cho phép) thì trước T67 mọi người chơi cũng đã chung chuỗi `"unknown"`. Không đổi gì so với trước.
+### 3. `watchHurt` chỉ đếm đòn đánh
 
-**Cảnh báo một lần.** Lần đầu `guardWorldCreation` gặp lần tạo có khoá `address === UNKNOWN_KEY`, ghi:
+Chọn lọc theo nguồn (`m.cause` rỗng), không giữ "đếm mọi sát thương". Lý do:
+- Phép kiểm này có để tránh đo lúc nhãn tên đang bị dời. Chỉ đòn đánh mới dời nhãn: đòn đánh đẩy lùi người chơi và rung màn hình ±1,8 px, còn nóng hay lạnh thì không (`Game.ts:794-797`).
+- Lớp `.hurt` (tên lên 8 px) có thể bật ở lần trừ máu đầu tiên vì nóng. Nhưng `bossLayout` đo trong một `evaluate`, nên số đo vẫn nhất quán. Luật T62 cũng đã luôn coi như đang bị thương.
+- Cứ 2 s lại một lần trừ máu vì nóng, nên hiện nay nhiều lần thử bị loại không vì lý do gì. Người chơi cũng ở lâu hơn ở núi lửa (ngất sau khoảng 66 s).
+
+### 4. Lề dưới của bảng
+
+Thiết kế (`hud.md` "Vùng an toàn", CSS `index.html:169, 404, 435-436`): đáy bảng cách mép dưới `max(12, inset)` khi cầm dọc và trên desktop, `max(8, inset)` khi cầm ngang. Hiện test dùng `max(inset, 8)` cho mọi màn, lỏng hơn thiết kế 4 px khi cầm dọc và trên desktop. Sửa thành `max(safe.bottom, sideways ? 8 : 12)`. Đây là siết chặt hơn, không phải nới. CSS hiện tại thoả điều kiện này: `max-height` tính theo `border-box`, nên đáy bảng ≤ `100% − max(12px, env(...))`.
+
+### 5. Trả test `toasts (...)` về bản trước T30
+
+T30 đã đổi nhầm 4 dòng ở test này: thêm `pushToasts` có thoát sớm và chú thích "calm spot" chép nhầm. Kiểm bằng lệnh:
 
 ```
-World limits: a world creation came without a usable client address; all such requests share one cap. If this repeats, check PETGAME_TRUST_PROXY (docs/deploy.md).
+diff <(git show 2ee7271^:tests/e2e/multiplayer.spec.ts | sed -n '/^for (const screen of TOAST_SCREENS)/,/^}/p') \
+     <(sed -n '/^for (const screen of TOAST_SCREENS)/,/^}/p' tests/e2e/multiplayer.spec.ts)
 ```
 
-Chỉ một lần cho mỗi lần cài (biến trong closure của `guardWorldCreation`, không phải biến cấp module, để test cài lại là có cờ mới). Không bao giờ ghi chuỗi địa chỉ (giữ luật "không log địa chỉ" của T64). Ghi trước khi kiểm trần, bất kể có bị chặn hay không.
-
-### 3. Biến môi trường và log
-
-| Biến | Mặc định | Ý nghĩa |
-|---|---|---|
-| `PETGAME_MAX_WORLDS_PER_NETWORK` | 20 | số thế giới tối đa mỗi khối IPv6 /48 (không áp cho IPv4) |
-
-- Kiểm như hai trần kia: số nguyên từ 1 tới `Number.MAX_SAFE_INTEGER`, sai thì bỏ qua kèm cảnh báo (dùng `intFromEnv`). Không ép quan hệ với hai trần kia: đặt `perNetwork` ≥ `maxWorlds` thì trần /48 không còn tác dụng; đặt nhỏ hơn `perAddress` thì với IPv6 trần /48 chặn trước. Cả hai đều hợp lệ, ghi vào `deploy.md`.
-- Dòng log lúc khởi động (`index.ts`): `World limits: 50 worlds, 10 per address, 20 per IPv6 /48; trusting 1 proxy`.
-- Dòng log khi chặn (`RefusalLog`) thêm số đếm thứ ba: `World limits: refused 1 world creation (server 0, address 0, network 1); 3 worlds open`.
+Ở HEAD lệnh này in đúng 4 dòng khác. Sau khi sửa, nó không được in gì.
 
 ## Kế hoạch triển khai
 
-1. **`packages/shared/src/constants.ts`**
-   - `WORLD_LIMITS = { maxWorlds: 50, perAddress: 10, perNetwork: 20 } as const;`
-   - JSDoc thêm 2-3 câu: `perNetwork` đếm mọi địa chỉ IPv6 chung khối /48 (một khách hàng của nhà mạng nhận tới /48), để một khách hàng không chiếm hết `maxWorlds`; 20 = 2 × `perAddress`, chừa chỗ cho thuê bao di động lạ chung khối; không áp cho IPv4. Trần này cũng là giới hạn tốc độ như `perAddress`.
-   - `WORLD_LIMIT_ERROR` không đổi. Thêm một câu vào JSDoc của nó: chặn theo /48 dùng chữ `address`, nên sảnh hiện cùng thẻ.
+Mọi bước trong `tests/e2e/multiplayer.spec.ts`. Chú thích code bằng tiếng Anh.
 
-2. **`packages/server/src/worldLimits.ts`: kiểu và nhận dạng địa chỉ**
-   - `export type WorldRefusal = "server" | "address" | "network";`, cập nhật JSDoc.
-   - `WorldLimits` thêm `perNetwork: number;` (JSDoc: trần mỗi khối IPv6 /48).
-   - `export const UNKNOWN_KEY = "unknown";` (JSDoc: khoá chung của mọi lần tạo không có địa chỉ IP dùng được). `stampClientAddress` dùng hằng này thay chữ `"unknown"`.
-   - Hàm riêng (không export) `parseIp(address: string | undefined): string | number[] | undefined`. Trả về chuỗi IPv4 dạng chấm (kể cả khi viết dạng `::ffff:`), hoặc 8 nhóm số của IPv6 không phải dạng `::ffff:`, hoặc `undefined` nếu không phải IP. Làm đúng ba bước ở Thiết kế 2, dùng lại `ipv6Groups`. Mọi phép bóc tách địa chỉ chỉ nằm ở hàm này.
-   - `addressKey(address)`: giữ chữ ký. Viết lại trên `parseIp`: chuỗi → giữ nguyên, nhóm số → `"<4 nhóm>::/64"` như hiện nay, `undefined` → `UNKNOWN_KEY`. Cập nhật JSDoc (bỏ cổng và ngoặc; không phải IP thì `unknown`).
-   - `export function networkKey(address: string | undefined): string | undefined`: nhóm số → `"<3 nhóm>::/48"`, còn lại `undefined`. JSDoc: vì sao /48.
-   - `export interface CreationKeys { address: string; network?: string }` và `export function creationKeys(address: string | undefined): CreationKeys` (gọi `parseIp` một lần, dựng cả hai khoá). Không đặt `network: undefined` tường minh khi là IPv4 thì càng tốt, nhưng không bắt buộc. Test so bằng `toEqual`, nên cả hai cách đều qua.
+1. **Trả test `toasts (${screen.name})` (2560-2568).** Thay khối đó bằng đúng bản trước T30:
+   - giữ dòng chú thích 2560;
+   - bỏ dòng chú thích 2561 ("calm spot");
+   - `await page.evaluate(() => { const { hud } = …; hud.showToast(…); hud.showToast(…); });`, không có `if (…) return;`, không có biến `pushToasts`.
 
-3. **`worldLimits.ts`: `WorldCensus` đếm hai khoá**
-   - `open: Map<string, CreationKeys | undefined>` (roomId → khoá của lần tạo; `undefined` là tạo không qua HTTP).
-   - `pending: Map<string, number>` giữ nguyên, nhưng đếm theo **từng chuỗi khoá**: một lần tạo IPv6 tăng cả khoá /64 lẫn khoá /48. JSDoc nói các dạng khoá không trùng nhau (lý do ở Thiết kế 1).
-   - `admit(keys: CreationKeys, limits: WorldLimits): WorldRefusal | undefined`: `total() >= maxWorlds` → `"server"`; `countFor(keys.address) >= perAddress` → `"address"`; `keys.network !== undefined && countFor(keys.network) >= perNetwork` → `"network"`; nhận thì tăng pending cho `address` và (nếu có) `network`.
-   - `settle(keys: CreationKeys, roomId)`: giảm pending của từng khoá (về 0 thì xoá mục, như hiện nay), gán `keys` cho phòng nếu phòng còn mở.
-   - `countFor(key: string)`: pending của `key` cộng số phòng mở có `owner.address === key || owner.network === key`.
-   - Tách đoạn "giảm một khoá" thành hàm riêng `private release(key)` để không lặp code. Giữ JSDoc về việc đếm đôi trong vài mili giây.
+   Không dùng `LONGEST_TOASTS` ở đây, để thân test trùng từng ký tự với bản `2ee7271^`.
 
-4. **`worldLimits.ts`: env, log, guard**
-   - `worldLimitsFromEnv` thêm `perNetwork: intFromEnv("PETGAME_MAX_WORLDS_PER_NETWORK", env.PETGAME_MAX_WORLDS_PER_NETWORK, WORLD_LIMITS.perNetwork, 1, Number.MAX_SAFE_INTEGER)`. Cập nhật JSDoc liệt kê biến.
-   - Hằng riêng `const REFUSAL_ERROR: Record<WorldRefusal, string> = { server: WORLD_LIMIT_ERROR.server, address: WORLD_LIMIT_ERROR.address, network: WORLD_LIMIT_ERROR.address };`. JSDoc: sảnh chỉ phân biệt hai chữ, chặn theo /48 hiện thẻ của địa chỉ (Thiết kế 1). Trong `invokeMethod` thay `WORLD_LIMIT_ERROR[refusal]` bằng `REFUSAL_ERROR[refusal]`.
-   - `RefusalLog`: `counts` thêm `network: 0`; câu log thành `(server ${s}, address ${a}, network ${n})`; reset cả ba sau mỗi dòng.
-   - Trong `guardWorldCreation`: `let warnedUnknown = false;` trong thân hàm (cạnh `stamp`). Ở nhánh `create`: `const keys = creationKeys(auth?.ip);` rồi nếu `keys.address === UNKNOWN_KEY && !warnedUnknown` thì bật cờ và `console.warn` đúng câu ở Thiết kế 2. Sau đó `census.admit(keys, …)`, `census.settle(keys, roomId)` (thay `key`).
-   - Cập nhật JSDoc của `guardWorldCreation` (ba trần, chặn /48 dùng chữ của địa chỉ).
+2. **`bossLayout` (2667-2668).** Đặt lại hai dòng chú thích cho khớp với các trường: `wild` và `hurt` một dòng, `lag` và `fading` một dòng. Sửa "lags behind my pal" thành "behind my player". `hurt` là số đòn đánh đã trúng tôi (`watchHurt`).
 
-5. **`packages/server/src/index.ts`** dòng 42-44: thêm `${worldSettings.limits.perNetwork} per IPv6 /48` vào dòng log (câu ở Thiết kế 3).
+3. **`watchHurt` (2695-2701).** Đổi điều kiện thành `m.targetId === w.__petgame.room.sessionId && !m.cause && w.__bossHurt++`. JSDoc ghi:
+   - đếm đòn đánh (cắn, dậm, chiêu) trúng người chơi vào `window.__bossHurt`;
+   - nóng và lạnh (`cause`) không được đếm, vì chúng không đẩy lùi hay rung màn hình (`Game.ts`), nên không dời nhãn tên.
 
-6. **`scripts/dev.mjs`, `scripts/shots.mjs`, `playwright.config.ts`**: thêm `PETGAME_MAX_WORLDS_PER_NETWORK` = `"1000"` ngay cạnh `PETGAME_MAX_WORLDS_PER_ADDRESS` (`dev.mjs` giữ giá trị đã đặt: `process.env.PETGAME_MAX_WORLDS_PER_NETWORK ?? "1000"`). Lý do (ghi vào chú thích sẵn có): trình duyệt có thể vào `localhost` qua `::1`, mà `::1` thuộc khối `0:0:0::/48`, nên khi trần mỗi địa chỉ đã nâng lên 1000 thì trần /48 (20) sẽ chặn trước.
+4. **Dời và sửa `nearBoss`, dời `LONGEST_TOASTS`.**
+   - Dời nguyên văn hàm `nearBoss` (2944-2976) và hằng `LONGEST_TOASTS` cùng JSDoc (3120-3124) lên ngay sau `bossPosition` (sau 2714).
+   - JSDoc của `nearBoss`:
+     - bỏ câu "The test `boss bar (...)` keeps its own copy…";
+     - thêm: trùm đi lang thang (45 px/s, mỗi chặng tới ±150 px mỗi trục, nghỉ 1-4 s) và hung dữ trong 120 px, nên thanh có thể ẩn bất cứ lúc nào sau khi hàm trả về;
+     - nơi nào cần thanh hiện thì kiểm lại ngay lúc đó (`pushBossToasts`, `settledBossLayout`).
+   - Thân hàm giữ nguyên.
 
-7. **`docs/deploy.md`**
-   - Bảng biến (dòng 39-41): thêm dòng `PETGAME_MAX_WORLDS_PER_NETWORK | 20 | số thế giới tối đa mỗi khối IPv6 /48 (gộp mọi khối /64 của một khách hàng); không áp cho IPv4`.
-   - Dòng 43: "ba trần là số nguyên ≥ 1". Thêm một câu: đặt trần /48 ≥ `PETGAME_MAX_WORLDS` là tắt nó; thấy log chặn có `network` tăng mà không có kẻ phá (nhiều người chơi di động cùng nhà mạng) thì nâng biến này.
-   - Dòng 45: `npm run dev`/`npm run shots` nâng cả `PETGAME_MAX_WORLDS_PER_NETWORK` lên 1000.
-   - Một câu ở mục kiểm sau deploy: proxy ghi kèm cổng (`1.2.3.4:5678`) vẫn đếm đúng. Dòng log "came without a usable client address" lặp lại nghĩa là `PETGAME_TRUST_PROXY` đang cao hơn số proxy thật (hoặc proxy ghi chữ lạ).
+5. **Helper mới, đặt sau `nearBoss`:**
+   - `pushBossToasts(page): Promise<{ near: boolean; shown: string[] }>`, một `page.evaluate` nhận `LONGEST_TOASTS` làm đối số:
+     - `near = !bar.hidden && .hud-left` có lớp `boss-near`;
+     - nếu `near`: `hud.showToast(text, "high")` cho từng chuỗi theo thứ tự;
+     - trả `near` và chữ của `.hud-toasts > .toast:not(.out)` theo thứ tự DOM, đọc **sau** khi đẩy.
 
-8. **`docs/architecture.md`** dòng 42 (mục `worldLimits.ts`): thêm `networkKey`/`creationKeys` (IPv6 gộp thêm /48 cho trần `perNetwork`), `UNKNOWN_KEY` (mọi chuỗi không phải IP, sau khi bỏ cổng và ngoặc), `WorldCensus` đếm hai khoá mỗi thế giới, biến `PETGAME_MAX_WORLDS_PER_NETWORK`, chặn /48 trả chữ `WORLD_LIMIT_ERROR.address`.
+     JSDoc nói vì sao phải kiểm thanh trong cùng lượt: trên điện thoại dọc có tai thỏ, HUD chỉ cho 2 chỗ khi thanh thế chỗ ô nhiệm vụ (T62). Kèm: chữ đang hiện chỉ ở lâu thêm, chữ thiếu được đẩy lại.
+   - `bossToasts(page): Promise<string[]>`: tối đa 3 lần `await nearBoss(page)` rồi `pushBossToasts`. Lần nào `near` thì trả `shown`. Hết 3 lần thì `throw new Error("The boss bar was never shown when the test toasts went up")`.
+   - `onlyTestToasts(toasts: { text: string }[], room: number): boolean`: `toasts.length === room && toasts.every((t) => LONGEST_TOASTS.includes(t.text))`.
 
-9. **Test** (mục dưới), rồi chạy `npm run typecheck`, `npx vitest run packages/server/src/worldLimits.test.ts`, `npm test`.
+6. **`settledBossLayout` (2716-2750).**
+   - Chữ ký mới: `(page, accept = () => true, prepare = async () => {})`, bỏ tham số `goNearBoss`.
+   - Dòng 2731 gọi `await nearBoss(page)`.
+   - Sửa JSDoc: "goes back to the boss (`nearBoss`)…"; `prepare` chạy mỗi lần thử, sau khi dịch chuyển; thông báo thử được đẩy lại bằng `pushBossToasts`.
+   - Không đổi điều kiện nhận số đo nào ở dòng 2746.
+
+7. **Test `boss bar (...)` (2784-2942).**
+   - Xoá `goNearBoss` (2813-2843). Dòng 2844 thành `await nearBoss(page);`, giữ dòng 2846 (`toHaveCount(0, 20 s)`).
+   - Thay 2847-2855 bằng:
+     ```ts
+     // The two longest high toasts, put up while the bar shows (it decides how many fit on an upright phone with a notch).
+     const shown = await bossToasts(page);
+     expect(shown, "shown at once").toEqual(LONGEST_TOASTS.slice(0, screen.room));
+     await expect(page.locator(".hud-toasts > .toast:not(.out)")).toHaveCount(screen.room);
+     ```
+   - Dòng 2858: `.map((a) => a.finished.catch(() => {}))` (bắt lỗi cho từng hiệu ứng).
+   - Dòng 2860:
+     ```ts
+     settledBossLayout(page, (l) => onlyTestToasts(l.toasts, screen.room), async () => { await pushBossToasts(page); })
+     ```
+     Giữ `expect(layout.toasts).toHaveLength(screen.room)` ở 2861.
+   - Dòng 2912:
+     ```ts
+     expect(check.bottom, panel).toBeLessThanOrEqual(check.height - Math.max(safe.bottom, sideways ? 8 : 12) + 1);
+     ```
+     Chú thích: "`max(12, inset)` upright and on desktop, `max(8, inset)` sideways (hud.md, Vùng an toàn)". `sideways` đã có từ 2874.
+   - Đoạn desktop (2926, 2929, 2937): `goNearBoss()` thành `nearBoss(page)`; hai lời gọi `settledBossLayout` bỏ đối số `goNearBoss`.
+
+8. **Test `short sideways phone (...)` (2984-3099).**
+   - Xoá `pushToasts` (3049-3055).
+   - `slideIn` (3056): thêm `.catch(() => {})` cho từng `a.finished`, như bước 7.
+   - Đoạn không trùm (3061): thay `await pushToasts()` bằng đẩy thẳng `LONGEST_TOASTS`, như test T62 (dòng 3190-3193), không thoát sớm. Giữ `toHaveCount(1)`.
+   - Đoạn có trùm (3077-3082):
+     ```ts
+     await nearBoss(page);
+     // giữ toHaveCount(0, 20 s)
+     const shown = await bossToasts(page);
+     expect(shown).toEqual([LONGEST_TOASTS[0]]);
+     // giữ toHaveCount(1) và slideIn()
+     const layout = await settledBossLayout(page, (l) => onlyTestToasts(l.toasts, 1), async () => { await pushBossToasts(page); });
+     ```
+   - Mọi phép kiểm sau đó giữ nguyên.
+
+9. Không còn chỗ nào dùng `goNearBoss` hay `pushToasts`. Lệnh sau không được ra kết quả nào: `rg -n "goNearBoss|pushToasts|calm spot|stands still" tests/e2e/multiplayer.spec.ts`.
+
+Mỗi bước nhỏ và nằm chung một file. Làm trong một vòng coder, một commit.
 
 ## Giao thức
 
-Không đổi. Không có thay đổi ở schema, message, `Profile` hay store. HTTP vẫn trả 429 `{ code, error }` với một trong hai chữ cũ của `WORLD_LIMIT_ERROR`. Client cũ lẫn mới hiện đúng thẻ. Shared chỉ thêm một trường vào bảng hằng `WORLD_LIMITS`; client không đọc bảng này.
+Không đổi: schema, message, `Profile`, `debugInfo`, client và server đều giữ nguyên.
 
 ## Test
 
-Tất cả trong `packages/server/src/worldLimits.test.ts`. Không cần e2e mới, vì client không đổi và thẻ `tooMany` đã có e2e/unit. `packages/client/src/net/connection.test.ts` dòng 66 đã chứng minh chữ `address` → `"tooMany"`.
+Chỉ e2e. Không có unit hay test tích hợp mới, vì không có logic sản phẩm mới.
 
-**Sửa test có sẵn cho chữ ký mới:**
-- `WorldCensus` (140-209): `limits` thêm `perNetwork`; `admit("a", …)` → `admit({ address: "a" }, …)`, `settle("a", …)` → `settle({ address: "a" }, …)`. Hành vi kỳ vọng không đổi.
-- `RefusalLog` (87-115): câu kỳ vọng thêm `, network 0`.
-- `limits from env`: `toEqual({ maxWorlds: 3, perAddress: 7 })` thêm `perNetwork`. Test "ignores bad values" đặt cả ba biến, kỳ vọng `toHaveBeenCalledTimes(3)`.
-- `creating worlds over HTTP`: `settings` (248) và `beforeEach` (270-273) thêm `perNetwork: 3`, `maxWorlds: 4` và `perAddress: 2` giữ nguyên; các test `settings.limits = {…}` khác thêm `perNetwork`. Mọi test cũ dùng IPv4 nên hành vi không đổi.
-- `addressKey` (81-84) "calls a missing address unknown": giữ, và dùng `UNKNOWN_KEY`.
+### Kiểm tĩnh
 
-**Test unit mới:**
-1. `addressKey` "puts every string that is not an IP under one unknown key": `"unknown"`, `"garbage"`, `"1.2.3.4:"`, `"::ffff:1.2.3.4:5"`, `"%eth0"`, `"1.2.3.4.5"`, `"01.2.3.4"`, `"[::1"` đều ra `UNKNOWN_KEY`.
-2. `addressKey` "drops a port and brackets a proxy added": `"1.2.3.4:5678"` → `"1.2.3.4"`; `"[2001:db8:a:b::1]:443"` → `"2001:db8:a:b::/64"`; `"[::1]"` → `"0:0:0:0::/64"`; `"[::ffff:1.2.3.4]:80"` → `"1.2.3.4"`; `"[fe80::1%eth0]:443"` → `"fe80:0:0:0::/64"`.
-3. `networkKey` "groups IPv6 by its /48 block": `"2001:db8:a:b:1:2:3:4"` và `"2001:DB8:A:FF::1"` → `"2001:db8:a::/48"`; `"2001:db8:b::1"` khác khoá trên; `"::1"` → `"0:0:0::/48"`; `"[2001:db8:a:b::1]:443"` → `"2001:db8:a::/48"`.
-4. `networkKey` "has no /48 for IPv4, mapped IPv4 or non-IP": `"203.0.113.5"`, `"::ffff:203.0.113.5"`, `"::ffff:cb00:7105"`, `undefined`, `"unknown"`, `"garbage"` → `undefined`.
-5. `creationKeys`: `"2001:db8:a:b::9"` → `{ address: "2001:db8:a:b::/64", network: "2001:db8:a::/48" }`; `"203.0.113.5"` → `toEqual({ address: "203.0.113.5" })`; `"garbage"` → `toEqual({ address: UNKNOWN_KEY })`.
-6. `WorldCensus` "refuses a /48 at its cap across different /64 blocks" với `{ maxWorlds: 10, perAddress: 2, perNetwork: 3 }`: `creationKeys` của `2001:db8:1:1::1`, `2001:db8:1:1::2`, `2001:db8:1:2::1` được nhận; `2001:db8:1:3::1` → `"network"`; `2001:db8:2:1::1` được nhận; `203.0.113.1` được nhận; `countFor("2001:db8:1::/48")` = 3.
-7. `WorldCensus` "checks the address cap before the /48 cap": `{ maxWorlds: 10, perAddress: 2, perNetwork: 2 }`, hai lần cùng `2001:db8:1:1::1` được nhận, lần thứ ba → `"address"`.
-8. `WorldCensus` "frees the /48 place when a world settles empty or closes": admit IPv6, `settle(keys, undefined)` → `countFor` của cả `/64` và `/48` về 0. Admit lại, `opened("r1")`, `settle(keys, "r1")` → cả hai = 1; `closed("r1")` → cả hai = 0, `total()` = 0.
-9. "default caps keep one IPv6 customer below the server cap": `WORLD_LIMITS.perAddress <= WORLD_LIMITS.perNetwork` và `WORLD_LIMITS.perNetwork < WORLD_LIMITS.maxWorlds`.
-10. `limits from env`: `PETGAME_MAX_WORLDS_PER_NETWORK: "5"` → `perNetwork: 5`; mặc định `perNetwork` = `WORLD_LIMITS.perNetwork`.
-11. `RefusalLog` "counts /48 refusals apart": `note("network", 0, 7)` → `"World limits: refused 1 world creation (server 0, address 0, network 1); 7 worlds open"`.
+1. `npm run typecheck`: sạch. Lệnh này không gồm `tests/e2e`.
+2. Kiểm kiểu riêng file e2e: `npx tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler --skipLibCheck --types node tests/e2e/multiplayer.spec.ts`. Ở HEAD lệnh này sạch, và sau khi sửa cũng phải sạch.
+3. Lệnh `diff` ở Thiết kế 5 không in gì. Lệnh `rg` ở bước 9 không ra kết quả nào.
 
-**Test tích hợp mới** (trong `creating worlds over HTTP`, `settings.trustProxy = 1`):
-12. "refuses a world over the /48 cap across /64 blocks, with the address card": `limits = { maxWorlds: 10, perAddress: 2, perNetwork: 3 }`. `x-forwarded-for` lần lượt `2001:db8:1:1::1`, `2001:db8:1:2::1`, `2001:db8:1:3::1` → 200. `2001:db8:1:4::1` → 429 và `json().error === WORLD_LIMIT_ERROR.address`. `2001:db8:2:1::1` → 200, `203.0.113.1` → 200. `worldCensus.countFor("2001:db8:1::/48") === 3`.
-13. "puts every non-IP address under one key and warns once without the address": `limits = { maxWorlds: 10, perAddress: 2, perNetwork: 3 }`, `vi.spyOn(console, "warn")`. `x-forwarded-for` `"garbage-1"` → 200, `"garbage-2"` → 200, `"unknown"` → 429 (`WORLD_LIMIT_ERROR.address`). Số lần gọi `console.warn` có chứa `"usable client address"` đúng bằng 1, và không lần gọi nào chứa `"garbage"`. Muốn cờ cảnh báo mới thì test tự `unguard()` rồi `unguard = guardWorldCreation(server, settings)` ở đầu test (như mẫu "is undone completely"), để không phụ thuộc thứ tự test. Chú thích trong test giải thích lý do. Lưu ý: dòng log chặn của `RefusalLog` cũng gọi `console.warn`; chỉ đếm lời gọi chứa `"usable client address"`.
-14. "counts an address with a port as that address": `limits` mặc định của `beforeEach` (`perAddress: 2`). `"203.0.113.9:1111"` → 200, `"203.0.113.9:2222"` → 200, `"203.0.113.9"` → 429.
+### Chứng minh sửa đúng nguyên nhân
 
-`afterEach` sẵn có (chờ `worldCensus.total()` về 0) bảo đảm mọi khoá /48 được trả hết sau mỗi test.
+Tester làm. Các thay đổi tạm thời dưới đây **không được commit**. Trả file về nguyên trạng và so hash trước/sau.
+
+- **(a) Tái hiện chắc chắn lỗi cũ** (trên code mới, chỉ để kiểm cơ chế).
+  - Trong `bossToasts`, ở lần thử đầu, thay `nearBoss(page)` bằng: dịch chuyển tới `{ x: boss.x, y: boss.y + 700 }`, rồi chờ `.boss-bar` ẩn.
+  - Đồng thời bỏ điều kiện `near` trong `pushBossToasts`: luôn đẩy và luôn trả `near: true`. Nếu vẫn trả `near` thật, lần thử 2 sẽ đẩy lại lúc thanh đã hiện, thông báo đang chờ được hiện ra, và lỗi bị che.
+  - Chạy `npx playwright test -g "boss bar \(phone upright, notch\)"`: phải **hỏng** ở `shown at once` hoặc `toHaveCount(2)`, với 1 thông báo hiện.
+- **(b) Cùng chỗ dịch chuyển ra xa như (a), nhưng giữ điều kiện `near`.**
+  - Test phải **qua**: lần thử 1 trả `near: false` và không đẩy gì, lần thử 2 qua.
+  - Ghi log tạm số lần thử để thấy được điều này.
+- **(c) Kiểm chữ trong `accept`.**
+  - Cho `pushBossToasts` đẩy `["Bắt được Leafkit! 🎉", LONGEST_TOASTS[1]]` thay cho `LONGEST_TOASTS`, và tạm bỏ dòng `shown at once`. Cả hai đều là thông báo mức cao, và mỗi lần thử `prepare` lại làm chúng ở lâu thêm. Vì vậy lần thử nào cũng có đủ 2 thông báo, nhưng một cái là chữ của game.
+  - `settledBossLayout` của `boss bar (phone upright)` phải `throw "never settled"`, không đo nhầm.
+  - Đẩy thêm một thông báo ngay trước `settledBossLayout` thì không kiểm được gì: hai thông báo thử mức cao đang hiện không bị thay, nên cái đẩy thêm chỉ nằm chờ.
+
+### Lặp lại
+
+Mỗi lệnh có thể chạy nền hoặc chia lô 10 lần, vì mỗi lệnh foreground giới hạn 10 phút. Không chạy server dev trên 2567/5173 trong lúc chạy.
+
+| Lệnh | Kỳ vọng | Ghi chú |
+|---|---|---|
+| `npx playwright test -g "boss bar \(phone upright, notch\)" --repeat-each 40` | 40/40 | Trước khi sửa, khoảng 4-5% mỗi lần hỏng, nên 40/40 chỉ là bằng chứng phụ; bằng chứng chính là (a) và (b) |
+| `npx playwright test -g "boss bar" --repeat-each 8` | 40/40 (5 cấu hình) | |
+| `npx playwright test -g "short sideways phone" --repeat-each 5` | 15/15 (3 test) | |
+| `npx playwright test -g "toasts \(" --repeat-each 3` | 18/18 | Gồm 3 test `toasts (...)` và 3 test `toasts (upright phone, …)` |
+| `npm run test:e2e` | qua hết | Chạy một lần cả bộ |
+
+`npm test` không cần đổi, nhưng vẫn chạy như mọi vòng.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `WORLD_LIMITS` có `perNetwork: 20` với JSDoc nêu lý do; `WORLD_LIMIT_ERROR`, `WORLD_LIMIT_STATUS` không đổi; không file nào trong `packages/client/src` bị sửa.
-- [ ] Một lần tạo từ IPv6 được đếm vào cả khoá /64 và khoá /48; IPv4 (kể cả dạng `::ffff:` chấm hay hex) không có khoá /48.
-- [ ] Chạm trần /48 thì HTTP trả 429 với `error` = `WORLD_LIMIT_ERROR.address`, không phòng nào được tạo (test 12).
-- [ ] Mọi chuỗi không phải IP (sau khi bỏ cổng, ngoặc, zone) cho ra `UNKNOWN_KEY` và chung trần `perAddress` (test 1, 13). `1.2.3.4:5678` và `[v6]:port` được tính như địa chỉ không cổng (test 2, 14).
-- [ ] Cảnh báo "usable client address" in đúng một lần mỗi lần cài, không chứa địa chỉ (test 13).
-- [ ] `PETGAME_MAX_WORLDS_PER_NETWORK` đọc qua `intFromEnv`, giá trị sai bị bỏ qua kèm cảnh báo (test 10 và test "ignores bad values").
-- [ ] `RefusalLog` đếm `network` riêng; dòng log khởi động ghi trần /48.
-- [ ] `dev.mjs`, `shots.mjs`, `playwright.config.ts` nâng `PETGAME_MAX_WORLDS_PER_NETWORK` lên 1000 kèm lý do `::1`.
-- [ ] Việc bóc tách địa chỉ chỉ nằm trong `parseIp`; `addressKey`, `networkKey`, `creationKeys` không tự bóc tách lại.
-- [ ] `docs/deploy.md` và `docs/architecture.md` cập nhật như bước 7, 8; khớp với `docs/design/multiplayer.md` (đã cập nhật).
-- [ ] Tất cả test cũ của `worldLimits.test.ts` còn qua, chỉ đổi chữ ký hoặc câu log, không nới kỳ vọng nào. Có 14 test mới ở mục Test.
-- [ ] `npm run typecheck`, `npm test` sạch; `npm run test:e2e` vẫn qua (trần đã nâng trong `playwright.config.ts`).
+- [ ] Chỉ `tests/e2e/multiplayer.spec.ts` đổi (cùng `PLAN.md`, `PROGRESS.md`, `REVIEW.md`, `TASKS.md`). Không đổi file nào trong `packages/`, `docs/`, `playwright.config.ts`.
+- [ ] Thân test `toasts (${screen.name})` trùng từng ký tự với bản `2ee7271^`: lệnh `diff` ở Thiết kế 5 không in gì.
+- [ ] Không còn `goNearBoss`, `pushToasts`, "calm spot", "stands still". `nearBoss` là bản duy nhất, JSDoc nói trùm đi lang thang.
+- [ ] Thông báo thử của test trùm chỉ được đẩy trong một `evaluate` có kiểm `!bar.hidden` và `boss-near` trước khi đẩy. Có giới hạn số lần thử (3), hết lần thì `throw`.
+- [ ] `settledBossLayout`:
+  - `prepare` đẩy lại thông báo thử, không thoát sớm vì có thông báo khác;
+  - `accept` của test trùm và test T61 kiểm chữ nguyên văn bằng `LONGEST_TOASTS`;
+  - chữ ký không còn tham số `goNearBoss`.
+- [ ] `watchHurt` chỉ đếm `damage` không có `cause`; JSDoc nói rõ vì sao.
+- [ ] Mọi chỗ chờ `a.finished` trong test trùm và test T61 có `.catch(() => {})` cho từng hiệu ứng.
+- [ ] Lề dưới bảng: `max(safe.bottom, sideways ? 8 : 12)`.
+- [ ] **Không phép kiểm nào bị nới hay bỏ.** Các phép kiểm sau còn nguyên:
+  - `toHaveCount(screen.room)`;
+  - `expect(layout.toasts).toHaveLength(screen.room)`;
+  - `expectBarClear`, `expectBarInColumn`;
+  - phép kiểm chồng của thông báo với thanh, các phần HUD và tên mình;
+  - thông báo nằm trên màn hình;
+  - vùng an toàn của thanh;
+  - chỗ giữa trên của thanh và hai mốc khi cầm ngang;
+  - ba phép kiểm của bảng (mép trên, cột phải bị che, bảng vẽ trên thanh);
+  - lúc rời trùm: thanh ẩn, ô nhiệm vụ hiện lại;
+  - đoạn desktop 1248/1024;
+  - mọi phép kiểm của T61 và T62.
+
+  Có thêm phép kiểm mới: chữ của thông báo hiện ngay sau khi đẩy (`shown at once`), chữ trong `accept`, lề 12 px.
+- [ ] Kiểm tĩnh 1-3 sạch. Thí nghiệm (a), (b), (c) cho đúng kết quả mong đợi, và file đã trả về nguyên trạng (hash trùng).
+- [ ] Các lệnh lặp ở mục Test đạt đủ số lần qua. `npm run test:e2e` cả bộ qua.
 
 ## Rủi ro, câu hỏi mở
 
-- **Chặn nhầm người dùng di động** chung khối /48: chấp nhận với trần 20 (Thiết kế 1). Chưa có số đo thật về số thuê bao mỗi /48 của các nhà mạng Việt Nam. Dòng log chặn giờ tách `network`, nên người vận hành thấy được và nâng bằng biến môi trường. Không chặn tiến độ.
-- **Bỏ cổng có thể đổi khoá của ai đó?** Trước T67, `1.2.3.4:5678` là một khoá riêng cho mỗi kết nối, nên trần mỗi địa chỉ không có tác dụng với proxy kiểu đó. Nay mọi người sau proxy đó được đếm đúng theo địa chỉ thật. Đây là sửa đúng hướng; Fly và Render không ghi cổng, nên deploy hiện tại không bị ảnh hưởng.
-- **Xung đột với T68** (cũng sửa `RefusalLog`): T67 chỉ thêm một số đếm; T68 làm sau, dựa trên câu mới. Agent chính nên chuyển cho T68 ghi chú "câu log đã có `network` từ T67".
-- **`::1` trong dev/e2e**: nếu quên nâng `PETGAME_MAX_WORLDS_PER_NETWORK` ở bước 6, e2e mở hơn 20 thế giới qua `localhost` → `::1` sẽ gặp 429 ngẫu nhiên. Bước 6 bắt buộc.
-- Không có dòng CHẶN.
+- **Trùm nổi giận** (tới gần người chơi hoặc thú đi theo trong 120 px) có thể đánh người chơi tới ngất.
+  - Đo được ở 1/4 lần trong 30 s.
+  - `settledBossLayout` tự xử lý: không nhận số đo khi trúng đòn; ngất thì tỉnh dậy ở trại, thanh ẩn, nên nó gọi `nearBoss`.
+  - `accept` mới loại thông báo "Bạn bị ngất…".
+  - Rủi ro còn lại chỉ là hết 10 lần thử. Lỗi khi đó là "never settled" kèm toạ độ, không phải đo sai.
+  - Không thêm hook khoá trùm. Nếu sau này gặp lại, tách việc riêng: hook `debug:` giữ trùm đứng yên, sửa server.
+- **Nóng ở núi lửa:** ngất sau khoảng 66 s ở lì đó. Bỏ đếm nóng trong `watchHurt` làm ít lần thử bị loại hơn, nên thời gian ở đó ngắn lại. Ngất vẫn được xử lý như trên.
+- **Thông báo mức cao của game hiện đúng lúc đẩy** (lên cấp của thú đi theo khi nó hạ một thú hoang): `shown at once` sẽ hỏng. Thú đi theo chỉ đánh khi bị đánh trước, nên gần như không gặp. Không nới phép kiểm vì chuyện này.
+- **Thông báo thử ở lâu hơn:** `prepare` gọi `showToast` mỗi lần thử, nên thông báo thử ở lâu thêm (luật trùng chữ). Không ảnh hưởng phép kiểm nào: test trùm không kiểm "thông báo thứ hai hiện sau khi cái đầu hết".
+- Không có dòng "CHẶN:".
+
+## Việc cho agent chính
+
+- **T71:** sau khi T63 xong, bỏ mục đầu "cho test `boss bar (...)` dùng `nearBoss` thay bản `goNearBoss` riêng". T63 đã làm mục này. Phần còn lại của T71 giữ nguyên.
+- Không đề xuất tách việc mới.
