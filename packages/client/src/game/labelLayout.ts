@@ -30,6 +30,24 @@ export const LABEL_LAYOUT_MAX = 64;
 /** Time constant of the smooth height change of a tag, in ms (95% done after about three times this). */
 export const LABEL_EASE_MS = 60;
 
+/** The camera looks this many world px above my feet. */
+export const CAMERA_LEAD_PX = 16;
+/** A player's name tag hangs this many world px above the head. */
+export const PLAYER_TAG_LIFT_PX = 6;
+/** Height of a name (`.label span`: 12 px text, 1 px padding); keep in step with index.html. */
+export const NAME_TAG_PX = 17;
+/** The health bar under a hurt name (`.label` gap 3 + `.hp-bar` 5) lifts the name by this much. */
+export const HURT_BAR_PX = 8;
+
+/**
+ * Top of my name tag (CSS px) while I stand still in the middle of a screen `screenHeight` tall, with its health bar
+ * showing, for a figure `actorHeight` world px tall (hair and hat). The camera centre is CAMERA_LEAD_PX above my feet;
+ * the tag is anchored by its bottom at PLAYER_TAG_LIFT_PX above my head.
+ */
+export function restingNameTop(screenHeight: number, zoom: number, actorHeight: number): number {
+  return screenHeight / 2 + (CAMERA_LEAD_PX - actorHeight - PLAYER_TAG_LIFT_PX) * zoom - NAME_TAG_PX - HURT_BAR_PX;
+}
+
 /** One tag for the layout. Screen coordinates are CSS pixels, y down. */
 export interface LayoutItem {
   // In, written by the caller every frame.

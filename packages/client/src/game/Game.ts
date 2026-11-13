@@ -93,7 +93,7 @@ import { Effects } from "./effects.ts";
 import { Lighting, type Light } from "./lighting.ts";
 import { Weather } from "./weather.ts";
 import { Labels, type Tag } from "./labels.ts";
-import { LABEL_RANK } from "./labelLayout.ts";
+import { CAMERA_LEAD_PX, LABEL_RANK, PLAYER_TAG_LIFT_PX, restingNameTop } from "./labelLayout.ts";
 import { Actor, PalActor, PlayerActor } from "./entities.ts";
 import { chainBolt, chargeUp, danger, playSkill, skillPrelude } from "./skillfx.ts";
 import { palPortrait, spriteFor, type PalSprite } from "./palSprites.ts";
@@ -306,6 +306,11 @@ export class Game {
       toggleSound: () => this.sound.toggleMute(),
     });
     this.hud.setMuted(this.sound.muted);
+    // Upright phones: two toasts only when they end above my name (T62, docs/design/hud.md).
+    this.hud.setNameTop(() => {
+      const me = this.me();
+      return me ? restingNameTop(this.stage.height, this.stage.camera.zoom, me.height) : undefined;
+    });
     // Audio can only start after a user gesture: joining counts, but retry on the next one too.
     this.sound.unlock();
     const unlock = () => this.sound.unlock();
@@ -396,7 +401,7 @@ export class Game {
       const actor = new PlayerActor({ x: player.x, y: player.y }, player.color, this.shadowTexture, lookOf(player), wornOf(player));
       let dressed = dressKey(player);
       this.addActor(actor);
-      const { tag, label, text } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + 6, isMe ? LABEL_RANK.me : LABEL_RANK.player);
+      const { tag, label, text } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + PLAYER_TAG_LIFT_PX, isMe ? LABEL_RANK.me : LABEL_RANK.player);
       const hpFill = addHpBar(label);
       this.players.set(sessionId, { actor, tag, label });
       // Waiting to reconnect: the figure and the name are dimmed and the name says so, until they are back.
@@ -417,7 +422,7 @@ export class Game {
         if (dressKey(player) !== dressed) {
           dressed = dressKey(player);
           actor.dress(lookOf(player), wornOf(player));
-          tag.lift = actor.height + 6;
+          tag.lift = actor.height + PLAYER_TAG_LIFT_PX;
           if (isMe) remember(player);
         }
         this.syncCamp(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
@@ -1002,7 +1007,7 @@ export class Game {
     if (me) {
       const k = 1 - Math.pow(0.0005, dt);
       this.camera.x += (me.pos.x - this.camera.x) * k;
-      this.camera.y += (me.pos.y - 16 - this.camera.y) * k;
+      this.camera.y += (me.pos.y - CAMERA_LEAD_PX - this.camera.y) * k;
     }
     this.shake *= Math.pow(0.02, dt);
     this.stage.look(this.camera.x, this.camera.y, this.shake > 0.3 ? this.shake : 0);

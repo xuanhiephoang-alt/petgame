@@ -8,6 +8,7 @@ import {
   PINNED_RANK,
   TAG_FORM,
   layoutTags,
+  restingNameTop,
   type LayoutItem,
 } from "./labelLayout.ts";
 
@@ -31,6 +32,16 @@ function frame(items: LayoutItem[], now: number) {
 }
 
 const me = (over: Partial<LayoutItem> = {}) => tag({ rank: LABEL_RANK.me, width: 40, ...over });
+
+describe("restingNameTop", () => {
+  // Measured in the browser (T62): curly hair is 55.8 world px tall, the wizard hat 68.9.
+  it("matches the measured name tops", () => {
+    expect(restingNameTop(844, 390 / 440, 55.8)).toBeCloseTo(356.4, 1);
+    expect(restingNameTop(760, 390 / 440, 55.8)).toBeCloseTo(314.4, 1);
+    expect(restingNameTop(844, 390 / 440, 68.9)).toBeCloseTo(344.79, 1);
+    expect(restingNameTop(1024, 768 / 440, 55.8)).toBeCloseTo(407.1, 1);
+  });
+});
 
 describe("layoutTags", () => {
   it("1: the later tag rises just enough", () => {

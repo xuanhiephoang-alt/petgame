@@ -1,23 +1,54 @@
-# PROGRESS: T61 Điện thoại ngang thấp (cao 375 px): thông báo vượt mốc ngón cái
+# PROGRESS: T62 Điện thoại dọc: thông báo đè tên người chơi
 
 ## Vòng 1: coder
-- [x] Bước 1: `packages/client/src/ui/hud.ts`: hằng `SIDEWAYS_QUERY`; trường `statusCounts`, `inviteButton`; constructor (chỉ cảm ứng) tạo `.hud-counts` và một nút `.invite-btn` ("🔗 Mời" + `<span class="invite-more"> bạn</span>`, `aria-label="Mời bạn"`), `click` gắn thẳng vào nút (bỏ trình nghe uỷ quyền trên `status`), `matchMedia(SIDEWAYS_QUERY)` chuyển nút giữa `.hud-actions` và ô trạng thái; `setTime` ghi biểu tượng + `<span class="hud-time-word">` + `title`; `setStatus` nhánh cảm ứng dựng các `.hud-count`, chỉ ghi khi đổi, gán `dataset.link` khi khác, không đụng nút; nhánh desktop giữ nguyên chữ, `help` chuyển vào nhánh desktop; JSDoc lớp và `left`.
-- [x] Bước 2: `packages/client/index.html`: `.hud-count` (nowrap, cách 6 px); trong khối `(max-height: 520px) and (min-width: 601px)`: `.hud-left` gap 3, `.hud-health` gap `2px 5px`, `.hud-time-word` ẩn, `.hud-status` padding 3px 8px line-height 1.4, `.hud-count + .hud-count` cách 2 px, `.hud-actions .invite-btn` margin-left 0, `.invite-more` ẩn. Khối dọc và desktop không đổi.
-- [x] Bước 3: `tests/e2e/multiplayer.spec.ts`: thêm `nearBoss`, `SHORT_SIDEWAYS_SCREENS` và 2 test `short sideways phone (...)` sau vòng `BOSS_SCREENS`. `git diff` chỉ có dòng thêm (0 dòng bị xoá).
-- Số đo đáy thông báo dài nhất (px, giới hạn 235), giống bản thử của kế hoạch, ổn định qua 5 lần chạy mỗi màn:
-  - 812×375 tai thỏ: không thanh trùm 214,47; có thanh trùm 214,47.
-  - 667×375: không thanh trùm 228,47; có thanh trùm 228,47.
-- Lệch kế hoạch: không có. Ghi chú: nhóm ảnh `--only world` không có ảnh cầm ngang; ảnh `phone.png` (dọc) cho thấy bố cục dọc không đổi (nút "🔗 Mời bạn" cuối ô trạng thái). Cầm ngang chỉ kiểm bằng e2e (hộp, vùng chạm, xoay máy, thông báo), chưa nhìn ảnh.
-- Lệnh đã chạy: typecheck ✓, test ✓ (451 test), build ✓, test:e2e ✓ (50 test, gồm 3 test `toasts (...)`, 5 test `boss bar (...)`, `touch`, `touch targets` có sẵn), 2 test mới `--repeat-each=5 --workers=1 --retries=0` ✓ (10/10), shots `--name t61 --only world` ✓ (15 ảnh).
+- [x] Bước 1: `TOAST.roomyPortraitPx` 790; thêm `portraitToastPx` 61, `gapPx` 4, `nameClearPx` 4, `roomCheckMs` 250; `ToastFit`; `toastRoom(width, height, fit?)` (`packages/client/src/ui/toastQueue.ts`)
+- [x] Bước 2: `CAMERA_LEAD_PX`, `PLAYER_TAG_LIFT_PX`, `NAME_TAG_PX`, `HURT_BAR_PX`, `restingNameTop` (`packages/client/src/game/labelLayout.ts`)
+- [x] Bước 3: `Game.ts` dùng hằng số cho camera (dòng camera) và nhãn người chơi (2 chỗ `actor.height + PLAYER_TAG_LIFT_PX`); `hud.setNameTop(...)` sau `setMuted`
+- [x] Bước 4: `Hud` nhớ `toastSlots`, `measureSlots` mỗi `showToast` và mỗi 250 ms khi có thông báo chờ trong `tickToasts`; `toastFit` là chỗ đọc layout duy nhất (`packages/client/src/ui/hud.ts`)
+- [x] Bước 5: chú thích CSS về `NAME_TAG_PX`/`HURT_BAR_PX` (`packages/client/index.html`), không đổi luật CSS
+- [x] Bước 6: unit test thêm (không sửa `it` cũ): `toastQueue.test.ts` (4 `it` mới), `labelLayout.test.ts` (`restingNameTop`, 4 số đo)
+- [x] Bước 7: e2e thêm `LONGEST_TOASTS`, `UPRIGHT_TOAST_SCREENS` và 3 test `toasts (upright phone, ...)` (`tests/e2e/multiplayer.spec.ts`, chỉ thêm dòng, sau test `short sideways phone (667×375)`)
+
+### Khoảng cách tới tên (đã bị thương, sau khi trượt xong; ổn định qua 5 lần lặp, lag 0)
+| Màn | Ô nhiệm vụ, mũ | Số cái | Khoảng cách (px) | Dự kiến |
+|---|---|---|---|---|
+| 390×760 | q0, không mũ | 1 | +52,6 | +52 |
+| 390×760 | q3, mũ phù thủy | 1 | +12,0 | +12 |
+| 390×844, tai thỏ 47 | q0, không mũ | 1 | +59,6 | +59 |
+| 390×844, tai thỏ 47 | q3, mũ phù thủy | 1 | +19,0 | +19 |
+| 390×844 | q0, mũ phù thủy | 2 | +18,4 | +18 |
+| 390×844 | q3, mũ phù thủy | 1 | +54,0 | +54 |
+
+Thanh máu giả lập đẩy tên lên đúng trong [7, 9] px ở mọi case.
+
+- Lệch kế hoạch: không có. (Lệnh `--repeat-each` chạy quá giới hạn 10 phút nên chạy lại nền với giới hạn dài hơn; kết quả dưới đây.)
+- Không đổi: `TOAST_SCREENS`, `BOSS_SCREENS`, `toastLayout`, `safeArea`, test có sẵn; `git diff` của hai file test chỉ có dòng thêm.
+- Lệnh đã chạy:
+  - typecheck ✓
+  - test ✓ (456 test, 33 file)
+  - build ✓
+  - `npm run test:e2e` ✓ (54 test, 8,1 phút), gồm 3 test mới
+  - `npx playwright test -g "toasts|boss bar|short sideways" --repeat-each=5 --workers=1 --retries=0` ✓ (75/75, 15,5 phút, không chập chờn)
 
 ## Kiểm thử vòng 1: PASS
-- typecheck ✓   test ✓ (451, 33 file)   build ✓   e2e ✓ (50 test trước khi thêm test của tester; sau khi thêm 1 test: chạy riêng 3/3 `short sideways phone`, lặp 5/5 test mới)   photo3d (không chạy: không đụng `tools/photo3d`)
-- `npx playwright test -g "short sideways phone|boss bar|toasts|touch" --repeat-each=5 --workers=1 --retries=0`: 80/80 qua (16 test x 5, 16,1 phút). Lần chạy đầu bị hệ thống dừng ở giới hạn nền 30 phút sau 50/50 test qua, không lỗi (lệnh nền thiếu `timeout`); chạy lại đủ 80/80. Không flaky.
-- Tiêu chí hoàn thành: [x] ô trạng thái một dòng (667 và 812: cao 22,8) [x] nút "🔗 Mời" ở hàng máu, chuyển bằng matchMedia, xoay máy chuyển lại được [x] thời gian chỉ còn biểu tượng [x] đáy thông báo 214/228 ≤ 235 (số của coder, test mới qua 10/10) [x] dọc và desktop không đổi (dưới) [x] không dòng test cũ nào bị đổi (`git diff --numstat tests/`: 0 dòng xoá)
-- Dọc/desktop "không đổi một px": đo `getBoundingClientRect` của hàng máu, hp, giờ, Ăn, 🔊, nút mời, ô trạng thái, nhiệm vụ, thông báo, cột, hàng nút ở 390x844 (cảm ứng) và 1280x800, HEAD (git stash có ghi chú, đã `stash pop`, cây làm việc về như cũ, `git stash list` rỗng) so với cây làm việc: **mọi hộp trùng 0,0 px**. Chỉ `innerText` ô trạng thái khác ở khoảng trắng (`&nbsp;` nhiều chữ cách thành 1 dấu cách + margin 6 px; dùng `innerText`, hộp không đổi). Script: `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/rects.mjs`, kết quả `rects-old.json`, `rects-new.json`.
-- Ngang (so HEAD -> mới): 667x375 trạng thái `[12,88,223,136]` (2 dòng) -> `[12,84,185,107]` (1 dòng), nhiệm vụ trên 140 -> 110, hàng máu cao 72 -> 69, nút mời `[128,44,189,65]` cùng hàng với Ăn và 🔊; 812x375 tai thỏ 44: tương tự `[160,44,221,65]`. Ảnh `scratchpad/new-s667.png`, `new-s812.png` đã xem: không chồng chéo, không cắt chữ, nút đúng chỗ, bản đồ nhỏ và cột nút phải không đụng.
-- Đột biến (đã hoàn nguyên, kiểm bằng `diff` với bản sao và `git diff --stat`):
-  a) bỏ `white-space: nowrap` của `.hud-count`: 2 test `short sideways phone (...)` có sẵn **vẫn qua (không bắt được)**, vì ở trạng thái mặc định ô trạng thái vừa một dòng. Test mới bắt được: `"🫐 600","lines":2` tại `multiplayer.spec.ts:3012`.
-  b) bỏ `sideways.addEventListener("change", placeInvite)`: cả 2 test sẵn có hỏng (`.hud-status .invite-btn` toHaveCount Expected 1, Received 0 sau `setViewportSize` 375x812).
-- Test đã thêm (chỉ thêm, không sửa dòng cũ): `short sideways phone (667×375): a full status panel breaks between counts, never inside one` trong `tests/e2e/multiplayer.spec.ts` (~dòng 3000): 600 mỗi tài nguyên (12 lần `debug:give`) + `debug:gear`, mỗi `.hud-count` chỉ 1 khung (không bị cắt đôi icon và số), nút mời còn ở hàng máu, ô trạng thái không chứa `button`. Qua 5/5 lặp, hỏng khi bỏ nowrap.
-- Lưu ý nhỏ: trên điện thoại dọc, chỗ ngắt dòng của ô trạng thái đầy có thể khác trước một chút (khoảng cách giờ là margin 6 px thay cho khoảng trắng `&nbsp;`), hộp ở trạng thái thường vẫn trùng px. Không phải lỗi.
+- typecheck ✓   test ✓ (456, 33 file)   build ✓   e2e ✓ (54, 8,2 phút, gồm 3 test `toasts (upright phone, ...)`)   photo3d (không chạy)
+- Lặp: `-g "toasts|boss bar|short sideways|labels" --repeat-each=5 --workers=1 --retries=0` ✓ 80/80 (16 test × 5, 16,2 phút), không chập chờn. (`labels` thêm 1 test so với lệnh của coder.)
+- Tiêu chí hoàn thành:
+  - [x] typecheck, test, build, toàn bộ e2e sạch
+  - [x] `git diff` của `tests/e2e/multiplayer.spec.ts`, `toastQueue.test.ts`, `labelLayout.test.ts` không có dòng xoá nào; `TOAST_SCREENS`, `BOSS_SCREENS`, `toastLayout`, `safeArea` không đổi
+  - [x] `toastRoom`: 521-789 → 1; (390, 790) không fit → 2; 4 màn không gọi `fit` (unit đếm); ranh giới 230 / 229,9 đúng
+  - [x] `restingNameTop` khớp 4 số đo (unit)
+  - [x] E2E mới: 390×760 1 cái (+52,6; +12,0); 390×844 tai thỏ 1 cái (+59,6; +19,0); 390×844 2 cái (+18,4) rồi 1 cái (+54,0); cái thứ hai hiện sau; không chồng HUD
+  - [x] Không đổi ngang, desktop (xem dưới), 390×844 ô đầu 2 cái, tai thỏ + thanh trùm 2 cái (test có sẵn qua)
+  - [x] Hiệu năng (đọc code, xem dưới)
+  - [x] Không còn `- 16` ở dòng camera và `height + 6` ở nhãn người chơi (còn `actor.height + 6` ở nhãn thú đầu đàn, Game.ts:461, đúng kế hoạch: không đổi lift của thú)
+  - [x] `docs/design/hud.md` có mốc 790, luật vừa chỗ
+- So sánh HEAD với cây làm việc (`git stash push -m "tester T62 compare"`, đo, `stash pop`; `git diff` sau pop trùng từng byte với trước): hộp `.hud-left`, `.hud-quest`, `.hud-toasts` và từng `.toast` ở 1280×800 (2 thông báo: 291-342, 346-397) và 812×375 (1 thông báo: 153,8-197,6) giống hệt, `diff` rỗng. Script đo tạm `tests/e2e/zzcmp.spec.ts` đã xoá.
+- Đột biến (mỗi cái hoàn lại, `git diff` trùng bản gốc):
+  - a) `restingNameTop` bỏ `HURT_BAR_PX`: bắt bởi unit `restingNameTop > matches the measured name tops`
+  - b) `toastRoom` bỏ qua `fit`: unit bắt 3 test (`two only when...`, `boundary`, `fit is only asked`); e2e `toasts (upright phone, 390×844, notch)` và `(390×844)` hỏng ở `toHaveCount(1)` (390×760 vẫn qua vì dưới 790, đúng)
+  - c) `roomyPortraitPx` 760: unit bắt `under 790 px...` và `fit is only asked...`
+  - d) Hud chỉ đo lần đầu, không đo lại trong `tickToasts`: e2e `toasts (upright phone, 390×844)` hỏng (`Expected: 1, Received: 2`, cache cũ của case mũ phù thủy ô 57 px)
+- Hiệu năng: `tickToasts` chỉ đo khi `toastQueue.waiting.length > 0` và ≥ 250 ms từ lần đo trước; `toastFit` (chỗ duy nhất đọc `getBoundingClientRect`, `getComputedStyle`) chỉ chạy khi `toastRoom` gọi `fit` (màn dọc ≥ 790) và có nhân vật; không đọc layout mỗi khung; khi hàng chờ rỗng không tạo object. `showToast` gọi `measureSlots` mỗi thông báo mới (theo kế hoạch). Chưa đo thời gian chạy thật, chỉ đọc code.
+- Test đã thêm: không (test của coder đủ cho PLAN.md).
+- Lỗi: không.

@@ -1,59 +1,64 @@
 PASS
-# REVIEW: T61 Điện thoại ngang thấp (cao 375 px): thông báo vượt mốc ngón cái, vòng 1
+# REVIEW: T62 Điện thoại dọc: thông báo đè tên người chơi, vòng 1
 
 ## Kết luận
-Thay đổi đúng PLAN.md và `docs/design/hud.md`, không làm gì ngoài phạm vi: chỉ đụng `hud.ts`, `index.html`, e2e (176 dòng thêm, 0 dòng xoá). Phần dời nút bằng matchMedia đúng, ô trạng thái chỉ ghi DOM khi số đổi, CSS chỉ áp dụng khi cầm ngang (riêng `.hud-count` áp dụng cho mọi điện thoại, đúng kế hoạch), thanh trùm T30 giữ nguyên. Không có lỗi phải sửa. `npm run typecheck` sạch (reviewer chạy lại). Phần thêm trong spec e2e cũng qua `tsc --strict` khi kiểm riêng (không có lỗi kiểu nào).
+Thay đổi làm đủ 7 bước của PLAN.md, không làm ngoài phạm vi. Luật vừa chỗ đúng và tính theo số đo thật, nên màn ngang, desktop và màn dọc < 790 không đọc DOM. Không có lỗi phải sửa. Hàng chờ không cắt thông báo khi số chỗ giảm. Số chỗ cũng không nhảy qua lại giữa 1 và 2, nên không cần hysteresis. Tôi đã tự chạy typecheck (sạch) và 2 file unit (37/37 qua). Ba file test chỉ có dòng thêm (`git diff --numstat`: 11/34/105 dòng thêm, 0 dòng xoá).
 
-## Lỗi phải sửa
-(không có)
+## Lỗi phải sửa (FAIL khi còn mục này)
+Không có.
 
-## Trả lời các câu hỏi rà soát
+## Đã kiểm (không phải lỗi)
+- **Chỗ bắt đầu thông báo đo thật khớp với mô hình `restingNameTop`:**
+  - `.hud-toasts` là con cuối của `.hud-left` (flex cột, `order: 10`), và `.hud-toasts:empty` có `display: none`. Vì vậy hai nhánh của `Hud.toastFit` cho cùng một số:
+    - có thông báo: mép trên của `.hud-toasts`;
+    - không có: đáy `.hud-left` + `row-gap`.
 
-1. **Dời nút bằng matchMedia** (`hud.ts:78-99`):
-   - Chỉ có một `<button>`, tạo một lần trong constructor và chỉ khi `isTouch`. `append` dời nút sang chỗ mới chứ không nhân bản, nên trình nghe `click` và `data-link` đi theo nút. Test kiểm `.invite-btn` có đúng 1 cái trước và sau khi xoay máy 2 lần, rồi `tap` mở bảng chia sẻ.
-   - Trạng thái ban đầu: `placeInvite()` chạy ngay trong constructor. Khi đó `Game.init` đã dựng stage, nên khung nhìn đã có cỡ thật.
-   - Câu truy vấn trùng từng ký tự với khối CSS `index.html:408`.
-   - Trình nghe `change` không bao giờ được gỡ, nhưng `Hud` và `Game` không có `destroy()` và sống suốt đời trang: rời thế giới là `location.assign` hoặc `reload` (`main.ts:191-196, 228`). Vì vậy không rò rỉ. Sau này thêm `destroy()` thì nhớ gỡ trình nghe này.
-   - Focus: `append` một nút đang có focus làm nó mất focus. Chuyện này chỉ xảy ra khi đang focus nút bằng bàn phím mà xoay máy, gần như không gặp.
-   - Trình nghe uỷ quyền cũ trên `this.status` đã bị xoá. Chú thích về "cử chỉ người dùng" được giữ, chuyển sang trình nghe mới.
-2. **Trợ năng:**
-   - Nút 🔗: `aria-label="Mời bạn"` có ở mọi màn. Tên đọc ra chứa chữ đang hiện ("Mời"), nên đạt WCAG 2.5.3 (label in name). Khi cầm dọc, chữ hiện "🔗 Mời bạn" khớp đúng tên đọc ra.
-   - Chữ giờ: `.hud-time-word { display: none }` làm chữ rời khỏi cây trợ năng. Trình đọc màn hình chỉ còn đọc tên của emoji (VoiceOver và TalkBack đọc ☀️ 🌇 🌙 🌅 thành tên mô tả, gần nghĩa nhưng không phải "Ngày" hay "Hoàng hôn"). `title` trên một `span` thường không được trình đọc màn hình trên điện thoại đọc, và màn cảm ứng không hiện tooltip.
-   - Không chặn: tên vùng cũng đã ẩn bằng `display: none` từ T6, và HUD này chưa đặt mục tiêu dùng được với trình đọc màn hình. Xem góp ý 1.
-3. **Hiệu năng:**
-   - `setStatus` vẫn chạy mỗi khung (`Game.updateHud` gọi từ vòng vẽ), như trước T61.
-   - DOM chỉ ghi khi `html` đổi, `dataset.link` chỉ gán khi khác. Không có `querySelector` mới chạy mỗi khung. `setTime` chỉ `querySelector` khi pha đổi.
-   - Mỗi khung vẫn dựng chuỗi và vài mảng nhỏ (`counts`, `map`, `join`). Bản cũ cũng dựng chuỗi mỗi khung, nên số rác tăng rất ít. Không tạo phần tử DOM nào. Đạt tiêu chí của kế hoạch.
-4. **Chỗ ngắt dòng của ô trạng thái đầy khi cầm dọc:**
-   - Không phải hồi quy so với T18 hay T39. T18 đặt mốc ngón cái cho màn cầm ngang. T39 lo vùng chạm và cần điều khiển, mà hộp và vùng chạm của nút 🔗 khi cầm dọc trùng 0 px với HEAD (số đo của tester).
-   - Khoảng cách cũ ` &nbsp; ` (dấu cách, nbsp, dấu cách) gần bằng khoảng mới (1 dấu cách + 6 px), nên rộng tổng gần như không đổi.
-   - Ngắt dòng nay tốt hơn: trước đây trình duyệt được ngắt giữa biểu tượng và số (như "🪵" ở cuối dòng, "600" ở đầu dòng sau, thêm `overflow-wrap: anywhere`). Nay mỗi con số giữ nguyên một khối.
-   - Trường hợp xấu nhất chỉ là một con số dời hẳn xuống dòng sau. Khi cầm dọc không có mốc nào bị ảnh hưởng.
-5. **Phạm vi CSS:**
-   - Các luật mới cho cầm ngang đều nằm trong khối `(max-height: 520px) and (min-width: 601px)`.
-   - Hai luật chung `.hud-count` (nowrap, cách 6 px) chỉ khớp DOM của màn cảm ứng: desktop vẫn dựng HTML cũ, không có `.hud-count`.
-   - Một chỗ rò nhỏ: khối CSS này cũng khớp cửa sổ desktop thấp (cao ≤ 520 px), nên ở đó chữ giờ cũng ẩn. Tên vùng cũng ẩn như vậy từ T6. Không có nút 🔗 nào bị dời, vì nhánh desktop không tạo nút. Xem góp ý 2.
-6. **Vùng chạm:**
-   - Nút 🔗 khi cầm ngang: hộp 61×21, vùng chạm `::before` cao 44 px (`index.html:261-262`). `expectTouchable` trong test mới xác nhận 🫐 Ăn, 🔊 và 🔗 đều có vùng chạm thật ≥ 44×44.
-   - Các test `touch targets` và `touch (...)` có sẵn vẫn qua.
-7. **Thanh trùm T30:**
-   - Không đổi `.boss-bar` hay luật bố cục của nó.
-   - Test mới kiểm thanh nằm giữa, mép trên ngang cột, cách cột và bản đồ nhỏ ≥ 8 px, nằm trong vùng an toàn, không chồng nút 🔗 (`expectBarClear` đo cả `.invite-btn`).
-   - 5 test `boss bar (...)` có sẵn vẫn qua, 80/80 lần lặp.
-8. **Chất lượng test:**
-   - 2 test `short sideways phone (...)` kiểm đúng hành vi mà kế hoạch đặt ra:
-     - ô trạng thái 1 dòng và hàng máu ≤ 70 lúc hoàng hôn;
-     - ba nút cùng một dòng, vùng chạm ≥ 44×44;
-     - xoay máy hai lần rồi bảng chia sẻ vẫn nhận đúng link;
-     - thông báo kết thúc ≤ cao − 140, có và không có thanh trùm.
-   - Đột biến (b), bỏ trình nghe `change`, bị bắt.
-   - Test tester thêm (ô đầy ở 667) bắt được đột biến (a), bỏ `nowrap`: nó kiểm từng `.hud-count` chỉ có 1 khung (`getClientRects`). Đây là cách kiểm tốt.
-   - `nearBoss` chép y nguyên `goNearBoss` (`multiplayer.spec.ts:2711-2740`). Kế hoạch cho phép vì T61 không sửa test cũ, và đã có đề xuất dọn ở việc tách số 3. Chấp nhận.
-9. **Việc tách ra:** cả 3 đề xuất trong PLAN.md đều hợp lý, nên thêm vào `TASKS.md` (P3). Thêm 2 góp ý dưới đây nếu muốn.
+    Số đo đó không phụ thuộc thông báo đang hiện, và hiệu ứng trượt nằm ở `.toast`.
+  - `restingNameTop` dùng các số sau, không có số nào thay đổi từng khung, nên số chỗ không dao động:
+    - `stage.height` và `camera.zoom`: chỉ `Stage.resize` ghi;
+    - `me.height`: tóc và mũ lúc này;
+    - `CAMERA_LEAD_PX`, `PLAYER_TAG_LIFT_PX`: chung một nguồn với `Game.ts`.
+- **Đổi tủ đồ khi đang có thông báo:** nếu có thông báo chờ, số chỗ được tính lại với chiều cao mới trong vòng ≤ 250 ms. Thông báo đang hiện không bị cắt, đúng kế hoạch.
+- **Thanh trùm thế chỗ ô nhiệm vụ giữa hàng chờ:** chỗ bắt đầu thông báo đo lại từ DOM, nên chỗ mở ra (1 → 2) được dùng ngay. Trường hợp ngược lại (trùm đi xa, ô nhiệm vụ cao trở lại) có thể làm thông báo đang hiện đè tên tới hết giờ. Kế hoạch đã chấp nhận ở mục rủi ro.
+- **Xoay máy:** màn ngang trả 1 hoặc 2 trước khi gọi `fit`. Mỗi lần `push` đều tính lại, và trong lúc chờ thì tính lại mỗi 250 ms. Xem thêm góp ý 4 về một khung trễ của Pixi.
+- **Luật hàng chờ:** `ToastQueue` không đổi, và `maxVisible()` chỉ chặn việc hiện thêm. Khi số chỗ từ 2 xuống 1, cả hai thông báo đang hiện vẫn ở lại. Khi số chỗ từ 1 lên 2, cái đang chờ hiện bên dưới. Không có chớp tắt.
+- **Hiệu năng:**
+  - `tickToasts` chỉ đo khi `waiting.length > 0` và đã ≥ 250 ms từ lần đo trước;
+  - closure và object `ToastFit` chỉ được tạo khi đo;
+  - khi không có thông báo chờ thì không tạo object nào mỗi khung;
+  - `getBoundingClientRect` và `getComputedStyle` chỉ nằm trong `toastFit`.
+- **Hằng số:**
+  - `16` ở dòng camera và `6` ở hai chỗ nhãn người chơi đã thay bằng hằng.
+  - Nhãn thú đầu đàn vẫn `actor.height + 6` (Game.ts:461), và đúng ra phải giữ: đó là nhãn thú, không phải nhãn người chơi. Dùng `PLAYER_TAG_LIFT_PX` ở đó sẽ sai nghĩa.
+  - `NAME_TAG_PX`, `HURT_BAR_PX` có chú thích hai chiều với CSS (`index.html` và JSDoc).
+- **Test:**
+  - Unit test phủ ranh giới 230 / 229,9, mốc 789/790, `fit` trả `undefined`, và các màn không gọi `fit`.
+  - E2E: thanh máu giả lập bằng đúng lớp `hurt` mà `setHp` đặt. Lớp được bật rồi trả lại trong cùng một `evaluate`, và test kiểm nó đẩy tên lên 7-9 px.
+  - Nếu số chỗ sai thành 2, `toHaveCount(1)` không thể qua: hai thông báo cùng hết hạn ở 7 s, nên số đếm đi 2 → 0, không bao giờ qua 1. Đột biến (b) và (d) của tester xác nhận điều này.
+  - Tester lặp 80/80 lần, gồm các test `boss bar (...)` (rủi ro T30), không có lần nào chập chờn.
+- **hud.md:**
+  - Mốc 790, luật vừa chỗ, chu kỳ 250 ms và câu "màn ngang không đo" khớp code.
+  - Bảng kết quả khớp số đo của coder (+52,6 / +12,0 / +59,6 / +19,0 / +18,4 / +54,0).
 
 ## Góp ý không bắt buộc
-1. **Trợ năng chữ giờ** (P3): ẩn `.hud-time-word` bằng luật "visually hidden" thay vì `display: none`, như `position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap`. Phần tử nằm ngoài luồng flex nên không đổi bố cục, và trình đọc màn hình vẫn đọc "Hoàng hôn". Có thể làm cùng `.hud-region`. Nếu đã thay luật ẩn thì `title` không còn cần.
-2. Cửa sổ desktop thấp (cao ≤ 520 px) cũng mất chữ giờ, giống tên vùng từ T6. Có thể giới hạn `.hud-time-word { display: none }` vào `.hud.touch`. Ghi lại trong `hud.md` nếu giữ nguyên.
-3. `setStatus` (nhánh cảm ứng) có thể so khoá số (`players|captured|wood|stone|berries|gear`) trước khi dựng mảng và HTML, để khung không đổi gì thì không tạo chuỗi nào. Nhánh desktop cũng vậy. Lợi ích nhỏ.
-4. Test ô đầy có thể kiểm thêm `.hud-status` cao ≤ 2 dòng, và chạy ở 812×375 có tai thỏ. Đề xuất tách số 2 trong PLAN.md cũng nhắc việc thêm trường hợp này.
-5. Rủi ro màn rộng 601-615 px (dòng 2 hàng máu tràn 6 px) đã được ghi và chấp nhận trong PLAN.md. Nên ghi kèm vào việc tách số 1 (640×360) để đo cùng lúc.
+1. **Việc tách mới, nên thêm vào TASKS.md cùng 2 việc kế hoạch đã đề xuất: tên mình bị `layoutTags` đẩy lên.**
+   - Nhãn ghim (rank ≤ `PINNED_RANK`) xếp theo y trước. Vì vậy khi thú đi theo mình, thú đang ngắm hoặc thú đầu đàn đứng thấp hơn mình trên màn và chồng nhãn, nhãn của mình phải nhường và lên cao tới `LABEL_PINNED_NUDGE_PX` = 48 px (`labelLayout.ts` dòng 92-95).
+   - `restingNameTop` không tính phần này, nên khi đứng yên mà đánh nhau sát thú, 2 thông báo vẫn có thể đè tên.
+   - Nên gộp vào việc "tên lên cao lúc đang đi". Đo xem trường hợp này hay gặp tới mức nào, rồi chọn một trong hai hướng:
+     - cho nhãn `me` luôn giữ chỗ (rank `me` xếp trước mọi nhãn ghim khác);
+     - hoặc cộng phần `rise` hiện tại của nhãn mình vào lúc đo.
+2. **Hai việc kế hoạch đề xuất (màn dọc thấp 390×664 / 375×667; camera trễ khi đi):** đồng ý tách thành P3.
+   - Với màn dọc thấp, hướng "ẩn dòng gợi ý hoặc dòng Thưởng của ô nhiệm vụ khi cầm dọc thấp" rẻ và không đụng luật hàng chờ. Nên làm trước hướng cắt chữ thông báo.
+   - Với camera trễ, không nên cộng thêm cố định vào `nameClearPx` (mất 2 chỗ ở 390×844). Nên đo tần suất trước, như kế hoạch nói.
+3. **Câu chữ ở hud.md và PLAN.md, mục "Trải nghiệm":**
+   - Câu "thông báo thứ hai hiện sau khi cái đầu hết" chỉ đúng cho thông báo mức cao.
+   - Với 1 chỗ, một thông báo mức thường tới khi một thông báo mức thường đang hiện sẽ **thay** cái đó (luật T8, như khi cầm ngang), chứ không chờ.
+   - Nên ghi rõ ở hud.md: "thông báo đang hiện không bị cắt **vì số chỗ giảm**".
+4. **Xoay máy, một khung trễ:**
+   - `toastRoom` dùng `window.innerWidth/innerHeight` ngay lúc đó, còn `restingNameTop` dùng `stage.height`. Pixi cập nhật `stage.height` qua sự kiện resize của renderer, có thể chậm một khung.
+   - Phần lớn trường hợp làm số chỗ nhỏ hơn thật (an toàn). Nếu muốn chặt, có thể truyền `stage.width/height` vào `toastRoom` thay cho `window.inner*`.
+5. **E2E `toasts (upright phone, ...)`:**
+   - Vòng lặp chờ `lag < 1` không kiểm lại sau 5 lần thử, chỉ ghi log. Nên `expect(layout.lag).toBeLessThan(1)` (hoặc ít nhất ghi `lag` vào thông báo lỗi của `gap`), để nếu hỏng thì phân biệt được camera trễ với luật sai.
+   - `setLook` chỉ gửi `{ hair: "curly" }`, kế hoạch ghi `{ hair, hairColor: 0, skin: 0 }`. Test vẫn qua, không ảnh hưởng.
+6. **Unit test "fit is only asked...":** thiếu `(1280, 500)` trong danh sách tiêu chí. Nhánh `height ≤ 520` đã được kiểm gián tiếp, nên chỉ cần thêm cho đủ.
+7. **`showToast` đo mỗi lần gọi** (ép layout một lần trên màn dọc ≥ 790). Với tần suất thông báo hiện tại thì không sao. Nếu sau này có thông báo dồn dập (spam nút), có thể bỏ qua lần đo khi lần trước cách < 50 ms.

@@ -15,6 +15,7 @@
       .labels { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
       .label { display: flex; flex-direction: column; align-items: center; gap: 3px; white-space: nowrap; transition: opacity 0.15s; }
       .labels > .float { z-index: 20; } /* floating texts sit above every name tag (tags use z-index 3 to 10 by rank, see labels.ts) */
+      /* NAME_TAG_PX (name height 17) and HURT_BAR_PX (gap 3 + .hp-bar 5) in game/labelLayout.ts follow these sizes: change both together. */
       .label span { font-size: 12px; font-weight: 600; color: #fff; background: rgba(20,30,20,0.55);
         padding: 1px 8px; border-radius: 10px; transition: opacity 0.15s; }
       .label.me span { background: rgba(255,193,7,0.85); color: #3a2a00; }

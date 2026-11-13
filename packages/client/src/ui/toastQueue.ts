@@ -19,9 +19,26 @@ export const TOAST = {
   maxWaiting: 4,
   /** Screens this tall (px) or shorter (phones held sideways) show one toast at a time. */
   shortScreenPx: 520,
-  /** Upright screens shorter than this show one toast at a time: the HUD column would reach the player. */
-  roomyPortraitPx: 760,
+  /** Upright screens shorter than this show one toast at a time; taller ones show two only when they fit above my name (`toastRoom`). */
+  roomyPortraitPx: 790,
+  /**
+   * The tallest toast on an upright phone: 3 lines of 13 px text, measured at 360-412 px wide (wider columns wrap less).
+   * A longer toast (4 lines, 78 px) could still reach my name.
+   */
+  portraitToastPx: 61,
+  /** The gap between toasts (`.hud-toasts` in index.html). */
+  gapPx: 4,
+  /** The least room left between the last toast and my name tag. */
+  nameClearPx: 4,
+  /** How often the room is measured again while toasts wait. */
+  roomCheckMs: 250,
 } as const;
+
+/** Where the toasts start and where the top of my name tag is at rest, health bar shown (CSS px from the top of the screen). */
+export interface ToastFit {
+  toastsTop: number;
+  nameTop: number;
+}
 
 /** A toast being shown. */
 export interface Toast {
@@ -48,11 +65,18 @@ export function toastDuration(text: string, level: ToastLevel): number {
   return Math.min(TOAST.maxMs, Math.max(TOAST.minMs[level], TOAST.baseMs + TOAST.perCharMs * [...text].length));
 }
 
-/** How many toasts fit at once on a screen of this size (px). */
-export function toastRoom(width: number, height: number): number {
+/**
+ * How many toasts fit at once on a screen of this size (px). `fit` reads the layout, so it is asked only on upright
+ * screens `roomyPortraitPx` tall or more; it returns undefined when there is no name to avoid.
+ */
+export function toastRoom(width: number, height: number, fit?: () => ToastFit | undefined): number {
   if (height <= TOAST.shortScreenPx) return 1;
-  if (width < height && height < TOAST.roomyPortraitPx) return 1;
-  return TOAST.maxVisible;
+  if (width >= height) return TOAST.maxVisible;
+  if (height < TOAST.roomyPortraitPx) return 1;
+  const at = fit?.();
+  if (!at) return TOAST.maxVisible;
+  const bottom = at.toastsTop + TOAST.maxVisible * TOAST.portraitToastPx + (TOAST.maxVisible - 1) * TOAST.gapPx;
+  return bottom + TOAST.nameClearPx <= at.nameTop ? TOAST.maxVisible : 1;
 }
 
 /**

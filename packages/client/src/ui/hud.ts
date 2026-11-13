@@ -1,5 +1,5 @@
 import { BERRY_HEAL, EAT_COOLDOWN_MS, MAX_PLAYERS, RESOURCES, RESOURCE_INFO, type Resource } from "@petgame/shared";
-import { ToastQueue, toastRoom, type ToastLevel } from "./toastQueue.ts";
+import { TOAST, ToastQueue, toastRoom, type ToastFit, type ToastLevel } from "./toastQueue.ts";
 
 /** How long (ms) a toast fades out before its element is removed; matches the CSS transition on `.toast`. */
 const TOAST_FADE_MS = 200;
@@ -23,7 +23,11 @@ export class Hud {
   /** Touch screens: 🔗 Mời bạn. Last in the status panel, or after 🔊 in the health row on a sideways phone. */
   private inviteButton?: HTMLButtonElement;
   private toasts: HTMLDivElement;
-  private toastQueue = new ToastQueue(() => toastRoom(window.innerWidth, window.innerHeight));
+  /** How many toasts fit, as last measured (`measureSlots`). */
+  private toastSlots: number = TOAST.maxVisible;
+  private slotsCheckedAt = -Infinity;
+  private nameTop: () => number | undefined = () => undefined;
+  private toastQueue = new ToastQueue(() => this.toastSlots);
   private toastElements = new Map<number, HTMLDivElement>();
   private lastStatus = "";
   private ballButton: HTMLButtonElement;
@@ -254,11 +258,36 @@ export class Hud {
 
   /** Queues a toast; its level decides how long it stays and what may replace it. */
   showToast(text: string, level: ToastLevel) {
-    if (this.toastQueue.push(text, level, performance.now())) this.renderToasts();
+    const now = performance.now();
+    this.measureSlots(now);
+    if (this.toastQueue.push(text, level, now)) this.renderToasts();
+  }
+
+  /** Where the top of my name tag is at rest (CSS px), for the upright-phone toast rule; undefined when I am not in the world. */
+  setNameTop(top: () => number | undefined) {
+    this.nameTop = top;
+  }
+
+  /** Measures how many toasts fit now (reads layout only on upright screens 790 px or taller, see `toastRoom`). */
+  private measureSlots(now: number) {
+    this.slotsCheckedAt = now;
+    this.toastSlots = toastRoom(window.innerWidth, window.innerHeight, () => this.toastFit());
+  }
+
+  /** Where the toasts start and my name is. The only place that reads layout, and only when `toastRoom` asks. */
+  private toastFit(): ToastFit | undefined {
+    const nameTop = this.nameTop();
+    if (nameTop === undefined) return undefined;
+    // Shown toasts: the box itself (a fading one keeps its box). None: where the box would start, under the column.
+    const toastsTop = this.toasts.childElementCount > 0
+      ? this.toasts.getBoundingClientRect().top
+      : this.left.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(this.left).rowGap) || 0);
+    return { toastsTop, nameTop };
   }
 
   /** Call every frame: expires toasts and shows waiting ones (does nothing when idle). */
   tickToasts(now: number) {
+    if (this.toastQueue.waiting.length > 0 && now - this.slotsCheckedAt >= TOAST.roomCheckMs) this.measureSlots(now);
     if (this.toastQueue.update(now)) this.renderToasts();
   }
 

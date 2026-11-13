@@ -3014,6 +3014,111 @@ test("short sideways phone (667×375): a full status panel breaks between counts
   await expect(page.locator(".hud-status button")).toHaveCount(0);
 });
 
+/** The two longest high toasts there are (the boss reward as the server words it, and a level-up with two new skills). */
+const LONGEST_TOASTS = [
+  "Hạ được trùm! 🏆 🪵\xa015  🪨\xa025  🫐\xa010  🔵\xa02  🛡️\xa0Giáp hiệp sĩ · Emberpup +250 XP",
+  "Frostfang lên cấp 15! ⭐ Học được chiêu mới: ❄️ Hơi thở băng giá, 🌨️ Bão tuyết",
+];
+
+/**
+ * Upright phones where two toasts may not fit above my name (T62). Per case: the quest (0 = a 57 px tracker, 3 = 86 px),
+ * the hat, and how many toasts fit. The hair is the tallest one (curly); the wizard hat is the tallest figure.
+ */
+const UPRIGHT_TOAST_SCREENS = [
+  { name: "390×760", options: { viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true }, insets: undefined,
+    cases: [{ quest: 0, hat: "", room: 1 }, { quest: 3, hat: "wizardhat", room: 1 }] },
+  { name: "390×844, notch", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, insets: { top: 47, bottom: 34 },
+    cases: [{ quest: 0, hat: "", room: 1 }, { quest: 3, hat: "wizardhat", room: 1 }] },
+  { name: "390×844", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, insets: undefined,
+    cases: [{ quest: 0, hat: "wizardhat", room: 2 }, { quest: 3, hat: "wizardhat", room: 1 }] },
+] as const;
+
+for (const screen of UPRIGHT_TOAST_SCREENS) {
+  test(`toasts (upright phone, ${screen.name}): never on my name, hurt and in the tallest look; one when two do not fit`, async ({ browser }) => {
+    test.slow();
+    const page = await join(browser, "Hiệp", "/", { ...screen.options }, screen.insets ? safeArea(screen.insets) : undefined);
+    await waitForWorld(page);
+    await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+    if (screen.insets) {
+      // The notch counts: the column starts below it.
+      const columnTop = await page.evaluate(() => document.querySelector(".hud-left")!.getBoundingClientRect().top);
+      expect(Math.abs(columnTop - Math.max(12, screen.insets.top))).toBeLessThanOrEqual(1);
+    }
+    await sendFrom(page, "debug:givePal", { species: "emberpup", level: 8 });
+    await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(1);
+    await expect(page.locator(".skill-bar")).toBeVisible();
+    await sendFrom(page, "debug:wardrobe");
+    await sendFrom(page, "setLook", { hair: "curly" });
+    const mine = () => page.evaluate(() => {
+      const { room } = (window as any).__petgame;
+      const p = room.state.players.get(room.sessionId);
+      return { hair: p.hair as string, hat: p.hat as string };
+    });
+    await expect.poll(async () => (await mine()).hair).toBe("curly");
+
+    // My name's top with and without the health bar, the toasts, and how far the camera still lags (a wild pal may push me).
+    const nameAndToasts = () => page.evaluate(() => {
+      const label = document.querySelector<HTMLElement>(".labels > .label.me")!;
+      const span = label.querySelector("span")!;
+      const toasts = [...document.querySelectorAll(".hud-toasts > .toast:not(.out)")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { bottom: r.bottom };
+      });
+      const plain = span.getBoundingClientRect().top;
+      // The class `setHp` sets when health is below the maximum; put back as it was, in the same turn.
+      const wasHurt = label.classList.contains("hurt");
+      label.classList.add("hurt");
+      const hurt = span.getBoundingClientRect().top;
+      if (!wasHurt) label.classList.remove("hurt");
+      const info = (window as any).__petgame.game.debugInfo();
+      const lag = Math.hypot(info.camera.x - info.me.x, info.camera.y - (info.me.y - 16));
+      return { toasts, plain, hurt, wasHurt, lag };
+    });
+    const slideIn = () => page.evaluate(() => Promise.all(document.getAnimations().filter((a) => (a.effect as KeyframeEffect).target?.closest(".hud-toasts")).map((a) => a.finished)));
+
+    for (const { quest, hat, room } of screen.cases) {
+      const label = `${screen.name} q${quest} ${hat || "no hat"}`;
+      await sendFrom(page, "debug:quest", { index: quest });
+      await expect(page.locator(".hud-quest")).toContainText(quest === 0 ? "Bắt con thú đầu tiên" : "Hái 3 bụi quả");
+      await sendFrom(page, "equip", { slot: "hat", id: hat });
+      await expect.poll(async () => (await mine()).hat).toBe(hat);
+      await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
+
+      await page.evaluate((texts) => {
+        const { hud } = (window as any).__petgame.game;
+        for (const text of texts) hud.showToast(text, "high");
+      }, LONGEST_TOASTS);
+      await expect(page.locator(".hud-toasts > .toast:not(.out)")).toHaveCount(room);
+      await slideIn().catch(() => {});
+
+      let layout = await nameAndToasts();
+      for (let i = 0; i < 5 && layout.lag >= 1; i++) {
+        await page.waitForTimeout(250);
+        layout = await nameAndToasts();
+      }
+      const view = await toastLayout(page);
+      expect(layout.toasts, label).toHaveLength(room);
+      // The health bar pushes the name up by 8 px: the stand-in for a hurt player is right.
+      if (!layout.wasHurt) expect(layout.plain - layout.hurt, label).toBeGreaterThanOrEqual(7);
+      if (!layout.wasHurt) expect(layout.plain - layout.hurt, label).toBeLessThanOrEqual(9);
+      for (const toast of view.toasts) {
+        expect(toast.left, toast.text).toBeGreaterThanOrEqual(0);
+        expect(toast.top, toast.text).toBeGreaterThanOrEqual(0);
+        expect(toast.right, toast.text).toBeLessThanOrEqual(view.width);
+        expect(toast.bottom, toast.text).toBeLessThanOrEqual(view.height);
+        expect(view.hud.filter((part) => boxesOverlap(toast, part)).map((part) => part.name), `${label}: ${toast.text}`).toEqual([]);
+      }
+      const gap = layout.hurt - Math.max(...layout.toasts.map((t) => t.bottom));
+      console.log(`T62 clearance ${label}: ${gap.toFixed(1)} (toasts ${room}, lag ${layout.lag.toFixed(2)})`);
+      expect(gap, `${label}: gap ${gap}`).toBeGreaterThanOrEqual(2);
+      if (room === 1) {
+        // Only one fits: the second shows once the first is gone, it is not lost.
+        await expect(page.locator(".hud-toasts")).toContainText("Hơi thở băng giá", { timeout: 10_000 });
+      }
+    }
+  });
+}
+
 test("toasts: the catch and the quest it finishes show together; small notices do not push out a level-up", async ({ browser }) => {
   test.slow();
   const page = await join(browser, "Hiệp");

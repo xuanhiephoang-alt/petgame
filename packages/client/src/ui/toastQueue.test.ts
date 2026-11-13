@@ -47,6 +47,40 @@ describe("toastRoom", () => {
     expect(toastRoom(768, 1024)).toBe(2);
     expect(toastRoom(1280, 500)).toBe(1);
   });
+
+  it("upright screens under 790 px show one toast, 790 and up two without a name to avoid", () => {
+    expect(toastRoom(390, 789)).toBe(1);
+    expect(toastRoom(390, 790)).toBe(2);
+    expect(toastRoom(390, 790, () => undefined)).toBe(2);
+  });
+
+  it("upright screens show two only when the two tallest end 4 px above my name", () => {
+    const room = (w: number, h: number, toastsTop: number, nameTop: number) => toastRoom(w, h, () => ({ toastsTop, nameTop }));
+    expect(room(390, 844, 201.2, 356.4)).toBe(2);
+    expect(room(390, 844, 236.2, 356.4)).toBe(1);
+    expect(room(390, 844, 217.2, 356.4)).toBe(2);
+    expect(room(390, 844, 230.2, 344.8)).toBe(1);
+    expect(room(393, 852, 248.2, 360.1)).toBe(1);
+    expect(room(430, 932, 244, 383.5)).toBe(2);
+    expect(room(768, 1024, 225, 384.3)).toBe(2);
+  });
+
+  it("the boundary: toasts start + 130 must reach my name", () => {
+    expect(toastRoom(390, 844, () => ({ toastsTop: 100, nameTop: 230 }))).toBe(2);
+    expect(toastRoom(390, 844, () => ({ toastsTop: 100, nameTop: 229.9 }))).toBe(1);
+  });
+
+  it("fit is only asked on upright screens 790 px and taller", () => {
+    let calls = 0;
+    const fit = () => {
+      calls++;
+      return undefined;
+    };
+    for (const [w, h] of [[844, 390], [1280, 720], [390, 760], [812, 375]]) toastRoom(w, h, fit);
+    expect(calls).toBe(0);
+    toastRoom(390, 844, fit);
+    expect(calls).toBe(1);
+  });
 });
 
 describe("ToastQueue", () => {
