@@ -4,14 +4,24 @@ import { ToastQueue, toastRoom, type ToastLevel } from "./toastQueue.ts";
 /** How long (ms) a toast fades out before its element is removed; matches the CSS transition on `.toast`. */
 const TOAST_FADE_MS = 200;
 
-/** DOM overlay: status panel, toasts (see toastQueue.ts), touch action buttons. */
+/**
+ * Phones held sideways: the same condition as the short-screen block in index.html. There the invite button sits
+ * with Ăn and 🔊 in the health row, so the status panel keeps to one line (T61, docs/design/hud.md).
+ */
+const SIDEWAYS_QUERY = "(max-height: 520px) and (min-width: 601px)";
+
+/** DOM overlay: status panel, toasts (see toastQueue.ts), touch action buttons; the invite button (touch) moves to the health row when sideways. */
 export class Hud {
   readonly root: HTMLDivElement;
   /** The joystick's half of the screen (touch only): the HUD's bottom layer (CSS), so it gets only the touches nothing else takes. */
   readonly joystickZone: HTMLDivElement;
-  /** Left column under the health bar (status, quest tracker). */
+  /** Left column under the health bar (status, quest tracker); on a sideways phone it also holds the invite button (in the health row). */
   readonly left: HTMLDivElement;
   private status: HTMLDivElement;
+  /** Touch screens: the counts in the status panel (players, pals, resources, gear). */
+  private statusCounts?: HTMLSpanElement;
+  /** Touch screens: 🔗 Mời bạn. Last in the status panel, or after 🔊 in the health row on a sideways phone. */
+  private inviteButton?: HTMLButtonElement;
   private toasts: HTMLDivElement;
   private toastQueue = new ToastQueue(() => toastRoom(window.innerWidth, window.innerHeight));
   private toastElements = new Map<number, HTMLDivElement>();
@@ -65,6 +75,28 @@ export class Hud {
     const actionsRow = div("hud-actions");
     actionsRow.append(this.eatButton, this.soundButton);
     this.health.append(actionsRow);
+    if (isTouch) {
+      this.statusCounts = document.createElement("span");
+      this.statusCounts.className = "hud-counts";
+      this.status.append(this.statusCounts, " ");
+      const invite = document.createElement("button");
+      invite.className = "invite-btn";
+      invite.setAttribute("aria-label", "Mời bạn");
+      invite.innerHTML = '🔗 Mời<span class="invite-more"> bạn</span>';
+      // Invite button (phones): share sheet if available, else copy the link. It stays on click: both need a user gesture,
+      // which a touch only gives as the finger lifts.
+      invite.addEventListener("click", () => {
+        const link = invite.dataset.link ?? "";
+        if (navigator.share) navigator.share({ title: "PetGame", text: "Vào chơi cùng mình!", url: link }).catch(() => {});
+        else navigator.clipboard?.writeText(link).then(() => this.showToast("Đã chép link mời 🔗", "low"), () => this.showToast(link, "low"));
+      });
+      this.inviteButton = invite;
+      // One element, moved (not rebuilt) when the phone turns, so it keeps its listener and link.
+      const sideways = window.matchMedia(SIDEWAYS_QUERY);
+      const placeInvite = () => (sideways.matches ? actionsRow : this.status).append(invite);
+      placeInvite();
+      sideways.addEventListener("change", placeInvite);
+    }
     this.bossBar = div("boss-bar");
     this.bossBar.innerHTML = `<strong><span class="boss-name"></span><span class="boss-num"></span></strong><div class="boss-hp"><div></div></div>`;
     this.bossName = this.bossBar.querySelector<HTMLSpanElement>(".boss-name")!;
@@ -76,15 +108,6 @@ export class Hud {
     // The toasts sit last in the column (CSS order), under the quest tracker that is added to it later.
     this.left.append(this.health, this.status, this.bossBar, this.toasts);
     this.root.append(this.left);
-    // Invite button (phones): share sheet if available, else copy the link. It stays on click: both need a user gesture,
-    // which a touch only gives as the finger lifts.
-    this.status.addEventListener("click", (e) => {
-      const button = (e.target as HTMLElement).closest<HTMLButtonElement>(".invite-btn");
-      if (!button) return;
-      const link = button.dataset.link ?? "";
-      if (navigator.share) navigator.share({ title: "PetGame", text: "Vào chơi cùng mình!", url: link }).catch(() => {});
-      else navigator.clipboard?.writeText(link).then(() => this.showToast("Đã chép link mời 🔗", "low"), () => this.showToast(link, "low"));
-    });
     const base = document.createElement("button");
     base.className = "base-btn";
     base.textContent = "🏕️ Đặt trại";
@@ -178,8 +201,12 @@ export class Hud {
   setTime(phase: "day" | "dusk" | "night" | "dawn") {
     if (phase === this.lastTime) return;
     this.lastTime = phase;
-    const labels = { day: "☀️ Ngày", dusk: "🌇 Hoàng hôn", night: "🌙 Đêm", dawn: "🌅 Bình minh" };
-    this.health.querySelector(".hud-time")!.textContent = labels[phase];
+    // The word hides on a sideways phone (CSS), leaving the icon; it stays in the DOM and the title.
+    const labels = { day: ["☀️", "Ngày"], dusk: ["🌇", "Hoàng hôn"], night: ["🌙", "Đêm"], dawn: ["🌅", "Bình minh"] } as const;
+    const [icon, word] = labels[phase];
+    const el = this.health.querySelector<HTMLElement>(".hud-time")!;
+    el.innerHTML = `${icon}<span class="hud-time-word"> ${word}</span>`;
+    el.title = word;
   }
 
   /** Shows which ball the next throw uses. */
@@ -200,16 +227,26 @@ export class Hud {
   }
 
   setStatus(players: number, captured: number, resources: Record<Resource, number>, invite: string, gear = "") {
-    const help = this.isTouch
-      ? "Kéo bên trái để đi • Đánh • Bắt • 💨 Lướt né"
-      : "WASD/↑↓←→ đi • Space đánh (cả chặt cây, đập đá) • Shift lướt né • 1-3 thú dùng chiêu • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • T tủ đồ • N bản đồ • M âm thanh";
+    // Phones get a compact panel: the counts, each whole on its line. The invite button is a separate element (see the constructor).
+    if (this.isTouch && this.statusCounts && this.inviteButton) {
+      const counts = [
+        `👥 ${players}/${MAX_PLAYERS}`,
+        `🐾 ${captured}`,
+        ...RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`),
+        ...(gear ? [gear] : []),
+      ];
+      const html = counts.map((c) => `<span class="hud-count">${c}</span>`).join(" ");
+      if (this.inviteButton.dataset.link !== invite) this.inviteButton.dataset.link = invite;
+      if (html === this.lastStatus) return;
+      this.lastStatus = html;
+      this.statusCounts.innerHTML = html;
+      return;
+    }
+    const help = "WASD/↑↓←→ đi • Space đánh (cả chặt cây, đập đá) • Shift lướt né • 1-3 thú dùng chiêu • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • T tủ đồ • N bản đồ • M âm thanh";
     const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ") + (gear ? ` &nbsp; ${gear}` : "");
-    // Phones get a compact panel: counts plus an invite button.
-    const html = this.isTouch
-      ? `👥 ${players}/${MAX_PLAYERS} &nbsp; 🐾 ${captured} &nbsp; ${items} ` +
-        `<button class="invite-btn" data-link="${escapeHtml(invite)}">🔗 Mời bạn</button>`
-      : `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +
-        `Mời bạn: <a href="${invite}" target="_blank" rel="noopener">${escapeHtml(invite)}</a>`;
+    const html =
+      `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +
+      `Mời bạn: <a href="${invite}" target="_blank" rel="noopener">${escapeHtml(invite)}</a>`;
     if (html === this.lastStatus) return;
     this.lastStatus = html;
     this.status.innerHTML = html;

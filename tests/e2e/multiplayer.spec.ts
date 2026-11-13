@@ -2838,6 +2838,182 @@ for (const screen of BOSS_SCREENS) {
   });
 }
 
+/**
+ * Teleports to a calm spot by the boss (180-340 px, the farthest from every wild pal) and waits for the boss bar; two tries.
+ * The test `boss bar (...)` keeps its own copy of this as `goNearBoss` (T61 does not edit the old tests).
+ */
+async function nearBoss(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const boss = await bossPosition(page);
+    expect(boss).toBeTruthy();
+    const spot = await page.evaluate((boss) => {
+      const others: { x: number; y: number }[] = [];
+      (window as any).__petgame.room.state.pals.forEach((pal: any) => {
+        if (!pal.boss) others.push({ x: pal.x, y: pal.y });
+      });
+      let best = { x: boss.x, y: boss.y + 180, score: -1 };
+      for (const radius of [180, 260, 340]) {
+        for (let k = 0; k < 8; k++) {
+          const x = boss.x + Math.cos((k * Math.PI) / 4) * radius;
+          const y = boss.y + Math.sin((k * Math.PI) / 4) * radius;
+          const score = Math.min(99999, ...others.map((o) => Math.hypot(o.x - x, o.y - y)));
+          if (score > best.score) best = { x, y, score };
+        }
+      }
+      return best;
+    }, boss!);
+    await sendFrom(page, "debug:teleport", { x: spot.x, y: spot.y });
+    try {
+      await expect(page.locator(".boss-bar")).toBeVisible({ timeout: 30_000 });
+      return;
+    } catch (error) {
+      if (attempt === 1) throw error;
+    }
+  }
+}
+
+/** Phones held sideways on a 375 px tall screen (T61): iPhone X/11 Pro with its notch, iPhone SE/8. */
+const SHORT_SIDEWAYS_SCREENS = [
+  { name: "812×375, notch", options: { viewport: { width: 812, height: 375 }, hasTouch: true, isMobile: true }, insets: { left: 44, right: 44, bottom: 21 } },
+  { name: "667×375", options: { viewport: { width: 667, height: 375 }, hasTouch: true, isMobile: true }, insets: undefined },
+] as const;
+
+for (const screen of SHORT_SIDEWAYS_SCREENS) {
+  test(`short sideways phone (${screen.name}): one-line status, 🔗 Mời by Ăn and 🔊, the toast ends above the thumb corner with and without the boss bar`, async ({ browser }) => {
+    test.slow();
+    const insets: Insets = screen.insets ?? {};
+    const safe = { right: insets.right ?? 0, left: insets.left ?? 0 };
+    const page = await join(browser, "Hiệp", "/", { ...screen.options }, screen.insets ? safeArea(screen.insets) : undefined);
+    await waitForWorld(page);
+    await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+    await watchHurt(page);
+    const columnLeft = await page.evaluate(() => document.querySelector(".hud-left")!.getBoundingClientRect().left);
+    expect(Math.abs(columnLeft - Math.max(12, safe.left))).toBeLessThanOrEqual(1);
+
+    await sendFrom(page, "debug:givePal", { species: "emberpup", level: 8 });
+    await expect.poll(() => page.evaluate(() => (window as any).__petgame.room.state.companions.size as number)).toBe(1);
+    await expect(page.locator(".skill-bar")).toBeVisible();
+    await expect(page.locator(".hud-quest")).toContainText(/\S/);
+    await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
+
+    // Dusk has the longest time word: the health row must keep to two lines anyway.
+    await sendFrom(page, "debug:setTime", { t: 0.66 });
+    await expect(page.locator(".hud-time")).toContainText("Hoàng hôn");
+    await expect(page.locator(".invite-btn")).toHaveCount(1);
+    await expect(page.locator(".hud-health .hud-actions .invite-btn")).toHaveCount(1);
+    await expect(page.locator(".hud-status button")).toHaveCount(0);
+    await expect(page.locator(".invite-btn")).toHaveText("🔗 Mời", { useInnerText: true });
+    await expect(page.locator(".invite-btn")).toHaveAttribute("aria-label", "Mời bạn");
+    await expect(page.locator(".hud-time-word")).toBeHidden();
+    const row = await page.evaluate(() => {
+      const box = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+      const mid = (sel: string) => box(sel).top + box(sel).height / 2;
+      return {
+        status: box(".hud-status").height,
+        health: box(".hud-health").height,
+        mids: [mid(".eat-btn"), mid(".sound-btn"), mid(".invite-btn")],
+        inviteRight: box(".invite-btn").right,
+        healthRight: box(".hud-health").right,
+      };
+    });
+    expect(row.status, "status on one line").toBeLessThanOrEqual(24);
+    expect(row.health, "health row height").toBeLessThanOrEqual(70);
+    expect(Math.max(...row.mids) - Math.min(...row.mids), "the three buttons share a line").toBeLessThanOrEqual(2);
+    expect(row.inviteRight).toBeLessThanOrEqual(row.healthRight - 7);
+    expect(await expectTouchable(page, ".hud-left", screen.name)).toEqual(expect.arrayContaining([".eat-btn", ".sound-btn", ".invite-btn"]));
+
+    // Turning the phone moves the one button, and it keeps working after both moves.
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect(page.locator(".hud-status .invite-btn")).toHaveCount(1);
+    await expect(page.locator(".invite-btn")).toHaveText("🔗 Mời bạn", { useInnerText: true });
+    await page.setViewportSize({ ...screen.options.viewport });
+    await expect(page.locator(".hud-actions .invite-btn")).toHaveCount(1);
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "share", {
+        configurable: true,
+        value: (data: unknown) => {
+          (window as any).__shared = data;
+          return Promise.resolve();
+        },
+      });
+    });
+    await page.locator(".invite-btn").tap();
+    const roomId = await page.evaluate(() => (window as any).__petgame.room.roomId as string);
+    const link = await page.locator(".invite-btn").getAttribute("data-link");
+    expect(link).toContain(`room=${roomId}`);
+    await expect.poll(() => page.evaluate(() => (window as any).__shared ?? null)).toEqual({ title: "PetGame", text: "Vào chơi cùng mình!", url: link });
+
+    // The two longest high toasts; put back when they have run out while the test looked for a calm spot.
+    const pushToasts = () => page.evaluate(() => {
+      const { hud } = (window as any).__petgame.game;
+      if (document.querySelectorAll(".hud-toasts > .toast").length > 0) return;
+      hud.showToast("Hạ được trùm! 🏆 🪵\xa015  🪨\xa025  🫐\xa010  🔵\xa02  🛡️\xa0Giáp hiệp sĩ · Emberpup +250 XP", "high");
+      hud.showToast("Frostfang lên cấp 15! ⭐ Học được chiêu mới: ❄️ Hơi thở băng giá, 🌨️ Bão tuyết", "high");
+    });
+    const slideIn = () => page.evaluate(() => Promise.all(document.getAnimations().filter((a) => (a.effect as KeyframeEffect).target?.closest(".hud-toasts")).map((a) => a.finished)));
+
+    // Without the boss bar.
+    await expect(page.locator(".boss-bar")).toBeHidden();
+    await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
+    await pushToasts();
+    await expect(page.locator(".hud-toasts > .toast:not(.out)")).toHaveCount(1);
+    await slideIn();
+    const plain = await toastLayout(page);
+    expect(plain.toasts).toHaveLength(1);
+    const questBottom = plain.hud.find((part) => part.name.includes("hud-quest"))!.bottom;
+    for (const toast of plain.toasts) {
+      expect(toast.left, toast.text).toBeGreaterThanOrEqual(0);
+      expect(toast.right, toast.text).toBeLessThanOrEqual(plain.width);
+      expect(toast.bottom, toast.text).toBeLessThanOrEqual(plain.height - 140);
+      expect(plain.hud.filter((part) => boxesOverlap(toast, part)).map((part) => part.name), toast.text).toEqual([]);
+      expect(toast.top, toast.text).toBeGreaterThanOrEqual(questBottom);
+    }
+    expect(plain.columnRight).toBeLessThanOrEqual(plain.width / 2 - 100);
+
+    // With the boss bar.
+    await nearBoss(page);
+    await expect(page.locator(".hud-toasts > .toast")).toHaveCount(0, { timeout: 20_000 });
+    await pushToasts();
+    await expect(page.locator(".hud-toasts > .toast:not(.out)")).toHaveCount(1);
+    await slideIn();
+    const layout = await settledBossLayout(page, () => nearBoss(page), (l) => l.toasts.length === 1, pushToasts);
+    expectBarClear(layout, screen.name);
+    expect(layout.position).toBe("absolute");
+    expect(Math.abs((layout.bar.left + layout.bar.right) / 2 - layout.width / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(layout.bar.top - layout.left.top)).toBeLessThanOrEqual(1);
+    expect(layout.bar.left).toBeGreaterThanOrEqual(layout.columnRight + 8);
+    expect(layout.bar.right).toBeLessThanOrEqual(layout.minimapLeft - 8 + 0.5);
+    expect(layout.questShown).toBe(true);
+    expect(layout.bar.left).toBeGreaterThanOrEqual(safe.left - 1);
+    expect(layout.bar.right).toBeLessThanOrEqual(layout.width - safe.right + 1);
+    expect(layout.toasts).toHaveLength(1);
+    for (const toast of layout.toasts) {
+      expect(toast.bottom, toast.text).toBeLessThanOrEqual(layout.height - 140);
+      expect([layout.bar, ...layout.parts].filter((part) => boxesOverlap(toast, part)).map((part) => ("name" in part ? `${part.name} ${Math.round(part.top)}-${Math.round(part.bottom)}` : "boss-bar")), `${toast.text} (toast ${Math.round(toast.top)}-${Math.round(toast.bottom)})`).toEqual([]);
+    }
+    expect(layout.columnRight).toBeLessThanOrEqual(layout.width / 2 - 100);
+  });
+}
+
+// A full status panel (3-digit resources, gear) on a short sideways phone: it may need a second line, but no count
+// (icon and number) is cut in two, and the invite button stays by Ăn and 🔊.
+test("short sideways phone (667×375): a full status panel breaks between counts, never inside one", async ({ browser }) => {
+  test.slow();
+  const page = await join(browser, "Hiệp", "/", { viewport: { width: 667, height: 375 }, hasTouch: true, isMobile: true });
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  for (let i = 0; i < 12; i++) await sendFrom(page, "debug:give");
+  await sendFrom(page, "debug:gear");
+  await expect(page.locator(".hud-status")).toContainText("🪵 600");
+  await expect(page.locator(".hud-status")).toContainText("🛶");
+  const counts = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>(".hud-status .hud-count")].map((el) => ({ text: el.innerText, lines: el.getClientRects().length })),
+  );
+  expect(counts.filter((c) => c.lines !== 1), JSON.stringify(counts)).toEqual([]);
+  await expect(page.locator(".hud-health .hud-actions .invite-btn")).toHaveCount(1);
+  await expect(page.locator(".hud-status button")).toHaveCount(0);
+});
+
 test("toasts: the catch and the quest it finishes show together; small notices do not push out a level-up", async ({ browser }) => {
   test.slow();
   const page = await join(browser, "Hiệp");

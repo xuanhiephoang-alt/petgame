@@ -1,46 +1,59 @@
 PASS
-# REVIEW: T66 `npm run shots`/`npm run dev` chạm trần thế giới; làm chắc `worldLimits`, vòng 1
+# REVIEW: T61 Điện thoại ngang thấp (cao 375 px): thông báo vượt mốc ngón cái, vòng 1
 
 ## Kết luận
-Thay đổi làm đủ 10 bước và các tiêu chí của PLAN.md, không đụng file ngoài phạm vi (`git diff --stat` chỉ 8 file: 2 script, `worldLimits.ts` và test, 3 tài liệu, PROGRESS.md). Làm chắc đúng hướng hỏng đóng: thiếu địa chỉ socket thì ra khoá `unknown` chứ không lấy header; Colyseus đổi dạng thì server không khởi động. Đã kiểm chứng bằng chạy thật. Không có lỗi phải sửa.
+Thay đổi đúng PLAN.md và `docs/design/hud.md`, không làm gì ngoài phạm vi: chỉ đụng `hud.ts`, `index.html`, e2e (176 dòng thêm, 0 dòng xoá). Phần dời nút bằng matchMedia đúng, ô trạng thái chỉ ghi DOM khi số đổi, CSS chỉ áp dụng khi cầm ngang (riêng `.hud-count` áp dụng cho mọi điện thoại, đúng kế hoạch), thanh trùm T30 giữ nguyên. Không có lỗi phải sửa. `npm run typecheck` sạch (reviewer chạy lại). Phần thêm trong spec e2e cũng qua `tsc --strict` khi kiểm riêng (không có lỗi kiểu nào).
 
 ## Lỗi phải sửa
 (không có)
 
-## Đã kiểm chứng
-- **`clientAddress`/`stampClientAddress` và khoá `"unknown"`:**
-  - Không có `remote` thì trả `undefined` trước khi đọc header. `stampClientAddress` luôn ghi `x-real-ip`, nên `resolveClientIp` của Colyseus (`@colyseus/core/build/Transport.mjs:48-50`, đọc `x-real-ip` trước) không bao giờ rơi về `x-forwarded-for`/`x-client-ip` do client gửi.
-  - Dùng chung một khoá `unknown` là chấp nhận được. `socket.remoteAddress` chỉ là `undefined` khi handle của socket đã mất trước sự kiện `request`, tức client đã cắt kết nối. Khi đó phản hồi cũng không về tới ai. Trên Fly/Render, đầu kia của TCP là proxy giữ kết nối, nên trường hợp này thực tế gần như không xảy ra.
-  - Kẻ phá cố tình rơi vào `unknown` cũng chỉ lấp được 10 chỗ của chính khoá đó. Hắn không được miễn trần và không tạo được nhiều thế giới hơn so với dùng địa chỉ thật.
-  - Server không nghe Unix socket (PORT là số), nên không có trường hợp mọi yêu cầu đều thành `unknown`.
-- **`addressKey`:**
-  - Đã chạy thử các dạng sau, kết quả đúng PLAN: `::ffff:cb00:7105%eth0` và `0000:…:FFFF:CB00:7105` ra `203.0.113.5`; `::FFFF:1.2.3.4` ra `1.2.3.4`.
-  - Các dạng sau gộp /64, đúng mục "KHÔNG làm": `::ffff:0:1.2.3.4` (SIIT), `::1.2.3.4`, `64:ff9b::1.2.3.4` và `2001:db8::ffff:1.2.3.4`.
-  - Chuỗi hỏng (`::ffff:1.2.3.4:5`, `[::1]`, `%eth0`) trả nguyên chuỗi như trước T66.
-  - Chi phí: `ipv6Groups` chỉ chạy sau khi `isIPv6` đúng, tức chuỗi ≤ 45 ký tự. Với chuỗi 16 KB (trần header của Node), `isIPv6`/`isIPv4` mất ≤ 0,001 ms; `split("%")` trên 16 000 dấu `%` mất 0,24 ms; `clientAddress` với `X-Forwarded-For` 4000 mục mất 0,29 ms. Tất cả tuyến tính, không có ReDoS.
-- **`RefusalLog`:** câu in khớp từng ký tự với PLAN 2c. Khoảng thời gian in ra là từ lần chặn đầu chưa in tới `now`, nên luôn đúng và không âm: `firstAt` luôn nhỏ hơn `loggedAt + REFUSAL_LOG_MS`, mà câu chỉ được in khi `now` đã vượt mốc đó. Class thuần, nhận `now` từ ngoài; đồng hồ là `Date.now()` trong `noteRefusal` (xem góp ý).
-- **Kiểm dạng controller lúc khởi động:**
-  - Lần kiểm đứng trước `prependListener`, việc đổi `exposedMethods` và bọc `invokeMethod`, nên không cài nửa chừng. Test kiểm số listener và `invokeMethod` không đổi sau cả ba trường hợp hỏng.
-  - Đã chạy `index.ts` thật với một preload gỡ `"create"` khỏi `exposedMethods`. Server in rõ lỗi `guardWorldCreation: matchMaker.controller no longer has invokeMethod() and exposedMethods …` kèm stack, rồi thoát với mã 1. Lỗi đi qua handler `uncaughtException` của Colyseus, `gracefullyShutdown` rồi `process.exit(1)`.
-  - Kết luận: hỏng đóng, có ồn, server không bao giờ chạy mà thiếu trần.
-- **Scripts:**
-  - `dev.mjs` chỉ đưa `env` riêng cho `@petgame/server`; client nhận `process.env` như cũ. Dùng `??`, nên giá trị đã đặt được giữ.
-  - `shots.mjs` ép `"1000"`.
-  - Không chỗ nào dùng cú pháp shell, nên chạy được trên cả Windows lẫn POSIX: biến đi qua option `env` của `spawn`, giữ `shell: win32` như cũ.
-  - `package.json` (`play`, `start`, `dev:server`), `playwright.config.ts`, `Dockerfile`, `fly.toml`, `render.yaml` và `WORLD_LIMITS` không đổi.
-- **Tài liệu:**
-  - Đã đối chiếu câu cảnh báo WebSocket với `@colyseus/ws-transport` (`buildAuthContext` dùng `req.headers` của `upgrade`, listener `stamp` không chạy cho sự kiện này): đúng.
-  - `GameRoom` không dùng `onAuth` hay `client.ip` (grep rỗng), nên câu "hiện không sao" đúng.
-  - Câu thêm về `dev:server` trong `deploy.md` cũng đúng.
-- **Test:**
-  - Dòng sửa trong "clamps…" là siết luật, không phải nới. `(undefined, "2.2.2.2", 2)` trước mong `"2.2.2.2"`, nay test mới mong `undefined`. Phần clamp vẫn được phủ bằng `("10.0.0.1", "2.2.2.2", 3)` ra `"2.2.2.2"`.
-  - Đã chạy lại `worldLimits.test.ts`: 37/37 qua. `tsc -p packages/server` sạch.
-  - Mục grep `"in the last minute"` của PLAN còn đúng 1 dòng: `not.toContain` trong test do chính PLAN yêu cầu. Code sản phẩm không còn chuỗi này, nên chấp nhận.
+## Trả lời các câu hỏi rà soát
+
+1. **Dời nút bằng matchMedia** (`hud.ts:78-99`):
+   - Chỉ có một `<button>`, tạo một lần trong constructor và chỉ khi `isTouch`. `append` dời nút sang chỗ mới chứ không nhân bản, nên trình nghe `click` và `data-link` đi theo nút. Test kiểm `.invite-btn` có đúng 1 cái trước và sau khi xoay máy 2 lần, rồi `tap` mở bảng chia sẻ.
+   - Trạng thái ban đầu: `placeInvite()` chạy ngay trong constructor. Khi đó `Game.init` đã dựng stage, nên khung nhìn đã có cỡ thật.
+   - Câu truy vấn trùng từng ký tự với khối CSS `index.html:408`.
+   - Trình nghe `change` không bao giờ được gỡ, nhưng `Hud` và `Game` không có `destroy()` và sống suốt đời trang: rời thế giới là `location.assign` hoặc `reload` (`main.ts:191-196, 228`). Vì vậy không rò rỉ. Sau này thêm `destroy()` thì nhớ gỡ trình nghe này.
+   - Focus: `append` một nút đang có focus làm nó mất focus. Chuyện này chỉ xảy ra khi đang focus nút bằng bàn phím mà xoay máy, gần như không gặp.
+   - Trình nghe uỷ quyền cũ trên `this.status` đã bị xoá. Chú thích về "cử chỉ người dùng" được giữ, chuyển sang trình nghe mới.
+2. **Trợ năng:**
+   - Nút 🔗: `aria-label="Mời bạn"` có ở mọi màn. Tên đọc ra chứa chữ đang hiện ("Mời"), nên đạt WCAG 2.5.3 (label in name). Khi cầm dọc, chữ hiện "🔗 Mời bạn" khớp đúng tên đọc ra.
+   - Chữ giờ: `.hud-time-word { display: none }` làm chữ rời khỏi cây trợ năng. Trình đọc màn hình chỉ còn đọc tên của emoji (VoiceOver và TalkBack đọc ☀️ 🌇 🌙 🌅 thành tên mô tả, gần nghĩa nhưng không phải "Ngày" hay "Hoàng hôn"). `title` trên một `span` thường không được trình đọc màn hình trên điện thoại đọc, và màn cảm ứng không hiện tooltip.
+   - Không chặn: tên vùng cũng đã ẩn bằng `display: none` từ T6, và HUD này chưa đặt mục tiêu dùng được với trình đọc màn hình. Xem góp ý 1.
+3. **Hiệu năng:**
+   - `setStatus` vẫn chạy mỗi khung (`Game.updateHud` gọi từ vòng vẽ), như trước T61.
+   - DOM chỉ ghi khi `html` đổi, `dataset.link` chỉ gán khi khác. Không có `querySelector` mới chạy mỗi khung. `setTime` chỉ `querySelector` khi pha đổi.
+   - Mỗi khung vẫn dựng chuỗi và vài mảng nhỏ (`counts`, `map`, `join`). Bản cũ cũng dựng chuỗi mỗi khung, nên số rác tăng rất ít. Không tạo phần tử DOM nào. Đạt tiêu chí của kế hoạch.
+4. **Chỗ ngắt dòng của ô trạng thái đầy khi cầm dọc:**
+   - Không phải hồi quy so với T18 hay T39. T18 đặt mốc ngón cái cho màn cầm ngang. T39 lo vùng chạm và cần điều khiển, mà hộp và vùng chạm của nút 🔗 khi cầm dọc trùng 0 px với HEAD (số đo của tester).
+   - Khoảng cách cũ ` &nbsp; ` (dấu cách, nbsp, dấu cách) gần bằng khoảng mới (1 dấu cách + 6 px), nên rộng tổng gần như không đổi.
+   - Ngắt dòng nay tốt hơn: trước đây trình duyệt được ngắt giữa biểu tượng và số (như "🪵" ở cuối dòng, "600" ở đầu dòng sau, thêm `overflow-wrap: anywhere`). Nay mỗi con số giữ nguyên một khối.
+   - Trường hợp xấu nhất chỉ là một con số dời hẳn xuống dòng sau. Khi cầm dọc không có mốc nào bị ảnh hưởng.
+5. **Phạm vi CSS:**
+   - Các luật mới cho cầm ngang đều nằm trong khối `(max-height: 520px) and (min-width: 601px)`.
+   - Hai luật chung `.hud-count` (nowrap, cách 6 px) chỉ khớp DOM của màn cảm ứng: desktop vẫn dựng HTML cũ, không có `.hud-count`.
+   - Một chỗ rò nhỏ: khối CSS này cũng khớp cửa sổ desktop thấp (cao ≤ 520 px), nên ở đó chữ giờ cũng ẩn. Tên vùng cũng ẩn như vậy từ T6. Không có nút 🔗 nào bị dời, vì nhánh desktop không tạo nút. Xem góp ý 2.
+6. **Vùng chạm:**
+   - Nút 🔗 khi cầm ngang: hộp 61×21, vùng chạm `::before` cao 44 px (`index.html:261-262`). `expectTouchable` trong test mới xác nhận 🫐 Ăn, 🔊 và 🔗 đều có vùng chạm thật ≥ 44×44.
+   - Các test `touch targets` và `touch (...)` có sẵn vẫn qua.
+7. **Thanh trùm T30:**
+   - Không đổi `.boss-bar` hay luật bố cục của nó.
+   - Test mới kiểm thanh nằm giữa, mép trên ngang cột, cách cột và bản đồ nhỏ ≥ 8 px, nằm trong vùng an toàn, không chồng nút 🔗 (`expectBarClear` đo cả `.invite-btn`).
+   - 5 test `boss bar (...)` có sẵn vẫn qua, 80/80 lần lặp.
+8. **Chất lượng test:**
+   - 2 test `short sideways phone (...)` kiểm đúng hành vi mà kế hoạch đặt ra:
+     - ô trạng thái 1 dòng và hàng máu ≤ 70 lúc hoàng hôn;
+     - ba nút cùng một dòng, vùng chạm ≥ 44×44;
+     - xoay máy hai lần rồi bảng chia sẻ vẫn nhận đúng link;
+     - thông báo kết thúc ≤ cao − 140, có và không có thanh trùm.
+   - Đột biến (b), bỏ trình nghe `change`, bị bắt.
+   - Test tester thêm (ô đầy ở 667) bắt được đột biến (a), bỏ `nowrap`: nó kiểm từng `.hud-count` chỉ có 1 khung (`getClientRects`). Đây là cách kiểm tốt.
+   - `nearBoss` chép y nguyên `goNearBoss` (`multiplayer.spec.ts:2711-2740`). Kế hoạch cho phép vì T61 không sửa test cũ, và đã có đề xuất dọn ở việc tách số 3. Chấp nhận.
+9. **Việc tách ra:** cả 3 đề xuất trong PLAN.md đều hợp lý, nên thêm vào `TASKS.md` (P3). Thêm 2 góp ý dưới đây nếu muốn.
 
 ## Góp ý không bắt buộc
-- `worldLimits.ts:194`: `noteRefusal` lấy giờ bằng `Date.now()`, là đồng hồ tường. Nếu đồng hồ máy lùi (NTP sửa giờ sau khi khởi động), dòng log bị chặn sẽ im cho tới khi đồng hồ chạy qua mốc cũ. Số đếm không mất, chỉ in muộn. Dùng `performance.now()` sẽ đơn điệu, và `RefusalLog` không phải sửa.
-- `RefusalLog.note`: khi n > 1 mà các lần chặn sát nhau ngay trước mốc 60 s, câu có thể ra "in the last 0 s". Dùng `Math.max(1, …)` hoặc `Math.ceil` sẽ dễ đọc hơn. Ngoài ra, có 1 thế giới mở thì câu in "1 worlds open". Cả hai đều là chữ trong log, không ảnh hưởng hành vi.
-- `docs/architecture.md`: câu "IPv4 viết dạng IPv6 dạng chấm hay hex tính như IPv4" nên ghi rõ là chỉ `::ffff:…` (IPv4-mapped), như `multiplayer.md` đã ghi. `::a.b.c.d` và NAT64 vẫn gộp /64.
-- `docs/deploy.md`: ví dụ `PETGAME_MAX_WORLDS_PER_ADDRESS=2 npm run dev` là cú pháp POSIX. Có thể thêm cách đặt biến trên Windows (`set …` hoặc `$env:…`).
-- `scripts/shots.mjs` chạy server với `stdio: "ignore"`, nên nếu server dừng vì lần kiểm controller mới, người chạy shots không thấy thông báo, chỉ thấy chờ `/healthz` thất bại. Vấn đề này có từ trước T66. Có thể in stderr của server khi `/healthz` không lên.
-- `addressKey` trả nguyên chuỗi không phải IP làm khoá. Điều này chỉ khai thác được khi `PETGAME_TRUST_PROXY` đặt cao hơn số proxy thật, đã có trong `deploy.md`, và có từ trước. Nếu muốn chặt hơn, có thể gộp mọi chuỗi không phải IP vào `unknown` (cân nhắc cùng T67).
+1. **Trợ năng chữ giờ** (P3): ẩn `.hud-time-word` bằng luật "visually hidden" thay vì `display: none`, như `position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap`. Phần tử nằm ngoài luồng flex nên không đổi bố cục, và trình đọc màn hình vẫn đọc "Hoàng hôn". Có thể làm cùng `.hud-region`. Nếu đã thay luật ẩn thì `title` không còn cần.
+2. Cửa sổ desktop thấp (cao ≤ 520 px) cũng mất chữ giờ, giống tên vùng từ T6. Có thể giới hạn `.hud-time-word { display: none }` vào `.hud.touch`. Ghi lại trong `hud.md` nếu giữ nguyên.
+3. `setStatus` (nhánh cảm ứng) có thể so khoá số (`players|captured|wood|stone|berries|gear`) trước khi dựng mảng và HTML, để khung không đổi gì thì không tạo chuỗi nào. Nhánh desktop cũng vậy. Lợi ích nhỏ.
+4. Test ô đầy có thể kiểm thêm `.hud-status` cao ≤ 2 dòng, và chạy ở 812×375 có tai thỏ. Đề xuất tách số 2 trong PLAN.md cũng nhắc việc thêm trường hợp này.
+5. Rủi ro màn rộng 601-615 px (dòng 2 hàng máu tràn 6 px) đã được ghi và chấp nhận trong PLAN.md. Nên ghi kèm vào việc tách số 1 (640×360) để đo cùng lúc.

@@ -132,6 +132,9 @@
       .minimap.big { top: 50%; left: 50%; right: auto; transform: translate(-50%, -50%); width: min(92vw, 120vh); z-index: 4; }
       .invite-btn { position: relative; border: none; border-radius: 8px; padding: 3px 8px; margin-left: 4px; font-weight: 600; background: #29b6f6; color: #fff; }
       .hud-status a { color: #b3e5fc; }
+      /* Phones: each count (icon and number) stays whole on its line; the gap matches the old " &nbsp; " (T61). */
+      .hud-count { white-space: nowrap; }
+      .hud-count + .hud-count { margin-left: 6px; }
       /* Toasts (ui/toastQueue.ts): at most two, under the quest tracker in the HUD column, above the panels (3). */
       .hud-toasts { order: 10; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: min(100%, 420px);
         position: relative; z-index: 4; pointer-events: none; }
@@ -404,12 +407,18 @@
       /* Short screens (phones held sideways). */
       @media (max-height: 520px) and (min-width: 601px) {
         /* The HUD column ends 110 px left of the middle, notch or not, left of the name tags around the player and the boss bar (T6, T30). */
-        .hud-left { max-width: min(300px, calc(50vw - 110px - max(12px, env(safe-area-inset-left)))); gap: 4px; }
-        .hud-health { font-size: 12px; gap: 5px; padding: 4px 8px; }
+        .hud-left { max-width: min(300px, calc(50vw - 110px - max(12px, env(safe-area-inset-left)))); gap: 3px; }
+        .hud-health { font-size: 12px; gap: 2px 5px; padding: 4px 8px; }
         .hud-hp { width: 64px; }
         .hud-hp-text { font-size: 11px; }
         .hud-region { display: none; }
-        .hud-status { font-size: 12px; padding: 4px 8px; line-height: 1.6; }
+        .hud-time-word { display: none; }
+        .hud-status { font-size: 12px; padding: 3px 8px; line-height: 1.4; }
+        /* T61: on screens 375 px tall the toast must end 140 px above the bottom (the thumb corner). The invite button
+           sits after 🔊 in the health row (hud.ts moves it), short label; the status keeps to one line of counts. */
+        .hud-count + .hud-count { margin-left: 2px; }
+        .hud-actions .invite-btn { margin-left: 0; }
+        .invite-more { display: none; }
         .hud-quest { font-size: 12px; padding: 4px 8px; }
         .hud-quest small { font-size: 11px; }
         .hud-quest .quest-reward { display: none; }
