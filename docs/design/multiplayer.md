@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64; nhận ra thế giới của chính mình ở tab mới từ T65). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -43,24 +43,28 @@ Vì sao 60 giây:
 
 ## Giới hạn số thế giới (T64)
 
-Mỗi lần bấm "Vào chơi" mà không có link mời (hoặc bấm **Tạo thế giới mới**) là tạo một thế giới, và thế giới đó sống ít nhất 60 giây (mục trên). Để một script không mở hàng trăm thế giới làm chậm server, việc **tạo** thế giới có hai trần (bảng `WORLD_LIMITS`):
+Mỗi lần bấm "Vào chơi" mà không có link mời (hoặc bấm **Tạo thế giới mới**) là tạo một thế giới, và thế giới đó sống ít nhất 60 giây (mục trên). Để một script không mở hàng trăm thế giới làm chậm server, việc **tạo** thế giới có ba trần (bảng `WORLD_LIMITS`):
 
 | Trần | Số | Đếm gì | Bị chặn thì |
 |---|---|---|---|
 | Cả server | **50** thế giới | mọi thế giới đang mở: có người, đang giữ 60 giây, kể cả vừa tạo chưa ai vào | thẻ "Server đang có quá nhiều thế giới" |
-| Mỗi mạng | **10** thế giới | thế giới **được tạo từ cùng một địa chỉ mạng** và còn mở (có người hay không) | thẻ "Đã mở nhiều thế giới quá" |
+| Mỗi địa chỉ | **10** thế giới | thế giới **được tạo từ cùng một địa chỉ mạng** (IPv4, hoặc khối IPv6 /64) và còn mở (có người hay không) | thẻ "Đã mở nhiều thế giới quá" |
+| Mỗi khối IPv6 /48 (T67) | **20** thế giới | như trên, nhưng gộp mọi địa chỉ IPv6 chung 48 bit đầu (một khách hàng của nhà mạng). Không áp cho IPv4 | thẻ "Đã mở nhiều thế giới quá" (cùng thẻ trên) |
 
 - Chỉ việc tạo bị giới hạn. **Vào thế giới có sẵn** (link mời, tải lại trang, nối lại) không bao giờ bị chặn, kể cả khi đã chạm trần.
-- "Địa chỉ mạng" là địa chỉ IP mà server thấy. Cả nhà dùng chung Wi-Fi là chung một địa chỉ. IPv6 tính theo cả khối /64 (một thiết bị IPv6 có thể đổi địa chỉ trong khối đó). Địa chỉ IPv4 viết dạng IPv6 (`::ffff:…`, cả dạng chấm lẫn dạng hex) tính như IPv4. Server không biết địa chỉ thì mọi yêu cầu như vậy chung một khoá `unknown`, không được miễn.
-- Thế giới đóng (hết 60 giây không ai, hoặc server khởi động lại) thì trả lại chỗ ngay.
-- Vì mỗi thế giới sống ít nhất 60 giây, trần 10 cũng là giới hạn tốc độ: một mạng tạo được tối đa 10 thế giới trong một phút. Không cần thêm bộ đếm theo thời gian.
+- "Địa chỉ mạng" là địa chỉ IP mà server thấy. Cả nhà dùng chung Wi-Fi là chung một địa chỉ. IPv6 tính theo cả khối /64 (một thiết bị IPv6 có thể đổi địa chỉ trong khối đó). Địa chỉ IPv4 viết dạng IPv6 (`::ffff:…`, cả dạng chấm lẫn dạng hex) tính như IPv4, nên chỉ chịu trần mỗi địa chỉ, không chịu trần /48.
+- Một thế giới tạo từ IPv6 được đếm cho **cả hai** trần: khối /64 của nó (trần 10) và khối /48 chứa khối đó (trần 20). Chạm trần nào trước thì bị chặn.
+- Địa chỉ có cổng hoặc ngoặc vuông do proxy ghi (`1.2.3.4:5678`, `[2001:db8::1]:443`) được bỏ cổng, bỏ ngoặc rồi tính như trên (T67).
+- Server không có địa chỉ, hoặc chuỗi địa chỉ không phải IP (`unknown`, header lạ), thì mọi yêu cầu như vậy chung **một** khoá `unknown` với trần mỗi địa chỉ (10), không được miễn (T67; trước đó mỗi chuỗi lạ là một khoá riêng). Lần đầu gặp, server ghi một dòng cảnh báo (không ghi địa chỉ) để người vận hành kiểm `PETGAME_TRUST_PROXY`.
+- Thế giới đóng (hết 60 giây không ai, hoặc server khởi động lại) thì trả lại chỗ ở mọi trần ngay.
+- Vì mỗi thế giới sống ít nhất 60 giây, các trần cũng là giới hạn tốc độ: một địa chỉ tạo được tối đa 10 thế giới trong một phút, một khối /48 tối đa 20. Không cần thêm bộ đếm theo thời gian.
 
 Thẻ ở sảnh (thêm vào bảng "Vào thế giới: lỗi và cách đi tiếp"):
 
 | Tình huống | Tiêu đề | Dòng giải thích | Nút |
 |---|---|---|---|
 | Server đã có 50 thế giới | Server đang có quá nhiều thế giới | Chưa tạo thêm được thế giới mới. Chờ một lát rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời. | **Thử lại** |
-| Mạng này đã mở 10 thế giới | Đã mở nhiều thế giới quá | Mạng bạn đang dùng đã mở nhiều thế giới cùng lúc. Thế giới không còn ai sẽ tự đóng sau 1 phút: chờ chút rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời. | **Thử lại** |
+| Địa chỉ này đã mở 10 thế giới, hoặc khối IPv6 /48 này đã mở 20 | Đã mở nhiều thế giới quá | Mạng bạn đang dùng đã mở nhiều thế giới cùng lúc. Thế giới không còn ai sẽ tự đóng sau 1 phút: chờ chút rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời. | **Thử lại** |
 
 - Không có nút "Tạo thế giới mới": Thử lại chính là tạo lại.
 - Người chơi một mình quay lại thế giới đã đóng (T49: tự vào thế giới mới, không thẻ) mà bị chặn lúc tạo thì thấy thẻ của lần tạo đó; địa chỉ đã bỏ `room`, nên Thử lại cũng là tạo mới.
@@ -69,6 +73,9 @@ Vì sao các số này:
 - Một thế giới trống tốn khoảng 0,13% một nhân CPU và 0,35 MB (số đo T49). Trước T64, một script gọi tạo thế giới 5 lần mỗi giây giữ được khoảng 300 thế giới (39% một nhân, 105 MB). Nay một địa chỉ giữ được tối đa 10 (1,3%, 3,5 MB), cả server tối đa 50 (6,5%, 17,5 MB khi trống).
 - 10 mỗi mạng: một nhà 5 người, mỗi người một thế giới riêng, cộng mỗi người lỡ mở thêm một thế giới trong lúc thế giới cũ còn giữ 60 giây, là 10.
 - 50 cả server: tới 250 người chơi cùng lúc, quá sức một máy 512 MB dùng chung (`fly.toml`). Máy mạnh hơn thì người vận hành nâng bằng biến môi trường (`docs/deploy.md`).
+- Trần /48 (T67): nhà mạng cấp cho mỗi khách hàng IPv6 cả một khối /56 (256 khối /64) hay /48 (65 536 khối /64); tunnel IPv6 miễn phí cũng cho /48. Chỉ có trần /64 thì một người, một máy ở nhà, đổi địa chỉ qua 5 khối /64 là chiếm hết 50 chỗ. Gộp theo /48 vì đó là khối lớn nhất cấp cho một khách hàng: gộp /56 thì người có /48 vẫn có 256 khối /56. Với trần 20, một khách hàng giữ được tối đa 20 thế giới (2,6% một nhân, 7 MB khi trống), còn 30 chỗ cho người khác; phải có 3 khối /48 riêng mới chiếm hết, tức là "kẻ phá nhiều địa chỉ" đã chấp nhận ở dưới.
+- Vì sao 20 chứ không 10: nhà mạng di động cấp mỗi điện thoại một khối /64 riêng nhưng xếp nhiều thuê bao lạ vào chung một khối /48. Một nhóm 5 bạn cùng nhà mạng ở cùng thành phố, mỗi người một thế giới cộng một thế giới lỡ mở thêm, là 10; trần 20 còn dư 10 cho người lạ chung khối. Muốn bị chặn nhầm thì riêng một khối /48 phải đang mở 20 thế giới, tức 40% sức chứa cả server; với game chơi cùng bạn bè, lúc đó server cũng sắp chạm trần 50. Mức chặn nhầm này vẫn nhẹ hơn IPv4 qua CGNAT (nhiều thuê bao lạ chung một địa chỉ IPv4 với trần 10), là điều T64 đã chấp nhận. Điện thoại chỉ có IPv6 mà vào server IPv4 qua NAT64/464XLAT thì server thấy địa chỉ IPv4 của nhà mạng: trần /48 không áp.
+- Gộp chuỗi không phải IP vào một khoá `unknown` (T67): các chuỗi này chỉ đến được khi socket không còn địa chỉ (client đã cắt kết nối) hoặc khi `PETGAME_TRUST_PROXY` đặt cao hơn số proxy thật; khi đó trước T67 kẻ phá đổi chuỗi rác mỗi lần là tạo được không giới hạn trong trần 50. Nay mọi chuỗi rác chung trần 10. Proxy hợp lệ ghi kèm cổng thì đã được bỏ cổng ở trên, nên không ai bị dồn vào `unknown` chỉ vì cổng.
 - Server chạy sau proxy (Fly, Render) phải được cấu hình để lấy đúng địa chỉ người chơi; nếu không, mọi người chung một địa chỉ và trần 10 chặn nhầm người thật. Cách kiểm ở `docs/deploy.md`.
 
 ## Tải lại trang: về đúng thế giới (T23, T49)
@@ -191,7 +198,8 @@ Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server
 - Link mời của người chơi một mình chỉ sống đến 60 giây sau khi họ rời đi (T49). Quay lại muộn hơn thì họ vào thế giới mới mà không được báo, nên link cũ đã gửi không dùng được nữa (bạn bè thấy "Thế giới này đã đóng"); nút 🔗 cho link mới. Chấp nhận để người chơi một mình không gặp thẻ lỗi mỗi lần mở lại tab.
 - Thế giới trống vẫn chạy (không tạm dừng) trong 60 giây: rẻ (0,13% một nhân CPU mỗi thế giới), đồng hồ hẹn giờ của phòng chạy theo nhịp mô phỏng nên dừng mô phỏng là dừng cả hồi sinh và chính hẹn giờ đóng thế giới, và người quay lại thấy thời gian trôi đúng như khi vắng mặt.
 - Ai cũng tạo được thế giới rồi rời ngay, mỗi cái sống 60 giây (trước T49: 15 giây nếu chưa ai vào). Từ T64 việc này bị giới hạn (mục "Giới hạn số thế giới").
-- Kẻ phá có nhiều địa chỉ (từ 5 địa chỉ IPv4 hay 5 khối IPv6 /64) vẫn chiếm được hết 50 chỗ, khi đó không ai tạo được thế giới mới cho đến khi các thế giới của họ đóng. Chấp nhận: server không chậm đi (50 thế giới trống chỉ tốn 6,5% một nhân), thế giới đang chơi không bị ảnh hưởng và link mời vẫn vào được. Muốn chặn hơn nữa cần tài khoản hoặc captcha, quá tầm game chơi với bạn bè.
+- Kẻ phá có nhiều địa chỉ (từ 5 địa chỉ IPv4, hay từ T67 3 khối IPv6 /48 riêng) vẫn chiếm được hết 50 chỗ, khi đó không ai tạo được thế giới mới cho đến khi các thế giới của họ đóng. Chấp nhận: server không chậm đi (50 thế giới trống chỉ tốn 6,5% một nhân), thế giới đang chơi không bị ảnh hưởng và link mời vẫn vào được. Muốn chặn hơn nữa cần tài khoản hoặc captcha, quá tầm game chơi với bạn bè.
+- Trần /48 (T67) không có trần tương ứng cho IPv4 (ví dụ theo /24): mỗi khách hàng IPv4 thường chỉ có một địa chỉ, và gộp /24 sẽ dồn cả khu dân cư vào một trần. Không xử lý riêng các dạng IPv6 hiếm: người dùng Teredo (`2001:0::/32`) qua cùng một server Teredo chung một khối /48; địa chỉ 6to4 (`2002::/16`) có /48 đúng bằng một địa chỉ IPv4 nên tự khớp. Không có ngoại lệ cho mạng di động: chưa có danh sách khối /48 di động đáng tin, và mức chặn nhầm đã tính ở mục "Giới hạn số thế giới".
 - Giữ một kết nối trong mỗi thế giới thì thế giới không đóng, như trước T49. Trần 10 mỗi mạng đếm cả thế giới có người, nên cách này cũng không vượt được 10.
 - Nhận ra thế giới của mình (T65) bằng danh sách trên thiết bị, không nhờ server theo token. Server không nhớ thế giới đã đóng, nên cách theo token cần thêm bảng lưu hoặc bộ nhớ riêng, thêm một lần hỏi server trước khi sảnh sẵn sàng hoặc đổi giao thức báo lỗi khi vào. Đổi lại không biết thêm gì: token cũng nằm trong `localStorage`, mất danh sách là mất luôn token. Danh sách không cho ai vào được đâu thêm: nó chỉ đổi chữ trên sảnh và cách báo khi thế giới đã đóng.
 - Dấu trang cũ của thế giới có bạn bè vẫn ghi "Quay lại thế giới bạn **đang** chơi cùng bạn bè" dù đã lâu. Sảnh chưa biết thế giới còn mở hay không (không hỏi server trước khi bấm), và nếu đã đóng thì thẻ nói rõ ngay. Giữ một câu cho cả tải lại lẫn dấu trang.
