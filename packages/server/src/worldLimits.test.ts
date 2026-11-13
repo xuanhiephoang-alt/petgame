@@ -8,10 +8,13 @@ import { ROOM_NAME, WORLD_LIMITS, WORLD_LIMIT_ERROR } from "@petgame/shared";
 import { GameRoom } from "./rooms/GameRoom.ts";
 import {
   RefusalLog,
+  UNKNOWN_KEY,
   WorldCensus,
   addressKey,
   clientAddress,
+  creationKeys,
   guardWorldCreation,
+  networkKey,
   stampClientAddress,
   trustProxyFromEnv,
   worldCensus,
@@ -79,15 +82,53 @@ describe("addressKey", () => {
   });
 
   it("calls a missing address unknown", () => {
-    expect(addressKey(undefined)).toBe("unknown");
-    expect(addressKey("")).toBe("unknown");
+    expect(addressKey(undefined)).toBe(UNKNOWN_KEY);
+    expect(addressKey("")).toBe(UNKNOWN_KEY);
+  });
+
+  it("puts every string that is not an IP under one unknown key", () => {
+    for (const bad of ["unknown", "garbage", "1.2.3.4:", "::ffff:1.2.3.4:5", "%eth0", "1.2.3.4.5", "01.2.3.4", "[::1"]) {
+      expect(addressKey(bad), bad).toBe(UNKNOWN_KEY);
+    }
+  });
+
+  it("drops a port and brackets a proxy added", () => {
+    expect(addressKey("1.2.3.4:5678")).toBe("1.2.3.4");
+    expect(addressKey("[2001:db8:a:b::1]:443")).toBe("2001:db8:a:b::/64");
+    expect(addressKey("[::1]")).toBe("0:0:0:0::/64");
+    expect(addressKey("[::ffff:1.2.3.4]:80")).toBe("1.2.3.4");
+    expect(addressKey("[fe80::1%eth0]:443")).toBe("fe80:0:0:0::/64");
+  });
+});
+
+describe("networkKey", () => {
+  it("groups IPv6 by its /48 block", () => {
+    expect(networkKey("2001:db8:a:b:1:2:3:4")).toBe("2001:db8:a::/48");
+    expect(networkKey("2001:DB8:A:FF::1")).toBe("2001:db8:a::/48");
+    expect(networkKey("2001:db8:b::1")).not.toBe(networkKey("2001:db8:a::1"));
+    expect(networkKey("::1")).toBe("0:0:0::/48");
+    expect(networkKey("[2001:db8:a:b::1]:443")).toBe("2001:db8:a::/48");
+  });
+
+  it("has no /48 for IPv4, mapped IPv4 or non-IP", () => {
+    for (const none of ["203.0.113.5", "::ffff:203.0.113.5", "::ffff:cb00:7105", undefined, "unknown", "garbage"]) {
+      expect(networkKey(none), String(none)).toBeUndefined();
+    }
+  });
+});
+
+describe("creationKeys", () => {
+  it("gives both keys for IPv6, one for IPv4 and for non-IP", () => {
+    expect(creationKeys("2001:db8:a:b::9")).toEqual({ address: "2001:db8:a:b::/64", network: "2001:db8:a::/48" });
+    expect(creationKeys("203.0.113.5")).toEqual({ address: "203.0.113.5" });
+    expect(creationKeys("garbage")).toEqual({ address: UNKNOWN_KEY });
   });
 });
 
 describe("RefusalLog", () => {
   it("logs the first refusal at once", () => {
     expect(new RefusalLog().note("address", 1_000, 3)).toBe(
-      "World limits: refused 1 world creation (server 0, address 1); 3 worlds open",
+      "World limits: refused 1 world creation (server 0, address 1, network 0); 3 worlds open",
     );
   });
 
@@ -97,7 +138,7 @@ describe("RefusalLog", () => {
     expect(log.note("server", 10_000, 2)).toBeUndefined();
     expect(log.note("address", 30_000, 2)).toBeUndefined();
     const line = log.note("address", 7_200_000, 4);
-    expect(line).toBe("World limits: refused 3 world creations in the last 7190 s (server 1, address 2); 4 worlds open");
+    expect(line).toBe("World limits: refused 3 world creations in the last 7190 s (server 1, address 2, network 0); 4 worlds open");
     expect(line).not.toContain("in the last minute");
   });
 
@@ -109,7 +150,13 @@ describe("RefusalLog", () => {
     log.note("address", 7_200_000, 4);
     expect(log.note("server", 7_230_000, 4)).toBeUndefined();
     expect(log.note("server", 7_260_000, 4)).toBe(
-      "World limits: refused 2 world creations in the last 30 s (server 2, address 0); 4 worlds open",
+      "World limits: refused 2 world creations in the last 30 s (server 2, address 0, network 0); 4 worlds open",
+    );
+  });
+
+  it("counts /48 refusals apart", () => {
+    expect(new RefusalLog().note("network", 0, 7)).toBe(
+      "World limits: refused 1 world creation (server 0, address 0, network 1); 7 worlds open",
     );
   });
 });
@@ -138,14 +185,14 @@ describe("stampClientAddress", () => {
 });
 
 describe("WorldCensus", () => {
-  const limits = { maxWorlds: 4, perAddress: 2 };
+  const limits = { maxWorlds: 4, perAddress: 2, perNetwork: 3 };
 
   it("refuses an address at its cap, and only that address", () => {
     const census = new WorldCensus();
-    expect(census.admit("a", limits)).toBeUndefined();
-    expect(census.admit("a", limits)).toBeUndefined();
-    expect(census.admit("a", limits)).toBe("address");
-    expect(census.admit("b", limits)).toBeUndefined();
+    expect(census.admit({ address: "a" }, limits)).toBeUndefined();
+    expect(census.admit({ address: "a" }, limits)).toBeUndefined();
+    expect(census.admit({ address: "a" }, limits)).toBe("address");
+    expect(census.admit({ address: "b" }, limits)).toBeUndefined();
   });
 
   it("refuses everyone at the server cap, counting worlds made without HTTP", () => {
@@ -153,17 +200,17 @@ describe("WorldCensus", () => {
     census.opened("r1");
     census.opened("r2");
     census.opened("r3");
-    expect(census.admit("a", limits)).toBeUndefined();
+    expect(census.admit({ address: "a" }, limits)).toBeUndefined();
     expect(census.total()).toBe(4);
-    expect(census.admit("b", limits)).toBe("server");
-    expect(census.admit("c", limits)).toBe("server");
+    expect(census.admit({ address: "b" }, limits)).toBe("server");
+    expect(census.admit({ address: "c" }, limits)).toBe("server");
   });
 
   it("moves a settled creation from pending to the address that made the room", () => {
     const census = new WorldCensus();
-    census.admit("a", limits);
+    census.admit({ address: "a" }, limits);
     census.opened("r1");
-    census.settle("a", "r1");
+    census.settle({ address: "a" }, "r1");
     expect(census.countFor("a")).toBe(1);
     expect(census.countFor("b")).toBe(0);
     expect(census.total()).toBe(1);
@@ -171,18 +218,18 @@ describe("WorldCensus", () => {
 
   it("frees the place of a creation that made no room", () => {
     const census = new WorldCensus();
-    census.admit("a", limits);
+    census.admit({ address: "a" }, limits);
     expect(census.countFor("a")).toBe(1);
-    census.settle("a", undefined);
+    census.settle({ address: "a" }, undefined);
     expect(census.countFor("a")).toBe(0);
     expect(census.total()).toBe(0);
   });
 
   it("frees both caps when a world closes", () => {
     const census = new WorldCensus();
-    census.admit("a", limits);
+    census.admit({ address: "a" }, limits);
     census.opened("r1");
-    census.settle("a", "r1");
+    census.settle({ address: "a" }, "r1");
     census.closed("r1");
     expect(census.countFor("a")).toBe(0);
     expect(census.total()).toBe(0);
@@ -197,14 +244,85 @@ describe("WorldCensus", () => {
 
   it("does not give an already closed room to the address, nor go negative", () => {
     const census = new WorldCensus();
-    census.admit("a", limits);
+    census.admit({ address: "a" }, limits);
     census.opened("r1");
     census.closed("r1");
-    census.settle("a", "r1");
+    census.settle({ address: "a" }, "r1");
     expect(census.countFor("a")).toBe(0);
-    census.settle("a", undefined);
+    census.settle({ address: "a" }, undefined);
     expect(census.countFor("a")).toBe(0);
     expect(census.total()).toBe(0);
+  });
+
+  it("refuses a /48 at its cap across different /64 blocks", () => {
+    const census = new WorldCensus();
+    const caps = { maxWorlds: 10, perAddress: 2, perNetwork: 3 };
+    expect(census.admit(creationKeys("2001:db8:1:1::1"), caps)).toBeUndefined();
+    expect(census.admit(creationKeys("2001:db8:1:1::2"), caps)).toBeUndefined();
+    expect(census.admit(creationKeys("2001:db8:1:2::1"), caps)).toBeUndefined();
+    expect(census.admit(creationKeys("2001:db8:1:3::1"), caps)).toBe("network");
+    expect(census.admit(creationKeys("2001:db8:2:1::1"), caps)).toBeUndefined();
+    expect(census.admit(creationKeys("203.0.113.1"), caps)).toBeUndefined();
+    expect(census.countFor("2001:db8:1::/48")).toBe(3);
+  });
+
+  it("counts one IPv6 creation once toward the server cap", () => {
+    const census = new WorldCensus();
+    const caps = { maxWorlds: 2, perAddress: 5, perNetwork: 5 };
+    const v6 = creationKeys("2001:db8:1:1::1");
+    expect(census.admit(v6, caps)).toBeUndefined();
+    expect(census.total()).toBe(1);
+    // One IPv6 creation pending leaves room for an IPv4 one at maxWorlds 2.
+    expect(census.admit(creationKeys("203.0.113.1"), caps)).toBeUndefined();
+    expect(census.total()).toBe(2);
+    expect(census.admit(creationKeys("203.0.113.2"), caps)).toBe("server");
+  });
+
+  it("counts an opened but not yet settled IPv6 world once", () => {
+    const census = new WorldCensus();
+    const caps = { maxWorlds: 3, perAddress: 5, perNetwork: 5 };
+    const v6 = creationKeys("2001:db8:1:1::1");
+    census.admit(v6, caps);
+    census.opened("r1");
+    // The open room and its pending creation overlap for a moment: 2, not 3.
+    expect(census.total()).toBe(2);
+    census.settle(v6, "r1");
+    expect(census.total()).toBe(1);
+  });
+
+  it("checks the address cap before the /48 cap", () => {
+    const census = new WorldCensus();
+    const caps = { maxWorlds: 10, perAddress: 2, perNetwork: 2 };
+    const keys = creationKeys("2001:db8:1:1::1");
+    expect(census.admit(keys, caps)).toBeUndefined();
+    expect(census.admit(keys, caps)).toBeUndefined();
+    expect(census.admit(keys, caps)).toBe("address");
+  });
+
+  it("frees the /48 place when a world settles empty or closes", () => {
+    const census = new WorldCensus();
+    const caps = { maxWorlds: 10, perAddress: 2, perNetwork: 3 };
+    const keys = creationKeys("2001:db8:1:1::1");
+    census.admit(keys, caps);
+    census.settle(keys, undefined);
+    expect(census.countFor(keys.address)).toBe(0);
+    expect(census.countFor(keys.network!)).toBe(0);
+    census.admit(keys, caps);
+    census.opened("r1");
+    census.settle(keys, "r1");
+    expect(census.countFor(keys.address)).toBe(1);
+    expect(census.countFor(keys.network!)).toBe(1);
+    census.closed("r1");
+    expect(census.countFor(keys.address)).toBe(0);
+    expect(census.countFor(keys.network!)).toBe(0);
+    expect(census.total()).toBe(0);
+  });
+});
+
+describe("default world caps", () => {
+  it("keep one IPv6 customer below the server cap", () => {
+    expect(WORLD_LIMITS.perAddress).toBeLessThanOrEqual(WORLD_LIMITS.perNetwork);
+    expect(WORLD_LIMITS.perNetwork).toBeLessThan(WORLD_LIMITS.maxWorlds);
   });
 });
 
@@ -221,16 +339,27 @@ describe("limits from env", () => {
   });
 
   it("accepts valid numbers", () => {
-    expect(worldLimitsFromEnv({ PETGAME_MAX_WORLDS: "3", PETGAME_MAX_WORLDS_PER_ADDRESS: "7" })).toEqual({ maxWorlds: 3, perAddress: 7 });
+    expect(worldLimitsFromEnv({ PETGAME_MAX_WORLDS: "3", PETGAME_MAX_WORLDS_PER_ADDRESS: "7" })).toEqual({
+      maxWorlds: 3,
+      perAddress: 7,
+      perNetwork: WORLD_LIMITS.perNetwork,
+    });
     expect(trustProxyFromEnv({ PETGAME_TRUST_PROXY: "2" })).toBe(2);
     expect(trustProxyFromEnv({ PETGAME_TRUST_PROXY: "0" })).toBe(0);
+  });
+
+  it("reads the /48 cap from its own variable", () => {
+    expect(worldLimitsFromEnv({ PETGAME_MAX_WORLDS_PER_NETWORK: "5" }).perNetwork).toBe(5);
+    expect(worldLimitsFromEnv({}).perNetwork).toBe(WORLD_LIMITS.perNetwork);
   });
 
   it("ignores bad values with a warning", () => {
     for (const bad of ["", "0", "-1", "1.5", "abc"]) {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      expect(worldLimitsFromEnv({ PETGAME_MAX_WORLDS: bad, PETGAME_MAX_WORLDS_PER_ADDRESS: bad })).toEqual(WORLD_LIMITS);
-      expect(warn).toHaveBeenCalledTimes(2);
+      expect(
+        worldLimitsFromEnv({ PETGAME_MAX_WORLDS: bad, PETGAME_MAX_WORLDS_PER_ADDRESS: bad, PETGAME_MAX_WORLDS_PER_NETWORK: bad }),
+      ).toEqual(WORLD_LIMITS);
+      expect(warn).toHaveBeenCalledTimes(3);
       warn.mockRestore();
     }
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -245,7 +374,7 @@ describe("creating worlds over HTTP", () => {
   let server: ReturnType<typeof defineServer>;
   let url: string;
   let unguard: () => void;
-  const settings: WorldGuardSettings = { limits: { maxWorlds: 4, perAddress: 2 }, trustProxy: 0 };
+  const settings: WorldGuardSettings = { limits: { maxWorlds: 4, perAddress: 2, perNetwork: 3 }, trustProxy: 0 };
 
   beforeAll(async () => {
     server = defineServer({
@@ -269,7 +398,7 @@ describe("creating worlds over HTTP", () => {
     await colyseus?.shutdown();
   });
   beforeEach(() => {
-    settings.limits = { maxWorlds: 4, perAddress: 2 };
+    settings.limits = { maxWorlds: 4, perAddress: 2, perNetwork: 3 };
     settings.trustProxy = 0;
   });
   afterEach(async () => {
@@ -331,13 +460,58 @@ describe("creating worlds over HTTP", () => {
 
   it("refuses at the server cap, counting worlds made without HTTP", async () => {
     settings.trustProxy = 1;
-    settings.limits = { maxWorlds: 3, perAddress: 2 };
+    settings.limits = { maxWorlds: 3, perAddress: 2, perNetwork: 3 };
     await colyseus.createRoom(ROOM_NAME);
     expect((await create({ "x-forwarded-for": "203.0.113.1" })).status).toBe(200);
     expect((await create({ "x-forwarded-for": "203.0.113.2" })).status).toBe(200);
     const refused = await create({ "x-forwarded-for": "203.0.113.3" });
     expect(refused.status).toBe(429);
     expect((await refused.json()).error).toBe(WORLD_LIMIT_ERROR.server);
+  });
+
+  it("refuses a world over the /48 cap across /64 blocks, with the address card", async () => {
+    settings.trustProxy = 1;
+    settings.limits = { maxWorlds: 10, perAddress: 2, perNetwork: 3 };
+    for (const ip of ["2001:db8:1:1::1", "2001:db8:1:2::1", "2001:db8:1:3::1"]) {
+      expect((await create({ "x-forwarded-for": ip })).status, ip).toBe(200);
+    }
+    const rooms = matchMaker.stats.local.roomCount;
+    const refused = await create({ "x-forwarded-for": "2001:db8:1:4::1" });
+    expect(refused.status).toBe(429);
+    expect(matchMaker.stats.local.roomCount).toBe(rooms);
+    expect((await refused.json()).error).toBe(WORLD_LIMIT_ERROR.address);
+    expect((await create({ "x-forwarded-for": "2001:db8:2:1::1" })).status).toBe(200);
+    expect((await create({ "x-forwarded-for": "203.0.113.1" })).status).toBe(200);
+    expect(worldCensus.countFor("2001:db8:1::/48")).toBe(3);
+  });
+
+  it("puts every non-IP address under one key and warns once without the address", async () => {
+    // The warning flag lives in the installed guard, so install a fresh one rather than depend on test order.
+    unguard();
+    unguard = guardWorldCreation(server, settings);
+    settings.trustProxy = 1;
+    settings.limits = { maxWorlds: 10, perAddress: 2, perNetwork: 3 };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect((await create({ "x-forwarded-for": "garbage-1" })).status).toBe(200);
+      expect((await create({ "x-forwarded-for": "garbage-2" })).status).toBe(200);
+      const refused = await create({ "x-forwarded-for": "unknown" });
+      expect(refused.status).toBe(429);
+      expect((await refused.json()).error).toBe(WORLD_LIMIT_ERROR.address);
+      const lines = warn.mock.calls.map((call) => String(call[0]));
+      // The refusal log line also uses console.warn; count only the address warning.
+      expect(lines.filter((line) => line.includes("usable client address"))).toHaveLength(1);
+      expect(lines.some((line) => line.includes("garbage"))).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("counts an address with a port as that address", async () => {
+    settings.trustProxy = 1;
+    expect((await create({ "x-forwarded-for": "203.0.113.9:1111" })).status).toBe(200);
+    expect((await create({ "x-forwarded-for": "203.0.113.9:2222" })).status).toBe(200);
+    expect((await create({ "x-forwarded-for": "203.0.113.9" })).status).toBe(429);
   });
 
   it("gives the place back when a world closes", async () => {
@@ -349,7 +523,7 @@ describe("creating worlds over HTTP", () => {
   });
 
   it("never refuses joining a world that exists", async () => {
-    settings.limits = { maxWorlds: 2, perAddress: 2 };
+    settings.limits = { maxWorlds: 2, perAddress: 2, perNetwork: 3 };
     const { roomId } = await (await create()).json();
     await create();
     expect((await create()).status).toBe(429);

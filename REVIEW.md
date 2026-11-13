@@ -1,53 +1,46 @@
 PASS
-# REVIEW: T65 Dọn sau T49, vòng 1
+# REVIEW: T67 Trần thế giới với IPv6, vòng 2
 
 ## Kết luận
-Thay đổi làm đủ năm việc của PLAN.md, đúng phạm vi: không đổi schema, message, `Profile` hay chữ của hint/thẻ. Bản sửa `onLeave` đúng với luồng thật của Colyseus 0.18. Đã đối chiếu `Room.mjs`: `_onLeave` xoá client khỏi `clients` trước khi gọi hook, `#_onAfterLeave` gọi `onLeave` không có try/catch, và `registerGracefulShutdown` tắt server khi có `uncaughtException`. Danh sách thế giới trên thiết bị đọc/ghi an toàn và có giới hạn. Test kiểm đúng hành vi. Tôi đã tự chạy lại typecheck, `-t "keeping an empty world open"` (8/8) và `joinStatus.test.ts` (27/27), tất cả qua.
+Lỗi chặn của vòng 1 đã được sửa đúng. `total()` giờ bằng số phòng mở cộng `pendingCreations`, nên mỗi lần tạo chỉ tính một lần dù có mấy khoá. Bảng `pending` theo khoá chỉ còn phục vụ `countFor`. Có test chứng minh lỗi cũ không quay lại. Toàn bộ diff T67 khớp PLAN.md và `docs/design/multiplayer.md`; không còn lỗi phải sửa.
 
-## Lỗi phải sửa
-(không có)
+## Lỗi phải sửa (FAIL khi còn mục này)
+(không còn)
 
-## Đã kiểm, không có lỗi
-- **`onLeave` và trạng thái còn dở.** `removePlayer` gọi `saveNow` đầu tiên, và hàm này tự bắt lỗi store, nên hồ sơ đã được lưu trước khi có thể ném lỗi. Nếu ném ở `despawnCompanion`, thứ còn sót là `players`, `controls` và mục `liveSessions` của phiên. `onLeave` xoá `holds` rồi tính `isEmpty()`, nên thế giới vẫn được giữ rồi đóng. `onDispose` xoá mục `liveSessions` của phòng, nên token không bị khoá vĩnh viễn.
-- **Một lần vào hỏng vẫn giữ lại thế giới.** Nếu `onJoin` ném lỗi, Colyseus gọi `_onLeave(WITH_ERROR)`, rồi `onDrop` (trả về sớm), rồi `onLeave`, và `isEmpty()` lại gọi `holdEmptyWorld()`. Vậy việc `keepWorldOpen()` ở đầu `onJoin` không để thế giới treo mãi. Với điều kiện cũ (`players.size === 0`) thì người chơi ma sẽ làm treo; điều kiện mới thì không.
-- **Không còn chỗ nào dùng `players.size` cho "trống".** Server chỉ còn `onJoin` dùng `players.size` để chọn chỗ đứng; người chơi ma chỉ làm lệch chỗ đứng, vô hại.
-- **Thứ tự trong đường rớt mạng.** Handler `.then(…, resetAutoDisposeTimeout)` chạy trước `onLeave`, và lúc đó `autoDispose` đang là false nên không làm gì. `cleanup` xoá ghế giữ sau đó, còn `#_disposeIfEmpty` tự chờ ghế giữ. Không có thứ tự nào làm phòng đóng sớm.
-- **`localStorage` `petgame:worlds`.**
-  - Chỉ lưu id phòng và một cờ boolean. Id phòng trị giá như link mời, nhưng nằm cạnh token thiết bị (thứ quan trọng hơn), nên không thêm rủi ro riêng tư.
-  - Giới hạn 20 phần tử, `room` dài 1-64 ký tự. Lỗi quota bị `safeStorage` nuốt.
-  - Mới nhất đứng đầu, không trùng.
-  - Chỉ ghi khi vào, khi trạng thái có bạn bè đổi (`syncAddress` chỉ gọi `rememberWorld` lúc cờ đổi), trong `failToStart`, và một lần lúc mở trang. Không ghi theo khung hình.
-  - Không có request mới trước khi sảnh sẵn sàng. `noteRecentWorld` và `readJson` là khai báo `function` (được hoist), còn `RECENT_WORLDS_KEY` được khai báo trước chỗ dùng.
-- **Hai tab ghi cùng lúc.** Kiểu đọc-sửa-ghi có thể mất một lần ghi. Hậu quả tối đa là hành vi trước T65, và mỗi thiết bị chỉ có một phiên sống, nên hai tab cùng ghi rất hiếm. Chấp nhận như PLAN đã nêu.
-- **Thứ tự của `arrival`.** Không có `?room=` thì `new`; rồi tới trí nhớ của tab; rồi danh sách của thiết bị; còn lại là `invited`. Để tab thắng là hợp lý: `rememberWorld` ghi tab và thiết bị cùng lúc, nên tab không bao giờ cũ hơn danh sách về chính thế giới của nó.
-- **Dấu trang của thế giới chơi một mình, sau đó chia sẻ cho bạn bè.**
-  - Nếu bạn vào khi người chơi còn ở đó, `syncAddress` đổi cờ thành `true`.
-  - Nếu bạn vào sau khi người chơi đã rời đi, cờ vẫn là `false`. Khi đó thế giới còn mở thì vẫn vào được đúng thế giới; đã đóng thì vào thẳng thế giới mới, không có thẻ. Cách này nhất quán với luật tab của T49, chấp nhận được.
-- **Thiết bị dùng chung.** Một người khác trên cùng trình duyệt nhận link mời tới thế giới mà người kia đã vào, và thấy "Quay lại…" thay vì "Bạn được mời…". Chấp nhận được: token và hồ sơ đi theo thiết bị, nên hai người đó vốn là cùng một nhân vật với cùng thú, đồ và trại. Chữ "Thú, đồ và trại của bạn vẫn còn" vì vậy vẫn đúng.
-- **Test server.**
-  - S1: spy đặt sau `capture`, vì `capture` gọi `vi.restoreAllMocks()`. Hẹn giờ gọi `this.closeIfStillEmpty()` qua arrow function, nên spy trên instance bắt được.
-  - S2 kiểm người chơi ma còn đó, có log kèm `roomId`, và phòng đóng.
-  - S3 đi đúng đường `#_onAfterLeave`. Vitest cũng tự báo lỗi khi có unhandled rejection, nên đường làm sập server bị bắt từ hai phía.
-- **Test e2e.**
-  - E1: `goto` và `waitForEvent("load")` chỉ trả về khi module `main.ts` đã chạy, nên kiểm `#room-hint` bằng `""` có nghĩa. Ở E2 và E3, giá trị trước T65 là "Bạn được mời…", nên ba bước này đỏ nếu bỏ danh sách.
-  - E1: `?.` trong poll chỉ chờ lâu hơn, không làm poll qua nhầm.
-  - E3 dùng tab mới của cùng context, nên `sessionStorage` trống mà `localStorage` dùng chung: đúng tình huống dấu trang.
-  - Test của tester (danh sách hỏng, storage ném lỗi) kiểm đúng điều quan trọng: sảnh mở khoá và hiện "Bạn được mời…".
-- **Tài liệu.** `architecture.md` dòng 59, 66 và 98, cùng mục T65 trong `multiplayer.md` (bảng, lý do chọn 20, việc đưa lên đầu danh sách, chế độ riêng tư) khớp với code.
+## Đã kiểm ở vòng 2
+- `packages/server/src/worldLimits.ts`, `WorldCensus`:
+  - `admit` tăng `pendingCreations` đúng một lần, sau cả ba lần kiểm trần. Lần bị chặn không tăng bộ đếm nào.
+  - `settle` giảm bộ đếm, chặn ở 0. Việc này giữ đúng hành vi của test "nor go negative". `settle` chỉ được gọi một lần cho mỗi `admit` thành công (trong `finally`), nên việc chặn ở 0 không che lỗi đếm thật nào.
+  - JSDoc của `pending`, `pendingCreations` và `total()` nói đúng lý do không được cộng bảng theo khoá.
+- **Test mới:**
+  - "counts one IPv6 creation once toward the server cap": một lần tạo IPv6 cho `total()` = 1, và IPv4 vẫn được nhận ở `maxWorlds: 2`.
+  - "counts an opened but not yet settled IPv6 world once": phòng đã mở mà chưa `settle` cho 2, sau `settle` còn 1.
+  - Test HTTP 12 kiểm thêm `roomCount` không đổi sau lần 429.
+  - Theo tester, quay `total()` về cách cộng cũ thì hai test census mới đỏ.
+  - Tôi chạy lại `npx vitest run packages/server/src/worldLimits.test.ts`: 53/53 qua. `npm run typecheck` sạch.
+- **Câu cảnh báo:** đổi thành "...If this is not expected, check PETGAME_TRUST_PROXY (docs/deploy.md). Logged once per process."
+  - `docs/deploy.md` ghi đúng là chỉ một lần mỗi lần server chạy, và nêu nguyên nhân vô hại (khách ngắt kết nối giữa chừng).
+  - Câu vẫn không chứa địa chỉ.
+  - Lệch so với chữ trong PLAN.md (câu cũ "If this repeats") là lệch đúng hướng, theo góp ý vòng 1.
+- **`docs/design/multiplayer.md`:** thêm câu về các dạng IPv6 có IPv4 nhúng (`::a.b.c.d`, `64:ff9b::/96`), cạnh ghi chú Teredo. Nội dung chính xác.
+- **Phần đã đạt từ vòng 1, không đổi:**
+  - `parseIp` bỏ đúng cổng, ngoặc vuông và zone. Regex tuyến tính, không có rủi ro ReDoS.
+  - Các dạng khoá không trùng nhau.
+  - Thứ tự kiểm là server, rồi address, rồi network. Chặn theo /48 trả chữ `WORLD_LIMIT_ERROR.address`, nên client cũ vẫn hiện thẻ `tooMany`.
+  - `settle` nằm trong `finally`, nên lần tạo hỏng giữa chừng không làm rò số đếm.
+  - Cờ cảnh báo nằm trong closure của `guardWorldCreation`.
+  - `dev.mjs` giữ giá trị đã đặt. `shots.mjs` và `playwright.config.ts` nâng trần lên 1000. `play`, `start`, `Dockerfile`, `fly.toml` và `render.yaml` không bị đụng tới.
+  - Không file client nào bị sửa. Giao thức không đổi.
+
+## Lỗi e2e chập chờn `boss bar (phone upright, notch)` (multiplayer.spec.ts:2785)
+Tôi xác nhận lỗi này không liên quan T67, vì ba lẽ:
+- **Không có đường nào nối diff với lỗi:** diff T67 không đụng `packages/client` hay `tests/e2e`. Nó chỉ đổi cách server đếm và chặn `/matchmake/create`.
+- **Trần đã được nâng:** trong e2e cả ba trần là 1000 (`playwright.config.ts`).
+- **Lỗi xảy ra sau khi đã vào thế giới:** nếu T67 chặn nhầm thì lần tạo sẽ bị 429 và test hỏng ngay ở `join`/`waitForWorld`, với thẻ sảnh. Ở đây test đã vào thế giới rồi mới hỏng, ở số toast HUD (kỳ vọng 2, nhận 1). Đó là thời điểm toast cùng chuyện trùm đi xa và hộp nhiệm vụ hiện lại, đúng rủi ro T62 đã ghi.
+
+Ghi lỗi này vào T63 là đúng.
 
 ## Góp ý không bắt buộc
-- **Người chơi ma khoá thiết bị trong lúc thế giới của nó còn sống** (chỉ xảy ra khi có bug).
-  - Nếu `removePlayer` ném lỗi trước dòng 661, mục `liveSessions` vẫn trỏ tới phiên ma. Mỗi lần thiết bị đó vào bất kỳ thế giới nào, `onJoin` gọi `older.room.endSession(...)`, `endSession` gọi lại `removePlayer`, và gần như chắc chắn ném lại (cùng con thú gây lỗi). Lần vào đó hỏng với thẻ "Không vào được thế giới".
-  - Mỗi lần thử vào lại chính thế giới ma còn khởi động lại khoảng giữ 60 s. Kết quả: thiết bị bị khoá cho tới 60 s sau lần thử cuối.
-  - PLAN đã cho phép không dọn người chơi ma, nên đây không phải lỗi của T65.
-  - Đề xuất thêm việc nhỏ vào TASKS: bọc `older.room.endSession` trong `onJoin` bằng try/catch, ghi log và xoá mục `liveSessions` đó, để thiết bị luôn vào được. Cũng nên cân nhắc đặt `input` của người chơi ma về 0: hiện nó vẫn được mô phỏng với hướng đi cuối cùng.
-- **Đột biến (a) chưa chứng minh được assertion `stray` của S3.** S3 đỏ ở `holdsOf(room).size` trước khi tới bước kiểm `stray`.
-  - Nên chạy thêm đột biến "`try { removePlayer } finally { holds.delete; if (isEmpty()) holdEmptyWorld(); }`", tức ném lại lỗi. Đây đúng là phương án PLAN đã loại vì làm sập server.
-  - Như vậy mới thấy S3 (hoặc Vitest) báo unhandled rejection, thay vì chỉ dựa vào lập luận.
-- **`holdsOf` bị khai báo hai lần** (`GameRoom.test.ts` dòng 2487 và 2936). Nên chuyển lên cấp file, cạnh `isOpen` và `emptyHoldOf`.
-- **E1 dựa vào khoảng giữ 60 s thật.**
-  - Biên dư ước chừng 35-45 s; chạy lặp 8+5 lần đều qua.
-  - Nếu thời gian hết thì test đỏ rõ ràng (`roomId` khác), không qua nhầm.
-  - Nên ghi thời gian từ lúc `helper.leave()` tới `waitForWorld` vào nhật ký test, để thấy biên dư trên CI. Nếu chập chờn thì dùng phương án dự phòng của PLAN: cho helper rời ngay trước khi bấm Về sảnh.
-- **Câu dài ở `architecture.md` dòng 59.** Phần T65 chen giữa "khi `isEmpty()`" và "`keepWorldOpen()` ở đầu `onJoin`", nối bằng dấu chấm phẩy nên khó đọc. Có thể tách thành câu riêng.
-- Tên phòng `someoneselse` trong test của tester: chỉ là lỗi chính tả nhỏ, không ảnh hưởng.
+- **T68** sửa `RefusalLog` thì giữ số đếm `network` và test "counts /48 refusals apart". Số "worlds open" trong dòng log giờ lấy từ `total()` đã đúng.
+- **PLAN.md** còn câu cảnh báo cũ "If this repeats". PLAN.md bị ghi đè ở nhiệm vụ sau nên không cần sửa. Chỉ cần ghi chú chỗ lệch này trong message commit.
+- **Sau khi deploy**, để ý số `network` trong log chặn: người chơi di động ở Việt Nam dùng IPv6 nhiều. Nếu thấy số này tăng mà không có kẻ phá thì nâng `PETGAME_MAX_WORLDS_PER_NETWORK`.

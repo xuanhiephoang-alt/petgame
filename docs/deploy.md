@@ -32,22 +32,24 @@ Cả hai đọc được `Dockerfile` ở thư mục gốc:
 
 ## Giới hạn số thế giới và proxy (T64)
 
-Mỗi lần tạo thế giới tốn một ít CPU và bộ nhớ, nên server giới hạn việc **tạo** (luật ở `docs/design/multiplayer.md`). Ba biến môi trường:
+Mỗi lần tạo thế giới tốn một ít CPU và bộ nhớ, nên server giới hạn việc **tạo** (luật ở `docs/design/multiplayer.md`). Bốn biến môi trường:
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `PETGAME_MAX_WORLDS` | 50 | số thế giới tối đa trên cả server |
 | `PETGAME_MAX_WORLDS_PER_ADDRESS` | 10 | số thế giới tối đa mỗi địa chỉ mạng (IPv6 tính theo khối /64) |
+| `PETGAME_MAX_WORLDS_PER_NETWORK` | 20 | số thế giới tối đa mỗi khối IPv6 /48 (gộp mọi khối /64 của một khách hàng); không áp cho IPv4 |
 | `PETGAME_TRUST_PROXY` | 0 | số proxy đứng trước server (0-9); server lấy địa chỉ người chơi là mục thứ N tính từ cuối `X-Forwarded-For` |
 
-Giá trị sai (ngoài khoảng cho phép: hai trần là số nguyên ≥ 1, `PETGAME_TRUST_PROXY` từ 0 tới 9) bị bỏ qua kèm cảnh báo trong log. `fly.toml` và `render.yaml` đặt `PETGAME_TRUST_PROXY=1`.
+Giá trị sai (ngoài khoảng cho phép: ba trần là số nguyên ≥ 1, `PETGAME_TRUST_PROXY` từ 0 tới 9) bị bỏ qua kèm cảnh báo trong log. Đặt trần /48 ≥ `PETGAME_MAX_WORLDS` là tắt nó. Thấy log chặn có `network` tăng mà không có kẻ phá (nhiều người chơi di động cùng nhà mạng) thì nâng biến này. `fly.toml` và `render.yaml` đặt `PETGAME_TRUST_PROXY=1`.
 
-- `npm run dev` và `npm run shots` tự nâng `PETGAME_MAX_WORLDS_PER_ADDRESS` lên 1000 cho server chúng chạy (dev giữ giá trị nếu bạn đã đặt, để thử thẻ bị chặn: `PETGAME_MAX_WORLDS_PER_ADDRESS=2 npm run dev`). `npm run play` dùng trần thật; `npm run dev:server` (gọi thẳng workspace) cũng giữ trần thật.
+- `npm run dev` và `npm run shots` tự nâng `PETGAME_MAX_WORLDS_PER_ADDRESS` và `PETGAME_MAX_WORLDS_PER_NETWORK` lên 1000 cho server chúng chạy (dev giữ giá trị nếu bạn đã đặt, để thử thẻ bị chặn: `PETGAME_MAX_WORLDS_PER_ADDRESS=2 npm run dev`). `npm run play` dùng trần thật; `npm run dev:server` (gọi thẳng workspace) cũng giữ trần thật.
 
 **Kiểm sau khi deploy:** tắt Wi-Fi trên điện thoại (dùng 4G), mở `https://<app>/whoami`, rồi so với địa chỉ một trang "what is my IP" báo.
 - Khớp: đúng.
 - Ra địa chỉ nội bộ (`10.*`, `172.16-31.*`, `192.168.*`, `fdaa:*`, `fd*`): có thêm một proxy nữa, tăng `PETGAME_TRUST_PROXY` thêm 1 rồi kiểm lại.
 - Hai mạng khác nhau mà ra cùng một địa chỉ cũng là chưa đúng.
+- Proxy ghi kèm cổng (`1.2.3.4:5678`) vẫn được đếm đúng theo địa chỉ. Dòng log "came without a usable client address" chỉ ghi một lần mỗi lần server chạy; nếu thấy nó mà không có lý do (không phải khách ngắt kết nối giữa chừng), kiểm `PETGAME_TRUST_PROXY`: có thể đang cao hơn số proxy thật (hoặc proxy ghi chữ lạ).
 
 Đặt thấp hơn số proxy thật thì mọi người chung một địa chỉ và trần 10 chặn nhầm người chơi; đặt cao hơn thì chỉ để kẻ phá giả được địa chỉ. Dòng log "World limits: requests carry X-Forwarded-For but PETGAME_TRUST_PROXY is 0" nghĩa là có proxy mà chưa khai báo: đặt biến này.
 

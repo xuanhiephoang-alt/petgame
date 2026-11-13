@@ -35,7 +35,15 @@ if (!args.includes("--no-build")) {
 }
 const server = spawn(process.execPath, ["--import", "tsx", "packages/server/src/index.ts"], {
   // Shots opens 8 worlds from one address within minutes; the per-address cap is 10 (see playwright.config.ts).
-  env: { ...process.env, PORT: String(port), PETGAME_DEBUG: "1", PETGAME_DB: ":memory:", PETGAME_MAX_WORLDS_PER_ADDRESS: "1000" },
+  // The /48 cap is raised too: localhost may be ::1, one /48 block.
+  env: {
+    ...process.env,
+    PORT: String(port),
+    PETGAME_DEBUG: "1",
+    PETGAME_DB: ":memory:",
+    PETGAME_MAX_WORLDS_PER_ADDRESS: "1000",
+    PETGAME_MAX_WORLDS_PER_NETWORK: "1000",
+  },
   stdio: "ignore",
 });
 const url = `http://localhost:${port}`;

@@ -12,7 +12,12 @@ const children = ["@petgame/server", "@petgame/client"].map((workspace) =>
     shell: process.platform === "win32",
     env:
       workspace === "@petgame/server"
-        ? { ...process.env, PETGAME_MAX_WORLDS_PER_ADDRESS: process.env.PETGAME_MAX_WORLDS_PER_ADDRESS ?? "1000" }
+        ? {
+            ...process.env,
+            PETGAME_MAX_WORLDS_PER_ADDRESS: process.env.PETGAME_MAX_WORLDS_PER_ADDRESS ?? "1000",
+            // localhost may be ::1 (block 0:0:0::/48), so the /48 cap would hit before the raised address cap.
+            PETGAME_MAX_WORLDS_PER_NETWORK: process.env.PETGAME_MAX_WORLDS_PER_NETWORK ?? "1000",
+          }
         : process.env,
   }),
 );

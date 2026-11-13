@@ -40,7 +40,7 @@ await server.listen(port);
 guardWorldCreation(server, worldSettings);
 console.log(`PetGame server listening on port ${port}`);
 console.log(
-  `World limits: ${worldSettings.limits.maxWorlds} worlds, ${worldSettings.limits.perAddress} per address; trusting ${worldSettings.trustProxy} prox${worldSettings.trustProxy === 1 ? "y" : "ies"}`,
+  `World limits: ${worldSettings.limits.maxWorlds} worlds, ${worldSettings.limits.perAddress} per address, ${worldSettings.limits.perNetwork} per IPv6 /48; trusting ${worldSettings.trustProxy} prox${worldSettings.trustProxy === 1 ? "y" : "ies"}`,
 );
 if (existsSync(clientDist)) {
   console.log(`Serving web client from ${clientDist}`);

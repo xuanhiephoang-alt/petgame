@@ -62,11 +62,17 @@ export const EMPTY_WORLD_HOLD_MS = 60_000;
  * The per-address cap is also the rate limit: a world lives at least EMPTY_WORLD_HOLD_MS after it is made, so an
  * address makes at most `perAddress` worlds a minute. If worlds can ever close sooner than that (a shorter hold,
  * closing at once when creation fails...), revisit this and add a rate counter over time.
+ * `perNetwork` counts every IPv6 address in one /48 block (one provider customer gets up to a /48), so a single
+ * customer cannot take all of `maxWorlds` by hopping between /64 blocks. 20 = 2 x `perAddress`: it leaves room for
+ * strangers on mobile networks that share a block. It does not apply to IPv4. Like `perAddress`, it is a rate limit.
  */
-export const WORLD_LIMITS = { maxWorlds: 50, perAddress: 10 } as const;
+export const WORLD_LIMITS = { maxWorlds: 50, perAddress: 10, perNetwork: 20 } as const;
 /** HTTP status of a world creation refused by WORLD_LIMITS (Too Many Requests). */
 export const WORLD_LIMIT_STATUS = 429;
-/** Error text of each refusal; the lobby tells them apart by it. Never shown to players. */
+/**
+ * Error text of each refusal; the lobby tells them apart by it. Never shown to players.
+ * A refusal by the IPv6 /48 cap uses the `address` text, so the lobby shows the same card.
+ */
 export const WORLD_LIMIT_ERROR = {
   server: "too many worlds on this server",
   address: "too many worlds from this address",
