@@ -1,419 +1,291 @@
-# PLAN: T62 Điện thoại dọc: thông báo đè tên người chơi
+# PLAN: T65 Dọn sau T49
 
-Đọc code ở HEAD `61845e6`. File liên quan:
-- `packages/client/src/ui/toastQueue.ts`: `TOAST` (dòng 5-24, `roomyPortraitPx: 760`), `toastRoom(width, height)` (dòng 52-56).
-- `packages/client/src/ui/toastQueue.test.ts`: `describe("toastRoom")` dòng 40-50.
-- `packages/client/src/ui/hud.ts`: `toastQueue = new ToastQueue(() => toastRoom(innerWidth, innerHeight))` dòng 26; `showToast` 256, `tickToasts` 261.
-- `packages/client/src/game/Game.ts`: tạo `Hud` dòng 299-308; nhãn tên người chơi `actor.height + 6` dòng 399 và `tag.lift = actor.height + 6` dòng 420; camera `me.pos.y - 16` dòng 1005; `me()` dòng 890.
-- `packages/client/src/game/labelLayout.ts` (+ `labelLayout.test.ts`): hằng số và logic nhãn tên.
-- `packages/client/src/game/stage.ts`: `Stage.zoomFor` = cạnh ngắn / 440 (390 px rộng: 0,886).
-- `packages/client/index.html`: `.label` (gap 3 px), `.label span` (12 px, đệm 1 px: cao 17), `.hp-bar` (cao 5, chỉ hiện khi `.label.hurt`) dòng 16-26; `.hud-left` dòng 117; `.hud-toasts` (gap 4) và `.toast` dòng 139-147; khối `@media (max-width: 600px)` (`.toast` chữ 13 px, cột `100vw − 140`) dòng 389-406.
-- `tests/e2e/multiplayer.spec.ts`: `shownToasts` 2409, `toastLayout` 2416, `boxesOverlap` 2436, `TOAST_SCREENS` + test `toasts (...)` 2439-2493, `safeArea` 2502, `bossLayout` 2527, `BOSS_SCREENS` 2649, test `short sideways phone` 2876-2996, test ô trạng thái đầy 667 kết thúc dòng 3015.
+Đọc code ở HEAD `2c0418b`. Nguồn: mục "Góp ý không bắt buộc" trong `REVIEW.md` của commit T49 (`git show 471ea0d:REVIEW.md`). File liên quan:
+- `packages/server/src/rooms/GameRoom.ts`: `onLeave` dòng 629-632, `removePlayer` 644-660, `endSession` 667-672, `holdEmptyWorld` 675-678, `keepWorldOpen` 681-685, `closeIfStillEmpty` 691-695, trường `holds` 299.
+- `packages/server/src/rooms/GameRoom.test.ts`: `describe("keeping an empty world open")` dòng 2875-2993 (test 1 ở 2879-2912); `holdsOf` 2487 và `cutConnection` 2454 nằm trong `describe("reconnecting after a dropped connection")`; test "closing the world saves everyone…" 2842-2872 (mẫu bắt `unhandledRejection`).
+- `packages/client/src/ui/joinStatus.ts`: `RETURN_HINT`, `INVITE_HINT`, `Arrival`, `arrival()` dòng 17-21, `arrivalHint()`.
+- `packages/client/src/ui/joinStatus.test.ts`: `describe("arrival")` dòng 8-36.
+- `packages/client/src/main.ts`: khoá `ROOM_KEY`/`FRIENDS_KEY` 31-34, `invited`/`arrived`/`returning`/`quietRetry` 66-72, `rememberWorld` 79-84, `dropWorldFromAddress` 87-91, `enter` 128-181, `readJson` 245-247, `safeStorage` 259-265.
+- `tests/e2e/multiplayer.spec.ts`: test "lobby: a reload goes back…" 1666-1755, test "lobby: alone, a reload…" 1757-1794, `openWithSwitch` 2016-2058, `observer` 2064, `closedWorld` 2075-2090, test "connection: when the world has let the player go…" 2202-2269.
+- `docs/architecture.md` dòng 59 (Giữ thế giới trống), 66 (`main.ts`, T23), 98 (helper e2e).
 
 ## Mục tiêu
 
-Cầm điện thoại dọc, hai thông báo dài nhất (phần thưởng hạ trùm, lên cấp kèm 2 chiêu: mỗi cái 3 dòng, cao 61 px) xếp dưới ô nhiệm vụ đè lên tên mình. Đúng lúc nhiều thông báo nhất (đánh nhau, bắt thú) người chơi mất tên và thanh máu dưới tên. Sau T62, khi cầm dọc, thông báo không bao giờ đè tên mình lúc đứng yên, kể cả khi:
-- có tai thỏ;
-- đang bị thương (thanh máu dưới tên);
-- tóc hoặc mũ cao;
-- ô nhiệm vụ dài.
-
-Màn có đủ chỗ vẫn hiện 2 thông báo như cũ.
-
-### Số đo hiện tại (bản đo chỉ đọc, Playwright + Chromium như e2e, HEAD `61845e6`)
-
-Cách đo: script trong scratchpad, server cổng 2667 và Vite 5273 (`VITE_SERVER_URL`), `PETGAME_DEBUG=1`, tai thỏ bằng CDP `Emulation.setSafeAreaInsetsOverride` (như `safeArea`). Mỗi trường hợp:
-- vào thế giới, `debug:givePal` emberpup cấp 8, ép 2 thông báo dài nhất;
-- đổi tóc (`setLook`), mũ (`debug:wardrobe` rồi `equip`), nhiệm vụ (`debug:quest`);
-- "bị thương" = thêm lớp `hurt` cho `.label.me` ngay trong lần đo (đúng lớp mà `setHp` đặt khi máu < tối đa).
-
-Đo khi camera đứng yên (lệch < 1). Khoảng cách = mép trên tên mình − đáy thông báo cuối (đã hết hiệu ứng trượt 4 px); số âm là đè.
-
-**Chiều cao nhân vật** (`PlayerActor.height`, đơn vị thế giới):
-- tóc buộc hai bên 46,3; dài 48,3; búi 55,1; **xoăn 55,8** (tóc cao nhất);
-- mũ: hoa 58,1, lưỡi trai 61,7, len 66,4, **mũ phù thủy 68,9** (cao nhất).
-
-**Ô nhiệm vụ ở 390 px rộng:**
-- 57 px với đa số nhiệm vụ;
-- 71-72 px với chỉ số 1, 7, 10, 13;
-- **86 px với chỉ số 3** ("Hái 3 bụi quả", gợi ý 2 dòng);
-- 23 px khi đã xong hết nhiệm vụ.
-
-Thanh máu trùm thế chỗ ô nhiệm vụ cao 38 px.
-
-**Hai thông báo, 390×760** (hiện đang 2 cái, vì `760 < 760` sai):
-
-| Tóc | Ô nhiệm vụ | + bị thương | Thanh trùm | + bị thương |
-|---|---|---|---|---|
-| buộc hai bên | +4,4 | −3,6 | +23,4 | +15,4 |
-| rối (messy) | +0,6 | −7,4 | +19,6 | +11,6 |
-| xoăn | −4,0 | −12,0 | +15,0 | +7,0 |
-
-**Hai thông báo, 390×844, tai thỏ 47** (hiện 2 cái):
-
-| Tóc | Ô nhiệm vụ | + bị thương | Thanh trùm | + bị thương |
-|---|---|---|---|---|
-| buộc hai bên | +11,4 | +3,4 | +30,4 | +22,4 |
-| rối | +7,6 | −0,4 | +26,6 | +18,6 |
-| xoăn | +3,0 | −5,0 | +22,0 | +14,0 |
-
-**Trường hợp tệ hơn mà nhiệm vụ chưa nêu** (hai thông báo, đã bị thương):
-
-| Màn | Ô nhiệm vụ đầu, tóc xoăn | Ô nhiệm vụ đầu, mũ phù thủy | Ô 86 px, mũ phù thủy |
-|---|---|---|---|
-| 390×844 | +30 | +18 | −11 |
-| 390×844, tai thỏ 47 | −5 | −17 | −46 |
-| 393×852, tai thỏ 59 (iPhone 14 Pro/15) | −13 | −25 | −54 |
-| 375×812, tai thỏ 44 (iPhone X/12 mini) | −31 | −42 | −57 |
-| 360×800 (Android) | −3 | −14 | −29 |
-| 412×915 | +63 | +51 | +36 |
-| 430×932, tai thỏ 59 (thông báo 2 dòng, 44 px) | +76 | +63 | +48 |
-| 768×1024 (máy tính bảng, thông báo 51 px) | +93 | +70 | +53 |
-
-**Công thức mép trên tên mình khớp số đo** (sai ≤ 0,4 px ở mọi màn trên):
-```
-nameTop = H/2 + (16 − (chiều cao nhân vật + 6)) × zoom − 17 − 8 (thanh máu)
-```
-- camera nhìn vào điểm 16 đơn vị trên chân (`Game.ts` dòng 1005);
-- nhãn treo ở `chiều cao + 6`, neo theo đáy (`translate(-50%, -100%)`);
-- chữ tên cao 17 px; thanh máu thêm 3 + 5 = 8 px dưới chữ, đẩy chữ lên 8 (đo được đúng 8,0).
-
-**Chỗ bắt đầu thông báo** (`toastsTop`, đáy ô nhiệm vụ + gap 4) đo được:
-- 390×844: 201,2; có tai thỏ 47: 236,2; tai thỏ 47 + thanh trùm: 217,2;
-- ô 86 px: +29.
-
-Một thông báo 3 dòng cao 60,7; hai cái và gap 4 kết thúc ở `toastsTop + 125,4`.
-
-### Kết luận
-
-Chỉ nâng mốc chiều cao (cách task gợi ý) **không đủ và không làm được mà không sửa test cũ**:
-- 390×844 không tai thỏ phải giữ 2 thông báo: test `toasts (phone upright)` và unit `toastRoom(390, 844) = 2`.
-- 390×844 có tai thỏ 47 + thanh trùm cũng phải giữ 2: test `boss bar (phone upright, notch)`, room 2.
-- Nhưng cũng 390×844 có tai thỏ, khi có ô nhiệm vụ, bị thương và tóc xoăn thì đè 5 px.
-
-Một mốc theo `(cao, lề trên)` không phân biệt được ô nhiệm vụ với thanh trùm, ô 57 với ô 86, tóc với mũ. Vì vậy số chỗ phải tính theo **chỗ thật trên màn**: cột kết thúc ở đâu (đo DOM), tên mình ở đâu (công thức trên). Mốc tĩnh nâng lên 790 vẫn giữ (task yêu cầu), làm tầng dưới rẻ: màn dọc thấp hơn thì không đo gì.
+Năm việc dọn sau T49, không đổi luật chơi:
+1. **Thế giới không bị treo mãi khi có lỗi lúc người chơi rời đi.** Lỗi đó cũng không được làm sập cả server (xem phân tích ở Thiết kế 1).
+2. **Test server 1** chứng minh thật rằng người vào lại kịp trong khoảng giữ, kể cả trên máy chậm.
+3. **E2E cho mục tiêu 3 của T49:** chơi một mình, rớt mạng, bấm **Về sảnh**, về đúng thế giới cũ.
+4. **`closedWorld` trong e2e không chập chờn** khi tin rời phòng lúc `pagehide` bị mất.
+5. **Người chơi mở địa chỉ thế giới của chính mình ở tab mới** (dấu trang, dán lại) không bị coi là người được mời nữa.
 
 ## Phạm vi
 
 Làm:
-1. `toastRoom` nhận thêm hàm `fit` (tuỳ chọn, gọi lười): chỗ bắt đầu thông báo và mép trên tên mình. Màn dọc cao ≥ 790 chỉ cho 2 khi 2 thông báo cao nhất vừa, cách tên ≥ 4 px.
-2. `roomyPortraitPx` 760 → 790.
-3. Hàm thuần `restingNameTop` (mép trên tên mình lúc đứng yên, luôn tính thanh máu), cùng các hằng số mà `Game.ts` đang viết cứng (16, 6).
-4. `Hud` tính và nhớ số chỗ: tính lại mỗi lần có thông báo mới, và mỗi 250 ms khi có thông báo đang chờ. `Game` đưa cho `Hud` hàm mép trên tên mình.
-5. Unit test cho `toastRoom` (với `fit`) và `restingNameTop`. Một e2e mới cho điện thoại dọc: tai thỏ, bị thương, tóc cao, mũ cao, ô nhiệm vụ cao.
-6. `docs/design/hud.md`: đã cập nhật cùng kế hoạch này (mục "Thông báo (toast)": "Bao nhiêu cái cùng lúc" và mục mới "Thông báo và tên mình khi cầm dọc").
+- `GameRoom.onLeave` bắt lỗi của `removePlayer` và luôn kiểm "trống"; một hàm `isEmpty()` dùng chung cho `onLeave` và `closeIfStillEmpty`.
+- Sửa test server 1; thêm 2 test server cho đường lỗi.
+- Một e2e mới, thêm bước vào 2 e2e `lobby:` có sẵn, nâng `closedWorld` lên 30 s.
+- Client: danh sách "thế giới đã vào gần đây" trong `localStorage`; `arrival()` dùng thêm danh sách đó.
+- Cập nhật `docs/architecture.md` (coder). `docs/design/multiplayer.md` đã được game-designer cập nhật.
 
-**Không** làm:
-- Không đổi CSS bố cục: cột, ô nhiệm vụ, thông báo (cỡ chữ, đệm, rộng), nhãn tên, thanh máu. Chỉ được thêm chú thích CSS ở bước 5.
-- Không cắt dòng thông báo, không đổi thời gian hay mức của thông báo, không đổi luật hàng chờ (`ToastQueue`).
-- Không đổi camera, độ phóng, chỗ nhân vật trên màn.
-- Không đổi điện thoại ngang, desktop, màn ngang. `toastRoom` trả lời trước khi gọi `fit` cho các màn này, nên không đọc DOM.
-- **Không sửa test có sẵn.** Không đổi `TOAST_SCREENS`, `BOSS_SCREENS`, `toastLayout`, `safeArea`, `bossLayout`, `settledBossLayout`, `nearBoss` hay một dòng nào của test `toasts (...)`, `boss bar (...)`, `short sideways phone (...)`. Chỉ thêm. Việc trả test `toasts (...)` về bản trước T30 và dọn test thanh trùm là của **T63**, không làm ở đây. Không thêm dòng vào mảng `TOAST_SCREENS`, để T63 trả test về bản cũ mà không đụng phần mới.
-- Không xử lý màn dọc thấp (< 790) khi 1 thông báo vẫn đè tên, và tên lên cao lúc đang đi (xem "Đề xuất tách việc").
-- Không đổi server, shared, schema, message, lưu game.
+KHÔNG làm:
+- Không đổi schema, message, `Profile`, store hay HTTP: không đổi giao thức.
+- Không đổi chữ của `RETURN_HINT`, `INVITE_HINT` hay của thẻ (`joinCard`).
+- Không đổi `EMPTY_WORLD_HOLD_MS`, `RECONNECT_GRACE_MS`, `RECONNECT_TRY_MS` hay luật giữ thế giới.
+- Không sửa `removePlayer`. Không dọn "người chơi ma" sót lại khi `removePlayer` ném lỗi: đó là đường chỉ có khi có bug, chỉ cần thế giới vẫn đóng và lỗi được ghi log.
+- Không đụng `worldLimits.ts` (T67, T68 riêng).
+- Không làm PWA mở lại thế giới cũ.
 
 ## Thiết kế
 
-### Luật số chỗ (thay luật "dọc thấp hơn 760 px" trong `hud.md`)
+### 1. `onLeave` chịu được lỗi của `removePlayer`
 
-`toastRoom(width, height, fit?)`, theo thứ tự:
-1. `height ≤ 520` (điện thoại ngang): **1**. Không đổi.
-2. `width ≥ height` (desktop, màn ngang cao): **2**. Không đổi.
-3. Màn dọc `height < 790`: **1**. Trước là 760.
-4. Màn dọc ≥ 790:
-   - gọi `fit()`. Nếu nó trả `undefined` (chưa có nhân vật mình, nên không có tên để tránh) thì **2**;
-   - nếu không: **2** khi `toastsTop + 2 × 61 + 4 + 4 ≤ nameTop`, ngược lại **1**.
+Hiện tại `onLeave` gọi `removePlayer` rồi `if (players.size === 0) holdEmptyWorld()`. Nếu `removePlayer` ném lỗi (chỉ khi có bug: `saveNow` đã tự bắt lỗi của store, nên lỗi phải đến từ `despawnCompanion`, `calmPalsTargeting`…):
 
-Số `61 + 4 + 61` là 2 thông báo cao nhất cộng gap; `+ 4` là khoảng cách tối thiểu tới tên.
+- **Đường rời chủ động** (`CloseCode.CONSENTED`): Colyseus `_onLeave` bọc `onLeave` trong try/catch nên chỉ ghi log. Nhưng hẹn giờ giữ không chạy, `autoDispose` vẫn tắt, nên phòng chạy 20 nhịp/giây mãi và chiếm 1 chỗ của trần 50 (T64) mãi.
+- **Đường rớt mạng rồi hết chờ** (nặng hơn REVIEW của T49 nói): Colyseus 0.18 gọi `onLeave` ở `#_onAfterLeave`, bên trong `this._reconnections[token][1].catch(async () => …)`, **không có try/catch**. Lỗi thành promise bị từ chối mà không ai bắt. Node 22 biến nó thành `uncaughtException`, và handler `registerGracefulShutdown` của Colyseus (`@colyseus/core/build/utils/Utils.mjs` dòng 25) **tắt cả server**. `#_decrementClientCount` cũng bị bỏ qua.
 
-**Giải thích từng thành phần** (lý do):
-- **`toastsTop` đo thật trên màn**: mép trên `.hud-toasts` khi đang có thông báo; khi không có thì đáy `.hud-left` + `row-gap` của nó (4 px trên điện thoại, 6 px trên màn rộng hơn). Nhờ vậy những thứ sau đã nằm sẵn trong số:
-  - tai thỏ (`env(safe-area-inset-top)`);
-  - ô trạng thái xuống mấy dòng;
-  - ô nhiệm vụ cao 23-86 px;
-  - thanh trùm thế chỗ ô nhiệm vụ.
+Quyết định:
+- `onLeave` dùng `try { this.removePlayer(sessionId) } catch (err) { console.error(...) }`, **bắt và ghi log, không ném lại**. Đặt `holdEmptyWorld` trong `finally` mà vẫn ném lại thì đường rớt mạng vẫn làm sập server. Câu log tiếng Anh, có `roomId` và `sessionId`, kèm `err`.
+  - Ví dụ: `` `GameRoom ${this.roomId}: removing player ${sessionId} failed; the world is still held and will close` ``.
+- Sau try/catch, luôn chạy hai việc:
+  - `this.holds.delete(sessionId)`: `onLeave` nghĩa là phiên đã ra hẳn, nên chỗ giữ của nó (nếu có) đã hết. Nếu `removePlayer` ném trước dòng `holds.delete`, phải xoá ở đây thì mới tính được "trống".
+  - `if (this.isEmpty()) this.holdEmptyWorld()`.
+- Hàm mới `private isEmpty(): boolean` trả về `this.clients.length === 0 && this.holds.size === 0`. JSDoc: không còn ai kết nối và không ai đang được chờ nối lại. Không dựa vào `players`, vì một người chơi sót lại do lỗi không được giữ thế giới mở mãi.
+- `closeIfStillEmpty` đổi `if (this.state.players.size > 0) return;` thành `if (!this.isEmpty()) return;`.
+- Đường bình thường không đổi hành vi. Ở `onLeave`, client đã bị Colyseus xoá khỏi `clients` (`_onLeave` gọi `this.clients.delete(client)` trước). Người rớt mạng nằm trong `holds` suốt lúc chờ. `onJoin` chạy đồng bộ sau `clients.push`. Vì vậy hai điều kiện ("`players` rỗng" và `isEmpty()`) trùng nhau, trừ đúng trường hợp có người chơi ma.
+- Cập nhật JSDoc của `onLeave` và `closeIfStillEmpty` cho đúng.
 
-  Không phải sao chép CSS vào TypeScript.
-- **`nameTop` tính bằng công thức, không đo DOM**:
-  - vị trí đứng yên, không theo vị trí đang lắc hay đang trễ của camera, nên số không nhảy theo từng khung;
-  - không đọc layout của nhãn (nhãn được ghi `transform` mỗi khung, đọc thì ép layout).
-- **Luôn tính thanh máu dưới tên (8 px)**: thanh hiện, ẩn theo máu, và đổi liên tục lúc đánh nhau, đúng lúc nhiều thông báo nhất. Số chỗ đổi theo máu thì không giúp gì: hàng chờ không bao giờ cắt thông báo đang hiện, nên chỗ đã cho thì đè đến khi hết giờ.
-- **Chiều cao nhân vật lấy theo lúc này** (`PlayerActor.height`: tóc + mũ), không lấy cao nhất có thể (mũ phù thủy):
-  - đổi tóc, mũ là việc hiếm, người chơi tự làm trong Tủ đồ;
-  - nếu lấy cao nhất thì 390×844 có tai thỏ + thanh trùm còn 1 chỗ (344,8 < 347,2), làm hỏng test T30 `boss bar (phone upright, notch)` với room 2.
-- **Mỗi thông báo coi như 61 px** (3 dòng chữ 13 px: 3 × 16,9 + 10):
-  - đo được ở cả 360, 390 và 412 px rộng;
-  - màn rộng hơn thì thông báo ngắn hơn (430 px: 44; 768 px: 51), nên 61 là trần an toàn;
-  - không biết trước chữ của thông báo sau, nên lấy trường hợp xấu nhất.
-- **Cách tên 4 px**: để chừa sai số làm tròn vị trí (`Math.round` của `world.position`, `translate` 0,1 px) và font khác nhau giữa máy. E2E kiểm ≥ 2 px.
-- **Mốc 790**: dưới 790, 2 thông báo chỉ vừa trong vài trường hợp hiếm:
-  - có thanh trùm (cần ≥ 756 với tóc xoăn);
-  - hoặc tóc thấp nhất (≥ 777).
+### 2. Test server 1 (giữ 400 ms → 1000 ms)
 
-  Với tóc xoăn và ô nhiệm vụ đầu thì cần ≥ 794. Ở mốc 790 luật vẫn dễ nói ("dọc thấp hơn 790: 1 cái"), và màn thấp không phải đo DOM. Đổi lại mất 2 chỗ trong các trường hợp hiếm đó: chấp nhận được, vì thông báo thứ hai chỉ chờ chứ không mất.
+Từ lúc rời đến lúc vào lại mất khoảng 350 ms (chờ, 5 nhịp, `joinById`). Với 400 ms, test vẫn qua trên máy chậm nhờ Colyseus đóng trễ 1 s, nên chưa chứng minh được gì. Sửa:
+- `emptyHoldMs = 1000`: dư khoảng 3 lần thời gian vào lại.
+- Đặt spy gọi xuyên `const closes = vi.spyOn(room as any, "closeIfStillEmpty")` trước `client.leave()`. Hẹn giờ gọi `this.closeIfStillEmpty()` qua arrow function, nên spy trên instance bắt được.
+- Ngay trước `joinById`: `expect(emptyHoldOf(room)?.active).toBe(true)` và `expect(room.autoDispose).toBe(false)`, tức là khoảng giữ chưa hết khi bắt đầu vào lại.
+- Sau khi vào lại, chờ thật **1200 ms** (dài hơn khoảng giữ; thay cho 800 ms "twice the hold"). Rồi `expect(closes).not.toHaveBeenCalled()`: hẹn giờ đã bị huỷ khi có người vào, chứ không phải đã hết. Vẫn kiểm `isOpen(room)` và `room.autoDispose === false`.
+- Sau `back.leave()`, `waitFor` đóng phòng nâng `timeout` từ 4000 lên **5000** (1000 giữ + tối đa 1 s Colyseus + dư), rồi `expect(closes).toHaveBeenCalledTimes(1)`.
+- Test dài thêm khoảng 1,6 s, chấp nhận được.
 
-**Khi nào tính lại số chỗ** (`Hud` nhớ số cuối cùng):
-- mỗi lần `showToast`, trước `push`;
-- trong `tickToasts`, khi hàng chờ không rỗng, tối đa mỗi `TOAST.roomCheckMs = 250` ms. Lý do: lúc chờ, ô nhiệm vụ có thể đổi hay thanh trùm ẩn, hiện, nên chỗ có thể vừa mở ra. Không chờ thì `update` không hỏi số chỗ, nên không đo.
+### 3. E2E: một mình, rớt mạng, Về sảnh, về đúng thế giới cũ
 
-Màn ngang, desktop và màn dọc < 790 không gọi `fit`, nên không đọc DOM. Màn dọc ≥ 790: tối đa 1 lần đọc layout mỗi thông báo mới + 4 lần mỗi giây trong lúc có thông báo chờ.
+Test mới, đặt ngay sau test "connection: when the world has let the player go…". Đi bằng **bàn phím trên desktop**: test có sẵn đã đi bằng cảm ứng trên điện thoại dọc. Không cần một người khác ở trong thế giới lúc mất mạng: trang không bao giờ thấy ai khác, nên tab ghi `petgame:friends = "0"`. Việc kết thúc khoảng chờ cần một người gửi `debug:endGrace`, nên một observer vào **sau khi** mất mạng (trang không thấy nó), gửi hook rồi rời đi. Từ lúc đó thế giới trống và được giữ đủ 60 s. Đây đúng là đường T49 cần chứng minh.
 
-**Thông báo đang hiện không bị cắt.** Số chỗ giảm (ô nhiệm vụ dài ra) thì thông báo đang hiện vẫn hiện đến hết giờ. Đây là luật của `ToastQueue` từ T8, không đổi.
+### 4. `closedWorld` chờ 30 s
 
-### Kết quả mong đợi (công thức + số đo ở trên; tiêu chí dùng các số này)
+Nếu tin rời phòng lúc `pagehide` bị mất, server coi như rớt mạng: chờ nối lại 20 s (`RECONNECT_GRACE_MS`), rồi khoảng giữ 0 ms, rồi Colyseus đóng trong khoảng 1 s. Cộng một nhịp dò 1,5 s và thời gian của chính lần dò, tổng khoảng 23 s, quá 20 s. Nâng `timeout` lên **30_000**: dư khoảng 7 s, và dưới timeout của test nhiều bậc. Ghi lý do vào JSDoc của `closedWorld`.
 
-| Màn | Trường hợp (đã bị thương) | Trước | Sau |
-|---|---|---|---|
-| 390×760 | ô đầu, tóc xoăn | 2 cái, −12 | 1 cái, +52 |
-| 390×760 | ô 86 px, mũ phù thủy | 2 cái, −53 | 1 cái, +12 |
-| 390×844, tai thỏ 47 | ô đầu, tóc xoăn | 2 cái, −5 | 1 cái, +59 |
-| 390×844, tai thỏ 47 | ô 86 px, mũ phù thủy | 2 cái, −46 | 1 cái, +19 |
-| 390×844, tai thỏ 47 | thanh trùm, tóc xoăn | 2 cái, +14 | 2 cái, +14 (T30 giữ) |
-| 390×844 | ô đầu, tóc xoăn | 2 cái, +30 | 2 cái, +30 (T6 giữ) |
-| 390×844 | ô đầu, mũ phù thủy | 2 cái, +18 | 2 cái, +18 |
-| 390×844 | ô 86 px, tóc xoăn | 2 cái, +1 | 1 cái, +65 |
-| 390×844 | ô 86 px, mũ phù thủy | 2 cái, −11 | 1 cái, +54 |
-| 393×852, tai thỏ 59 | ô đầu, tóc xoăn | 2 cái, −13 | 1 cái, +51 |
-| 393×852, tai thỏ 59 | ô 86 px, mũ phù thủy | 2 cái, −54 | 1 cái, +11 |
-| 375×812, tai thỏ 44 | ô 86 px, mũ phù thủy | 2 cái, −57 | 1 cái, +8 |
-| 360×800 | ô đầu, tóc xoăn | 2 cái, −3 | 1 cái, +61 |
-| 412×915, 430×932 tai thỏ 59, 768×1024 | mọi trường hợp đo | 2 cái | 2 cái (không đổi) |
+### 5. Nhận ra thế giới của chính mình ở tab mới
 
-Với 1 cái, đáy là `toastsTop + 61`.
+Luật đầy đủ, chữ hiển thị và lý do: `docs/design/multiplayer.md`, mục "Dấu trang, địa chỉ dán sang tab mới (T65)" (đã cập nhật). Tóm tắt:
 
-### Trải nghiệm
+**Chọn cách nào.** Có hai cách:
+- **Theo token trên server: không chọn.** Server không nhớ thế giới đã đóng, nên phải thêm bảng lưu hoặc bộ nhớ riêng, thêm một lần hỏi server trước khi sảnh sẵn sàng hoặc đổi giao thức báo lỗi khi vào. Cách này cũng không biết thêm gì so với `localStorage`: token chính nó nằm trong `localStorage`, mất cái này là mất cả hai.
+- **`localStorage` của thiết bị: chọn.** Không đổi giao thức, chỉ đụng client. Danh sách chỉ đổi chữ trên sảnh và cách báo khi thế giới đã đóng, không cho ai vào được đâu thêm, nên không có gì để gian lận.
 
-- Người chơi không thấy gì mới. Trên màn chật, thông báo thứ hai hiện sau khi cái đầu hết, như khi cầm ngang. Mức cao không bao giờ mất (chờ đến lượt); mức thường chờ tối đa 4 s, mức thấp 1 s (luật T8).
-- Cảnh dài nhất khi chỉ 1 chỗ (bắt thú đầu đàn xong nhiệm vụ cuối) dài thêm khoảng 3 s, như `hud.md` đã ghi cho điện thoại ngang.
-- Bàn phím, cảm ứng: không đổi thao tác nào. Thông báo vẫn không nhận chạm.
-- Không có chữ mới.
+**Dữ liệu.** Khoá `localStorage` `petgame:worlds` chứa JSON `[{ "room": "<roomId>", "friends": true|false }, ...]`, mới nhất đứng đầu, tối đa `RECENT_WORLDS_MAX = 20` phần tử, không trùng `room`. Vì sao 20 (chi tiết trong multiplayer.md):
+- Khoảng 20 buổi chơi một mình (mỗi buổi sau hơn 60 s là một thế giới mới).
+- Dưới 1 kB.
+- Dùng một thế giới thì đưa nó lên đầu, nên một dấu trang dùng thường xuyên không bao giờ bị quên.
+
+**Luật `arrival`** (thứ tự kiểm):
+1. Không có `?room=` thì là `new`.
+2. Trí nhớ của tab (`sessionStorage`) có đúng thế giới đó thì giữ luật cũ: `backAlone` nếu `petgame:friends` là `"0"`, còn lại `back`.
+3. Danh sách của thiết bị có thế giới đó thì là `back` nếu `friends`, không thì `backAlone`.
+4. Còn lại là `invited`.
+
+Mọi thứ sau `arrival` giữ nguyên: `returning`, `quietRetry`, `arrivalHint`, `joinCard(…, returning)`, focus nút "Vào chơi". Kết quả:
+- Một mình: sảnh không ghi gì. Thế giới đã đóng thì vào thẳng thế giới mới, không thẻ.
+- Có bạn bè: "Quay lại thế giới bạn đang chơi cùng bạn bè". Thế giới đã đóng thì thẻ "Thế giới này đã đóng" kèm dòng "Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn."
+- Không có trong danh sách: như cũ ("Bạn được mời…").
+
+**Ghi:**
+- `rememberWorld(roomId, friends)` ghi thêm vào danh sách. Hàm này chỉ chạy lúc vào, khi trạng thái "có bạn bè hay không" đổi, và trong `failToStart`, nên không bao giờ ghi theo khung hình.
+- Lúc mở trang, nếu `returning` thì đưa thế giới của địa chỉ lên đầu danh sách, giữ cờ: `back` → `friends: true`, `backAlone` → `friends: false`.
+- Không xoá khỏi danh sách khi biết thế giới đã đóng: id không bao giờ dùng lại, và chính dấu trang của thế giới đã đóng là trường hợp cần nhận ra.
+
+**Trải nghiệm:** không thêm nút hay chữ mới, nên không có gì mới về cảm ứng hay kích thước nút. Bàn phím: khi `returning`, nút "Vào chơi" có sẵn focus như khi tải lại, Enter là vào.
 
 ## Kế hoạch triển khai
 
-### 1. `packages/client/src/ui/toastQueue.ts`
+Thứ tự là thứ tự làm. Bước 1-2 (server) và bước 3-5 (client) độc lập với nhau.
 
-- Trong `TOAST`:
-  - đổi `roomyPortraitPx: 760` → `790`; JSDoc nói "Upright screens shorter than this show one toast at a time; taller ones show two only when they fit above my name (`toastRoom`)";
-  - thêm `portraitToastPx: 61` (JSDoc: the tallest toast on an upright phone, 3 lines of 13 px text, measured at 360-412 px wide; wider columns wrap less);
-  - thêm `gapPx: 4` (JSDoc: the gap between toasts, `.hud-toasts` in index.html);
-  - thêm `nameClearPx: 4` (JSDoc: the least room left between the last toast and my name tag);
-  - thêm `roomCheckMs: 250` (JSDoc: how often the room is measured again while toasts wait).
-- Thêm và export:
-  ```ts
-  /** Where the toasts start and where the top of my name tag is at rest, health bar shown (CSS px from the top of the screen). */
-  export interface ToastFit { toastsTop: number; nameTop: number }
-  ```
-- `toastRoom(width: number, height: number, fit?: () => ToastFit | undefined): number`:
-  ```ts
-  if (height <= TOAST.shortScreenPx) return 1;
-  if (width >= height) return TOAST.maxVisible;
-  if (height < TOAST.roomyPortraitPx) return 1;
-  const at = fit?.();
-  if (!at) return TOAST.maxVisible;
-  const bottom = at.toastsTop + TOAST.maxVisible * TOAST.portraitToastPx + (TOAST.maxVisible - 1) * TOAST.gapPx;
-  return bottom + TOAST.nameClearPx <= at.nameTop ? TOAST.maxVisible : 1;
-  ```
-  JSDoc nói rõ:
-  - `fit` chỉ được gọi cho màn dọc ≥ `roomyPortraitPx` (nó đọc layout);
-  - `undefined` nghĩa là không có tên để tránh.
-
-### 2. `packages/client/src/game/labelLayout.ts`
-
-Thêm và export (JSDoc tiếng Anh, nói vì sao có số):
-- `CAMERA_LEAD_PX = 16`: the camera looks this many world px above my feet.
-- `PLAYER_TAG_LIFT_PX = 6`: a player's name tag hangs this many world px above the head.
-- `NAME_TAG_PX = 17`: height of a name (`.label span`: 12 px text, 1 px padding).
-- `HURT_BAR_PX = 8`: the health bar under a hurt name (`.label` gap 3 + `.hp-bar` 5) lifts the name by this much.
-- Hàm:
-  ```ts
-  /**
-   * Top of my name tag (CSS px) while I stand still in the middle of a screen `screenHeight` tall, with its health bar
-   * showing, for a figure `actorHeight` world px tall (hair and hat). The camera centre is CAMERA_LEAD_PX above my feet;
-   * the tag is anchored by its bottom at PLAYER_TAG_LIFT_PX above my head.
-   */
-  export function restingNameTop(screenHeight: number, zoom: number, actorHeight: number): number {
-    return screenHeight / 2 + (CAMERA_LEAD_PX - actorHeight - PLAYER_TAG_LIFT_PX) * zoom - NAME_TAG_PX - HURT_BAR_PX;
-  }
-  ```
-
-### 3. `packages/client/src/game/Game.ts`
-
-- Import `CAMERA_LEAD_PX`, `PLAYER_TAG_LIFT_PX`, `restingNameTop` từ `./labelLayout.ts` (file đã import `LABEL_RANK` từ đó thì gộp vào dòng import có sẵn).
-- Dòng 1005: `me.pos.y - 16` → `me.pos.y - CAMERA_LEAD_PX`. Chỉ dòng camera, không đụng ánh sáng dòng 1054.
-- Dòng 399 (`actor.height + 6` của nhãn người chơi) và dòng 420 (`tag.lift = actor.height + 6`) → `actor.height + PLAYER_TAG_LIFT_PX`. Không đổi lift của thú và trùm.
-- Ngay sau `this.hud.setMuted(...)` (dòng 308):
-  ```ts
-  // Upright phones: two toasts only when they end above my name (T62, docs/design/hud.md).
-  this.hud.setNameTop(() => {
-    const me = this.me();
-    return me ? restingNameTop(this.stage.height, this.stage.camera.zoom, me.height) : undefined;
-  });
-  ```
-
-### 4. `packages/client/src/ui/hud.ts`
-
-- Import thêm `TOAST` và `type ToastFit` từ `./toastQueue.ts`.
-- Trường mới:
-  - `private toastSlots: number = TOAST.maxVisible` (JSDoc: how many toasts fit, as last measured);
-  - `private slotsCheckedAt = -Infinity`;
-  - `private nameTop: () => number | undefined = () => undefined`.
-
-  Đặt các trường này **trước** `toastQueue` cho dễ đọc. Callback chỉ được gọi lúc chạy, nên thứ tự không làm sai.
-- `toastQueue = new ToastQueue(() => this.toastSlots)`.
-- `setNameTop(top: () => number | undefined)`: JSDoc nói "where the top of my name tag is at rest (CSS px), for the upright-phone toast rule".
-- `private measureSlots(now: number)`:
-  ```ts
-  this.slotsCheckedAt = now;
-  this.toastSlots = toastRoom(window.innerWidth, window.innerHeight, () => this.toastFit());
-  ```
-- `private toastFit(): ToastFit | undefined`:
-  - `nameTop = this.nameTop()`; `undefined` thì trả `undefined`, không đọc DOM;
-  - `toastsTop`:
-    - `this.toasts.childElementCount > 0`: `this.toasts.getBoundingClientRect().top`. Phần tử đang mờ dần vẫn giữ hộp, và hiệu ứng trượt nằm ở `.toast`, không ở hộp chứa;
-    - ngược lại `this.left.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(this.left).rowGap) || 0)`. `.hud-toasts:empty` có `display: none`, nên đáy cột là đáy ô nhiệm vụ hoặc thanh trùm.
-  - JSDoc nói đây là chỗ đọc layout duy nhất, và chỉ chạy khi `toastRoom` cần.
-- `showToast(text, level)`:
-  ```ts
-  const now = performance.now();
-  this.measureSlots(now);
-  if (this.toastQueue.push(text, level, now)) this.renderToasts();
-  ```
-- `tickToasts(now)`: trước `update`:
-  ```ts
-  if (this.toastQueue.waiting.length > 0 && now - this.slotsCheckedAt >= TOAST.roomCheckMs) this.measureSlots(now);
-  ```
-  Không tạo object mới mỗi khung: closure `() => this.toastFit()` chỉ tạo khi đo, tối đa 4 lần mỗi giây.
-- Không đổi `renderToasts`, thứ tự DOM, CSS class.
-
-### 5. `packages/client/index.html` (chỉ chú thích)
-
-Trên `.label span` / `.hp-bar` (dòng 18-21) thêm chú thích ngắn: `NAME_TAG_PX` và `HURT_BAR_PX` trong `game/labelLayout.ts` theo các cỡ này (đổi CSS thì đổi số). Không đổi luật CSS nào.
-
-### 6. Unit test
-
-**`packages/client/src/ui/toastQueue.test.ts`**: giữ nguyên `it` có sẵn của `describe("toastRoom")`. Thêm các `it` mới trong cùng `describe`:
-- "upright screens under 790 px show one toast, 790 and up two without a name to avoid":
-  - `toastRoom(390, 789)` = 1;
-  - `toastRoom(390, 790)` = 2;
-  - `toastRoom(390, 790, () => undefined)` = 2.
-- "upright screens show two only when the two tallest end 4 px above my name". Số đo T62 (`toastsTop`, `nameTop`):
-  - (390, 844, {201.2, 356.4}) = 2: không tai thỏ, ô đầu, tóc xoăn;
-  - (390, 844, {236.2, 356.4}) = 1: tai thỏ 47, ô nhiệm vụ;
-  - (390, 844, {217.2, 356.4}) = 2: tai thỏ 47, thanh trùm, T30 giữ;
-  - (390, 844, {230.2, 344.8}) = 1: ô 86, mũ phù thủy;
-  - (393, 852, {248.2, 360.1}) = 1;
-  - (430, 932, {244, 383.5}) = 2;
-  - (768, 1024, {225, 384.3}) = 2.
-- "the boundary": `toastsTop = 100`:
-  - `nameTop = 230` → 2 (100 + 61 + 4 + 61 + 4 = 230);
-  - `nameTop = 229.9` → 1.
-- "fit is only asked on upright screens 790 px and taller": một hàm đếm số lần gọi. 0 lần với (844, 390), (1280, 720), (390, 760), (812, 375); 1 lần với (390, 844).
-
-**`packages/client/src/game/labelLayout.test.ts`**: thêm `describe("restingNameTop")`:
-- `restingNameTop(844, 390 / 440, 55.8)` ≈ 356.40 (`toBeCloseTo(356.4, 1)`). Đo được 356,5;
-- `restingNameTop(760, 390 / 440, 55.8)` ≈ 314.40. Đo được 314,5;
-- `restingNameTop(844, 390 / 440, 68.9)` ≈ 344.79. Đo được 344,9;
-- `restingNameTop(1024, 768 / 440, 55.8)` ≈ 407.1. Đo được 407,3.
-
-### 7. E2E: `tests/e2e/multiplayer.spec.ts` (chỉ thêm)
-
-Đặt sau test `short sideways phone (667×375): a full status panel ...` (kết thúc khoảng dòng 3015), trước test `toasts: the catch and the quest it finishes ...`. Dùng lại helper có sẵn (`join`, `waitForWorld`, `sendFrom`, `safeArea`, `toastLayout`, `boxesOverlap`, `shownToasts`), **không sửa chúng**.
-
-**Helper mới `nameAndToasts(page)`**: một `page.evaluate`, đo tất cả trong cùng một lần:
-- `toasts`: hộp các `.hud-toasts > .toast:not(.out)`;
-- `plain`: mép trên `.labels > .label.me span`;
-- `hurt`: thêm lớp `hurt` cho `.label.me`, đọc lại mép trên chữ, rồi trả lớp về như trước. Đây đúng là lớp `setHp` đặt khi máu < tối đa. Làm trong cùng evaluate nên không bị `setHp` ghi đè giữa chừng;
-- `lag`: từ `debugInfo()`, như `bossLayout`: `Math.hypot(camera.x − me.x, camera.y − (me.y − 16))`.
-
-**Mảng mới `UPRIGHT_TOAST_SCREENS`** (tóc xoăn = tóc cao nhất, mũ phù thủy = hình cao nhất; quest 0 = ô 57 px, quest 3 = ô 86 px). Mỗi `case` ghi `room` và khoảng cách tối thiểu dự kiến để chú thích:
-
-| `name` | viewport | `insets` | cases (`quest`, `hat`, `room`) |
-|---|---|---|---|
-| `390×760` | 390×760 | không | (0, "", 1), (3, "wizardhat", 1) |
-| `390×844, notch` | 390×844 | `{ top: 47, bottom: 34 }` | (0, "", 1), (3, "wizardhat", 1) |
-| `390×844` | 390×844 | không | (0, "wizardhat", 2), (3, "wizardhat", 1) |
-
-Tất cả `hasTouch: true, isMobile: true`.
-
-**Test** `toasts (upright phone, ${screen.name}): never on my name, hurt and in the tallest look; one when two do not fit`, `test.slow()`. Các bước:
-1. `join(browser, "Hiệp", "/", options, insets ? safeArea(insets) : undefined)`, `waitForWorld`, chờ `frames > 0`.
-2. Có tai thỏ thì kiểm lề có tác dụng: `.hud-left` top ≈ `max(12, insets.top)` ± 1, như test thanh trùm.
-3. Chuẩn bị:
-   - `debug:givePal` emberpup cấp 8, chờ `companions.size === 1` và `.skill-bar` hiện;
-   - `debug:wardrobe`;
-   - `sendFrom(page, "setLook", { hair: "curly", hairColor: 0, skin: 0 })`;
-   - `expect.poll` tới khi `room.state.players.get(sessionId).hair === "curly"`.
-4. Mỗi case:
-   1. Đặt nhiệm vụ: `sendFrom(page, "debug:quest", { index: quest })`. Chờ `.hud-quest` chứa tên nhiệm vụ: quest 0 "Bắt con thú đầu tiên", quest 3 "Hái 3 bụi quả".
-   2. Đặt mũ: `sendFrom(page, "equip", { slot: "hat", id: hat })`. `expect.poll` tới khi `player.hat === hat`.
-   3. Chờ không còn thông báo: `toHaveCount(0, { timeout: 20_000 })`.
-   4. Đẩy hai thông báo dài nhất. Cùng hai chuỗi như test `toasts (...)`: chép nguyên văn vào một hằng mới `LONGEST_TOASTS` ngay trên test mới, không sửa test cũ.
-   5. `expect(page.locator(".hud-toasts > .toast:not(.out)")).toHaveCount(room)`; chờ hiệu ứng trượt xong (như `slideIn` của T61, kèm `.catch(() => {})`).
-   6. Đo bằng `nameAndToasts`, lặp tối đa 5 lần (mỗi lần cách 250 ms) tới khi `lag < 1`. Thú hoang cắn làm nhân vật bị đẩy, camera trễ.
-   7. Kiểm:
-      - `toasts.length === room`;
-      - `hurt` thấp hơn `plain` đúng 8 ± 1 px (`plain − hurt` trong [7, 9]). Chứng minh thanh máu giả lập đẩy tên như thật;
-      - mỗi thông báo: nằm trong màn; `boxesOverlap` với phần HUD và tên mình (từ `toastLayout(page)`) là `[]`;
-      - **`hurt − max(toast.bottom) ≥ 2`** (khoảng cách tới tên khi bị thương). Thông báo lỗi ghi số đo, ví dụ `` `${screen.name} q${quest} ${hat}: gap ${gap}` ``.
-   8. `room === 1`: thông báo thứ hai hiện sau khi cái đầu hết, không mất: `toContainText("Hơi thở băng giá", { timeout: 10_000 })`.
-
-Thời gian: mỗi màn 1 lần vào (khoảng 30-60 s) + 2 case (mỗi case tối đa khoảng 15 s chờ thông báo hết). Tổng khoảng 3-4 phút cho 3 màn.
+1. **`packages/server/src/rooms/GameRoom.ts`**
+   - `onLeave(client)`:
+     - `const sessionId = client.sessionId;`
+     - `try { this.removePlayer(sessionId); } catch (err) { console.error(<câu log ở Thiết kế 1>, err); }`
+     - `this.holds.delete(sessionId);`
+     - `if (this.isEmpty()) this.holdEmptyWorld();`
+     - JSDoc: thêm rằng lỗi ở đây được bắt (Colyseus gọi `onLeave` của người hết chờ ngoài try/catch, ném ra là sập server), và thế giới vẫn được giữ rồi đóng.
+   - Thêm `private isEmpty(): boolean` (đặt cạnh `holdEmptyWorld`), có JSDoc như Thiết kế 1.
+   - `closeIfStillEmpty`: `if (!this.isEmpty()) return;`. Sửa JSDoc nếu nhắc tới `players`.
+2. **`packages/server/src/rooms/GameRoom.test.ts`**, trong `describe("keeping an empty world open")`:
+   - Sửa test 1 đúng như Thiết kế 2.
+   - Thêm `holdsOf` cục bộ (hoặc chuyển `holdsOf`/`cutConnection` lên mức file và dùng chung; chọn cách gọn hơn, không đổi hành vi test cũ).
+   - Thêm 2 test (mục Test, S2 và S3).
+3. **`packages/client/src/ui/joinStatus.ts`**
+   - `export interface RecentWorld { room: string; friends: boolean }`.
+   - `export const RECENT_WORLDS_MAX = 20;` JSDoc nói vì sao (Thiết kế 5).
+   - `export function recentWorlds(raw: unknown): RecentWorld[]`:
+     - Đọc an toàn giá trị lấy từ `localStorage`, **không bao giờ ném lỗi** với mọi giá trị JSON.
+     - Không phải mảng thì trả về `[]`.
+     - Giữ phần tử là object khác null, có `room` là chuỗi dài 1-64, có `friends` là boolean. Chỉ chép hai trường đó (bỏ trường lạ).
+     - Bỏ `room` trùng, giữ lần đầu. Cắt còn `RECENT_WORLDS_MAX`.
+   - `export function withRecentWorld(list: readonly RecentWorld[], room: string, friends: boolean): RecentWorld[]`: trả về mảng mới `[{ room, friends }, ...list không có room đó]` cắt còn `RECENT_WORLDS_MAX`. Không sửa `list`.
+   - `arrival(invited, lastRoom, lastFriends, recent: readonly RecentWorld[] = [])`:
+     - Thứ tự kiểm như Thiết kế 5.
+     - Tham số mặc định `[]` nên các lời gọi cũ trong test vẫn đúng.
+     - Cập nhật JSDoc của `arrival` và `Arrival`: "back" giờ là "tab này hoặc thiết bị này đã ở thế giới đó".
+4. **`packages/client/src/main.ts`**
+   - Thêm hằng `RECENT_WORLDS_KEY = "petgame:worlds"` cạnh `FRIENDS_KEY`, JSDoc: localStorage, các thế giới thiết bị này đã vào gần đây, mới nhất đầu tiên, kèm cờ có bạn bè lần cuối; dùng để phân biệt dấu trang hay địa chỉ dán sang tab mới của chính mình với link mời.
+   - Thêm `function noteRecentWorld(roomId: string, friends: boolean)`:
+     - `safeStorage(() => localStorage.setItem(RECENT_WORLDS_KEY, JSON.stringify(withRecentWorld(recentWorlds(readJson(RECENT_WORLDS_KEY)), roomId, friends))))`.
+     - Đọc lại mỗi lần ghi, vì tab khác có thể vừa ghi.
+   - Dòng 66-72:
+     - `const arrived = arrival(invited, …sessionStorage…, …, recentWorlds(readJson(RECENT_WORLDS_KEY)))`.
+     - Sau `returning`: `if (returning && invited) noteRecentWorld(invited, arrived === "back");`.
+     - Đoạn này chạy trước khi sảnh mở khoá: mọi lần đọc/ghi phải qua `safeStorage`/`readJson`, không được ném lỗi.
+     - `readJson` được khai báo bằng `function` nên hoist; dùng trước chỗ khai báo vẫn được.
+     - Sửa chú thích dòng 66 cho đúng luật mới.
+   - `rememberWorld`: gọi thêm `noteRecentWorld(roomId, friends)`.
+5. **`packages/client/src/ui/joinStatus.test.ts`**: thêm test unit (mục Test, U1-U4).
+6. **`tests/e2e/multiplayer.spec.ts`**
+   - `closedWorld`: `timeout: 30_000`; JSDoc thêm lý do (20 s chờ nối lại nếu tin `pagehide` bị mất, cộng đóng phòng và nhịp dò).
+   - Test mới E1, bước thêm E2 và E3 (mục Test).
+7. **`docs/architecture.md`**
+   - Dòng 59: `holdEmptyWorld()` gọi ở `onLeave` khi `isEmpty()` (`clients` rỗng và `holds` rỗng). `onLeave` bắt lỗi của `removePlayer` (lý do: sập server qua `#_onAfterLeave`). `closeIfStillEmpty` dùng `isEmpty()`.
+   - Dòng 66: thêm `localStorage` `petgame:worlds` (`recentWorlds`, `withRecentWorld`, `RECENT_WORLDS_MAX` = 20, `ui/joinStatus.ts`), chữ ký mới của `arrival`, và việc đưa lên đầu danh sách khi `returning`.
+   - Dòng 98: `closedWorld` chờ tối đa 30 s.
+8. Ghi `PROGRESS.md`.
 
 ## Giao thức
 
-- Không đổi `schema.ts`, `messages.ts`, `Profile`, server hay shared.
-- Chỉ client: `toastQueue.ts`, `labelLayout.ts`, `Game.ts`, `hud.ts`, chú thích trong `index.html`. Thêm unit test và e2e.
-- E2E dùng message có sẵn: `setLook`, `equip`, `debug:wardrobe`, `debug:quest`, `debug:givePal`.
+- **Không đổi** `schema.ts`, `messages.ts`, `Profile`/`store.ts`, HTTP hay matchmaking. Server và client cũ/mới vẫn nói chuyện được với nhau.
+- Thêm một khoá **chỉ ở client**: `localStorage` `petgame:worlds`.
+  - Không có khoá, hay khoá hỏng: `recentWorlds` trả về `[]`, tức hành vi trước T65.
+  - Thiết bị cũ chưa có danh sách: lần đầu mở dấu trang sau khi cập nhật vẫn có thể thấy "được mời" một lần. Từ lần vào đó trở đi thế giới đã được ghi.
+- Không có gì không đảo ngược được, nên không có dòng CHẶN.
 
 ## Test
 
-- Unit:
-  - `npx vitest run packages/client/src/ui/toastQueue.test.ts packages/client/src/game/labelLayout.test.ts`;
-  - rồi `npm test`.
-- E2E mới: `npx playwright test -g "toasts \\(upright phone"`.
-- E2E có sẵn phải qua, không sửa:
-  - `-g "toasts \\(|boss bar \\(|short sideways"`: `toasts (phone upright)` vẫn 2 cái; `boss bar (phone upright)` và `(phone upright, notch)` vẫn 2 cái;
-  - `-g "touch|release|levels"`: các test 390×844 có thông báo.
-- Rồi toàn bộ `npm run test:e2e`.
+**Server tích hợp** (`GameRoom.test.ts`, `describe("keeping an empty world open")`):
+- **S1** (sửa test 1): như Thiết kế 2.
+- **S2.** Tên: "a leave that fails half-way is logged, and the world is still held and closes".
+  - Chuẩn bị: `setup()`; `emptyHoldMs = 300`; `const errors = vi.spyOn(console, "error").mockImplementation(() => {})`; `vi.spyOn(room as any, "removePlayer").mockImplementation(() => { throw new Error("boom"); })`.
+  - `await client.leave()`. Chờ `emptyHoldOf(room)?.active === true`.
+  - Kiểm:
+    - Người chơi ma vẫn còn: `room.state.players.size === 1`. Điều này chứng minh "trống" không dựa vào `players`.
+    - `errors` được gọi đúng 1 lần, có chuỗi chứa `room.roomId`.
+    - Phòng đóng (`waitFor isOpen === false`, timeout 4000).
+- **S3.** Tên: "a dropped player whose grace runs out while leaving fails does not take the server down; the world still closes".
+  - Chuẩn bị:
+    - `setup()`; `reconnectGraceMs = 300`; `emptyHoldMs = 300`; `client.reconnection.enabled = false`.
+    - Spy `console.error` và `removePlayer` ném lỗi như S2.
+    - Đăng ký `process.on("unhandledRejection", note)` theo mẫu test "closing the world saves everyone…", gỡ trong `finally`.
+  - Cắt socket bằng `ref.terminate()`. Chờ `player.offline === true`. Chờ `holdsOf(room).size === 0` và `emptyHoldOf(room)?.active === true`.
+  - Kiểm: phòng đóng (timeout 4000); sau 100 ms `stray` vẫn là `[]`; `errors` được gọi.
+  - Trước khi sửa code, test này phải đỏ: có `unhandledRejection`, hoặc phòng không đóng.
+- `afterEach` đã có `vi.restoreAllMocks()` trước `colyseus.cleanup()`, nên lúc dọn, `removePlayer` đã về như cũ.
+
+**Unit** (`joinStatus.test.ts`):
+- **U1** `arrival` với danh sách:
+  - `arrival("X", "Y", "1", [{room:"X",friends:false}])` → `backAlone`.
+  - `…[{room:"X",friends:true}]` → `back`.
+  - `arrival("X", null, null, [{room:"Z",friends:true}])` → `invited`.
+  - Tab thắng danh sách: `arrival("X", "X", "0", [{room:"X",friends:true}])` → `backAlone`.
+  - Không có `?room=` thì vẫn `new` dù danh sách có gì: `arrival(null, null, null, [{room:"X",friends:true}])` → `new`.
+  - Các test cũ không sửa vẫn phải qua.
+- **U2** `recentWorlds`:
+  - `null`, `undefined`, `"x"`, `42`, `{}` → `[]`.
+  - Lọc bỏ: `[null, 1, {room:""}, {room:"A"}, {room:"A",friends:"yes"}, {room:"a".repeat(65),friends:true}]` → `[]`.
+  - Bỏ trường lạ: `[{room:"A",friends:true,extra:1}]` → `[{room:"A",friends:true}]`.
+  - Trùng `room` thì giữ lần đầu.
+  - 25 phần tử hợp lệ thì còn 20 phần tử đầu.
+- **U3** `withRecentWorld`:
+  - Thêm vào đầu.
+  - `room` đã có thì chuyển lên đầu với cờ mới, không trùng.
+  - Danh sách đầy 20 thì phần tử cũ nhất rơi ra, độ dài vẫn 20.
+  - Không sửa mảng truyền vào (so với bản sao trước khi gọi).
+- **U4** (một dòng): `RECENT_WORLDS_MAX === 20`.
+
+**E2E** (`tests/e2e/multiplayer.spec.ts`):
+- **E1.** Test mới, tên: "connection: alone, when the world has let the player go, Về sảnh takes them back to the same world, kept for them". Dùng `test.slow()`.
+  - `openWithSwitch(browser, "Loner")` (desktop, mặc định); `enterLobby`; `waitForWorld`; chờ `frames > 0`. Lấy `roomId`, `sessionId`.
+  - `sendFrom(page, "debug:givePal", { species: "leafkit", level: 3 })`; chờ party có `leafkit`.
+  - Địa chỉ đã có `room === roomId`.
+  - `cut()`. `.net-title` chứa "Đang kết nối lại".
+  - `const helper = await observer(roomId, "Helper")`. Helper vào **sau** khi cắt, nên trang không thấy.
+    - Chờ `helper.state.players.get(sessionId)?.offline === true`.
+    - `helper.send("debug:endGrace")`; chờ `!helper.state.players.has(sessionId)`.
+    - `await helper.leave()`. Thế giới giờ trống và được giữ 60 s.
+  - `restore()`.
+    - `.net-title` có chữ "Không kết nối lại được" (timeout 15 s); `.net-lobby` có focus.
+    - Địa chỉ có `room === roomId` (một mình vẫn giữ thế giới).
+  - Bấm bằng bàn phím: `const loaded = page.waitForEvent("load"); await page.keyboard.press("Enter"); await loaded;`.
+    - Địa chỉ mới có `room === roomId`, `quality === "low"`.
+    - `#room-hint` có chữ `""` (một mình: không "Quay lại…", không "Bạn được mời…").
+    - `#join-btn:enabled` rồi `#join-btn` có focus.
+  - `page.keyboard.press("Enter")`; `waitForWorld`.
+    - `roomId` vẫn như cũ; `playerCount(page) === 1`.
+    - Party chứa `leafkit`.
+- **E2.** Thêm vào cuối test "lobby: alone, a reload…" (sau `expect(loads).toBe(3)`, để không đổi số đếm). Gọi thế giới mới mà `page` đang ở là `world2`.
+  - **Tab mới ở thế giới còn mở của mình** (chỉ xem sảnh, không vào):
+    - `const tab = await page.context().newPage(); watch(tab, "Solo tab"); await tab.goto(`/?room=${world2}&quality=low`)`.
+    - `#join-btn:enabled`; `#room-hint` có chữ `""` (trước T65 là "Bạn được mời…"); `#join-btn` có focus.
+    - `await tab.close()`.
+  - **Dấu trang của thế giới đã đóng** (tab mới, `sessionStorage` trống):
+    - `await page.goto("about:blank")`, để vào từ tab mới không thay phiên của `page`.
+    - `const bookmark = await page.context().newPage(); watch(…); await bookmark.goto(`/?room=${world}&quality=low`)`. `world` là thế giới đầu tiên, đã đóng ở bước trước.
+    - `#room-hint` có chữ `""`.
+    - `enterLobby(bookmark, "Solo")`; `waitForWorld(bookmark)`. Hàm này ném lỗi nếu hiện thẻ, nên chứng minh được "không thẻ".
+    - `roomOf(bookmark) !== world`; chờ địa chỉ có `room === roomOf(bookmark)`.
+- **E3.** Thêm vào Part 1 của test "lobby: a reload goes back…", sau dòng 1712 (`param(page, "room")` null).
+  - Tab mới cùng context ở thế giới có bạn bè đã đóng: `const tab = await page.context().newPage(); watch(tab, "Back tab"); await tab.goto(`/?room=${roomId}&quality=low`)`.
+  - `#room-hint` có chữ "Quay lại thế giới bạn đang chơi cùng bạn bè". Lần cuối trang thấy Friend2, nên cờ là có bạn bè.
+  - `enterLobby(tab, "Back")`.
+    - `#join-status` chứa "Thế giới này đã đóng" và "vẫn còn" (trước T65 là "link mời mới").
+    - `#new-world-btn` có focus; `room` của địa chỉ là null.
+  - Không vào thế giới. Part 2 (context điện thoại mới, thiết bị chưa từng vào) vẫn phải ra "Bạn được mời…" và "link mời mới": đó là kiểm tra hồi quy cho link mời thật, giữ nguyên.
+- `closedWorld` 30 s: không có test riêng, các test đang dùng nó vẫn phải qua.
+
+Lệnh:
+- `npm run typecheck`.
+- `npx vitest run packages/server/src/rooms/GameRoom.test.ts -t "keeping an empty world open"`.
+- `npx vitest run packages/client/src/ui/joinStatus.test.ts`.
+- `npm test`.
+- `npx playwright test -g "lobby:"` và `npx playwright test -g "connection:"`.
+- Cuối cùng `npm run test:e2e`.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `npm run typecheck`, `npm test`, `npm run build` sạch. `npm run test:e2e` qua toàn bộ, kể cả 3 test `toasts (upright phone, ...)` mới.
-- [ ] `git diff tests/e2e/multiplayer.spec.ts` chỉ có dòng thêm. Không đổi `TOAST_SCREENS`, `BOSS_SCREENS`, `toastLayout`, `safeArea`, `settledBossLayout`.
-- [ ] `git diff packages/client/src/ui/toastQueue.test.ts` chỉ có dòng thêm. 7 kỳ vọng cũ của `toastRoom` giữ nguyên và vẫn đúng.
-- [ ] `toastRoom`:
-  - màn dọc cao 521-789 px → 1;
-  - (390, 790) không `fit` → 2;
-  - (844, 390), (1280, 720), (1280, 500), (812, 375) và mọi màn dọc < 790 **không gọi `fit`**;
-  - ranh giới `toastsTop + 130 ≤ nameTop` đúng như unit test.
-- [ ] `restingNameTop` khớp số đo trong ±0,5 px ở 4 trường hợp của unit test.
-- [ ] E2E mới, sau khi trượt xong, với tóc xoăn và giả lập bị thương:
-  - 390×760: 1 cái ở cả 2 case; khoảng cách tới tên ≥ 2 (dự kiến +52 và +12);
-  - 390×844 tai thỏ 47: 1 cái ở cả 2 case (trước là 2, đè 5 và 46 px); khoảng cách ≥ 2 (dự kiến +59 và +19);
-  - 390×844: mũ phù thủy + ô đầu **2 cái**, khoảng cách ≥ 2 (dự kiến +18); mũ phù thủy + ô 86 px 1 cái (trước đè 11 px), khoảng cách ≥ 2 (dự kiến +54);
-  - thông báo thứ hai hiện sau ở mọi case 1 cái;
-  - không thông báo nào chồng phần HUD nào.
-- [ ] Không đổi: điện thoại ngang (1 cái, đáy ≤ cao − 140), desktop 1280×720 (2 cái), 390×844 không tai thỏ với ô đầu (2 cái), 390×844 tai thỏ 47 với thanh trùm (2 cái). Các test có sẵn đã kiểm.
-- [ ] Hiệu năng:
-  - đọc layout chỉ trong `Hud.toastFit`, chỉ khi `toastRoom` gọi `fit` (màn dọc ≥ 790);
-  - `tickToasts` không đo khi hàng chờ rỗng, và đo không quá 1 lần mỗi 250 ms;
-  - không tạo object mới mỗi khung khi không có thông báo chờ.
-- [ ] Số 16 (camera) và 6 (nhãn người chơi) trong `Game.ts` thay bằng `CAMERA_LEAD_PX`, `PLAYER_TAG_LIFT_PX`; không còn bản viết cứng của hai số đó ở dòng camera và nhãn người chơi.
-- [ ] `docs/design/hud.md` khớp với code (đã cập nhật cùng kế hoạch): mốc 790, luật vừa chỗ, bảng kết quả, phần còn tồn tại.
+- [ ] `onLeave` bắt lỗi của `removePlayer`, ghi log `console.error` (có `roomId`), không ném lại. Sau đó luôn `holds.delete(sessionId)` rồi `if (isEmpty()) holdEmptyWorld()`.
+- [ ] `isEmpty()` = `clients.length === 0 && holds.size === 0`, có JSDoc. `closeIfStillEmpty` dùng nó. `onLeave` và `closeIfStillEmpty` không còn nhìn `players.size`.
+- [ ] S2 và S3 qua. S3 không có `unhandledRejection`. Đảo lại bản sửa ở bước 1 (bỏ try/catch) thì S3 đỏ (tester kiểm bằng đột biến).
+- [ ] Test 1:
+  - [ ] giữ 1000 ms;
+  - [ ] kiểm `emptyHold` còn chạy và `autoDispose === false` ngay trước `joinById`;
+  - [ ] `closeIfStillEmpty` không được gọi trong lúc có người, và được gọi đúng 1 lần sau khi rời lần hai.
+- [ ] Mọi test cũ trong `describe("keeping an empty world open")` và `describe("reconnecting after a dropped connection")` vẫn qua, không nới timeout của chúng.
+- [ ] `recentWorlds`, `withRecentWorld`, `RECENT_WORLDS_MAX`, `RecentWorld` có trong `ui/joinStatus.ts` với JSDoc. `arrival` nhận danh sách (mặc định `[]`) theo đúng thứ tự kiểm. U1-U4 qua, test cũ của `arrival` không sửa mà vẫn qua.
+- [ ] `main.ts`:
+  - [ ] đọc `petgame:worlds` qua `readJson`;
+  - [ ] ghi qua `noteRecentWorld` trong `rememberWorld`, và lúc mở trang khi `returning`;
+  - [ ] mọi truy cập storage qua `safeStorage`;
+  - [ ] không ghi theo khung hình;
+  - [ ] không gửi request nào mới trước khi sảnh sẵn sàng.
+- [ ] E1, E2, E3 qua. Part 2 của "lobby: a reload…" vẫn ra "Bạn được mời…" và "link mời mới".
+- [ ] `closedWorld` có `timeout: 30_000` và JSDoc nêu lý do.
+- [ ] Không đổi `schema.ts`, `messages.ts`, `Profile`, `store.ts`, chữ của `joinCard`/hint.
+- [ ] `docs/architecture.md` dòng 59, 66, 98 được cập nhật. `docs/design/multiplayer.md` khớp với hành vi đã làm.
+- [ ] `npm run typecheck` sạch, `npm test` qua, `npm run test:e2e` qua.
 
 ## Rủi ro, câu hỏi mở
 
-- **Test thanh trùm T30 khi trùm đi xa giữa chừng.** `boss bar (phone upright, notch)` cần 2 chỗ. Nếu lúc `pushToasts` thanh trùm vừa ẩn (trùm đi quá 450 px), ô nhiệm vụ trở lại: `toastsTop` 236 → 1 chỗ, và `accept` của `settledBossLayout` chờ 2 cái. Test có sẵn đã đi lại gần trùm và đẩy lại thông báo khi hết (tối đa 10 lần), nên thường tự hồi phục; trùm đứng yên khi không bị đánh. Nếu tester thấy chập chờn: báo kèm log, **không** sửa test cũ trong T62 (T63 làm chắc `settledBossLayout`).
-- **Font khác giữa máy.** Chữ tên 17 px và thông báo 61 px đo trên Chromium của container. Font hệ thống trên iPhone, Android có thể lệch 1-2 px. Chừa 4 px cho việc này; e2e kiểm ≥ 2.
-- **Thông báo dài hơn 3 dòng.** Hai chuỗi dài nhất hiện có là 3 dòng ở 360-412 px. Thông báo mới dài hơn (ví dụ tên người chơi rất dài trong tin ★) có thể 4 dòng (78 px) và đè. Ghi trong JSDoc của `portraitToastPx`, để ai thêm thông báo dài thì biết.
-- **Ô nhiệm vụ đổi khi đang hiện 2 thông báo.** Ví dụ xong "Bắt con thú đầu tiên" thì ô sang "Dựng trại" (71 px, +14). Lúc đó 2 thông báo đã hiện không bị cắt và có thể đè trong vài giây. Hai thông báo thật thường ngắn hơn 61 px (ví dụ "Bắt được Leafkit! 🎉" 1 dòng), nên trên thực tế còn dư. Chấp nhận, không cắt thông báo mức cao (luật T8).
-- Không có "CHẶN:".
+- **E1 dựa vào khoảng giữ 60 s thật.** Từ lúc helper rời đến lúc vào lại có các bước: màn "Không kết nối lại được" (tối đa 15 s), tải lại trang qua Vite, sảnh sẵn sàng, bấm Enter. Bình thường mất 10-25 s.
+  - Nếu chậm hơn 60 s, test thấy `roomId` khác và báo đỏ rõ ràng, không qua nhầm.
+  - Không rút ngắn khoảng giữ ở đây: `debug:emptyHold` chỉ rút ngắn, và test cần thế giới còn mở.
+  - Nếu chập chờn trên CI thì có thể cho helper rời muộn hơn (ngay trước khi bấm Về sảnh). Thế giới vẫn trống lúc vào lại, nên vẫn chứng minh đúng điều cần.
+- **E2 thêm một lần tải thế giới** (WebGL vẽ bằng phần mềm), khoảng 10-30 s. Test đã có `test.slow()` (540 s).
+- **Nhiều tab ghi danh sách cùng lúc** có thể mất một lần ghi: mỗi lần ghi đọc lại rồi ghi đè. Hậu quả tối đa là một thế giới bị coi là link mời, tức hành vi trước T65. Chấp nhận.
+- **Người chơi ma khi `removePlayer` lỗi** vẫn hiện với ai vào lại trong khoảng giữ, cho đến khi thế giới đóng. Đây là đường chỉ có khi có bug, đã có log. Không dọn thêm để khỏi lặp logic của `removePlayer`.
+- Không có CHẶN.
 
-### Đề xuất tách việc (agent chính thêm vào `TASKS.md`)
-
-1. **Điện thoại dọc thấp (390×664, 375×667): một thông báo vẫn đè tên** (P3). Số đo T62, 1 thông báo dài nhất, đã bị thương:
-   - 390×664: ô đầu + tóc xoăn +4; ô đầu + mũ phù thủy −7; ô 86 px + tóc xoăn −25; ô 86 px + mũ phù thủy −36;
-   - 375×667: ô đầu + tóc xoăn −6; ô 86 px + mũ phù thủy −33.
-
-   Hướng làm: trên màn dọc thấp, ẩn dòng gợi ý hoặc dòng "Thưởng" của ô nhiệm vụ (như khi cầm ngang), hoặc thông báo 12 px / tối đa 2 dòng. Đo lại bằng e2e `toasts (upright phone, ...)` thêm 390×664 và 375×667.
-2. **Tên mình lên cao lúc đang đi lên** (P3, cân nhắc). Camera trễ `v / 7,6` giây: đi bộ 160 px/s làm tên cao hơn lúc đứng yên 21 đơn vị thế giới, tức 19 px ở 390 px rộng; lướt còn nhiều hơn trong chốc lát. Luật T62 chỉ tính lúc đứng yên. Hướng làm: cộng một khoảng dự phòng vào `nameClearPx` khi đang đi, hoặc cho camera dẫn trước theo hướng đi. Cần đo trước khi quyết.
+Đề xuất tách nhiệm vụ: không cần. Năm việc nhỏ, một vòng coder, một commit. Nếu coder muốn chia commit: (a) server: bước 1-2; (b) client: bước 3-5 cùng E2, E3; (c) E1, `closedWorld`, `architecture.md`.

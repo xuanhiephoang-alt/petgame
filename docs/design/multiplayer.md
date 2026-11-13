@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64; nhận ra thế giới của chính mình ở tab mới từ T65). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -93,6 +93,25 @@ Trong lúc chơi, thanh địa chỉ luôn ghi nơi mà lần mở trang sau s�
 - Trang nhớ (trong `sessionStorage` của tab) thế giới vừa chơi và lần cuối có bạn bè trong đó không, chỉ để chọn chữ trên sảnh và cách báo khi thế giới đã đóng. Địa chỉ mới là thứ quyết định vào đâu. Tab cũ (trước T49) không có dấu bạn bè thì coi như có bạn bè.
 - Giới hạn: app mở từ Màn hình chính (PWA) luôn mở lại từ `/`, nên chưa về được thế giới cũ.
 
+### Dấu trang, địa chỉ dán sang tab mới (T65)
+
+Từ T49 địa chỉ lúc chơi một mình cũng có `?room=`. Tab mới (dấu trang, dán lại địa chỉ, mở lại trình duyệt) không có trí nhớ của tab cũ, nên trước T65 nó coi địa chỉ của chính mình là link mời: "Bạn được mời vào thế giới của bạn bè", rồi nếu thế giới đã đóng thì thẻ "Xin bạn bè link mời mới". Từ T65 **thiết bị** (không chỉ tab) nhớ các thế giới đã vào gần đây:
+
+- Nhớ **20 thế giới** gần nhất (`localStorage`, chung mọi tab của trình duyệt đó), mỗi thế giới kèm "lần cuối thấy có bạn bè không". Ghi cùng lúc với địa chỉ (lúc vào, và khi có bạn bè vào hay ra hết), không ghi theo nhịp.
+- Mở trang ở `?room=X`: tab này vừa ở X thì dùng trí nhớ của tab (như trên). Không thì xem X có trong danh sách của thiết bị không. Thấy thì coi như **quay lại** (không phải được mời):
+
+| Lần cuối ở X | Chữ trên sảnh | X còn mở | X đã đóng |
+|---|---|---|---|
+| Một mình | không ghi gì (nút "Vào chơi" có sẵn focus) | vào X | vào ngay thế giới mới cùng bản đồ, **không thẻ** |
+| Có bạn bè | "Quay lại thế giới bạn đang chơi cùng bạn bè" | vào X | thẻ "Thế giới này đã đóng" / "Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn." / **Tạo thế giới mới** |
+| Không có trong danh sách (máy khác, link bạn bè gửi mà chưa vào bao giờ, quá 20 thế giới trước) | "Bạn được mời vào thế giới của bạn bè" (như trước) | vào X | thẻ "đã đóng" chữ link mời (như trước) |
+
+- Mở bằng một thế giới trong danh sách thì thế giới đó được đưa lên đầu danh sách. Vì vậy một dấu trang dùng mỗi ngày không bao giờ bị quên, dù mỗi lần dùng lại mở một thế giới mới. Chỉ dấu trang bỏ không dùng trong khi thiết bị đã vào thêm 20 thế giới khác mới trở lại thành "được mời".
+- Vì sao 20: chơi một mình thì mỗi lần quay lại sau hơn 60 giây là một thế giới mới, nên 20 là khoảng 20 buổi chơi (vài tuần nếu chơi một hai lần mỗi ngày). Danh sách dưới 1 kB. Quên thì vẫn có đường đi tiếp (thẻ có nút Tạo thế giới mới).
+- Id thế giới do server sinh ngẫu nhiên và không dùng lại, nên một id có trong danh sách chắc chắn là thế giới thiết bị này đã vào. Link bạn bè gửi tới thế giới mình đã chơi cùng họ cũng được coi là "quay lại": đúng cả hai cách.
+- Tab mới mở ở thế giới mà tab cũ đang chơi: sảnh không ghi gì (một mình) hay ghi "Quay lại…" (có bạn bè). Vào thì phiên ở tab cũ kết thúc như mục "Mỗi thiết bị một nhân vật".
+- Trình duyệt chặn hoặc xoá `localStorage` (chế độ riêng tư, xoá dữ liệu trang) thì như trước T65: link được coi là link mời. Xoá dữ liệu trang cũng xoá token, tức là một người chơi mới.
+
 ## Vào thế giới: lỗi và cách đi tiếp (T23)
 
 Vào hỏng thì nút "Vào chơi" nhường chỗ cho một thẻ (cùng kiểu thẻ "Không tải được game"), nút chính có sẵn focus; ô tên và ngoại hình vẫn sửa được. Trong lúc đang vào, nút ghi "Đang vào...". Sảnh ở lại cho đến khi thế giới đã vẽ xong (T42), nên không bao giờ có màn hình tối không chữ.
@@ -100,13 +119,13 @@ Vào hỏng thì nút "Vào chơi" nhường chỗ cho một thẻ (cùng kiểu
 | Tình huống | Tiêu đề | Dòng giải thích | Nút |
 |---|---|---|---|
 | Thế giới đã đóng, người chơi đang quay lại thế giới có bạn bè | Thế giới này đã đóng | Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn. | **Tạo thế giới mới** |
-| Thế giới đã đóng (link mời cũ hoặc sai) | Thế giới này đã đóng | Mọi người đã rời đi. Xin bạn bè link mời mới, hoặc tạo thế giới mới. | **Tạo thế giới mới** |
+| Thế giới đã đóng (link mời cũ hoặc sai, thiết bị chưa từng vào thế giới đó; T65) | Thế giới này đã đóng | Mọi người đã rời đi. Xin bạn bè link mời mới, hoặc tạo thế giới mới. | **Tạo thế giới mới** |
 | Đủ 5 người (tính cả chỗ đang giữ 20 giây cho người rớt mạng) | Thế giới đã đủ 5 người | Chờ chút rồi bấm Thử lại, hoặc tạo thế giới mới. | **Thử lại**, Tạo thế giới mới (phụ) |
 | Mất mạng, server không chạy hoặc đang khởi động lại | Không kết nối được server | Kiểm tra mạng rồi bấm Thử lại. | **Thử lại** |
 | Tạo thế giới bị chặn vì server hoặc mạng này đã mở quá nhiều thế giới (T64) | xem mục "Giới hạn số thế giới" | | **Thử lại** |
 | Lỗi khác | Không vào được thế giới | Có lỗi khi vào. Chờ giây lát rồi bấm Thử lại. | **Thử lại** |
 
-- Người chơi quay lại thế giới mà lần cuối chỉ có mình họ thì không gặp thẻ "đã đóng": vào thẳng thế giới mới (mục "Tải lại trang").
+- Người chơi quay lại thế giới mà lần cuối chỉ có mình họ thì không gặp thẻ "đã đóng": vào thẳng thế giới mới (mục "Tải lại trang"). Từ T65 điều này đúng cả khi mở ở tab mới hay từ dấu trang (mục "Dấu trang, địa chỉ dán sang tab mới").
 - **Tạo thế giới mới** bỏ `room` khỏi địa chỉ rồi vào ngay một thế giới mới (cùng bản đồ).
 - Biết thế giới đã đóng thì địa chỉ bỏ `room` ngay, nên tải lại ở thẻ này cũng ra thế giới mới, không gặp lại lỗi cũ.
 - **Thử lại** vào lại đúng địa chỉ đang có (vẫn giữ link mời).
@@ -174,3 +193,5 @@ Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server
 - Ai cũng tạo được thế giới rồi rời ngay, mỗi cái sống 60 giây (trước T49: 15 giây nếu chưa ai vào). Từ T64 việc này bị giới hạn (mục "Giới hạn số thế giới").
 - Kẻ phá có nhiều địa chỉ (từ 5 địa chỉ IPv4 hay 5 khối IPv6 /64) vẫn chiếm được hết 50 chỗ, khi đó không ai tạo được thế giới mới cho đến khi các thế giới của họ đóng. Chấp nhận: server không chậm đi (50 thế giới trống chỉ tốn 6,5% một nhân), thế giới đang chơi không bị ảnh hưởng và link mời vẫn vào được. Muốn chặn hơn nữa cần tài khoản hoặc captcha, quá tầm game chơi với bạn bè.
 - Giữ một kết nối trong mỗi thế giới thì thế giới không đóng, như trước T49. Trần 10 mỗi mạng đếm cả thế giới có người, nên cách này cũng không vượt được 10.
+- Nhận ra thế giới của mình (T65) bằng danh sách trên thiết bị, không nhờ server theo token. Server không nhớ thế giới đã đóng, nên cách theo token cần thêm bảng lưu hoặc bộ nhớ riêng, thêm một lần hỏi server trước khi sảnh sẵn sàng hoặc đổi giao thức báo lỗi khi vào. Đổi lại không biết thêm gì: token cũng nằm trong `localStorage`, mất danh sách là mất luôn token. Danh sách không cho ai vào được đâu thêm: nó chỉ đổi chữ trên sảnh và cách báo khi thế giới đã đóng.
+- Dấu trang cũ của thế giới có bạn bè vẫn ghi "Quay lại thế giới bạn **đang** chơi cùng bạn bè" dù đã lâu. Sảnh chưa biết thế giới còn mở hay không (không hỏi server trước khi bấm), và nếu đã đóng thì thẻ nói rõ ngay. Giữ một câu cho cả tải lại lẫn dấu trang.
