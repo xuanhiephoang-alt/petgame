@@ -6,18 +6,58 @@ export const RETURN_HINT = "Quay lại thế giới bạn đang chơi cùng bạ
 /** Lobby hint when the page was opened from an invite link. */
 export const INVITE_HINT = "Bạn được mời vào thế giới của bạn bè";
 
-/** How the lobby was opened: fresh, from an invite link, or coming back to the world this tab was in (with or without friends). */
+/** How the lobby was opened: fresh, from an invite link, or coming back to a world this tab or this device was in (with or without friends). */
 export type Arrival = "new" | "invited" | "back" | "backAlone";
+
+/** A world this device entered lately, and whether friends were there when it was last seen. */
+export interface RecentWorld {
+  room: string;
+  friends: boolean;
+}
+
+/**
+ * How many recent worlds the device remembers (`petgame:worlds`). About 20 solo sessions (each one over 60 s
+ * apart is a new world), under 1 kB, and a world used again moves to the front, so a bookmark in use is never forgotten.
+ */
+export const RECENT_WORLDS_MAX = 20;
+
+/** Reads the stored list of recent worlds. Takes any JSON value and never throws: anything unusable is dropped. */
+export function recentWorlds(raw: unknown): RecentWorld[] {
+  if (!Array.isArray(raw)) return [];
+  const list: RecentWorld[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const { room, friends } = item as { room?: unknown; friends?: unknown };
+    if (typeof room !== "string" || room.length < 1 || room.length > 64 || typeof friends !== "boolean") continue;
+    if (list.some((w) => w.room === room)) continue;
+    list.push({ room, friends });
+    if (list.length >= RECENT_WORLDS_MAX) break;
+  }
+  return list;
+}
+
+/** The list with `room` at the front (and only once), newest first, cut to `RECENT_WORLDS_MAX`. `list` is not changed. */
+export function withRecentWorld(list: readonly RecentWorld[], room: string, friends: boolean): RecentWorld[] {
+  return [{ room, friends }, ...list.filter((w) => w.room !== room)].slice(0, RECENT_WORLDS_MAX);
+}
 
 /**
  * Sorts how the page was opened. `invited` is `?room=` from the address; `lastRoom` and `lastFriends` are what this
- * tab remembered (`petgame:room`, `petgame:friends`). A tab from before T49 has no `lastFriends`: it only wrote
- * `room` when friends were there, so that counts as friends.
+ * tab remembered (`petgame:room`, `petgame:friends`); `recent` is what this device remembers. The tab wins over the
+ * device. A tab from before T49 has no `lastFriends`: it only wrote `room` when friends were there, so that counts as
+ * friends. A world in neither is an invite.
  */
-export function arrival(invited: string | null, lastRoom: string | null | undefined, lastFriends: string | null | undefined): Arrival {
+export function arrival(
+  invited: string | null,
+  lastRoom: string | null | undefined,
+  lastFriends: string | null | undefined,
+  recent: readonly RecentWorld[] = [],
+): Arrival {
   if (!invited) return "new";
-  if (lastRoom !== invited) return "invited";
-  return lastFriends === "0" ? "backAlone" : "back";
+  if (lastRoom === invited) return lastFriends === "0" ? "backAlone" : "back";
+  const known = recent.find((w) => w.room === invited);
+  if (known) return known.friends ? "back" : "backAlone";
+  return "invited";
 }
 
 /** The lobby's hint line for an arrival; coming back alone needs none. */

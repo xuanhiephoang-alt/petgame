@@ -1711,6 +1711,18 @@ test("lobby: a reload goes back to the world; a closed world or an unreachable s
   await expect(page.locator("#new-world-btn")).toBeFocused();
   expect(param(page, "room")).toBeNull();
 
+  // A new tab of the same device at the closed world (a bookmark, a pasted address): the player's own world, not an invite.
+  const tab = await page.context().newPage();
+  watch(tab, "Back tab");
+  await tab.goto(`/?room=${roomId}&quality=low`);
+  await expect(tab.locator("#room-hint")).toHaveText("Quay lại thế giới bạn đang chơi cùng bạn bè");
+  await enterLobby(tab, "Back");
+  await expect(tab.locator("#join-status")).toContainText("Thế giới này đã đóng");
+  await expect(tab.locator("#join-status")).toContainText("vẫn còn");
+  await expect(tab.locator("#new-world-btn")).toBeFocused();
+  expect(param(tab, "room")).toBeNull();
+  await tab.close();
+
   // Part 2: a phone upright, touch.
   const gone = await new Client(SERVER).create("world", { name: "Gone" });
   const closedId = gone.roomId;
@@ -1791,6 +1803,49 @@ test("lobby: alone, a reload comes back to the same world while it is kept; once
   expect(param(page, "quality")).toBe("low");
   // Counted since the opening: the reload, about:blank and goto(back). The quiet retry did not load the page again.
   expect(loads).toBe(3);
+
+  // A new tab at the world that is open now (the player's own): no "invited" hint. Only the lobby is looked at.
+  const world2 = await roomOf(page);
+  const tab = await page.context().newPage();
+  watch(tab, "Solo tab");
+  await tab.goto(`/?room=${world2}&quality=low`);
+  await tab.locator("#join-btn:enabled").waitFor();
+  await expect(tab.locator("#room-hint")).toHaveText("");
+  await expect(tab.locator("#join-btn")).toBeFocused();
+  await tab.close();
+
+  // A bookmark of the first world, now closed, in a new tab (its sessionStorage is empty): no hint, no card, a new world.
+  await page.goto("about:blank"); // so the new tab does not take this one's session
+  const bookmark = await page.context().newPage();
+  watch(bookmark, "Solo bookmark");
+  await bookmark.goto(`/?room=${world}&quality=low`);
+  await expect(bookmark.locator("#room-hint")).toHaveText("");
+  await enterLobby(bookmark, "Solo");
+  await waitForWorld(bookmark); // throws if a card is shown
+  const world3 = await roomOf(bookmark);
+  expect(world3).not.toBe(world);
+  await expect.poll(() => param(bookmark, "room")).toBe(world3);
+});
+
+test("lobby: a corrupt device list of worlds, or storage that throws, does not break the lobby", async ({ browser }) => {
+  for (const [label, init] of [
+    ["not JSON", () => localStorage.setItem("petgame:worlds", "{not json")],
+    ["wrong shape", () => localStorage.setItem("petgame:worlds", JSON.stringify({ room: "x", friends: 5 }))],
+    [
+      "storage throws",
+      () => {
+        const boom = () => {
+          throw new Error("storage is off");
+        };
+        Storage.prototype.getItem = boom;
+        Storage.prototype.setItem = boom;
+      },
+    ],
+  ] as const) {
+    const page = await openPage(browser, "/?room=someoneselse", `Bad list: ${label}`, {}, (p) => p.addInitScript(init));
+    await page.locator("#join-btn:enabled").waitFor(); // the lobby unlocked: main.ts did not throw on the way
+    await expect(page.locator("#room-hint"), label).toHaveText("Bạn được mời vào thế giới của bạn bè");
+  }
 });
 
 test("lobby: a script that cannot load or breaks while starting says so at once, and Tải lại brings the invite back", async ({ browser }) => {
@@ -2071,6 +2126,8 @@ async function observer(roomId: string, name: string): Promise<Room> {
  * Waits until a world is closed: joining it by id is refused as "not found" (522, not "is locked"). Send
  * `debug:emptyHold { ms: 0 }` and leave first, or the world stays open for the full hold. A probe that gets in leaves
  * at once; the polls are further apart than the world takes to close, so a probe never holds it open.
+ * Waits up to 30 s: if the leave message sent as a page unloads (`pagehide`) is lost, the server takes it for a dropped
+ * connection and waits 20 s to reconnect before the world is empty, then closes it within about 1 s.
  */
 async function closedWorld(roomId: string) {
   await expect
@@ -2084,7 +2141,7 @@ async function closedWorld(roomId: string) {
           return err?.code === 522 && !/is locked/.test(String(err?.message)) ? "closed" : `other: ${err?.code} ${err?.message}`;
         }
       },
-      { intervals: [1500], timeout: 20_000 },
+      { intervals: [1500], timeout: 30_000 },
     )
     .toBe("closed");
 }
@@ -2266,6 +2323,52 @@ test("connection: when the world has let the player go, the screen says so and t
   expect(await page.evaluate(() => (window as any).__petgame.room.roomId as string)).toBe(roomId);
   expect((await partyOf(page)).species).toContain("leafkit");
   expect(await playerCount(page)).toBe(2);
+});
+
+test("connection: alone, when the world has let the player go, Về sảnh takes them back to the same world, kept for them", async ({ browser }) => {
+  test.slow();
+  // A desktop, keyboard.
+  const { page, cut, restore } = await openWithSwitch(browser, "Loner");
+  await enterLobby(page, "Loner");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  const { roomId, sessionId } = await page.evaluate(() => {
+    const { room } = (window as any).__petgame;
+    return { roomId: room.roomId as string, sessionId: room.sessionId as string };
+  });
+  const param = (key: string) => new URL(page.url()).searchParams.get(key);
+  await sendFrom(page, "debug:givePal", { species: "leafkit", level: 3 });
+  await expect.poll(async () => (await partyOf(page)).species).toEqual(["leafkit"]);
+  await expect.poll(() => param("room")).toBe(roomId);
+
+  await cut();
+  await expect(page.locator(".net-title")).toContainText("Đang kết nối lại");
+  // Someone joins after the connection went (the page never sees them), ends the wait and leaves: the world is empty and held.
+  const helper = await observer(roomId, "Helper");
+  // The helper's first state may not have come yet.
+  await expect.poll(() => helper.state.players?.get(sessionId)?.offline).toBe(true);
+  helper.send("debug:endGrace");
+  await expect.poll(() => helper.state.players.has(sessionId)).toBe(false);
+  await helper.leave();
+
+  restore();
+  await expect(page.locator(".net-title")).toHaveText("Không kết nối lại được", { timeout: 15_000 });
+  await expect(page.locator(".net-lobby")).toBeFocused();
+  expect(param("room")).toBe(roomId); // alone, the address still names the world
+
+  const loaded = page.waitForEvent("load");
+  await page.keyboard.press("Enter");
+  await loaded;
+  expect(param("room")).toBe(roomId);
+  expect(param("quality")).toBe("low");
+  await expect(page.locator("#room-hint")).toHaveText(""); // alone: neither "Quay lại..." nor "Bạn được mời..."
+  await page.locator("#join-btn:enabled").waitFor();
+  await expect(page.locator("#join-btn")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await waitForWorld(page);
+  expect(await page.evaluate(() => (window as any).__petgame.room.roomId as string)).toBe(roomId);
+  expect(await playerCount(page)).toBe(1);
+  expect((await partyOf(page)).species).toContain("leafkit");
 });
 
 test("connection: one device, one player; closing the page frees the place at once", async ({ browser }) => {

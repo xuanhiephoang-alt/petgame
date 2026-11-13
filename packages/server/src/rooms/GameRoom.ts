@@ -624,11 +624,20 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   /**
    * The player is gone for good: they left on purpose, their wait to reconnect ran out, or their device joined again.
-   * When the last one goes, the world is held open for a while (a waiting-to-reconnect player is still in `players`).
+   * When the last one goes, the world is held open for a while (a waiting-to-reconnect player is still in `holds`).
+   * A failure in removePlayer is caught and logged, never rethrown: Colyseus calls onLeave for a player whose wait
+   * ran out outside any try/catch, so a throw there would be an uncaught exception that shuts the whole server down.
+   * The world is still held and then closes.
    */
   onLeave(client: Client) {
-    this.removePlayer(client.sessionId);
-    if (this.state.players.size === 0) this.holdEmptyWorld();
+    const sessionId = client.sessionId;
+    try {
+      this.removePlayer(sessionId);
+    } catch (err) {
+      console.error(`GameRoom ${this.roomId}: removing player ${sessionId} failed; the world is still held and will close`, err);
+    }
+    this.holds.delete(sessionId); // the session is out for good, even if removePlayer threw before clearing it
+    if (this.isEmpty()) this.holdEmptyWorld();
   }
 
   /** The room is closing: none of its sessions is anyone's live session any more. */
@@ -671,6 +680,14 @@ export class GameRoom extends Room<{ state: GameState }> {
     else this.clients.find((c) => c.sessionId === sessionId)?.leave(CLOSE_REPLACED);
   }
 
+  /**
+   * Nobody is connected and nobody is being waited for to reconnect. Does not look at `players`: a player left
+   * behind by a failed removal must not keep the world open for good.
+   */
+  private isEmpty(): boolean {
+    return this.clients.length === 0 && this.holds.size === 0;
+  }
+
   /** Starts (or restarts) the countdown after which an empty world closes. Safe to call twice. */
   private holdEmptyWorld() {
     this.emptyHold?.clear();
@@ -690,7 +707,7 @@ export class GameRoom extends Room<{ state: GameState }> {
    */
   private closeIfStillEmpty() {
     this.emptyHold = undefined;
-    if (this.state.players.size > 0) return;
+    if (!this.isEmpty()) return;
     this.autoDispose = true;
   }
 

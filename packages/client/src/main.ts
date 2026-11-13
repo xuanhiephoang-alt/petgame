@@ -8,7 +8,7 @@ import { loadDollArt } from "./game/art/doll.ts";
 import { DollPreview, LookPicker } from "./ui/wardrobe.ts";
 import { ConnectionOverlay } from "./ui/connection.ts";
 import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
-import { arrival, arrivalHint, joinCard, startCard, startFailure, type JoinCard } from "./ui/joinStatus.ts";
+import { arrival, arrivalHint, joinCard, recentWorlds, startCard, startFailure, withRecentWorld, type JoinCard } from "./ui/joinStatus.ts";
 import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
 
 const lobby = document.getElementById("lobby")!;
@@ -32,6 +32,11 @@ const LOBBY_READY_EVENT = "petgame:lobby-ready";
 const ROOM_KEY = "petgame:room";
 /** sessionStorage key of whether that world had other players when last seen ("1") or only this tab ("0"). */
 const FRIENDS_KEY = "petgame:friends";
+/**
+ * localStorage key of the worlds this device entered lately, newest first, each with whether friends were there when last
+ * seen. Tells a bookmark or an address pasted into a new tab (the player's own world) from an invite link.
+ */
+const RECENT_WORLDS_KEY = "petgame:worlds";
 
 /** Canvas pixels per CSS pixel: phones' 3x screens are drawn at 2x to save battery. */
 const resolution = Math.min(window.devicePixelRatio || 1, 2);
@@ -63,10 +68,17 @@ const dollArt = loadDollArt().then((ok) => {
 });
 const assets: Promise<GameAssets> = Promise.all([loadPalSprites(), loadPictures(), dollArt]).then(([pals]) => ({ pals }));
 
-// Opened at ?room=X: coming back (this tab joined X, alone or with friends) or invited (anything else). Runs before the lobby unlocks and must not throw.
+// Opened at ?room=X: coming back (this tab or this device joined X, alone or with friends) or invited (anything else). Runs before the lobby unlocks and must not throw.
 const invited = new URLSearchParams(location.search).get("room");
-const arrived = arrival(invited, safeStorage(() => sessionStorage.getItem(ROOM_KEY)), safeStorage(() => sessionStorage.getItem(FRIENDS_KEY)));
+const arrived = arrival(
+  invited,
+  safeStorage(() => sessionStorage.getItem(ROOM_KEY)),
+  safeStorage(() => sessionStorage.getItem(FRIENDS_KEY)),
+  recentWorlds(readJson(RECENT_WORLDS_KEY)),
+);
 const returning = arrived === "back" || arrived === "backAlone";
+// A world in use moves to the front of the device's list.
+if (returning && invited) noteRecentWorld(invited, arrived === "back");
 roomHint.textContent = arrivalHint(arrived);
 /** Coming back alone to a world that has closed is no news: one quiet retry opens a new world, with no card. */
 let quietRetry = arrived === "backAlone";
@@ -76,10 +88,16 @@ function setAddress(url: string) {
   if (url !== location.href) safeStorage(() => history.replaceState(history.state, "", url));
 }
 
+/** Puts a world at the front of the device's list. Reads the list again each time: another tab may have just written it. */
+function noteRecentWorld(roomId: string, friends: boolean) {
+  safeStorage(() => localStorage.setItem(RECENT_WORLDS_KEY, JSON.stringify(withRecentWorld(recentWorlds(readJson(RECENT_WORLDS_KEY)), roomId, friends))));
+}
+
 /** Notes the world this tab is in, and whether friends are there, and puts it in the address so a reload comes back to it. */
 function rememberWorld(roomId: string, friends: boolean) {
   safeStorage(() => sessionStorage.setItem(ROOM_KEY, roomId));
   safeStorage(() => sessionStorage.setItem(FRIENDS_KEY, friends ? "1" : "0"));
+  noteRecentWorld(roomId, friends);
   setAddress(lobbyUrl(roomId, true));
 }
 

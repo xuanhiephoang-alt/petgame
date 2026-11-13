@@ -2881,8 +2881,9 @@ describe("keeping an empty world open", () => {
     useStore(db);
     const token = "hold-token-0123456789";
     const { room, client, player } = await setup(token);
-    (room as any).emptyHoldMs = 400;
-    await capture(room, client, player);
+    (room as any).emptyHoldMs = 1000; // about 3 times what leaving and coming back takes
+    await capture(room, client, player); // restores all mocks, so the spy comes after it
+    const closes = vi.spyOn(room as any, "closeIfStillEmpty");
     await client.leave();
     await vi.waitFor(() => expect(room.state.players.size).toBe(0));
     expect(emptyHoldOf(room)?.active).toBe(true);
@@ -2891,6 +2892,9 @@ describe("keeping an empty world open", () => {
     await ticks(room, 5);
     expect((room as any).dayTime).toBeGreaterThan(dayBefore); // the world keeps running
 
+    // The hold has not run out as the player starts to come back.
+    expect(emptyHoldOf(room)?.active).toBe(true);
+    expect(room.autoDispose).toBe(false);
     const back = await colyseus.sdk.joinById<any>(room.roomId, { name: "Back", token });
     expect(back.roomId).toBe(room.roomId);
     await vi.waitFor(() => expect(room.state.players.size).toBe(1));
@@ -2898,11 +2902,14 @@ describe("keeping an empty world open", () => {
     expect(room.autoDispose).toBe(false);
     expect(room.state.players.get(back.sessionId)!.pals.length).toBe(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 800)); // twice the hold: still open, someone is in
+    await new Promise((resolve) => setTimeout(resolve, 1200)); // longer than the hold: still open, someone is in
+    expect(closes).not.toHaveBeenCalled(); // the countdown was cancelled by the join, it did not run out
     expect(isOpen(room)).toBe(true);
+    expect(room.autoDispose).toBe(false);
 
     await back.leave();
-    await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 4000 });
+    await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 5000 }); // 1 s hold, up to 1 s for Colyseus
+    expect(closes).toHaveBeenCalledTimes(1);
     const err: any = await colyseus.sdk.joinById(room.roomId, {}).then(
       () => undefined,
       (e) => e,
@@ -2924,6 +2931,52 @@ describe("keeping an empty world open", () => {
     expect(emptyHoldOf(room)?.active).toBe(true);
     expect(isOpen(room)).toBe(true);
     await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 4000 });
+  });
+
+  const holdsOf = (room: GameRoom) => (room as any).holds as Map<string, unknown>;
+
+  it("a leave that fails half-way is logged, and the world is still held and closes", async () => {
+    const { room, client } = await setup();
+    (room as any).emptyHoldMs = 300;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(room as any, "removePlayer").mockImplementation(() => {
+      throw new Error("boom");
+    });
+    await client.leave();
+    await vi.waitFor(() => expect(emptyHoldOf(room)?.active).toBe(true));
+    expect(room.state.players.size).toBe(1); // the failed removal left the player behind: emptiness does not look at it
+    expect(errors).toHaveBeenCalledTimes(1);
+    expect(String(errors.mock.calls[0][0])).toContain(room.roomId);
+    await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 4000 });
+  });
+
+  it("a dropped player whose grace runs out while leaving fails does not take the server down; the world still closes", async () => {
+    const { room, client, player } = await setup();
+    (room as any).reconnectGraceMs = 300;
+    (room as any).emptyHoldMs = 300;
+    client.reconnection.enabled = false;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(room as any, "removePlayer").mockImplementation(() => {
+      throw new Error("boom");
+    });
+    // Colyseus calls onLeave for this path outside any try/catch: a throw would be an unhandled rejection.
+    const stray: unknown[] = [];
+    const note = (reason: unknown) => void stray.push(reason);
+    process.on("unhandledRejection", note);
+    try {
+      (room.clients.find((c) => c.sessionId === client.sessionId) as any).ref.terminate();
+      await vi.waitFor(() => expect(player.offline).toBe(true));
+      await vi.waitFor(() => {
+        expect(holdsOf(room).size).toBe(0);
+        expect(emptyHoldOf(room)?.active).toBe(true);
+      }, { timeout: 4000 });
+      await vi.waitFor(() => expect(isOpen(room)).toBe(false), { timeout: 4000 });
+      await new Promise((resolve) => setTimeout(resolve, 100)); // a stray rejection would have surfaced by now
+      expect(stray).toEqual([]);
+      expect(errors).toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", note);
+    }
   });
 
   it("a world made but never joined closes after the hold", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PLAYERS } from "@petgame/shared";
 import type { JoinFailure } from "../net/connection.ts";
-import { INVITE_HINT, RETURN_HINT, arrival, arrivalHint, joinCard, startCard, startFailure } from "./joinStatus.ts";
+import { INVITE_HINT, RECENT_WORLDS_MAX, RETURN_HINT, arrival, arrivalHint, joinCard, recentWorlds, startCard, startFailure, withRecentWorld, type RecentWorld } from "./joinStatus.ts";
 
 const ALL: JoinFailure[] = ["closed", "full", "unreachable", "busy", "tooMany", "failed"];
 
@@ -32,6 +32,86 @@ describe("arrival", () => {
     expect(arrivalHint("invited")).toBe(INVITE_HINT);
     expect(arrivalHint("backAlone")).toBe("");
     expect(arrivalHint("new")).toBe("");
+  });
+});
+
+describe("arrival with the device's recent worlds", () => {
+  it("knows a world this device was in, though this tab was not", () => {
+    expect(arrival("X", "Y", "1", [{ room: "X", friends: false }])).toBe("backAlone");
+    expect(arrival("X", "Y", "1", [{ room: "X", friends: true }])).toBe("back");
+    expect(arrival("X", null, null, [{ room: "Z", friends: true }])).toBe("invited");
+  });
+
+  it("lets the tab win over the device, and needs ?room= to be anything but new", () => {
+    expect(arrival("X", "X", "0", [{ room: "X", friends: true }])).toBe("backAlone");
+    expect(arrival(null, null, null, [{ room: "X", friends: true }])).toBe("new");
+  });
+});
+
+describe("recentWorlds", () => {
+  it("is empty for anything that is not a list", () => {
+    for (const raw of [null, undefined, "x", 42, {}]) expect(recentWorlds(raw)).toEqual([]);
+  });
+
+  it("drops items that are not a world", () => {
+    const raw = [null, 1, { room: "" }, { room: "A" }, { room: "A", friends: "yes" }, { room: "a".repeat(65), friends: true }];
+    expect(recentWorlds(raw)).toEqual([]);
+  });
+
+  it("keeps only room and friends", () => {
+    expect(recentWorlds([{ room: "A", friends: true, extra: 1 }])).toEqual([{ room: "A", friends: true }]);
+  });
+
+  it("keeps the first of a repeated room", () => {
+    expect(recentWorlds([{ room: "A", friends: true }, { room: "B", friends: false }, { room: "A", friends: false }])).toEqual([
+      { room: "A", friends: true },
+      { room: "B", friends: false },
+    ]);
+  });
+
+  it("keeps the first RECENT_WORLDS_MAX of a longer list", () => {
+    const raw = Array.from({ length: 25 }, (_, i) => ({ room: `w${i}`, friends: i % 2 === 0 }));
+    const list = recentWorlds(raw);
+    expect(list).toHaveLength(RECENT_WORLDS_MAX);
+    expect(list[0].room).toBe("w0");
+    expect(list[19].room).toBe("w19");
+  });
+});
+
+describe("withRecentWorld", () => {
+  it("adds a world at the front", () => {
+    expect(withRecentWorld([{ room: "A", friends: true }], "B", false)).toEqual([
+      { room: "B", friends: false },
+      { room: "A", friends: true },
+    ]);
+  });
+
+  it("moves a known world to the front with the new flag, once", () => {
+    const list = [{ room: "A", friends: true }, { room: "B", friends: true }];
+    expect(withRecentWorld(list, "B", false)).toEqual([
+      { room: "B", friends: false },
+      { room: "A", friends: true },
+    ]);
+  });
+
+  it("drops the oldest when full", () => {
+    const list: RecentWorld[] = Array.from({ length: RECENT_WORLDS_MAX }, (_, i) => ({ room: `w${i}`, friends: true }));
+    const next = withRecentWorld(list, "new", true);
+    expect(next).toHaveLength(RECENT_WORLDS_MAX);
+    expect(next[0].room).toBe("new");
+    expect(next.some((w) => w.room === `w${RECENT_WORLDS_MAX - 1}`)).toBe(false);
+  });
+
+  it("does not change the list it is given", () => {
+    const list = [{ room: "A", friends: true }];
+    const copy = structuredClone(list);
+    withRecentWorld(list, "B", false);
+    withRecentWorld(list, "A", false);
+    expect(list).toEqual(copy);
+  });
+
+  it("remembers 20 worlds", () => {
+    expect(RECENT_WORLDS_MAX).toBe(20);
   });
 });
 

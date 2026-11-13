@@ -1,64 +1,53 @@
 PASS
-# REVIEW: T62 Điện thoại dọc: thông báo đè tên người chơi, vòng 1
+# REVIEW: T65 Dọn sau T49, vòng 1
 
 ## Kết luận
-Thay đổi làm đủ 7 bước của PLAN.md, không làm ngoài phạm vi. Luật vừa chỗ đúng và tính theo số đo thật, nên màn ngang, desktop và màn dọc < 790 không đọc DOM. Không có lỗi phải sửa. Hàng chờ không cắt thông báo khi số chỗ giảm. Số chỗ cũng không nhảy qua lại giữa 1 và 2, nên không cần hysteresis. Tôi đã tự chạy typecheck (sạch) và 2 file unit (37/37 qua). Ba file test chỉ có dòng thêm (`git diff --numstat`: 11/34/105 dòng thêm, 0 dòng xoá).
+Thay đổi làm đủ năm việc của PLAN.md, đúng phạm vi: không đổi schema, message, `Profile` hay chữ của hint/thẻ. Bản sửa `onLeave` đúng với luồng thật của Colyseus 0.18. Đã đối chiếu `Room.mjs`: `_onLeave` xoá client khỏi `clients` trước khi gọi hook, `#_onAfterLeave` gọi `onLeave` không có try/catch, và `registerGracefulShutdown` tắt server khi có `uncaughtException`. Danh sách thế giới trên thiết bị đọc/ghi an toàn và có giới hạn. Test kiểm đúng hành vi. Tôi đã tự chạy lại typecheck, `-t "keeping an empty world open"` (8/8) và `joinStatus.test.ts` (27/27), tất cả qua.
 
-## Lỗi phải sửa (FAIL khi còn mục này)
-Không có.
+## Lỗi phải sửa
+(không có)
 
-## Đã kiểm (không phải lỗi)
-- **Chỗ bắt đầu thông báo đo thật khớp với mô hình `restingNameTop`:**
-  - `.hud-toasts` là con cuối của `.hud-left` (flex cột, `order: 10`), và `.hud-toasts:empty` có `display: none`. Vì vậy hai nhánh của `Hud.toastFit` cho cùng một số:
-    - có thông báo: mép trên của `.hud-toasts`;
-    - không có: đáy `.hud-left` + `row-gap`.
-
-    Số đo đó không phụ thuộc thông báo đang hiện, và hiệu ứng trượt nằm ở `.toast`.
-  - `restingNameTop` dùng các số sau, không có số nào thay đổi từng khung, nên số chỗ không dao động:
-    - `stage.height` và `camera.zoom`: chỉ `Stage.resize` ghi;
-    - `me.height`: tóc và mũ lúc này;
-    - `CAMERA_LEAD_PX`, `PLAYER_TAG_LIFT_PX`: chung một nguồn với `Game.ts`.
-- **Đổi tủ đồ khi đang có thông báo:** nếu có thông báo chờ, số chỗ được tính lại với chiều cao mới trong vòng ≤ 250 ms. Thông báo đang hiện không bị cắt, đúng kế hoạch.
-- **Thanh trùm thế chỗ ô nhiệm vụ giữa hàng chờ:** chỗ bắt đầu thông báo đo lại từ DOM, nên chỗ mở ra (1 → 2) được dùng ngay. Trường hợp ngược lại (trùm đi xa, ô nhiệm vụ cao trở lại) có thể làm thông báo đang hiện đè tên tới hết giờ. Kế hoạch đã chấp nhận ở mục rủi ro.
-- **Xoay máy:** màn ngang trả 1 hoặc 2 trước khi gọi `fit`. Mỗi lần `push` đều tính lại, và trong lúc chờ thì tính lại mỗi 250 ms. Xem thêm góp ý 4 về một khung trễ của Pixi.
-- **Luật hàng chờ:** `ToastQueue` không đổi, và `maxVisible()` chỉ chặn việc hiện thêm. Khi số chỗ từ 2 xuống 1, cả hai thông báo đang hiện vẫn ở lại. Khi số chỗ từ 1 lên 2, cái đang chờ hiện bên dưới. Không có chớp tắt.
-- **Hiệu năng:**
-  - `tickToasts` chỉ đo khi `waiting.length > 0` và đã ≥ 250 ms từ lần đo trước;
-  - closure và object `ToastFit` chỉ được tạo khi đo;
-  - khi không có thông báo chờ thì không tạo object nào mỗi khung;
-  - `getBoundingClientRect` và `getComputedStyle` chỉ nằm trong `toastFit`.
-- **Hằng số:**
-  - `16` ở dòng camera và `6` ở hai chỗ nhãn người chơi đã thay bằng hằng.
-  - Nhãn thú đầu đàn vẫn `actor.height + 6` (Game.ts:461), và đúng ra phải giữ: đó là nhãn thú, không phải nhãn người chơi. Dùng `PLAYER_TAG_LIFT_PX` ở đó sẽ sai nghĩa.
-  - `NAME_TAG_PX`, `HURT_BAR_PX` có chú thích hai chiều với CSS (`index.html` và JSDoc).
-- **Test:**
-  - Unit test phủ ranh giới 230 / 229,9, mốc 789/790, `fit` trả `undefined`, và các màn không gọi `fit`.
-  - E2E: thanh máu giả lập bằng đúng lớp `hurt` mà `setHp` đặt. Lớp được bật rồi trả lại trong cùng một `evaluate`, và test kiểm nó đẩy tên lên 7-9 px.
-  - Nếu số chỗ sai thành 2, `toHaveCount(1)` không thể qua: hai thông báo cùng hết hạn ở 7 s, nên số đếm đi 2 → 0, không bao giờ qua 1. Đột biến (b) và (d) của tester xác nhận điều này.
-  - Tester lặp 80/80 lần, gồm các test `boss bar (...)` (rủi ro T30), không có lần nào chập chờn.
-- **hud.md:**
-  - Mốc 790, luật vừa chỗ, chu kỳ 250 ms và câu "màn ngang không đo" khớp code.
-  - Bảng kết quả khớp số đo của coder (+52,6 / +12,0 / +59,6 / +19,0 / +18,4 / +54,0).
+## Đã kiểm, không có lỗi
+- **`onLeave` và trạng thái còn dở.** `removePlayer` gọi `saveNow` đầu tiên, và hàm này tự bắt lỗi store, nên hồ sơ đã được lưu trước khi có thể ném lỗi. Nếu ném ở `despawnCompanion`, thứ còn sót là `players`, `controls` và mục `liveSessions` của phiên. `onLeave` xoá `holds` rồi tính `isEmpty()`, nên thế giới vẫn được giữ rồi đóng. `onDispose` xoá mục `liveSessions` của phòng, nên token không bị khoá vĩnh viễn.
+- **Một lần vào hỏng vẫn giữ lại thế giới.** Nếu `onJoin` ném lỗi, Colyseus gọi `_onLeave(WITH_ERROR)`, rồi `onDrop` (trả về sớm), rồi `onLeave`, và `isEmpty()` lại gọi `holdEmptyWorld()`. Vậy việc `keepWorldOpen()` ở đầu `onJoin` không để thế giới treo mãi. Với điều kiện cũ (`players.size === 0`) thì người chơi ma sẽ làm treo; điều kiện mới thì không.
+- **Không còn chỗ nào dùng `players.size` cho "trống".** Server chỉ còn `onJoin` dùng `players.size` để chọn chỗ đứng; người chơi ma chỉ làm lệch chỗ đứng, vô hại.
+- **Thứ tự trong đường rớt mạng.** Handler `.then(…, resetAutoDisposeTimeout)` chạy trước `onLeave`, và lúc đó `autoDispose` đang là false nên không làm gì. `cleanup` xoá ghế giữ sau đó, còn `#_disposeIfEmpty` tự chờ ghế giữ. Không có thứ tự nào làm phòng đóng sớm.
+- **`localStorage` `petgame:worlds`.**
+  - Chỉ lưu id phòng và một cờ boolean. Id phòng trị giá như link mời, nhưng nằm cạnh token thiết bị (thứ quan trọng hơn), nên không thêm rủi ro riêng tư.
+  - Giới hạn 20 phần tử, `room` dài 1-64 ký tự. Lỗi quota bị `safeStorage` nuốt.
+  - Mới nhất đứng đầu, không trùng.
+  - Chỉ ghi khi vào, khi trạng thái có bạn bè đổi (`syncAddress` chỉ gọi `rememberWorld` lúc cờ đổi), trong `failToStart`, và một lần lúc mở trang. Không ghi theo khung hình.
+  - Không có request mới trước khi sảnh sẵn sàng. `noteRecentWorld` và `readJson` là khai báo `function` (được hoist), còn `RECENT_WORLDS_KEY` được khai báo trước chỗ dùng.
+- **Hai tab ghi cùng lúc.** Kiểu đọc-sửa-ghi có thể mất một lần ghi. Hậu quả tối đa là hành vi trước T65, và mỗi thiết bị chỉ có một phiên sống, nên hai tab cùng ghi rất hiếm. Chấp nhận như PLAN đã nêu.
+- **Thứ tự của `arrival`.** Không có `?room=` thì `new`; rồi tới trí nhớ của tab; rồi danh sách của thiết bị; còn lại là `invited`. Để tab thắng là hợp lý: `rememberWorld` ghi tab và thiết bị cùng lúc, nên tab không bao giờ cũ hơn danh sách về chính thế giới của nó.
+- **Dấu trang của thế giới chơi một mình, sau đó chia sẻ cho bạn bè.**
+  - Nếu bạn vào khi người chơi còn ở đó, `syncAddress` đổi cờ thành `true`.
+  - Nếu bạn vào sau khi người chơi đã rời đi, cờ vẫn là `false`. Khi đó thế giới còn mở thì vẫn vào được đúng thế giới; đã đóng thì vào thẳng thế giới mới, không có thẻ. Cách này nhất quán với luật tab của T49, chấp nhận được.
+- **Thiết bị dùng chung.** Một người khác trên cùng trình duyệt nhận link mời tới thế giới mà người kia đã vào, và thấy "Quay lại…" thay vì "Bạn được mời…". Chấp nhận được: token và hồ sơ đi theo thiết bị, nên hai người đó vốn là cùng một nhân vật với cùng thú, đồ và trại. Chữ "Thú, đồ và trại của bạn vẫn còn" vì vậy vẫn đúng.
+- **Test server.**
+  - S1: spy đặt sau `capture`, vì `capture` gọi `vi.restoreAllMocks()`. Hẹn giờ gọi `this.closeIfStillEmpty()` qua arrow function, nên spy trên instance bắt được.
+  - S2 kiểm người chơi ma còn đó, có log kèm `roomId`, và phòng đóng.
+  - S3 đi đúng đường `#_onAfterLeave`. Vitest cũng tự báo lỗi khi có unhandled rejection, nên đường làm sập server bị bắt từ hai phía.
+- **Test e2e.**
+  - E1: `goto` và `waitForEvent("load")` chỉ trả về khi module `main.ts` đã chạy, nên kiểm `#room-hint` bằng `""` có nghĩa. Ở E2 và E3, giá trị trước T65 là "Bạn được mời…", nên ba bước này đỏ nếu bỏ danh sách.
+  - E1: `?.` trong poll chỉ chờ lâu hơn, không làm poll qua nhầm.
+  - E3 dùng tab mới của cùng context, nên `sessionStorage` trống mà `localStorage` dùng chung: đúng tình huống dấu trang.
+  - Test của tester (danh sách hỏng, storage ném lỗi) kiểm đúng điều quan trọng: sảnh mở khoá và hiện "Bạn được mời…".
+- **Tài liệu.** `architecture.md` dòng 59, 66 và 98, cùng mục T65 trong `multiplayer.md` (bảng, lý do chọn 20, việc đưa lên đầu danh sách, chế độ riêng tư) khớp với code.
 
 ## Góp ý không bắt buộc
-1. **Việc tách mới, nên thêm vào TASKS.md cùng 2 việc kế hoạch đã đề xuất: tên mình bị `layoutTags` đẩy lên.**
-   - Nhãn ghim (rank ≤ `PINNED_RANK`) xếp theo y trước. Vì vậy khi thú đi theo mình, thú đang ngắm hoặc thú đầu đàn đứng thấp hơn mình trên màn và chồng nhãn, nhãn của mình phải nhường và lên cao tới `LABEL_PINNED_NUDGE_PX` = 48 px (`labelLayout.ts` dòng 92-95).
-   - `restingNameTop` không tính phần này, nên khi đứng yên mà đánh nhau sát thú, 2 thông báo vẫn có thể đè tên.
-   - Nên gộp vào việc "tên lên cao lúc đang đi". Đo xem trường hợp này hay gặp tới mức nào, rồi chọn một trong hai hướng:
-     - cho nhãn `me` luôn giữ chỗ (rank `me` xếp trước mọi nhãn ghim khác);
-     - hoặc cộng phần `rise` hiện tại của nhãn mình vào lúc đo.
-2. **Hai việc kế hoạch đề xuất (màn dọc thấp 390×664 / 375×667; camera trễ khi đi):** đồng ý tách thành P3.
-   - Với màn dọc thấp, hướng "ẩn dòng gợi ý hoặc dòng Thưởng của ô nhiệm vụ khi cầm dọc thấp" rẻ và không đụng luật hàng chờ. Nên làm trước hướng cắt chữ thông báo.
-   - Với camera trễ, không nên cộng thêm cố định vào `nameClearPx` (mất 2 chỗ ở 390×844). Nên đo tần suất trước, như kế hoạch nói.
-3. **Câu chữ ở hud.md và PLAN.md, mục "Trải nghiệm":**
-   - Câu "thông báo thứ hai hiện sau khi cái đầu hết" chỉ đúng cho thông báo mức cao.
-   - Với 1 chỗ, một thông báo mức thường tới khi một thông báo mức thường đang hiện sẽ **thay** cái đó (luật T8, như khi cầm ngang), chứ không chờ.
-   - Nên ghi rõ ở hud.md: "thông báo đang hiện không bị cắt **vì số chỗ giảm**".
-4. **Xoay máy, một khung trễ:**
-   - `toastRoom` dùng `window.innerWidth/innerHeight` ngay lúc đó, còn `restingNameTop` dùng `stage.height`. Pixi cập nhật `stage.height` qua sự kiện resize của renderer, có thể chậm một khung.
-   - Phần lớn trường hợp làm số chỗ nhỏ hơn thật (an toàn). Nếu muốn chặt, có thể truyền `stage.width/height` vào `toastRoom` thay cho `window.inner*`.
-5. **E2E `toasts (upright phone, ...)`:**
-   - Vòng lặp chờ `lag < 1` không kiểm lại sau 5 lần thử, chỉ ghi log. Nên `expect(layout.lag).toBeLessThan(1)` (hoặc ít nhất ghi `lag` vào thông báo lỗi của `gap`), để nếu hỏng thì phân biệt được camera trễ với luật sai.
-   - `setLook` chỉ gửi `{ hair: "curly" }`, kế hoạch ghi `{ hair, hairColor: 0, skin: 0 }`. Test vẫn qua, không ảnh hưởng.
-6. **Unit test "fit is only asked...":** thiếu `(1280, 500)` trong danh sách tiêu chí. Nhánh `height ≤ 520` đã được kiểm gián tiếp, nên chỉ cần thêm cho đủ.
-7. **`showToast` đo mỗi lần gọi** (ép layout một lần trên màn dọc ≥ 790). Với tần suất thông báo hiện tại thì không sao. Nếu sau này có thông báo dồn dập (spam nút), có thể bỏ qua lần đo khi lần trước cách < 50 ms.
+- **Người chơi ma khoá thiết bị trong lúc thế giới của nó còn sống** (chỉ xảy ra khi có bug).
+  - Nếu `removePlayer` ném lỗi trước dòng 661, mục `liveSessions` vẫn trỏ tới phiên ma. Mỗi lần thiết bị đó vào bất kỳ thế giới nào, `onJoin` gọi `older.room.endSession(...)`, `endSession` gọi lại `removePlayer`, và gần như chắc chắn ném lại (cùng con thú gây lỗi). Lần vào đó hỏng với thẻ "Không vào được thế giới".
+  - Mỗi lần thử vào lại chính thế giới ma còn khởi động lại khoảng giữ 60 s. Kết quả: thiết bị bị khoá cho tới 60 s sau lần thử cuối.
+  - PLAN đã cho phép không dọn người chơi ma, nên đây không phải lỗi của T65.
+  - Đề xuất thêm việc nhỏ vào TASKS: bọc `older.room.endSession` trong `onJoin` bằng try/catch, ghi log và xoá mục `liveSessions` đó, để thiết bị luôn vào được. Cũng nên cân nhắc đặt `input` của người chơi ma về 0: hiện nó vẫn được mô phỏng với hướng đi cuối cùng.
+- **Đột biến (a) chưa chứng minh được assertion `stray` của S3.** S3 đỏ ở `holdsOf(room).size` trước khi tới bước kiểm `stray`.
+  - Nên chạy thêm đột biến "`try { removePlayer } finally { holds.delete; if (isEmpty()) holdEmptyWorld(); }`", tức ném lại lỗi. Đây đúng là phương án PLAN đã loại vì làm sập server.
+  - Như vậy mới thấy S3 (hoặc Vitest) báo unhandled rejection, thay vì chỉ dựa vào lập luận.
+- **`holdsOf` bị khai báo hai lần** (`GameRoom.test.ts` dòng 2487 và 2936). Nên chuyển lên cấp file, cạnh `isOpen` và `emptyHoldOf`.
+- **E1 dựa vào khoảng giữ 60 s thật.**
+  - Biên dư ước chừng 35-45 s; chạy lặp 8+5 lần đều qua.
+  - Nếu thời gian hết thì test đỏ rõ ràng (`roomId` khác), không qua nhầm.
+  - Nên ghi thời gian từ lúc `helper.leave()` tới `waitForWorld` vào nhật ký test, để thấy biên dư trên CI. Nếu chập chờn thì dùng phương án dự phòng của PLAN: cho helper rời ngay trước khi bấm Về sảnh.
+- **Câu dài ở `architecture.md` dòng 59.** Phần T65 chen giữa "khi `isEmpty()`" và "`keepWorldOpen()` ở đầu `onJoin`", nối bằng dấu chấm phẩy nên khó đọc. Có thể tách thành câu riêng.
+- Tên phòng `someoneselse` trong test của tester: chỉ là lỗi chính tả nhỏ, không ảnh hưởng.
