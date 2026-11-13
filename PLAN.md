@@ -338,3 +338,146 @@ Mỗi lệnh có thể chạy nền hoặc chia lô 10 lần, vì mỗi lệnh f
 
 - **T71:** sau khi T63 xong, bỏ mục đầu "cho test `boss bar (...)` dùng `nearBoss` thay bản `goNearBoss` riêng". T63 đã làm mục này. Phần còn lại của T71 giữ nguyên.
 - Không đề xuất tách việc mới.
+
+---
+
+## Vòng 2: thông báo đè tên mình (bổ sung sau kiểm thử vòng 1)
+
+Phần trên giữ nguyên và đã làm xong (`PROGRESS.md`, "Vòng 1"). Lỗi "1 thông báo thay vì 2" không còn: 0/120 lần. Còn một lỗi khác, khoảng 1/40 lần ở `boss bar (phone upright, notch)`, tại phép kiểm chồng: thông báo thứ hai `282-343` đè `my name 338-355` 5 px, dù thanh đang hiện, có 2 thông báo, camera đứng yên, không trúng đòn, không có thú hoang gần.
+
+Riêng vòng 2 thay hai dòng "KHÔNG làm" ở trên: **sửa code sản phẩm** (`labelLayout.ts`) và tài liệu thiết kế (game-designer đã sửa xong).
+
+### Nguyên nhân (đã đo, xác nhận nghi vấn của coder)
+
+**Kết luận:** `layoutTags` đẩy tên mình lên khi một nhãn ghim khác đứng "trước" mình. Nhãn ghim gồm thú đi theo, thú đang nhắm, trùm và thú đầu đàn; xếp theo `y`, con thấp hơn trên màn được đặt trước. Luật thông báo T62 tính chỗ theo `restingNameTop`, tức tên ở đúng chỗ của nó, nên tên thật nằm cao hơn chỗ luật tính 8-22 px. Đây là **lỗi sản phẩm**: người chơi đứng yên vẫn thấy 2 thông báo đè tên mình.
+
+Cách đo: script chỉ đọc, server ở cổng 2767, Vite ở 5373, đã tắt sau khi đo. Script ở `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/t63/` (`tags.mjs`, `aimed.mjs`, `crowd.mjs`, `sim.ts`, `calc.ts`, thư mục `vt/`).
+
+1. **Gần trùm, 390×844 có tai thỏ, 24 lần dịch chuyển** (`tags.mjs`):
+   - 21 lần tên mình nằm đúng `restingNameTop` (lệch ≤ 0,6 px, đã tính thanh máu dưới tên).
+   - 3 lần tên bị đẩy lên **16,3, 16,9 và 9,3 px**. Trong cả 3, thú đi theo đứng ngang hàng cạnh mình (lệch y −8 đến +10 px thế giới, x 46-56 px). Mép dưới nhãn của nó trên màn là 383-384, còn của mình là 382, nên nó được coi là "đứng trước": đặt trước, mình phải nâng.
+   - Điều kiện của `settledBossLayout` không loại được trường hợp này: thú đi theo luôn ở đó, đứng yên, không phải thú hoang.
+   - Chỗ dư của luật khi thanh hiện là 9,2-17,7 px (đo ở vòng 1), cộng 4 px cách tên. Bị đẩy 9-17 px là đủ đè, khớp lần hỏng 5 px.
+2. **Tái hiện chắc chắn** (`aimed.mjs`, 390×844): `debug:spawnPal` đặt một thú 1 máu cách mình 40 px bên phải; nó thành thú đang nhắm (nhãn ghim hạng 1). Tên mình bị đẩy lên:
+   - **21,5 px** với thú của vùng và với leafkit;
+   - **15,9 px** với voltmouse;
+   - 0 px với pebblet: nhãn của nó cao hơn nhãn mình nên nó tự nâng.
+
+   Lần nào cũng lặp lại đúng như vậy.
+3. **Phương án (c), thêm điều kiện "tên mình chưa bị đẩy" vào test: không chọn.** Đó là nới phép kiểm: trạng thái này người chơi gặp thật, và luật trong `hud.md` hứa rằng thông báo không đè tên.
+
+### Cách sửa: nhãn của mình luôn giữ chỗ
+
+Trong `comesFirst`, nhãn của mình (`LABEL_RANK.me`) luôn được đặt đầu tiên. Nó không bao giờ phải nâng, nên lúc đứng yên `restingNameTop` luôn đúng. Các nhãn ghim còn lại vẫn "con đứng trước giữ chỗ"; con nào vướng nhãn mình thì nâng qua, tối đa 48 px, hết chỗ thì thu gọn còn thanh máu, như mọi nhãn ghim.
+
+Đây cũng là hướng đầu tiên mà rà soát T62 và T73 đề xuất.
+
+**Phương án (b), cho `toastFit` đo mép trên thật của nhãn: không chọn.**
+- Độ nâng đổi sau lúc đẩy thông báo: thú đi theo chạy tới sau khi dịch chuyển, thú đang nhắm đi vào. Mà thông báo đang hiện không bị cắt, nên vẫn đè. Không chắc chắn.
+- Nếu đo theo trường hợp xấu nhất (−48 px) thì 390×844 có tai thỏ luôn chỉ còn 1 chỗ (dư 9-18 px), 390×844 không tai thỏ có lúc cũng vậy (dư 25-53 px). Bảng kết quả của T62 trong `hud.md` sẽ đổi.
+
+**Hệ quả, đã đo bằng dữ liệu thật:**
+- **Cảnh của `aimed.mjs`** (`calc.ts`): tên mình nâng 0 px; thú đang nhắm nâng 38 px, vẫn hiện đầy đủ, không bị ép đè.
+- **Cảnh của e2e `labels: in a crowd on a phone`:** `crowd.mjs` dựng lại cảnh trong trình duyệt và ghi đầu vào bố cục của mọi nhãn trong 40 khung. `sim.ts` chạy lại `layoutTags` ngoài trình duyệt với cả hai cách xếp. Bản cũ cho đúng số của trình duyệt (mình +7,9, thú đi theo 0, thú đang nhắm +16,8), nên cách mô phỏng đáng tin.
+
+  | | Mình | Thú đi theo | Thú đang nhắm | Nhãn chồng nhau | Nhãn thường bị ẩn |
+  |---|---|---|---|---|---|
+  | Cũ | +7,9 | 0 | +16,8 | không | 3/18 |
+  | Mới | **0** | +29,1, đầy đủ | +26,9, đầy đủ | không | 4/18 |
+
+  Nhãn ẩn thêm là một nhãn thường, không phải nhãn ghim.
+- **Unit test chạy với bản sửa chép tạm** (`vt/`): chỉ test 3 và 5 phải đổi số. Test 4 giữ nguyên. Test 9 (300 đám đông ngẫu nhiên, đã thêm `mine.rise === 0`) và test 12 vẫn qua.
+
+**Tài liệu** (game-designer đã sửa, coder không cần đụng):
+- `docs/design/pals.md`, mục "Nhãn tên và thanh máu": luật nhãn ghim, kèm lý do và số đo;
+- `docs/design/hud.md`, mục "Thông báo và tên mình khi cầm dọc": một câu nói tên mình không bao giờ bị nhãn khác đẩy lên.
+
+**Phần T73 được làm luôn ở đây:** "`layoutTags` xếp nhãn ghim theo y nên tên mình có thể bị đẩy lên tới 48 px…". T73 còn lại:
+- tên lên cao khi đang đi (camera trễ, khoảng 19 px);
+- câu "hiện sau khi cái đầu hết" trong `hud.md`;
+- e2e T62 kiểm `lag < 1` sau các lần thử.
+
+Unit `toastRoom(1280, 500)` mà T73 nhắc đã có sẵn (`toastQueue.test.ts:48`), T73 có thể bỏ mục này.
+
+### Kế hoạch triển khai vòng 2
+
+10. **`packages/client/src/game/labelLayout.ts`, `comesFirst` (90-98).** Thêm hai dòng ở đầu thân hàm, trước so sánh nhãn ghim:
+    ```ts
+    const meA = a.rank === LABEL_RANK.me, meB = b.rank === LABEL_RANK.me;
+    if (meA !== meB) return meA;
+    ```
+    Sửa chú thích (tiếng Anh) ở ba chỗ:
+    - JSDoc của `comesFirst`: "My own tag first: it never rises, so the toast rule's `restingNameTop` holds (T63). Then pinned front to back…";
+    - phần đầu file (dòng 6-7);
+    - JSDoc của `restingNameTop`: số này đúng vì nhãn của mình không bao giờ bị nâng.
+
+    Không đổi hằng số, hạng hay cỡ nâng nào.
+11. **`packages/client/src/game/labelLayout.test.ts`:**
+    - Test 3: đổi tên thành "3: pinned tags: mine keeps its place, the others go front to back, none hides". Mong đợi thứ tự `[mine, follower, aimed]`, cả ba dạng đầy đủ, độ nâng `[follower 23, mine 0, aimed 37]`.
+    - Test 5: chú thích "The pal stands nearer the viewer, yet my own tag keeps its place: the pal rises". Mong đợi `wild` dạng đầy đủ, nâng 29; `mine` dạng đầy đủ, nâng 0.
+    - Test 9: thêm `expect(mine.rise).toBe(0)` ngay sau `expect(mine.form)…`.
+    - Thêm test 13 "my tag never rises, even with every other pinned tag right in front":
+      - `me()` ở y 100;
+      - thú đi theo ở y 104, thú đang nhắm ở y 108, thú đầu đàn ở y 112, cùng x 100, cỡ như `pinnedScene`;
+      - mong đợi `mine.rise === 0`, `mine.form === TAG_FORM.full`, không nhãn ghim nào bị ẩn;
+      - nhãn nào chồng nhãn mình thì phải là nhãn bị ép (`forced`).
+
+      Kết quả đã tính bằng `calc13.ts`: mình nâng 0; thú đầu đàn nâng 31; thú đang nhắm thu gọn, nâng 0, nằm dưới tên mình; thú đi theo bị ép (`forced`), nâng 0, là nhãn duy nhất chồng tên mình. Test 13 kiểm đúng các số này.
+
+    Số của test 3 và 5 đã tính bằng `calc.ts`.
+12. **E2E mới trong `tests/e2e/multiplayer.spec.ts`**, đặt ngay sau test `aim: …` (dòng 1130). Tên: `labels: my name keeps its place when the aimed pal stands right by me (T63)`.
+    - 390×844, chạm. Vào thế giới, chờ có khung hình.
+    - Lặp lần lượt cho `{}` (thú của vùng) và `{ species: "voltmouse" }`:
+      1. dịch chuyển tới một chỗ mới, cách chỗ trước 300 px;
+      2. `spawnWeakPal(page, species)`;
+      3. chờ `debugInfo().aim.id` bằng id con vừa đặt và nhãn của nó có `opacity` 1;
+      4. chờ camera lệch < 1 px (`expect.poll`);
+      5. trong **một** `evaluate`, đọc mép trên chữ tên mình (cộng 8 nếu chưa có lớp `hurt`, như `nameAndToasts` của T62), `game.hud.nameTop()`, hộp chữ và thanh máu của nhãn thú đang nhắm.
+    - Kiểm:
+      - `|mép trên tên − nameTop()| ≤ 1`;
+      - nhãn thú đang nhắm không chồng tên mình (`boxesOverlap`);
+      - nhãn đó hiện, có thanh máu.
+    - Ở HEAD test này hỏng chắc chắn: lệch 21,4 và 15,8 px.
+13. Không đổi test `boss bar (...)` hay luật thông báo. Phép kiểm chồng giữ nguyên.
+
+### Kiểm chứng vòng 2
+
+- **Kiểm tĩnh:** `npm run typecheck`; `npm test` (gồm `labelLayout.test.ts`); `tsc --strict` riêng file e2e như vòng 1.
+- **Tái hiện chắc chắn** (tạm thời, không commit, trả file về nguyên trạng và so hash):
+  - (d) Bỏ hai dòng mới trong `comesFirst`, chạy e2e ở bước 12: phải **hỏng** ở phép kiểm `≤ 1` (lệch khoảng 16-21 px). Trả lại hai dòng thì **qua**.
+  - (e) Cũng bỏ hai dòng đó, chạy `npx vitest run packages/client/src/game/labelLayout.test.ts`: test 3, 5, 9 và 13 phải hỏng.
+- **Lặp lại:**
+
+  | Lệnh | Kỳ vọng | Ghi chú |
+  |---|---|---|
+  | `npx playwright test -g "boss bar \(phone upright, notch\)" --repeat-each 120` | 120/120 | Chia lô 10-20 hoặc chạy nền. Trước khi sửa khoảng 1/40 lần hỏng, nên còn lỗi mà qua cả 120 lần thì chỉ khoảng 5%. Bằng chứng chính là (d) |
+  | `-g "my name keeps its place"` `--repeat-each 10` | 10/10 | |
+  | `-g "labels: in a crowd"` `--repeat-each 10` | 10/10 | |
+  | `-g "aim:"` `--repeat-each 3` | 3/3 | |
+  | `-g "pack leaders"` `--repeat-each 2` | 4/4 | |
+  | `-g "boss bar"` `--repeat-each 8` | 56/56 | |
+  | `-g "toasts \("` `--repeat-each 3` | 18/18 | |
+  | `npm run test:e2e` | qua hết | Chạy một lần cả bộ |
+
+- **Nhìn bằng mắt** (không bắt buộc): `npm run shots -- --name t63`. Nhãn thú đi theo hay thú đang nhắm có thể nằm trên tên mình khi chúng đứng sát trước mình. Đó là chủ ý.
+
+### Tiêu chí hoàn thành vòng 2
+
+- [ ] Thay đổi sản phẩm chỉ gồm hai dòng ở `comesFirst` và chú thích trong `labelLayout.ts`. Không đổi hằng số, `LABEL_RANK`, `hud.ts`, `toastQueue.ts`, CSS hay server.
+- [ ] Unit: test 3 và 5 mang số mới (`[23, 0, 37]` và `29 / 0`). Test 9 kiểm `mine.rise === 0`. Có test 13. `npm test` qua.
+- [ ] Có e2e ở bước 12. Nó hỏng khi bỏ hai dòng mới (thí nghiệm d) và qua khi có.
+- [ ] Không phép kiểm nào của test `boss bar (...)`, `labels: in a crowd`, `aim:`, T61 hay T62 bị nới hay bỏ.
+- [ ] Các lệnh lặp ở trên đạt đủ số lần; `npm run test:e2e` cả bộ qua.
+- [ ] Mọi tiêu chí vòng 1 vẫn đúng, trừ dòng "chỉ `tests/e2e/multiplayer.spec.ts` đổi": nay đổi thêm `labelLayout.ts`, `labelLayout.test.ts`, và `docs/design/pals.md`, `docs/design/hud.md` (game-designer đã sửa).
+
+### Rủi ro vòng 2
+
+- **Nhãn thú đi theo và thú đang nhắm nằm xa con thú hơn** khi nó đứng sát trước mình: tới 38 px trong lần đo. Hết 48 px thì nhãn thu gọn còn thanh máu. Thú đang nhắm vẫn luôn có thanh máu và vòng ngắm (T28). Đổi lại, tên mình đứng yên giữa màn hình, và luật thông báo đúng.
+- **Đám đông rất chật có thể ẩn thêm vài nhãn thường** (mô phỏng: 3 thành 4 trên 18). Nhãn ghim không bao giờ bị ẩn.
+- **Còn lại:** khi đang đi, camera trễ làm tên cao hơn (T73). Thông báo vẫn có thể đè tên trong lúc đi. Không thuộc vòng này.
+- Không có dòng "CHẶN:".
+
+### Việc cho agent chính (thêm)
+
+- **T73:** bỏ mục "`layoutTags` đẩy tên mình lên" (đã làm ở T63 vòng 2) và mục unit `toastRoom(1280, 500)` (đã có ở `toastQueue.test.ts:48`). Giữ các mục còn lại.
+- Khi commit T63, kèm `docs/design/pals.md` và `docs/design/hud.md`.

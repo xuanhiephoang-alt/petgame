@@ -226,7 +226,7 @@ Lý do: số chỗ chỉ tính theo chiều cao màn hình. Nó không tính tai
 
 **Luật:** màn dọc cao ≥ 790 px chỉ hiện 2 thông báo khi **2 thông báo dài nhất vừa giữa cột và tên mình, cách tên ít nhất 4 px**:
 - chỗ bắt đầu thông báo: đo thật trên màn, ngay dưới ô nhiệm vụ hoặc thanh máu trùm. Nhờ vậy tai thỏ và ô nhiệm vụ cao bao nhiêu đều đã được tính;
-- mép trên tên mình: tính lúc đứng yên, theo chiều cao màn hình, độ phóng của camera và chiều cao nhân vật lúc này (tóc, mũ). **Luôn coi như đang bị thương** (có thanh máu dưới tên), vì lúc đánh nhau thanh máu hiện, ẩn liên tục, và lúc đó lại nhiều thông báo nhất;
+- mép trên tên mình: tính lúc đứng yên, theo chiều cao màn hình, độ phóng của camera và chiều cao nhân vật lúc này (tóc, mũ). **Luôn coi như đang bị thương** (có thanh máu dưới tên), vì lúc đánh nhau thanh máu hiện, ẩn liên tục, và lúc đó lại nhiều thông báo nhất. Từ T63, nhãn khác không bao giờ đẩy tên mình lên (`docs/design/pals.md`, mục "Nhãn tên và thanh máu"), nên lúc đứng yên tên mình nằm đúng chỗ đã tính;
 - mỗi thông báo coi như cao 61 px (3 dòng chữ 13 px, cái dài nhất), cách nhau 4 px.
 
 Không vừa thì chỉ 1 cái; cái thứ hai chờ, như khi cầm ngang. Thông báo đang hiện không bị cắt. Số chỗ được tính lại mỗi khi có thông báo mới, và trong lúc có thông báo đang chờ thì tính lại mỗi 250 ms. Màn ngang và desktop không cần đo gì.

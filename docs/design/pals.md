@@ -186,8 +186,10 @@ Nhãn bị vướng lần lượt thử ba cách, dừng ở cách đầu tiên 
 
 Bốn loại đầu (mình, thú đang nhắm, thú đi theo, đầu đàn hoang và trùm) là **nhãn ghim**:
 - không bao giờ bị ẩn, được nâng tới 48 px;
-- con đứng trước giữ chỗ, con phía sau nâng lên;
+- **nhãn của mình luôn giữ chỗ, không bao giờ bị nâng** (T63). Các nhãn ghim khác: con đứng trước giữ chỗ, con phía sau nâng lên;
 - nên thanh máu của chúng luôn hiện.
+
+Lý do nhãn của mình luôn giữ chỗ: luật thông báo khi cầm dọc (`docs/design/hud.md`, mục "Thông báo và tên mình khi cầm dọc") tính chỗ theo mép trên tên mình lúc đứng yên. Trước T63, thú đi theo, thú đang nhắm hay trùm đứng ngay trước mình đẩy tên mình lên 8-22 px (đo ở T63, 390×844), nên 2 thông báo có thể đè tên. Nay con đứng trước nâng nhãn của nó qua nhãn mình (đo ở T63: thú đi theo +29, thú đang nhắm +27-38 px, vẫn trong 48 px); hết chỗ thì nó thu gọn còn thanh máu như mọi nhãn ghim.
 
 Nhãn đã thu gọn hoặc ẩn phải có chỗ liên tục 1/4 giây mới hiện lại, để nhãn không nhấp nháy khi mọi người chen qua lại. Nhãn đổi độ cao mượt chứ không nhảy. Chữ bay (sát thương, tên chiêu, đồ nhặt) không tham gia và luôn nằm trên mọi nhãn.
 
