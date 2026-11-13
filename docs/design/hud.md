@@ -209,7 +209,44 @@ Bảng đóng (bằng bất kỳ cách nào) thì focus rời bảng, phím th�
 
 **Bao nhiêu cái cùng lúc.** Tối đa 2, xếp theo thứ tự hiện, cái mới ở dưới. Chỉ 1 cái khi:
 - điện thoại ngang (màn hình cao ≤ 520 px): để góc ngón cái trái trống cho cần điều khiển. Thông báo phải kết thúc trên mốc cao − 140 px (T18), cả trên màn chỉ cao 375 px (T61);
-- điện thoại dọc thấp hơn 760 px (ví dụ Safari trên iPhone khi có thanh địa chỉ): cột trái nằm ngay trên đầu nhân vật, 2 thông báo sẽ đè lên nhân vật.
+- màn dọc thấp hơn 790 px (ví dụ Safari trên iPhone khi có thanh địa chỉ): cột trái nằm ngay trên đầu nhân vật, 2 thông báo sẽ đè lên tên mình (trước T62 mốc là 760);
+- màn dọc từ 790 px trở lên mà 2 thông báo dài nhất không vừa giữa cột trái và tên mình (mục "Thông báo và tên mình khi cầm dọc").
+
+### Thông báo và tên mình khi cầm dọc
+
+Đặt ra ở nhiệm vụ T62 (số đo trong `PLAN.md` của commit kế hoạch T62). Áp dụng cho màn dọc (rộng < cao) cao ≥ 790 px. Điện thoại ngang, desktop và màn ngang khác không đổi.
+
+**Vấn đề:** khi cầm dọc, cột trái kết thúc ngay trên đầu nhân vật. Trước T62, hai thông báo dài nhất (mỗi cái 3 dòng, cao 61 px) đè tên mình:
+- 390×760: 4 px, 12 px khi bị thương;
+- 390×844 có tai thỏ 47 px: 5 px khi bị thương và tóc cao;
+- 393×852 có tai thỏ 59 px: 13 px; 375×812 có tai thỏ 44 px: 31 px;
+- ô nhiệm vụ 3 dòng ("Hái 3 bụi quả", 86 px thay vì 57) và mũ phù thủy (cao hơn tóc 13 px) còn làm tệ hơn: tới 57 px.
+
+Lý do: số chỗ chỉ tính theo chiều cao màn hình. Nó không tính tai thỏ (cột xuống theo `env(safe-area-inset-top)`), thanh máu dưới tên khi bị thương (đẩy tên lên 8 px), kiểu tóc hay mũ (tóc xoăn cao 55,8, mũ phù thủy 68,9, tóc buộc hai bên 46,3 đơn vị thế giới), và ô nhiệm vụ cao bao nhiêu.
+
+**Luật:** màn dọc cao ≥ 790 px chỉ hiện 2 thông báo khi **2 thông báo dài nhất vừa giữa cột và tên mình, cách tên ít nhất 4 px**:
+- chỗ bắt đầu thông báo: đo thật trên màn, ngay dưới ô nhiệm vụ hoặc thanh máu trùm. Nhờ vậy tai thỏ và ô nhiệm vụ cao bao nhiêu đều đã được tính;
+- mép trên tên mình: tính lúc đứng yên, theo chiều cao màn hình, độ phóng của camera và chiều cao nhân vật lúc này (tóc, mũ). **Luôn coi như đang bị thương** (có thanh máu dưới tên), vì lúc đánh nhau thanh máu hiện, ẩn liên tục, và lúc đó lại nhiều thông báo nhất;
+- mỗi thông báo coi như cao 61 px (3 dòng chữ 13 px, cái dài nhất), cách nhau 4 px.
+
+Không vừa thì chỉ 1 cái; cái thứ hai chờ, như khi cầm ngang. Thông báo đang hiện không bị cắt. Số chỗ được tính lại mỗi khi có thông báo mới, và trong lúc có thông báo đang chờ thì tính lại mỗi 250 ms. Màn ngang và desktop không cần đo gì.
+
+**Kết quả** (hai thông báo dài nhất, đã bị thương; số là khoảng cách từ đáy thông báo cuối đến mép trên tên mình, âm là đè):
+
+| Màn | Trường hợp | Trước | Sau |
+|---|---|---|---|
+| 390×760 | ô nhiệm vụ đầu, tóc xoăn | 2 cái, −12 | 1 cái, +52 |
+| 390×760 | ô nhiệm vụ 3 dòng, mũ phù thủy | 2 cái, −53 | 1 cái, +12 |
+| 390×844, tai thỏ 47 | ô nhiệm vụ đầu, tóc xoăn | 2 cái, −5 | 1 cái, +59 |
+| 390×844, tai thỏ 47 | thanh máu trùm, tóc xoăn | 2 cái, +14 | 2 cái, +14 (không đổi) |
+| 390×844 | ô nhiệm vụ đầu, mũ phù thủy | 2 cái, +18 | 2 cái, +18 (không đổi) |
+| 390×844 | ô nhiệm vụ 3 dòng, mũ phù thủy | 2 cái, −11 | 1 cái, +54 |
+| 393×852, tai thỏ 59 | ô nhiệm vụ đầu, tóc xoăn | 2 cái, −13 | 1 cái, +51 |
+| 412×915, 430×932 tai thỏ 59, 768×1024 | mọi trường hợp | 2 cái, ≥ +35 | 2 cái, không đổi |
+
+**Còn tồn tại (việc riêng):**
+- Màn dọc thấp (390×664, 375×667): ngay cả 1 thông báo cũng đè tên khi ô nhiệm vụ 3 dòng hoặc đội mũ cao (tới 36 px).
+- Đang đi lên, camera theo sau nên tên mình cao hơn lúc đứng yên tới 19 px (ở 390 px rộng). Luật chỉ tính lúc đứng yên.
 
 **Ba mức quan trọng.**
 
