@@ -1,42 +1,46 @@
 PASS
-# REVIEW: T58 Kẹp tốc độ đuổi của thú đầu đàn, vòng 1
+# REVIEW: T10 Tách `GameRoom.ts` (đợt 1, Part A-F), vòng 1
 
 ## Kết luận
-Thay đổi đúng PLAN.md, gọn, không làm thừa: `ALPHA.chaseSpeedMax = PLAYER_SPEED * 0.95` và hàm thuần `alphaChaseSpeed`, áp ở nhánh về hang và ở nhánh đuổi chỉ khi `pal.alpha`. Trùm (`GameRoom.ts:271`, `bossHeadHome` `:1697`), thú thường, `fleeSpeed` và `WILD_CHASE_SPEED_FACTOR` không đổi. Test unit và tích hợp kiểm đúng hành vi, tất định, và bắt được các đột biến chính. Đã tự kiểm lại: `npm run typecheck` sạch; `alphas.test.ts` cùng nhóm "pack leaders/chase/Scorchtail" của `GameRoom.test.ts` qua 21/21.
+Đây đúng là một lần chuyển code thuần, theo đúng 7 luật của PLAN.md. Đã so từng phương thức theo tên giữa `dfb0c1c` và bản mới, sau khi chuẩn hoá đường gọi. Mọi thân hàm, JSDoc, tham số và giá trị mặc định đều giống hệt. Chỉ có ba chỗ khác, và cả ba đều được phép: `tick` (khối hồi sinh thay bằng `this.wild.tickRespawn(dtMs)`), dòng JSDoc lạc chỗ dời từ `bossHeadHome` lên `spawnBoss`, và phương thức mới `tickRespawn`. Không còn lỗi phải sửa.
 
-## Lỗi phải sửa
+Đã kiểm tra lại độc lập:
+- Lệnh bảo toàn dòng cho MẤT 8, MỚI 81. Cả hai danh sách đều chỉ gồm các loại được phép (tiêu đề `// ----`, `export` thêm cho `store`/`Cast`/`PlayerControl`/`CompanionTimers`, vỏ class, trường hệ thống, cửa test, dấu đóng).
+- Script so phương thức theo tên, giữ thứ tự dòng. Cách này chặt hơn `comm` vì bắt được cả dòng bị đảo thứ tự trong thân hàm. Không có khác biệt nào ngoài ba chỗ nêu trên.
+- `npm run typecheck` sạch.
+- `git diff --exit-code` trên các file không được đổi: exit 0. `-M` không có dòng đổi tên.
+- 30 test trùm và thú đầu đàn (`-t "boss|pack leader|alpha|stomp"`) qua. Chúng che `defeatBoss` (phần thưởng, thứ tự tin), hạ thú đầu đàn (`ALPHA.reward`, tin ★, hẹn giờ `ALPHA.respawnMs`), dậm chân, trùm về nhà và giới hạn tốc độ của thú đầu đàn.
+
+## Lỗi phải sửa (FAIL khi còn mục này)
 (không có)
 
-## Kiểm tra theo các điểm được giao
+## Ghi chú kiểm tra theo trọng tâm
+- **Luật của PLAN:**
+  - Hàm dựng chỉ có dạng `constructor(private readonly room: GameRoom) {}`.
+  - Không có `this.x = room.y`, không destructure `this.room`, không `const room = …`. Mọi trường đều đọc `this.room.<trường>` ngay lúc dùng. Các phép gán (`casts`, `bossId`, `bossHome`, `bossReturning`, `respawnTimer`, `nextPalId++`) đều ghi thẳng lên phòng.
+  - Từ hệ thống về `GameRoom.ts`, và giữa các hệ thống, chỉ có `import type`. Lời gọi lúc chạy đi qua `this.room.<hệ thống>`.
+  - Thứ tự trong `tick` không đổi; `tickRespawn` vẫn là bước cuối.
+  - Thứ tự gọi `Math.random` và thứ tự đăng ký `clock.setTimeout` không đổi, vì thân hàm giống hệt từng dòng.
+- **Trùm và thú đầu đàn** (`leaders.ts`; `knockOut`, `hitWild`, `strike` trong `combat.ts`; `removePal` trong `wild.ts`): đã đọc tay, so với `git show dfb0c1c`.
+  - Bên trong arrow của hẹn giờ, `this` là đúng instance hệ thống: `this.spawnBoss()` trong `Leaders`, và `this.room.leaders.spawnAlpha(def)` trong `Wild`.
+  - `defeatBoss` vẫn chạy đúng thứ tự: `giveWearable` → `scheduleSave` → `notify` → `questEvent` → `grantXp` → `BossDefeated` → `removePal` → hẹn giờ.
+- **Phạm vi truy cập:**
+  - Mỗi phương thức public của hệ thống đều có ít nhất một lời gọi từ ngoài class.
+  - Các phương thức `private` (`sheltered`, `faintCompanion`, `nearestPal`, `tooTired`, `spawnCompanion`, `lunge`, `castTargetPos`, `land`, `support`) chỉ được gọi trong class của chúng.
+  - Bỏ `private` ở `notify`, `announce`, `questEvent`, `harvest`, `gather`, `giveWearable` không mở thêm đường nào cho client. Colyseus chỉ gửi tin tới handler đã đăng ký bằng `onMessage`, không có handler `"*"`, và client không gọi được phương thức của Room.
+  - Tên trường hệ thống không trùng thành viên nào của `Room` trong Colyseus 0.18 (`world` và `movement` chỉ xuất hiện trong chú thích của `Room.d.ts`).
+  - Hook `debug:*` vẫn nằm sau `process.env.PETGAME_DEBUG === "1"`.
+- **Trùng lặp và đặt tên:**
+  - Ngoài 9 cửa test, không có tên phương thức nào trùng giữa các hệ thống và `GameRoom`. Vì vậy chuẩn hoá đường gọi trong lệnh bảo toàn dòng không che được lỗi gọi nhầm hệ thống, và typecheck bắt phần còn lại.
+  - Tên file, class và JSDoc tiếng Anh đúng quy ước.
+  - Số dòng: `skills.ts` 352, `combat.ts` 350 (dưới trần 360); `GameRoom.ts` 1.249.
 
-**Có đường di chuyển nào của thú đầu đàn đi vòng qua chỗ kẹp không.** Không có đường nào cần kẹp:
-- Đuổi (`GameRoom.ts:796`) và về hang (`:755`) đã dùng `alphaChaseSpeed`. Hai nhánh này là hai đường duy nhất thú đầu đàn di chuyển liên tục theo mục tiêu.
-- Lang thang quanh hang (`:829`, `stepWander` với `species.speed`): tối đa 95 px/s, thấp hơn mức kẹp.
-- Chạy trốn (`:765`): thú đầu đàn không bao giờ vào `fleeing` (T57; tester đã có test khoá việc này).
-- Lao tới bằng chiêu (`lunge`, `:1531`): chỉ chiêu có `dash` mới lao, mà chiêu duy nhất có `dash` là `horn_charge`. Chiêu này chỉ Boulderhorn và trùm biết, không thú đầu đàn nào (voltmouse, bogbloom, cactoad, frostfang, scorchtail, coralcrab) có. Kể cả sau này có, đó là một cú lao 70 px sau 450 ms gồng, không phải tốc độ đuổi liên tục, nên không cần kẹp.
-- Bị đẩy lùi (`push`, `:1364`): luôn đẩy ra xa người đánh, không giúp thú đuổi kịp.
-- Dây giới hạn: không có chỗ nào dịch thẳng thú về hang; khi quá dây nó đi bộ về bằng nhánh `:748-761`, đã kẹp.
-- Thú đầu đàn đã bị bắt thành thú đi theo thì chạy theo tốc độ của thú đi theo. Việc đó nằm ngoài phạm vi và cũng không phải `WildPal`.
-
-**Nhất quán với trùm và với code chạy trốn của T57.** `alphaChaseSpeed` viết đúng mẫu `fleeSpeed` (`Math.min(speed * WILD_CHASE_SPEED_FACTOR, CAP)`, có trần là hệ số nhân với `PLAYER_SPEED`, JSDoc nói lý do). Trùm giữ nguyên 81 px/s và `pathing.test.ts` vẫn qua. Không có vòng import: `combat.ts` và các file nó import không import `alphas.ts`.
-
-**Số cứng.** `0.95` chỉ nằm trong `ALPHA.chaseSpeedMax`. Server không có số mới. Hai chỗ có `152` trong `alphas.test.ts` là giá trị mong đợi của test, đúng như kế hoạch.
-
-**Test có tất định không.**
-- Các test tích hợp gọi `(room as any).tick(TICK_MS)` liên tiếp, không có `await` xen giữa, nên vòng mô phỏng thật của phòng không chen vào được và `dtMs` luôn đúng 50.
-- `PathPlanner.run` giới hạn theo số lần tìm và số nút, không theo đồng hồ thật. Vì vậy máy chậm hay nhanh đều chọn cùng một đường đi.
-- `stepChase` đi trọn một bước dù đi thẳng hay đi qua điểm vòng. Tổng quãng đi `toBeCloseTo(76, 1)` vì thế ổn định.
-- Hàm chọn chiêu có gọi `Math.random`, nhưng đã bị chặn bằng `skillGapUntil = Infinity`, nên kết quả không còn phụ thuộc số ngẫu nhiên.
-- Người chơi mới không có thú đi theo, nên mục tiêu chắc chắn là người chơi.
-- Thú mới có thể sinh ra lại (`PAL_RESPAWN_MS` 5 s) nhưng 10 tick chỉ là 0,5 s.
-- Chỗ đứng của người chơi ở test 1 có kiểm `isSea`. Test 3 đứng ở (3200, 2560), chỗ các test khác đã dùng.
-- Tester chạy 3 lần đều 140/140.
-
-**Tài liệu.** Dòng 64 của `docs/design/pals.md` và bảng 6 thú khớp code và dữ liệu (tốc độ 95, 85, 75, 55, 45, 40 nhân 1,8; Voltmouse và Scorchtail bị kẹp ở 152; tên `ALPHA.chaseSpeedMax`, `alphaChaseSpeed` đúng). Dòng 229 ở mục "Tính khí" cũng đã nhắc ngoại lệ này. Câu "khoảng 30%" ở dòng 73 vẫn đúng với số mới 29%.
-
-**Cột 152 trong bảng thời gian hạ gục được suy ra, không đo.** Chấp nhận được. Cột 152 nằm giữa 171 và 144, mà các cột 171, 144, 128, 120 đều đo được 8,0 s (p10-p90 gần như trùng nhau). BALANCE.md cũng giải thích vì sao tốc độ đuổi không ảnh hưởng: thú đầu đàn tự tới đứng cách 28 px. Tài liệu ghi "khoảng 8 giây", không khẳng định quá mức. Không cần đo lại.
-
-## Góp ý không bắt buộc
-- Test 2 ("led past its leash") và test 3 (Scorchtail ở 3200, 2560) không có dòng `expect(isSea(...)).toBe(false)` như test 1. Có thể thêm để test tự báo khi worldgen đổi. Test 2 cũng không cần lo lắm, vì test dây giới hạn sẵn có đã dùng đúng vị trí đó.
-- Dòng 796 viết điều kiện `pal.alpha` ngay trong `GameRoom`. Nếu sau này có thêm loại thú có trần riêng, nên gom vào một hàm `wildChaseSpeed(species, pal)` trong shared. Hiện chỉ có hai nhánh nên giữ như bây giờ là hợp lý.
-- Phần "Rủi ro" của PLAN.md đã nhắc: khi thêm hiệu ứng làm chậm người chơi hoặc đổi `WILD_CHASE_SPEED_FACTOR`, cần xem lại bảng "Tốc độ đuổi và về hang" trong `docs/design/pals.md`. Chưa cần thêm việc mới vào TASKS.md.
+## Góp ý không bắt buộc (cho T10b, Part G-K)
+- `docs/architecture.md`, bullet `persistence/store.ts`, vẫn ghi "chỗ đọc/ghi trong `GameRoom`". Thực tế phần ghi (`saveNow`) đã chuyển sang `systems/saving.ts`, còn phần đọc vẫn ở `GameRoom.onJoin`. Sửa trong Part K.
+- Tài liệu thiết kế còn trỏ luật về `GameRoom.ts`: `docs/design/pals.md:89` (trùm), `docs/design/pals.md:220` (`provoke`, `wildTarget`, nay ở `systems/combat.ts`), `docs/design/pals.md:289` (chỗ gọi tìm đường), `docs/design/skills.md:7` (`startCast`/`tickCasts`/`land`, nay ở `systems/skills.ts`). Nên sửa trong Part K cùng lúc với `architecture.md`.
+- `CLAUDE.md:17` ghi "rooms/GameRoom.ts (luật chơi)" và mục lưu game ghi "chỗ đọc/ghi trong `GameRoom`". T10 không được sửa `CLAUDE.md`, nên sau T10b agent chính có thể báo người dùng để họ cập nhật.
+- Sau khi bỏ tiêu đề "Combat, health and the day cycle", trong `GameRoom.ts` các mục `bossHeadHome`, `announce` và `tickDay` rơi vào dưới tiêu đề "Player actions". Đợt 2 sẽ chuyển `bossHeadHome` và `tickDay` đi. Part K chỉ cần giữ lại các tiêu đề còn đúng, và đặt `announce` cạnh `notify`.
+- Chuẩn bị cho đợt 2:
+  - Các hệ thống đã chuyển đang gọi `this.room.questEvent` (6 chỗ), `this.room.harvest`, `this.room.gather` (`combat.ts:65`) và `this.room.giveWearable` (`leaders.ts:91`). Khi `world` và `camp` chuyển đi, các lời gọi này phải thành `this.room.world.…` và `this.room.camp.…`, và trên `GameRoom` không còn phương thức public nào sót lại ngoài `notify`, `announce` và các cửa test. Typecheck sẽ bắt nếu quên.
+  - Nhớ thêm cửa test `eat` và `openChest`, và đổi `this.eat(` (dòng 322) và `this.openChest(` (dòng 1033) thành lời gọi tới hệ thống.
+  - Mọi phương thức mà `tickWild`, `tickCompanions` và `debug.ts` sẽ cần (`breakOut`, `recover`, `cancelWindup`, `targetPos`, `wildTarget`, `strike`, `windUp`, `wildSkill`, `startCast`, `obey`, `wildArmor`, `provoke`, `hitWild`, `timers`, `workSpotFor`, `grantXp`, `summon`, `spawnPal`, `faintPlayer`) đã public sẵn, nên không phải đổi phạm vi truy cập.
