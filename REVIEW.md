@@ -1,65 +1,75 @@
 PASS
-# REVIEW: T10b Tách nốt `GameRoom.ts` (đợt 2 của T10, Part G-K), vòng 1
+# REVIEW: T11 (đợt 1: Phần 0, A-C, tách `Game.ts` thành `skillCasts.ts`, `serverEvents.ts`, `controls.ts`), vòng 1
 
 ## Kết luận
-Đợt 2 vẫn chỉ chuyển code, đúng 7 luật của PLAN.md.
-- **So với bản gốc:** đã so từng phương thức theo tên, giữ thứ tự dòng, giữa `dfb0c1c` và bản mới. Khác biệt chỉ có:
-  - `onCreate`: khối debug thành `registerDebugHooks(this)`.
-  - `tick`: ba khối tách thành `tickPlayers`, `tickWild`, `tickRespawn`.
-  - Dòng JSDoc dời lên `spawnBoss`, đã duyệt ở đợt 1.
-- **Ba khối tách ra và hook debug:** so dòng với khối cũ thì giống hệt, sau khi chuẩn hoá đường gọi.
-- **`GameRoom.ts` (556 dòng):** chỉ còn những gì PLAN cho phép.
-- **Tài liệu:** đúng.
-- **Ngoài phạm vi PLAN có hai chỗ:** `tickOrder.test.ts` và sửa `CLAUDE.md`. Cả hai hợp lý và không làm FAIL; xem góp ý.
+Đây là một refactor thuần, làm đúng PLAN.md: các thân hàm chuyển nguyên văn, thứ tự đăng ký đúng, hợp đồng `__petgame.game` và `frame()` giữ nguyên. Lần hỏng của `boss bar (phone upright, notch)` là nhiễu thống kê của lỗi chập chờn T63 có từ trước. Code đã chuyển không chạm tới cơ chế gây ra lỗi đó (lý do cụ thể ở dưới).
 
-Đã kiểm tra lại độc lập:
-- `npm run typecheck` sạch.
-- `npx vitest run packages/server`: 9 file, 237/237 (gồm cả test mới).
-- `git diff --exit-code dfb0c1c` trên các file không được đổi: exit 0. Không có dòng đổi tên.
-- Lệnh bảo toàn dòng so với `dfb0c1c` (bỏ qua dòng import):
-  - MẤT 15 dòng: 6 dòng `// ----`, 4 tiêu đề mục, 4 khai báo đã thêm `export`, dòng `if (process.env.PETGAME_DEBUG === "1") {`.
-  - MỚI chỉ gồm vỏ class, JSDoc, 9 trường hệ thống, 11 cửa test, chữ ký và lời gọi của `tickPlayers`/`tickWild`/`tickRespawn`/`registerDebugHooks`, dấu đóng.
-- `tickPlayers` và `tickWild` so dòng với khối 722-730 và 733-838 của `dfb0c1c`: giống hệt. Thân `registerDebugHooks` so với khối 422-506: giống hệt.
-- Các lệnh grep của Tiêu chí đều rỗng: hàm dựng đúng dạng; không có bản sao trường, không destructure `this.room`; không import giá trị giữa các hệ thống hay từ `GameRoom.ts`; `GameRoom` không gọi cửa test; `systems/` không gọi `room.<cửa test>(`.
+## Lỗi phải sửa
+Không có.
 
-## Lỗi phải sửa (FAIL khi còn mục này)
-(không có)
-
-## Ghi chú kiểm tra theo trọng tâm
-- **`tick`:** khớp đúng PLAN mục 4. `now` đọc một lần rồi truyền vào `tickWild`, `paths.run` và `tickRegen`.
+## Đã kiểm (reviewer tự chạy, chỉ đọc)
+- **Bảo toàn dòng** (lệnh ở mục Test của PLAN, so ở `767619d`):
+  - Dòng MẤT rỗng.
+  - Dòng MỚI chỉ gồm: JSDoc của 3 class, JSDoc của `bind()`, chú thích khối trường, `class X {`, `constructor(game: Game) {}` ×3, `bind() {`, 3 trường `x = new X(this);`, `this.bind();` và các dấu `}` / `/**` / `*/`.
+  - Thêm một lần so theo số lần xuất hiện (`uniq -c`): không dòng cũ nào bị giảm số lần.
+- **Thứ tự đăng ký:** đúng 31 dòng như PLAN. Gồm 6 cặp `onAdd`/`onRemove`, rồi `listen("dayTime"`, rồi 18 `onMessage` từ Harvested tới Produced.
+- **Phạm vi file:** lệnh `git diff --exit-code` cho exit 0. `labelLayout.ts`, `labelLayout.test.ts`, `multiplayer.spec.ts`, `shots.mjs` không đổi. `git stash list` vẫn đúng 2 mục. Reviewer không chạy lệnh stash nào; chỉ đọc `stash@{0}:PROGRESS.md` bằng `git show`.
+- **`npm run typecheck`:** sạch.
+- **Không giữ bản sao:**
+  - Cả 3 hàm dựng đều đúng dạng `constructor(private readonly game: Game) {}`.
+  - Grep "bản sao" chỉ ra `x = this.game.joystick.value.x` / `y = …` trong `readInput`. Đây là gán vào biến cục bộ `let { x, y }`, giống hệt BASE, không phải trường.
+- **Import:** module chỉ `import type { Game, PalEntity }` từ `./Game.ts`. `skillCasts.ts` import giá trị từ `./skillfx.ts`, là file lá, được phép. Không có vòng import.
 - **Phạm vi truy cập:**
-  - Mọi phương thức public của `World`, `Camp`, `Movement` đều có lời gọi từ ngoài class. `bossHeadHome` là `private` và chỉ `tickWild` gọi.
-  - Trên `GameRoom`, ngoài vòng đời của Colyseus, chỉ còn public: `notify`, `announce` và 11 cửa test.
-  - `questEvent`, `harvest`, `gather`, `giveWearable` không còn nằm trên phòng. 8 lời gọi trong `combat`, `leaders`, `party`, `wild` đã trỏ sang `this.room.world.…` / `this.room.camp.…`.
-- **Hook debug:**
-  - `registerDebugHooks` chỉ được gọi dưới `process.env.PETGAME_DEBUG === "1"` (`GameRoom.ts:243`).
-  - Thứ tự 11 handler `debug:*` không đổi, và chúng vẫn đăng ký sau các handler thường như cũ.
-  - Import giá trị `registerDebugHooks` không đăng ký gì khi chỉ import.
-- **Danh sách bàn giao của tôi ở đợt 1:** đã làm đủ.
-  - Bullet `persistence/store.ts` đã sửa.
-  - `pals.md` dòng 89, 220, 289 và `skills.md` dòng 7 đã trỏ đúng file.
-  - Đã bỏ tiêu đề rỗng; `announce` đã nằm cạnh `notify`.
-  - Đã thêm cửa test `eat` và `openChest`.
-  - Không còn chỗ nào nói luật chơi nằm ở `GameRoom.ts`.
-- **Sửa `CLAUDE.md` của agent chính:** cả hai chỗ đều đúng sự thật và không đổi luật nào.
-  - Dòng 17: `GameRoom` giữ vòng đời, `tick` và trạng thái; luật chơi nằm ở `systems/`.
-  - Mục lưu game: đọc ở `GameRoom.onJoin` (`store().load`), ghi ở `systems/saving.ts` (`saveNow`).
-  - Luật "dữ liệu chỉ server cần để trong `Map` của `GameRoom`" vẫn đúng.
-- **`tickOrder.test.ts`:**
-  - **Hợp lý:**
-    - `new GameRoom()` không gọi `onCreate`, nên không sinh thú, không bật vòng mô phỏng và không ghi vào `worldCensus`.
-    - Hàm dựng `Room` của Colyseus 0.18 không tạo hẹn giờ hay listener, nên không rò tài nguyên. Test chạy khoảng 1 s.
-    - Test thay phương thức trên instance rồi ghi lại thứ tự gọi. Đó là cách trực tiếp nhất để ghim một luật mà PLAN coi là hành vi ("thứ tự trong `tick`").
-    - Tester đã chứng minh nó bắt được 3 đột biến mà bộ test cũ bỏ sót.
-  - **Mức giòn:** chấp nhận được. Test chỉ đỏ khi thứ tự hay đường gọi trong `tick` đổi, mà đổi thứ tự là một quyết định cần được nhìn thấy. Nếu đổi có chủ đích thì sửa mảng mong đợi kèm lý do trong PLAN.
-  - **Lệch PLAN:** mục Test ghi "Không thêm và không sửa test". Lý do của luật đó là giữ bộ test cũ nguyên vẹn để làm bằng chứng; test mới nằm ở file riêng nên không phá điều đó, và vai tester cho phép viết test còn thiếu. Tôi chấp nhận.
-  - File đang untracked: agent chính phải `git add` nó cùng commit.
-- **Lỗ hổng `rootedUntil` / `dizzy`:** đây không phải lỗi của T10, vì `tickWild` giống hệt bản cũ. Hệ quả của việc đảo hai khối: một thú vừa hết choáng vừa còn bị trói sẽ giữ `dizzy = true` (và thưởng bắt dễ) cho tới khi hết trói. Xem góp ý.
+  - `send`, `me`, `nearMe` bỏ `private` đúng luật 6.
+  - `init`, `abandon`, `watchConnection`, `bindRoom`, `frame`, `lights`, `bossActor` vẫn `private`.
+  - Các phương thức chưa tách (`tip`, `updateHud`…) vẫn `private`, đúng cho đợt 1.
+  - Trong module: `gatherSpot`, `nearestPal`, `setFate` là `private`.
+- **`frame()`:** trong diff chỉ đổi đúng một dòng `this.controls.readInput()`. `updateBossBar()` vẫn gọi trước `updateHud()`, `this.labels.update(now, aimed?.tag)` vẫn là lời gọi cuối. `debugInfo` không đổi dòng nào. Mười thành viên hợp đồng vẫn trên `Game`, cùng tên.
+- **Cấp phát mỗi khung:** `readInput` giống hệt BASE (đã cấp phát `{x,y}` từ trước). Không thêm closure, mảng hay object nào trong đường chạy mỗi khung. 3 module được tạo một lần, là trường `readonly`.
+- **Đăng ký handler:**
+  - `serverEvents.bind()` chỉ được gọi một lần, là câu cuối của `bindRoom`.
+  - `bindRoom` vẫn được gọi từ đúng chỗ cũ trong `init`: sau `renderer.on("resize")`, trước `watchConnection()`.
+  - Không còn chỗ nào khác gọi `bindRoom` hay `onMessage` trong `packages/client/src`.
+  - Các closure handler được tạo một lần trong `bind()`, như trước trong `bindRoom`.
+- **`destroy()` và dọn dẹp:**
+  - Code đã chuyển không tạo `DisplayObject` nào. `chest.*.destroy()`, `camp.*.destroy()`, `entity.actor.destroy()` vẫn ở `Game.ts`, không đổi.
+  - Module không giữ tài nguyên nên không cần `destroy()`.
+  - Hẹn giờ trong handler vẫn là `setTimeout` của `window` như BASE.
+
+## Lỗi chập chờn `boss bar (phone upright, notch)`: kết luận là nhiễu của lỗi T63 có từ trước
+
+Lỗi nằm ở `multiplayer.spec.ts:2855`, `toHaveCount(screen.room)`: test chờ 2 thông báo, chỉ thấy 1.
+
+**Số thông báo được hiện cùng lúc quyết định ở đâu.** Số thông báo hiện cùng lúc được chốt ngay lúc gọi `hud.showToast`. Hàm này gọi `measureSlots`, rồi `toastRoom(390, 844, toastFit)` (file `ui/hud.ts`, `ui/toastQueue.ts`). Trên màn 390×844, kết quả chỉ phụ thuộc hai số:
+- `toastsTop`: đáy cột `.hud-left`. Số này đổi khi lớp `boss-near` bật hay tắt. Lớp đó do `Hud.setBoss` đặt, `setBoss` được `Game.updateBossBar()` gọi mỗi khung. Còn `bossId` do callback `onAdd("pals")` gán.
+- `nameTop`: vị trí tên mình, lấy qua `setNameTop` (nối trong `init`) và cách xếp nhãn trong `labelLayout.ts`.
+
+Đổi một trong hai số thì kết quả có thể là 1 thay vì 2. Đó đúng là hai cơ chế đã ghi ở T63/Q1 và T73: trùm đi xa nên thanh máu trùm ẩn và ô nhiệm vụ hiện lại; hoặc nhãn thú đi theo hay thú đang ngắm đẩy tên mình lên.
+
+**Không chỗ sửa nào chạm tới hai số đó.** `updateBossBar`, `updateHud`, các callback state (gồm chỗ gán `bossId`), phần dựng HUD và `setNameTop` trong `init`, `labels`, `labelLayout.ts` và AI của trùm ở server đều không có dòng nào đổi. Diff `Game.ts` chỉ có mấy loại thay đổi: bỏ chữ `private`, đổi đường gọi, và xoá các khối đã chuyển.
+
+Từng giả thuyết được nêu:
+- **Dời `dayTime` lên trước:**
+  - `Callbacks.listenInstance` (`@colyseus/schema/src/decoder/strategy/Callbacks.ts:148-164`) gọi handler đồng bộ ngay khi đăng ký, rồi mới `addCallback`.
+  - Handler chỉ gán `serverDay`/`serverDayAt`, nên giá trị như cũ, chỉ sớm hơn vài micro giây. Không handler `onMessage` nào đọc hai trường này.
+  - Phía client, cả `bindRoom` chạy đồng bộ trong một lượt, nên không tin nào được xử lý xen vào giữa.
+- **Thời điểm `serverEvents.bind`:**
+  - Hàm được gọi đồng bộ ở cuối `bindRoom`, tức cùng lượt và cùng chỗ trong `init` như 18 lời đăng ký cũ.
+  - SDK lưu handler theo từng loại tin (`createNanoEvents`, `Room.ts:231`), nên thứ tự đăng ký giữa các loại không có ý nghĩa.
+  - Handler `"damage"` thêm của `watchHurt` được đăng ký sau `init` như trước.
+- **`controls.readInput`:** thân hàm giống hệt BASE và vẫn được gọi ở cùng chỗ đầu `frame()`. Test không gửi phím hay cần điều khiển nên kết quả là `STILL` như cũ. Thứ tự các lời gọi trong `frame()` không đổi.
+- **Handler `Notice`/`LevelUp` (gọi `showToast`):** chuyển nguyên văn. Test vẫn chờ 0 thông báo trước khi tự đẩy 2 cái, giống hệt BASE.
+- **Chi phí:** chỉ thêm vài bước tra `.game`/`.controls` mỗi khung và 3 module tải lúc khởi động. Không đáng kể so với một Chromium vẽ WebGL bằng phần mềm.
+
+**Về thống kê:**
+- Cây làm việc hỏng khoảng 2/9 lần, BASE 0/7 lần. Kiểm định chính xác Fisher một phía: p ≈ C(9,2)/C(16,2) ≈ 0,30 (≈ 0,27 nếu tính 8 lần). Không có ý nghĩa thống kê.
+- Hai lần hỏng xảy ra liền nhau (lần chạy đầy đủ rồi lần chạy lại ngay sau), sau đó 7 lần liên tiếp đều qua. Điều này giống một điều kiện nhất thời (thế giới, tải máy) hơn là một thay đổi có tính quyết định.
+- BASE chưa có phần dọn test của T63. Ngay cả với phần dọn đó, `stash@{0}:PROGRESS.md` vẫn ghi lỗi tên bị đẩy lên khoảng 1/40 lần. Lỗi này cũng đã xuất hiện ở T67 vòng 2, trước mọi thay đổi của T11.
+
+Theo mục Test 4 của PLAN, lỗi này là lỗi chập chờn đã biết, không tính là FAIL. Nếu T11b còn gặp lại với tần suất tương tự, nên đưa số liệu vào T63/T73, không quy cho refactor.
 
 ## Góp ý không bắt buộc
-- **Commit:** nêu rõ trong thân commit, hoặc tách thành commit riêng, việc sửa `CLAUDE.md` (PLAN T10 ghi "Không sửa `CLAUDE.md`") và việc thêm `tickOrder.test.ts`. Cuối phiên báo người dùng rằng `CLAUDE.md` đã đổi hai chỗ cho đúng cấu trúc mới, vì đó là file hướng dẫn của họ.
-- **Việc mới cho `TASKS.md` (P3):** một test hành vi cho trường hợp thú đang choáng thì bị trói bằng dây leo, rồi hết choáng trước khi hết trói. Thú phải tỉnh (`dizzy = false`, máu về `DIZZY_RECOVER`) dù vẫn đứng yên. Test này ghim thứ tự khối `dizzy` trước `rootedUntil` trong `tickWild`, hiện chưa có gì bắt.
-- **`tickOrder.test.ts`:** có thể ghi thêm tham số của các lời gọi `tickWild`, `paths.run`, `tickRegen` và kiểm chúng nhận cùng một `now` (bằng `room.clock.currentTime`), như PLAN Rủi ro 2 ("giữ đúng một chỗ đọc"). Tên file có thể là `GameRoom.tick.test.ts` cho gần quy ước `<tên>.test.ts`; tách khỏi `GameRoom.test.ts` là đúng, vì T10 không được sửa file đó.
-- **`docs/architecture.md`, bullet `rooms/GameRoom.ts`:** câu đầu ("phòng Colyseus: vòng đời, định tuyến…, cửa test") và câu "Phòng giữ: …" lặp ý nhau. Nên gộp làm một khi sửa tài liệu lần tới.
-- **`GAME_PLAN.md:128`:** còn ghi `GameRoom.startCast`/`land`, nay là `systems/skills.ts`. Đây là tài liệu tổng thể, sửa khi tiện.
-- **Kích thước file:** `skills.ts` (352) và `combat.ts` (350) đã sát trần 360 của PLAN. Nhiệm vụ sau thêm nhiều logic vào chiêu hay chiến đấu thì nên tách tiếp (ví dụ `land`/`support` thành file riêng), thay vì để file phình ra.
+- `docs/architecture.md`, bullet `game/Game.ts`: câu mở đầu "nối state phòng với hình (`Callbacks`, trong `bindRoom`, cùng dựng HUD, …: các phần này chưa tách)" hơi rối. Bullet chưa nhắc `watchConnection`, `lights`, thứ tự trong `frame()`, chưa nói `bindRoom` kết thúc bằng `serverEvents.bind()`, và danh sách trường chưa ghi "ai đọc". Phần G (T11b) yêu cầu viết lại bullet này, nên có thể để đến lúc đó.
+- `PROGRESS.md` ghi lệch nhau: coder ghi thư mục ảnh `shots/t11-r1` và e2e 56/56, tester ghi `shots/t11-v1` và 55/56. Khi viết mục T11b nên thống nhất tên thư mục mốc, nếu dùng lại.
+- JSDoc của class `Game` vẫn tả kiểu cũ ("…and the DOM HUD, predicts…"). PLAN dời việc sửa sang Phần G, nên giữ như hiện tại là đúng.
+- `readInput` không có JSDoc, giống BASE. Không thêm là đúng luật "thân và JSDoc giữ nguyên". Có thể bổ sung trong một nhiệm vụ dọn chú thích sau này.
