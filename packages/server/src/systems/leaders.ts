@@ -88,7 +88,7 @@ export class Leaders {
       player.berries += BOSS.reward.berries;
       player.greatBalls += BOSS.reward.greatBalls;
       const prize = rollWearable(Math.random, "boss", [...player.wardrobe]);
-      if (prize) this.room.giveWearable(sid, prize);
+      if (prize) this.room.camp.giveWearable(sid, prize);
       this.room.saves.scheduleSave(sid);
       const follower = player.pals.find((p) => p.id === player.activePalId);
       const client = this.room.clients.find((c) => c.sessionId === sid);
@@ -96,7 +96,7 @@ export class Leaders {
         const xpText = follower ? ` · ${getSpecies(follower.speciesId).name} +${BOSS.xp} XP` : "";
         this.room.notify(client, `Hạ được trùm! 🏆 ${rewardText({ ...BOSS.reward, wear: prize })}${xpText}`, "reward");
       }
-      this.room.questEvent(sid, "boss");
+      this.room.world.questEvent(sid, "boss");
       // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.
       if (follower) this.room.party.grantXp(sid, follower, BOSS.xp);
     }

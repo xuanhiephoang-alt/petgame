@@ -62,7 +62,7 @@ export class Combat {
     const target = this.nearestPal(player, weapon.range);
     // Nothing to fight in reach: pick berries, or chop the tree or mine the rock in reach.
     if (!target) {
-      if (!this.room.harvest(client.sessionId)) this.room.gather(client.sessionId, player.weapon);
+      if (!this.room.world.harvest(client.sessionId)) this.room.world.gather(client.sessionId, player.weapon);
       return;
     }
     const [palId, pal] = target;
@@ -132,7 +132,7 @@ export class Combat {
     if (player) {
       applyReward(player, loot);
       if (name) {
-        this.room.questEvent(sessionId, "alpha");
+        this.room.world.questEvent(sessionId, "alpha");
         this.room.announce(`★ ${player.name} đã hạ ${name}!`);
       }
       // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.

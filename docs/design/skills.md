@@ -4,7 +4,7 @@ Mỗi loài thú học 3 chiêu khi chiến đấu, mỗi chiêu có hoạt ản
 
 - Dữ liệu: `packages/shared/src/data/skills.json` (30 chiêu), chiêu của từng loài ở trường `skills` trong `pals.json`.
 - Logic dùng chung (có test): `packages/shared/src/skills.ts`: `skillPower`, `wildSkillLevel` (cấp sức mạnh chiêu của thú hoang thường), `learnset`, `knownSkills`, `skillsLearnedBetween` (chiêu học được trong một lần lên cấp, để báo), `skillTravelMs`, `inSkillArea`.
-- Server quyết định mọi thứ: `GameRoom` (`startCast`, `tickCasts`, `land`), thú chọn chiêu ở `packages/server/src/ai/skillAi.ts`.
+- Server quyết định mọi thứ: `packages/server/src/systems/skills.ts` (`startCast`, `tickCasts`, `land`), thú chọn chiêu ở `packages/server/src/ai/skillAi.ts`.
 - Hoạt ảnh: `packages/client/src/game/skillfx.ts` (`SKILL_SHOWS`, mỗi chiêu một hàm). Xem tất cả chiêu chạy lặp ở http://localhost:5173/sprites.html?show=skills, một chiêu phóng to: `?show=skills&skill=meteor`, kiểu thú hoang tung chiêu (có vùng đỏ): thêm `&wild=1`.
 
 ## Học chiêu

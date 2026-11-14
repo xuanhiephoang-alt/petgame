@@ -86,7 +86,7 @@ Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) ca
 
 ## Trùm Vua Đá: thân và đường về nhà
 
-Đặt ra ở nhiệm vụ T21. Số liệu: bảng `BOSS` (`packages/shared/src/boss.ts`); luật ở `GameRoom.ts`.
+Đặt ra ở nhiệm vụ T21. Số liệu: bảng `BOSS` (`packages/shared/src/boss.ts`); luật ở `packages/server/src/systems/leaders.ts` (`spawnBoss`, `defeatBoss`) và `systems/movement.ts` (`bossHeadHome`).
 
 - **Thân 40 px trong mọi việc** (`BOSS.radius`): xuất hiện, lang thang, đuổi, về nhà, cắn, trúng chiêu. Trước T21, lúc lang thang trùm dùng thân 20 px của Boulderhorn thường, nên lấn vào đá và lọt khe 40-80 px, rồi kẹt ở đó khi đổi sang thân 40 để đuổi.
 - **Nhà** là chỗ trùm xuất hiện ở chân núi lửa. Khi không đánh ai mà cách nhà quá 8 m (256 px, `BOSS.leash`), trùm đi về bằng tìm đường (mục "Đi vòng cây, đá") với tốc độ đuổi (81 px/s, chậm hơn người chơi), tới khi cách nhà 4 m (128 px, `BOSS.homeRadius`) thì lang thang lại.
@@ -217,7 +217,7 @@ Thú đang nhắm có thể là một thú hoang lành lặn. Thú lành lặn k
 
 ## Tính khí
 
-Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì khi không ai động tới, và khi bị đánh. Số liệu ở `combat.ts`, luật ở `GameRoom.ts` (`provoke`, `wildTarget`).
+Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì khi không ai động tới, và khi bị đánh. Số liệu ở `combat.ts`, luật ở `packages/server/src/systems/combat.ts` (`provoke`, `wildTarget`).
 
 | Tính khí | Loài | Không ai động tới | Bị đánh |
 |---|---|---|---|
@@ -286,7 +286,7 @@ Trường `spawn.biomes` (`meadow`, `lake`, `snow`, `desert`, `swamp`, `volcano`
 
 ## Đi vòng cây, đá
 
-Đặt ra ở nhiệm vụ T9. Code: `packages/shared/src/pathfind.ts` (lưới đi lại, A*), `packages/server/src/ai/pathing.ts` (khi nào tìm đường, giới hạn chi phí), chỗ gọi trong `GameRoom.ts`.
+Đặt ra ở nhiệm vụ T9. Code: `packages/shared/src/pathfind.ts` (lưới đi lại, A*), `packages/server/src/ai/pathing.ts` (khi nào tìm đường, giới hạn chi phí), chỗ gọi (`paths.steer`) trong `packages/server/src/systems/movement.ts`.
 
 **Ai tìm đường:**
 

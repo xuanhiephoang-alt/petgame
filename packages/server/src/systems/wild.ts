@@ -92,8 +92,8 @@ export class Wild {
       const follower = player.pals.find((p) => p.id === player.activePalId);
       // The first catch starts following right away.
       if (!follower) this.room.party.summon(client.sessionId, owned.id);
-      this.room.questEvent(client.sessionId, "catch");
-      if (alpha) this.room.questEvent(client.sessionId, "alpha");
+      this.room.world.questEvent(client.sessionId, "catch");
+      if (alpha) this.room.world.questEvent(client.sessionId, "alpha");
       // Once the ball has clicked shut (as the thrower sees it): a pack leader's news for everyone else (the thrower
       // reads it in this result, CaptureResultMessage.alpha), then the XP for the pal that helped, in one timer (timers
       // due in the same tick run last-registered first). Not at the throw: a level-up then would give the catch away

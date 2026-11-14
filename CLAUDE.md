@@ -14,7 +14,7 @@ Game 2D nhìn từ trên xuống kiểu bắt thú (bắt thú, chiến đấu, 
 
 ```
 packages/shared/   dữ liệu (src/data/*.json) + logic thuần dùng chung (schema, message, di chuyển, chiến đấu, chiêu, bắt thú, thế giới...)
-packages/server/   index.ts (Express + Colyseus), rooms/GameRoom.ts (luật chơi), ai/ (hành vi thú), persistence/store.ts (lưu game)
+packages/server/   index.ts (Express + Colyseus), rooms/GameRoom.ts (phòng: vòng đời, tick, trạng thái), systems/ (luật chơi theo hệ thống), ai/ (hành vi thú), persistence/store.ts (lưu game)
 packages/client/   src/main.ts (sảnh), src/game/ (thế giới, hình, hiệu ứng), src/ui/ (HUD, bảng, nút), public/assets/ (ảnh AI)
 tests/e2e/         Playwright        tools/photo3d/   công cụ ảnh -> sprite/model (Python)
 scripts/           dev, shots, sprite/photo3d        docs/   tài liệu        .claude/agents/   đội agent
@@ -60,7 +60,7 @@ CI (`.github/workflows/ci.yml`) chạy: typecheck, test, build, pytest photo3d, 
 - Schema dùng `schema()` + `t.*` (không decorator). Đổi schema hoặc message là đổi giao thức: cập nhật server và client trong cùng nhiệm vụ.
 - Dữ liệu chỉ server cần (input, cooldown, não AI, hồi chiêu) để trong `Map` của `GameRoom`, không đưa vào schema. Hẹn giờ bằng `this.clock.setTimeout`.
 - Số liệu cân bằng nằm trong dữ liệu (`src/data/*.json`) hoặc bảng hằng số (`BOSS`, `ALPHA`, `progression.ts`), không rải số cứng trong logic.
-- Lưu game: `packages/server/src/persistence/store.ts` (SQLite ở `PETGAME_DB`, mặc định `packages/server/data/`), hồ sơ theo token ngẫu nhiên của thiết bị, luôn qua `sanitizeProfile` khi đọc. Thêm dữ liệu cần lưu: `Profile`, `emptyProfile`, `sanitizeProfile`, chỗ đọc/ghi trong `GameRoom` và test. Hồ sơ cũ phải còn đọc được. Test dùng `PETGAME_DB=:memory:`.
+- Lưu game: `packages/server/src/persistence/store.ts` (SQLite ở `PETGAME_DB`, mặc định `packages/server/data/`), hồ sơ theo token ngẫu nhiên của thiết bị, luôn qua `sanitizeProfile` khi đọc. Thêm dữ liệu cần lưu: `Profile`, `emptyProfile`, `sanitizeProfile`, chỗ đọc (`GameRoom.onJoin`) và ghi (`systems/saving.ts`) và test. Hồ sơ cũ phải còn đọc được. Test dùng `PETGAME_DB=:memory:`.
 - Hook thử nghiệm `debug:*` (spawnPal, give, givePal, gear, wardrobe, quest, setTime, teleport, endGrace, emptyHold, xp) chỉ bật khi `PETGAME_DEBUG=1` (Playwright tự đặt). Không bao giờ bật trên server thật.
 - Client: không tạo object mới mỗi khung hình, ẩn thứ ở xa camera, `destroy()` khi xoá; ngân sách ≤ 600 sprite mỗi khung hình. Mọi thao tác dùng được bằng cả cảm ứng lẫn bàn phím, nút cảm ứng ≥ 44×44 px; kiểm tra ở điện thoại dọc, ngang và desktop.
 - `window.__petgame = { game, room }` phục vụ e2e và `npm run shots`: không xoá.

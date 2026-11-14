@@ -66,7 +66,7 @@ export class Party {
       ? this.workSpotFor(sessionId, owned.id)
       : from;
     this.spawnCompanion(sessionId, owned, "work", start);
-    this.room.questEvent(sessionId, "work");
+    this.room.world.questEvent(sessionId, "work");
     this.room.saves.scheduleSave(sessionId);
   }
 
@@ -137,7 +137,7 @@ export class Party {
     }
     const message: LevelUpMessage = { playerId: sessionId, palId: owned.id, speciesId: owned.speciesId, fromLevel, level: owned.level };
     this.room.broadcast(ServerMessage.LevelUp, message);
-    this.room.questEvent(sessionId, "palLevel", owned.level);
+    this.room.world.questEvent(sessionId, "palLevel", owned.level);
     this.room.saves.scheduleSave(sessionId);
   }
 
