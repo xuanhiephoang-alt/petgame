@@ -1,75 +1,66 @@
 PASS
-# REVIEW: T11 (đợt 1: Phần 0, A-C, tách `Game.ts` thành `skillCasts.ts`, `serverEvents.ts`, `controls.ts`), vòng 1
+# REVIEW: T11b (đợt 2 của PLAN T11: Phần D-G, `looks.ts`, `hudBridge.ts`, `stateSync.ts`, tài liệu), vòng 1
 
 ## Kết luận
-Đây là một refactor thuần, làm đúng PLAN.md: các thân hàm chuyển nguyên văn, thứ tự đăng ký đúng, hợp đồng `__petgame.game` và `frame()` giữ nguyên. Lần hỏng của `boss bar (phone upright, notch)` là nhiễu thống kê của lỗi chập chờn T63 có từ trước. Code đã chuyển không chạm tới cơ chế gây ra lỗi đó (lý do cụ thể ở dưới).
+Đợt 2 là refactor thuần, đúng PLAN.md.
+- **Thân hàm:** chuyển nguyên văn; so cả hai đợt với BASE `767619d`, chỉ mất đúng hai dòng JSDoc cũ của class `Game` mà PLAN yêu cầu thay.
+- **Thứ tự đăng ký** và **`frame()`** giữ nguyên.
+- **Hợp đồng `__petgame.game`** còn nguyên.
+- **`docs/architecture.md`** khớp với code.
+
+Không có lỗi phải sửa.
 
 ## Lỗi phải sửa
 Không có.
 
-## Đã kiểm (reviewer tự chạy, chỉ đọc)
-- **Bảo toàn dòng** (lệnh ở mục Test của PLAN, so ở `767619d`):
-  - Dòng MẤT rỗng.
-  - Dòng MỚI chỉ gồm: JSDoc của 3 class, JSDoc của `bind()`, chú thích khối trường, `class X {`, `constructor(game: Game) {}` ×3, `bind() {`, 3 trường `x = new X(this);`, `this.bind();` và các dấu `}` / `/**` / `*/`.
-  - Thêm một lần so theo số lần xuất hiện (`uniq -c`): không dòng cũ nào bị giảm số lần.
-- **Thứ tự đăng ký:** đúng 31 dòng như PLAN. Gồm 6 cặp `onAdd`/`onRemove`, rồi `listen("dayTime"`, rồi 18 `onMessage` từ Harvested tới Produced.
-- **Phạm vi file:** lệnh `git diff --exit-code` cho exit 0. `labelLayout.ts`, `labelLayout.test.ts`, `multiplayer.spec.ts`, `shots.mjs` không đổi. `git stash list` vẫn đúng 2 mục. Reviewer không chạy lệnh stash nào; chỉ đọc `stash@{0}:PROGRESS.md` bằng `git show`.
-- **`npm run typecheck`:** sạch.
+## Đã kiểm (reviewer tự chạy, chỉ đọc; không chạy lệnh `git stash` nào, `git stash list` vẫn 2 mục)
+- **Bảo toàn dòng** (lệnh của PLAN, so `767619d` với `Game.ts` + 6 file):
+  - Dòng MẤT chỉ có `* The game screen: connects the synced room state…` và `* and the DOM HUD, predicts…`, tức JSDoc cũ của class `Game`, đã được Phần G thay.
+  - Tôi so thêm theo số lần xuất hiện (`join` trên `uniq -c`): ngoài hai dòng đó, không dòng nào giảm số lần.
+  - Dòng MỚI chỉ thuộc các loại PLAN cho phép:
+    - JSDoc của 5 class, `bind()` ×2, `build()`, chú thích đầu `looks.ts`, JSDoc mới của `Game`, chú thích khối trường;
+    - `class X {` và `constructor(game: Game) {}` ×5;
+    - 5 trường `x = new X(this);`;
+    - `bind() {` ×2, `build(container: HTMLElement, isTouch: boolean) {`;
+    - `this.bind();` ×2, `this.build(container, isTouch);`;
+    - các dấu đóng.
+- **Thứ tự đăng ký** (`Game.ts` + `stateSync.ts` + `serverEvents.ts`):
+  - Đúng 31 mục: 6 cặp `onAdd`/`onRemove`, rồi `listen("dayTime"`, rồi 18 `onMessage` từ Harvested tới Produced.
+  - `Game.ts` không còn mục nào khớp mẫu.
+- **Gọi một lần, đúng chỗ:**
+  - `init` gọi `this.hudBridge.build(container, isTouch)` đúng chỗ khối cũ: sau `new Labels(...)`, trước `renderer.on("resize")`.
+  - `bindRoom` chỉ còn `this.stateSync.bind(); this.serverEvents.bind();` và vẫn được gọi một lần từ `init`, trước `watchConnection()`.
+  - Không còn ai gọi `bind`, `build` hay `bindRoom` ở chỗ khác.
+- **`frame()`:** so với 868c07e, chỉ đổi `this.stateSync.removeActor(l.entity)`, `this.hudBridge.updateBossBar()` và `this.hudBridge.updateHud()`; cùng với `controls.readInput` của đợt 1 là đủ 4 đường gọi. `updateBossBar` vẫn trước `updateHud`; `this.labels.update(now, aimed?.tag)` rồi `frames++` vẫn ở cuối. `debugInfo` giống hệt BASE.
 - **Không giữ bản sao:**
-  - Cả 3 hàm dựng đều đúng dạng `constructor(private readonly game: Game) {}`.
-  - Grep "bản sao" chỉ ra `x = this.game.joystick.value.x` / `y = …` trong `readInput`. Đây là gán vào biến cục bộ `let { x, y }`, giống hệt BASE, không phải trường.
-- **Import:** module chỉ `import type { Game, PalEntity }` từ `./Game.ts`. `skillCasts.ts` import giá trị từ `./skillfx.ts`, là file lá, được phép. Không có vòng import.
-- **Phạm vi truy cập:**
-  - `send`, `me`, `nearMe` bỏ `private` đúng luật 6.
-  - `init`, `abandon`, `watchConnection`, `bindRoom`, `frame`, `lights`, `bossActor` vẫn `private`.
-  - Các phương thức chưa tách (`tip`, `updateHud`…) vẫn `private`, đúng cho đợt 1.
-  - Trong module: `gatherSpot`, `nearestPal`, `setFate` là `private`.
-- **`frame()`:** trong diff chỉ đổi đúng một dòng `this.controls.readInput()`. `updateBossBar()` vẫn gọi trước `updateHud()`, `this.labels.update(now, aimed?.tag)` vẫn là lời gọi cuối. `debugInfo` không đổi dòng nào. Mười thành viên hợp đồng vẫn trên `Game`, cùng tên.
-- **Cấp phát mỗi khung:** `readInput` giống hệt BASE (đã cấp phát `{x,y}` từ trước). Không thêm closure, mảng hay object nào trong đường chạy mỗi khung. 3 module được tạo một lần, là trường `readonly`.
-- **Đăng ký handler:**
-  - `serverEvents.bind()` chỉ được gọi một lần, là câu cuối của `bindRoom`.
-  - `bindRoom` vẫn được gọi từ đúng chỗ cũ trong `init`: sau `renderer.on("resize")`, trước `watchConnection()`.
-  - Không còn chỗ nào khác gọi `bindRoom` hay `onMessage` trong `packages/client/src`.
-  - Các closure handler được tạo một lần trong `bind()`, như trước trong `bindRoom`.
-- **`destroy()` và dọn dẹp:**
-  - Code đã chuyển không tạo `DisplayObject` nào. `chest.*.destroy()`, `camp.*.destroy()`, `entity.actor.destroy()` vẫn ở `Game.ts`, không đổi.
-  - Module không giữ tài nguyên nên không cần `destroy()`.
-  - Hẹn giờ trong handler vẫn là `setTimeout` của `window` như BASE.
-
-## Lỗi chập chờn `boss bar (phone upright, notch)`: kết luận là nhiễu của lỗi T63 có từ trước
-
-Lỗi nằm ở `multiplayer.spec.ts:2855`, `toHaveCount(screen.room)`: test chờ 2 thông báo, chỉ thấy 1.
-
-**Số thông báo được hiện cùng lúc quyết định ở đâu.** Số thông báo hiện cùng lúc được chốt ngay lúc gọi `hud.showToast`. Hàm này gọi `measureSlots`, rồi `toastRoom(390, 844, toastFit)` (file `ui/hud.ts`, `ui/toastQueue.ts`). Trên màn 390×844, kết quả chỉ phụ thuộc hai số:
-- `toastsTop`: đáy cột `.hud-left`. Số này đổi khi lớp `boss-near` bật hay tắt. Lớp đó do `Hud.setBoss` đặt, `setBoss` được `Game.updateBossBar()` gọi mỗi khung. Còn `bossId` do callback `onAdd("pals")` gán.
-- `nameTop`: vị trí tên mình, lấy qua `setNameTop` (nối trong `init`) và cách xếp nhãn trong `labelLayout.ts`.
-
-Đổi một trong hai số thì kết quả có thể là 1 thay vì 2. Đó đúng là hai cơ chế đã ghi ở T63/Q1 và T73: trùm đi xa nên thanh máu trùm ẩn và ô nhiệm vụ hiện lại; hoặc nhãn thú đi theo hay thú đang ngắm đẩy tên mình lên.
-
-**Không chỗ sửa nào chạm tới hai số đó.** `updateBossBar`, `updateHud`, các callback state (gồm chỗ gán `bossId`), phần dựng HUD và `setNameTop` trong `init`, `labels`, `labelLayout.ts` và AI của trùm ở server đều không có dòng nào đổi. Diff `Game.ts` chỉ có mấy loại thay đổi: bỏ chữ `private`, đổi đường gọi, và xoá các khối đã chuyển.
-
-Từng giả thuyết được nêu:
-- **Dời `dayTime` lên trước:**
-  - `Callbacks.listenInstance` (`@colyseus/schema/src/decoder/strategy/Callbacks.ts:148-164`) gọi handler đồng bộ ngay khi đăng ký, rồi mới `addCallback`.
-  - Handler chỉ gán `serverDay`/`serverDayAt`, nên giá trị như cũ, chỉ sớm hơn vài micro giây. Không handler `onMessage` nào đọc hai trường này.
-  - Phía client, cả `bindRoom` chạy đồng bộ trong một lượt, nên không tin nào được xử lý xen vào giữa.
-- **Thời điểm `serverEvents.bind`:**
-  - Hàm được gọi đồng bộ ở cuối `bindRoom`, tức cùng lượt và cùng chỗ trong `init` như 18 lời đăng ký cũ.
-  - SDK lưu handler theo từng loại tin (`createNanoEvents`, `Room.ts:231`), nên thứ tự đăng ký giữa các loại không có ý nghĩa.
-  - Handler `"damage"` thêm của `watchHurt` được đăng ký sau `init` như trước.
-- **`controls.readInput`:** thân hàm giống hệt BASE và vẫn được gọi ở cùng chỗ đầu `frame()`. Test không gửi phím hay cần điều khiển nên kết quả là `STILL` như cũ. Thứ tự các lời gọi trong `frame()` không đổi.
-- **Handler `Notice`/`LevelUp` (gọi `showToast`):** chuyển nguyên văn. Test vẫn chờ 0 thông báo trước khi tự đẩy 2 cái, giống hệt BASE.
-- **Chi phí:** chỉ thêm vài bước tra `.game`/`.controls` mỗi khung và 3 module tải lúc khởi động. Không đáng kể so với một Chromium vẽ WebGL bằng phần mềm.
-
-**Về thống kê:**
-- Cây làm việc hỏng khoảng 2/9 lần, BASE 0/7 lần. Kiểm định chính xác Fisher một phía: p ≈ C(9,2)/C(16,2) ≈ 0,30 (≈ 0,27 nếu tính 8 lần). Không có ý nghĩa thống kê.
-- Hai lần hỏng xảy ra liền nhau (lần chạy đầy đủ rồi lần chạy lại ngay sau), sau đó 7 lần liên tiếp đều qua. Điều này giống một điều kiện nhất thời (thế giới, tải máy) hơn là một thay đổi có tính quyết định.
-- BASE chưa có phần dọn test của T63. Ngay cả với phần dọn đó, `stash@{0}:PROGRESS.md` vẫn ghi lỗi tên bị đẩy lên khoảng 1/40 lần. Lỗi này cũng đã xuất hiện ở T67 vòng 2, trước mọi thay đổi của T11.
-
-Theo mục Test 4 của PLAN, lỗi này là lỗi chập chờn đã biết, không tính là FAIL. Nếu T11b còn gặp lại với tần suất tương tự, nên đưa số liệu vào T63/T73, không quy cho refactor.
+  - Cả 5 hàm dựng đều đúng dạng `constructor(private readonly game: Game) {}`.
+  - Grep "bản sao" chỉ ra hai biến cục bộ joystick trong `controls.readInput` (giống BASE, đã giải thích ở vòng trước).
+  - Trong `build`, `panels` và `unlock` vẫn là biến cục bộ; các widget được gán thẳng vào `this.game.hud`, `.party`, `.skillBar`…
+- **Import:**
+  - Không có import giá trị nào từ `./Game.ts` hay giữa các module; chỉ có `import type { Game, PalEntity, Named }`.
+  - `looks.ts` chỉ import từ `@petgame/shared`.
+  - Import giá trị từ các file lá (`labelLayout.ts`, `palSprites.ts`, `entities.ts`, `art/props.ts`, `looks.ts`) không tạo vòng.
+  - `Game.ts` đổi `GameRoom` và `PalSprite` sang `import type`, đúng vì chỉ dùng làm kiểu.
+- **Phạm vi truy cập** (luật 6):
+  - `HudBridge`: `build`, `tip`, `updateHud`, `updateBossBar` là public; `updateSkillBar`, `updateRegion`, `updateMinimap` là private.
+  - `StateSync`: `bind`, `removeActor` là public; `nameTag`, `updateHpBar`, `syncCamp`, `addActor` là private.
+  - `Game` còn lại đúng danh sách "Ở lại `Game.ts`": `create`, `abandon`, `send`, `init`, `watchConnection`, `bindRoom`, `me`, `frame`, `lights`, `nearMe`, `bossActor`, `debugInfo`.
+- **Cấp phát mỗi khung:**
+  - Thân `updateHud`, `updateMinimap`, `updateRegion`, `updateSkillBar`, `updateBossBar` giống hệt BASE. Các cấp phát có sẵn (`resources`, `party`, `players`, `alphas`…) được giữ lại vì PLAN cấm dọn trong refactor.
+  - Không thêm closure, mảng hay object nào; mỗi khung chỉ thêm vài bước tra `.game`/`.hudBridge`/`.stateSync`.
+- **`destroy()` và dọn dẹp:** `chest.body/gem.destroy()`, `camp.root.destroy({ children: true })`, `camp.floor.destroy()`, `labels.remove(camp.tag)` và `removeActor` (`labels.remove` + `actor.destroy()`) đều chuyển nguyên văn. Module không giữ tài nguyên riêng.
+- **Phạm vi file:** `git diff --exit-code 767619d -- <danh sách của PLAN>` cho exit 0. `git diff --stat 767619d` chỉ có `Game.ts`, 6 file mới, `docs/architecture.md` và các file làm việc.
+- **Kiểm tra chạy lại:** `npm run typecheck` sạch; `npx vitest run packages/client` qua 110/110.
+- **Số dòng:** `Game.ts` 454 (< 540). Các file mới đều dưới 380 dòng: 101, 368, 146, 35, 205, 321.
+- **`docs/architecture.md`:**
+  - Bullet `Game.ts` khớp code: những gì còn ở lại, `watchConnection` (dừng cú lướt, xoá `lastSentInput`, gửi đứng yên khi trang bị ẩn), thứ tự `frame()`, và bảng trường e2e/shots kèm ai đọc.
+  - Bảng 6 file và luật làm việc khớp PLAN.
+  - Không còn câu "xử lý mọi `ServerMessage`".
+  - Không tài liệu nào khác (`docs/design/*`, `GAME_PLAN.md`) nhắc phương thức đã chuyển.
+- **Ảnh `island`:** chấp nhận lời giải thích của tester và coder. Cùng hiện tượng (bị Coralcrab đầu đàn hạ rồi tỉnh dậy bên lửa trại) đã tái hiện được ở mã 868c07e và biến mất khi chụp lại trên cây làm việc, nên đây là cuộc đua thời gian, không do refactor. Các dòng CHECK khác là nhiễu thế giới chuyển động; mọi ảnh ≤ 600 sprite, không nhãn nào chồng nhau.
 
 ## Góp ý không bắt buộc
-- `docs/architecture.md`, bullet `game/Game.ts`: câu mở đầu "nối state phòng với hình (`Callbacks`, trong `bindRoom`, cùng dựng HUD, …: các phần này chưa tách)" hơi rối. Bullet chưa nhắc `watchConnection`, `lights`, thứ tự trong `frame()`, chưa nói `bindRoom` kết thúc bằng `serverEvents.bind()`, và danh sách trường chưa ghi "ai đọc". Phần G (T11b) yêu cầu viết lại bullet này, nên có thể để đến lúc đó.
-- `PROGRESS.md` ghi lệch nhau: coder ghi thư mục ảnh `shots/t11-r1` và e2e 56/56, tester ghi `shots/t11-v1` và 55/56. Khi viết mục T11b nên thống nhất tên thư mục mốc, nếu dùng lại.
-- JSDoc của class `Game` vẫn tả kiểu cũ ("…and the DOM HUD, predicts…"). PLAN dời việc sửa sang Phần G, nên giữ như hiện tại là đúng.
-- `readInput` không có JSDoc, giống BASE. Không thêm là đúng luật "thân và JSDoc giữ nguyên". Có thể bổ sung trong một nhiệm vụ dọn chú thích sau này.
+- Phần F.1 của PLAN bảo thêm `export` cho `interface Camp`, nhưng `Camp` vẫn chưa export (`Game.ts:68`). Việc này không gây lỗi vì `stateSync.ts` suy ra kiểu từ `this.game.camps`. Nhưng `PROGRESS.md` ghi "Lệch kế hoạch: không có", tức chưa chính xác. Nên export cho nhất quán với `Named`/`PalEntity`, hoặc ghi lại là cố ý không làm.
+- `looks.ts`: chú thích đầu file là một khối `/** … */` đứng riêng, ngay trên JSDoc của `Dressed`, nên trình soạn thảo có thể coi nó là JSDoc thứ hai của `Dressed`. Đổi thành chú thích thường `//` hoặc `/* … */` thì rõ hơn (việc nhỏ, có thể làm trong T12).
+- `PROGRESS.md` của coder ghi "mọi ảnh ≤ 380 sprite", nhưng bảng ở ngay dưới có `aim-meadow-night` 353 và `labels-portrait-alpha` 372. Đúng ra phải là ngân sách ≤ 600 sprite như tester ghi; nên sửa câu đó cho khỏi nhầm.
+- Ảnh `island` của `npm run shots` phụ thuộc may rủi (đã gặp ở cả hai đợt). Nên thêm vào `TASKS.md` thành một việc riêng (ví dụ cho T14): chụp lúc máu đầy, hoặc tạm cho người chơi không bị cắn trong cảnh đó.

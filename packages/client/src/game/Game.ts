@@ -1,39 +1,22 @@
 import { Container, Sprite, type Texture } from "pixi.js";
-import { Callbacks } from "@colyseus/sdk";
 import {
   ClientMessage,
   throwTarget,
   type AimCandidate,
   distance,
-  getSpecies,
   stepWithDash,
   gatherNodes,
-  CRAFT_RANGE,
   DAY_LENGTH_MS,
   daylight,
   phaseAt,
-  BOSS,
-  ALPHA,
-  GEAR,
-  ITEMS,
-  ITEM_INFO,
-  REGION_INFO,
-  biomeAt,
   isSea,
-  DEFAULT_LOOKS,
-  DEFAULT_WORN,
-  STARTER_WARDROBE,
-  getWearable,
-  learnset,
   type Vec2,
-  type Look,
-  type Worn,
   defaultWorld,
 } from "@petgame/shared";
-import { inviteLink, type GameRoom } from "../net/connection.ts";
+import type { GameRoom } from "../net/connection.ts";
 import type { ConnectionWatch } from "../net/reconnect.ts";
 import { Hud } from "../ui/hud.ts";
-import { PartyPanel, skillValue } from "../ui/party.ts";
+import { PartyPanel } from "../ui/party.ts";
 import { SkillBar } from "../ui/skillbar.ts";
 import { CraftPanel } from "../ui/crafting.ts";
 import { WardrobePanel } from "../ui/wardrobe.ts";
@@ -51,31 +34,18 @@ import { Effects } from "./effects.ts";
 import { Lighting, type Light } from "./lighting.ts";
 import { Weather } from "./weather.ts";
 import { Labels, type Tag } from "./labels.ts";
-import { CAMERA_LEAD_PX, LABEL_RANK, PLAYER_TAG_LIFT_PX, restingNameTop } from "./labelLayout.ts";
+import { CAMERA_LEAD_PX } from "./labelLayout.ts";
 import { Actor, PalActor, PlayerActor } from "./entities.ts";
-import { palPortrait, spriteFor, type PalSprite } from "./palSprites.ts";
-import { campArt, chestArt, gemArt } from "./art/props.ts";
+import type { PalSprite } from "./palSprites.ts";
 import { SkillCasts } from "./skillCasts.ts";
 import { ServerEvents } from "./serverEvents.ts";
 import { Controls } from "./controls.ts";
+import { HudBridge } from "./hudBridge.ts";
+import { StateSync } from "./stateSync.ts";
 
 export interface GameAssets {
   pals: Map<string, PalSprite>;
 }
-
-/** What a synced player looks like and wears. */
-interface Dressed {
-  hair: string;
-  hairColor: number;
-  skin: number;
-  outfit: string;
-  hat: string;
-  weapon: string;
-}
-
-const lookOf = (p: Dressed): Look => ({ hair: p.hair as Look["hair"], hairColor: p.hairColor, skin: p.skin });
-const wornOf = (p: Dressed): Worn => ({ outfit: p.outfit, hat: p.hat, weapon: p.weapon });
-const dressKey = (p: Dressed) => `${p.hair},${p.hairColor},${p.skin},${p.outfit},${p.hat},${p.weapon}`;
 
 export interface Named<A extends Actor> {
   actor: A;
@@ -111,12 +81,11 @@ const PAL_DRAW_DISTANCE = 1000;
 const SNAP_DISTANCE = 64;
 /** No walking: what the local player does while the connection is down (never changed, so it can be shared). */
 const STILL: Vec2 = { x: 0, y: 0 };
-/** How faint a player waiting to reconnect is drawn (0..1). */
-const AWAY_ALPHA = 0.45;
 
 /**
- * The game screen: connects the synced room state to the 2D world (PixiJS)
- * and the DOM HUD, predicts the local player's movement and sends input.
+ * The game screen: owns the state and the frame loop (prediction, camera, drawing order) and hands the rest to its parts:
+ * stateSync (synced state on screen), serverEvents (server messages), skillCasts (skills), controls (the player's actions),
+ * hudBridge (the HUD).
  */
 export class Game {
   /**
@@ -207,6 +176,8 @@ export class Game {
   readonly skillCasts = new SkillCasts(this);
   readonly serverEvents = new ServerEvents(this);
   readonly controls = new Controls(this);
+  readonly hudBridge = new HudBridge(this);
+  readonly stateSync = new StateSync(this);
 
   private constructor(private container: HTMLElement, readonly room: GameRoom, readonly assets: GameAssets, readonly watch: ConnectionWatch) {}
 
@@ -254,67 +225,7 @@ export class Game {
     this.weather = new Weather(this.stage.weather, this.glow, this.glow, layout);
     this.labels = new Labels(container, this.stage);
 
-    this.hud = new Hud(container, isTouch, {
-      attack: () => this.controls.attack(),
-      dash: () => this.controls.dash(),
-      capture: () => this.controls.throwBall(),
-      placeBase: () => this.send(ClientMessage.PlaceBase),
-      toggleBall: () => this.controls.toggleBall(),
-      eat: () => this.controls.eat(),
-      toggleSound: () => this.sound.toggleMute(),
-    });
-    this.hud.setMuted(this.sound.muted);
-    // Upright phones: two toasts only when they end above my name (T62, docs/design/hud.md).
-    this.hud.setNameTop(() => {
-      const me = this.me();
-      return me ? restingNameTop(this.stage.height, this.stage.camera.zoom, me.height) : undefined;
-    });
-    // Audio can only start after a user gesture: joining counts, but retry on the next one too.
-    this.sound.unlock();
-    const unlock = () => this.sound.unlock();
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
-    if (isTouch) this.joystick = new Joystick(this.hud.joystickZone);
-    this.party = new PartyPanel(this.hud.root, {
-      summon: (palId) => this.send(ClientMessage.Summon, { palId }),
-      work: (palId) => this.send(ClientMessage.Assign, { palId, assignment: "work" }),
-      rest: (palId) => this.send(ClientMessage.Assign, { palId, assignment: "" }),
-      feed: (palId) => this.send(ClientMessage.Feed, { palId }),
-      release: (palId) => this.send(ClientMessage.Release, { palId }),
-    }, (speciesId) => palPortrait(spriteFor(this.assets.pals, speciesId)));
-    this.skillBar = new SkillBar(this.hud.root, isTouch, {
-      use: (skill) => this.send(ClientMessage.PalSkill, { skill }),
-      setAuto: (on) => this.send(ClientMessage.PalAuto, { on }),
-      hint: (text) => this.hud.showToast(text, "low"),
-    });
-    this.quests = new QuestTracker(this.hud.left);
-    this.minimap = new Minimap(this.hud.root);
-    this.craft = new CraftPanel(this.hud.root, (recipeId) => this.send(ClientMessage.Craft, { recipeId }));
-    this.wardrobe = new WardrobePanel(this.hud.root, {
-      setLook: (look) => this.send(ClientMessage.SetLook, look),
-      equip: (slot, id) => this.send(ClientMessage.Equip, { slot, id }),
-    }, { look: DEFAULT_LOOKS[0], worn: DEFAULT_WORN, wardrobe: STARTER_WARDROBE });
-    // Only one panel open at a time.
-    const panels = [this.party, this.craft, this.wardrobe];
-    for (const panel of panels) panel.onOpen = () => panels.forEach((other) => other !== panel && other.toggle(false));
-    this.keyboard = new Keyboard({
-      " ": () => this.controls.attack(),
-      shift: () => this.controls.dash(),
-      e: () => this.controls.throwBall(),
-      b: () => this.send(ClientMessage.PlaceBase),
-      r: () => this.controls.toggleBall(),
-      h: () => this.controls.eat(),
-      m: () => this.hud.setMuted(this.sound.toggleMute()),
-      n: () => this.minimap.toggle(),
-      // Order the following pal's skills (nothing is ordered while the connection is down).
-      "1": () => this.watch.online && this.skillBar.press(0),
-      "2": () => this.watch.online && this.skillBar.press(1),
-      "3": () => this.watch.online && this.skillBar.press(2),
-    }, {
-      // The release dialog and the panels the keyboard is in keep the world's keys (see docs/design/hud.md).
-      dialogOpen: () => this.party.dialogOpen,
-      panels: panels.map((panel) => panel.element),
-    });
+    this.hudBridge.build(container, isTouch);
 
     this.stage.app.renderer.on("resize", () => this.stage.resize());
     this.bindRoom();
@@ -342,224 +253,8 @@ export class Game {
     });
   }
 
-  private nameTag(text: string, className: string, at: () => Vec2 | undefined, lift: number, rank: number): { tag: Tag; label: HTMLDivElement; text: HTMLSpanElement } {
-    const label = document.createElement("div");
-    label.className = className;
-    const span = document.createElement("span");
-    span.textContent = text;
-    label.append(span);
-    return { tag: this.labels.add(label, at, lift, rank), label, text: span };
-  }
-
   private bindRoom() {
-    const $ = Callbacks.get(this.room);
-
-    $.onAdd("players", (player, sessionId) => {
-      const isMe = sessionId === this.room.sessionId;
-      const actor = new PlayerActor({ x: player.x, y: player.y }, player.color, this.shadowTexture, lookOf(player), wornOf(player));
-      let dressed = dressKey(player);
-      this.addActor(actor);
-      const { tag, label, text } = this.nameTag(player.name, isMe ? "label me" : "label", () => actor.pos, actor.height + PLAYER_TAG_LIFT_PX, isMe ? LABEL_RANK.me : LABEL_RANK.player);
-      const hpFill = addHpBar(label);
-      this.players.set(sessionId, { actor, tag, label });
-      // Waiting to reconnect: the figure and the name are dimmed and the name says so, until they are back.
-      let away = false;
-      const showAway = () => {
-        if (player.offline === away) return;
-        away = player.offline;
-        actor.root.alpha = actor.ground.alpha = away ? AWAY_ALPHA : 1;
-        label.classList.toggle("offline", away);
-        text.textContent = away ? `${player.name} (mất kết nối)` : player.name;
-      };
-      showAway(); // a player who joins after the drop still sees them dimmed
-      $.onChange(player, () => {
-        actor.server.x = player.x;
-        actor.server.y = player.y;
-        setHp(label, hpFill, player.hp, player.maxHp);
-        showAway();
-        if (dressKey(player) !== dressed) {
-          dressed = dressKey(player);
-          actor.dress(lookOf(player), wornOf(player));
-          tag.lift = actor.height + PLAYER_TAG_LIFT_PX;
-          if (isMe) remember(player);
-        }
-        this.syncCamp(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
-      });
-      this.syncCamp(sessionId, player.hasBase, player.baseX, player.baseY, player.color, player.name, player.baseLevel);
-      if (isMe) {
-        remember(player);
-        this.camera.x = player.x;
-        this.camera.y = player.y;
-        this.camera.ready = true;
-      }
-    });
-
-    $.onRemove("players", (_player, sessionId) => {
-      const entity = this.players.get(sessionId);
-      if (entity) this.removeActor(entity);
-      this.players.delete(sessionId);
-      this.syncCamp(sessionId, false, 0, 0, 0, "", 1);
-    });
-
-    $.onAdd("pals", (pal, id) => {
-      const species = getSpecies(pal.speciesId);
-      const sprite = spriteFor(this.assets.pals, species.id);
-      const actor = new PalActor({ x: pal.x, y: pal.y }, sprite, species.id, this.shadowTexture, pal.boss ? BOSS.displayScale : pal.alpha ? ALPHA.displayScale : 1);
-      if (pal.boss) {
-        this.bossId = id;
-        actor.ring(0xff3d00, 3, 0.7);
-        actor.crowned();
-      }
-      // A pack leader: bigger, glowing gold.
-      if (pal.alpha) actor.aura(0xffc107);
-      this.addActor(actor);
-      const { tag, label } = pal.boss
-        ? this.nameTag(`👑 ${BOSS.name}`, "label pal boss", () => actor.pos, actor.height + 8, LABEL_RANK.leader)
-        : pal.alpha
-          ? this.nameTag(`★ Đầu đàn · Lv ${pal.level} ${species.name}`, "label pal alpha", () => actor.pos, actor.height + 6, LABEL_RANK.leader)
-          : this.nameTag(`Lv ${pal.level} ${species.name}`, "label pal", () => actor.pos, actor.height + 4, LABEL_RANK.wild);
-      const hpFill = addHpBar(label);
-      const aim: AimCandidate = { id, x: pal.x, y: pal.y, hp: pal.hp, maxHp: pal.maxHp, dizzy: pal.dizzy, boss: pal.boss, inBall: false };
-      const entity: PalEntity = { actor, tag, label, hpFill, hp: pal.hp, maxHp: pal.maxHp, aim, heldUntil: 0 };
-      this.pals.set(id, entity);
-      this.updateHpBar(entity);
-      let { angry, dizzy, windup } = pal;
-      actor.setWindup(windup);
-      actor.setDizzy(dizzy);
-      label.classList.toggle("dizzy", dizzy);
-      $.onChange(pal, () => {
-        actor.server.x = pal.x;
-        actor.server.y = pal.y;
-        entity.hp = pal.hp;
-        entity.maxHp = pal.maxHp;
-        aim.hp = pal.hp;
-        aim.maxHp = pal.maxHp;
-        aim.dizzy = pal.dizzy;
-        this.updateHpBar(entity);
-        label.classList.toggle("angry", pal.angry);
-        const near = this.nearMe(actor.pos, 520);
-        if (pal.windup !== windup) {
-          windup = pal.windup;
-          // A skill's wind-up shows from its cast message (in its element's color).
-          if (windup !== "skill") actor.setWindup(windup);
-          // Where the boss's stomp will land: get out of the ring.
-          if (windup === "stomp") this.effects.warning(() => this.pals.get(id)?.actor.pos, BOSS.stompRadius, BOSS.stompWindupMs / 1000);
-        }
-        if (pal.dizzy !== dizzy) {
-          dizzy = pal.dizzy;
-          actor.setDizzy(dizzy);
-          label.classList.toggle("dizzy", dizzy);
-          if (dizzy && near) {
-            this.labels.float(actor.pos, actor.height + 4, "💫 Choáng!", "dizzy");
-            if (this.nearMe(actor.pos, 260)) this.tip("dizzy", this.touch
-              ? "💫 Thú choáng: bấm Bắt để dễ bắt, hoặc Đánh tiếp để hạ gục lấy đồ"
-              : "💫 Thú choáng: ném bóng (E) để dễ bắt, hoặc đánh tiếp (Space) để hạ gục lấy đồ");
-          }
-        }
-        if (pal.angry !== angry) {
-          angry = pal.angry;
-          // Noticed someone, or gave up the chase.
-          if (near && !dizzy) this.labels.float(actor.pos, actor.height + 2, angry ? "❗" : "❓", "emote");
-        }
-      });
-    });
-
-    $.onRemove("pals", (_pal, id) => {
-      if (id === this.bossId) this.bossId = undefined;
-      const entity = this.pals.get(id);
-      this.pals.delete(id);
-      // Kept on screen a moment: falling over, inside a ball, or fading away.
-      if (entity) this.leaving.set(id, { entity, since: performance.now(), fate: this.fates.get(id) });
-      this.fates.delete(id);
-    });
-
-    // Chopped trees and broken rocks, until they grow back.
-    $.onAdd("felled", (_value, key) => {
-      const index = Number(key.slice(1));
-      this.scenery.setFelled(index, true);
-      const at = this.scenery.propTop(index);
-      if (at && this.frames > 10 && this.nearMe(at, 600)) {
-        if (this.defaultLayout.props[index]?.kind === "tree") this.effects.leaves({ x: at.x, y: at.y - 30 }, 14);
-        this.effects.poof(at);
-      }
-    });
-    $.onRemove("felled", (_value, key) => this.scenery.setFelled(Number(key.slice(1)), false));
-
-    $.onAdd("companions", (companion, id) => {
-      const species = getSpecies(companion.speciesId);
-      const actor = new PalActor({ x: companion.x, y: companion.y }, spriteFor(this.assets.pals, species.id), species.id, this.shadowTexture);
-      // A ring in the owner's color marks whose pal this is.
-      actor.ring(this.room.state.players.get(companion.ownerId)?.color ?? 0xffffff, 2.5);
-      this.addActor(actor);
-      // `mode` is set once by the server when the companion is created, so the rank holds for its whole life.
-      const rank = companion.ownerId === this.room.sessionId && companion.mode === "follow" ? LABEL_RANK.follower : LABEL_RANK.companion;
-      // A caught pack leader: a ★ and gold text. Set once by the server when it comes out, like `mode`.
-      const star = companion.alpha ? "★ " : "";
-      const { tag, label, text } = this.nameTag(`${star}Lv ${companion.level} ${species.name}`, companion.alpha ? "label companion alpha" : "label companion", () => actor.pos, actor.height + 4, rank);
-      const hpFill = addHpBar(label);
-      this.companions.set(id, { actor, tag, label });
-      // Just caught: it stays in the ball until it clicks shut, then hops out and runs to its owner.
-      const key = `${companion.ownerId}:${companion.speciesId}`;
-      const caught = this.catches.get(key);
-      this.catches.delete(key);
-      const wait = caught ? caught.revealAt - performance.now() : 0;
-      if (caught && wait > 0) {
-        actor.root.visible = actor.ground.visible = tag.visible = false;
-        setTimeout(() => {
-          if (!this.companions.has(id)) return;
-          actor.pos = { ...caught.at };
-          actor.root.visible = actor.ground.visible = tag.visible = true;
-          actor.play("pop");
-        }, wait + 150);
-      }
-      $.onChange(companion, () => {
-        actor.server.x = companion.x;
-        actor.server.y = companion.y;
-        // Writing the same text again makes the tag be measured again, and this runs about 20 times a second.
-        const shown = `${star}Lv ${companion.level} ${species.name}`;
-        if (text.textContent !== shown) text.textContent = shown;
-        setHp(label, hpFill, companion.hp, companion.maxHp);
-      });
-    });
-
-    $.onRemove("companions", (_companion, id) => {
-      const entity = this.companions.get(id);
-      if (entity) this.removeActor(entity);
-      this.companions.delete(id);
-    });
-
-    $.onAdd("chests", (chest, id) => {
-      const art = chestArt();
-      const body = new Sprite(art.texture);
-      body.anchor.set(art.anchor.x, art.anchor.y);
-      body.position.set(chest.x, chest.y);
-      body.zIndex = chest.y;
-      body.scale.set(art.scale ?? 1);
-      if ((chest.x * 13 + chest.y * 7) % 2 > 1) body.scale.x *= -1;
-      const gemArtwork = gemArt();
-      const gem = new Sprite(gemArtwork.texture);
-      gem.anchor.set(gemArtwork.anchor.x, gemArtwork.anchor.y);
-      gem.zIndex = chest.y + 0.1;
-      this.stage.objects.addChild(body, gem);
-      this.chests.set(id, { body, gem, at: { x: chest.x, y: chest.y } });
-    });
-
-    $.onRemove("chests", (_chest, id) => {
-      const chest = this.chests.get(id);
-      if (!chest) return;
-      chest.body.destroy();
-      chest.gem.destroy();
-      this.chests.delete(id);
-    });
-
-    $.onAdd("fruits", (_fruit, id) => this.scenery.setRipe(Number(id.replace("fruit", "")), true));
-    $.onRemove("fruits", (_fruit, id) => this.scenery.setRipe(Number(id.replace("fruit", "")), false));
-
-    $.listen("dayTime", (value) => {
-      this.serverDay = value;
-      this.serverDayAt = performance.now();
-    });
-
+    this.stateSync.bind();
     this.serverEvents.bind();
   }
 
@@ -660,7 +355,7 @@ export class Game {
       l.entity.actor.update(dt);
       if (!l.fate) l.entity.actor.root.alpha = Math.max(0, 1 - age / 300);
       if (age > (l.fate === "ko" ? 750 : l.fate === "caught" ? 1200 : 300)) {
-        this.removeActor(l.entity);
+        this.stateSync.removeActor(l.entity);
         this.leaving.delete(id);
       }
     });
@@ -703,8 +398,8 @@ export class Game {
     const phase = phaseAt(dayTime);
     this.hud.setTime(phase);
     this.sound.setNight(phase === "night");
-    this.updateBossBar();
-    this.updateHud();
+    this.hudBridge.updateBossBar();
+    this.hudBridge.updateHud();
     this.labels.update(now, aimed?.tag);
     this.frames++;
   }
@@ -737,171 +432,8 @@ export class Game {
     return !me || distance(me.pos, at) < range;
   }
 
-  /** A tip shown once per session. */
-  private tip(key: string, text: string) {
-    if (this.tips.has(key)) return;
-    this.tips.add(key);
-    setTimeout(() => this.hud.showToast(text, "normal"), 600);
-  }
-
   private bossActor(): PalActor | undefined {
     return this.bossId ? this.pals.get(this.bossId)?.actor : undefined;
-  }
-
-  /** The skill bar shows the following pal's three skills (hidden when none follows). */
-  private updateSkillBar(activePalId: string, auto: boolean) {
-    const companion = activePalId ? this.room.state.companions.get(activePalId) : undefined;
-    const owned = this.room.state.players.get(this.room.sessionId)?.pals.find((p) => p.id === activePalId);
-    const following = companion?.mode === "follow" && owned ? activePalId : "";
-    // Another pal (or the same one called back): the server starts its recharges afresh.
-    if (following !== this.skillBarPal) this.skillBar.reset();
-    this.skillBarPal = following;
-    if (!following || !owned) return this.skillBar.update(undefined, auto);
-    const slots = learnset(getSpecies(owned.speciesId)).map(({ skill, level }) => ({
-      skill,
-      level,
-      known: owned.level >= level,
-      value: skillValue(skill, owned.level),
-    }));
-    this.skillBar.update(slots, auto);
-  }
-
-  private updateHpBar(pal: PalEntity) {
-    const ratio = pal.maxHp > 0 ? pal.hp / pal.maxHp : 1;
-    pal.hpFill.style.width = `${Math.round(ratio * 100)}%`;
-    pal.label.classList.toggle("hurt", ratio < 1);
-  }
-
-  private updateHud() {
-    const me = this.room.state.players?.get(this.room.sessionId);
-    const resources = { wood: me?.wood ?? 0, stone: me?.stone ?? 0, berries: me?.berries ?? 0 };
-    const gear = me ? [...GEAR.filter((g) => me[g] > 0).map((g) => ITEM_INFO[g].icon), ...wornIcons(wornOf(me))].join(" ") : "";
-    this.hud.setStatus(this.room.state.players?.size ?? 0, me?.pals.length ?? 0, resources, inviteLink(this.room.roomId), gear);
-    if (me) this.hud.setHealth(me.hp, me.maxHp);
-    if (me) {
-      const wardrobe = [...me.wardrobe];
-      this.wardrobe.update({ look: lookOf(me), worn: wornOf(me), wardrobe });
-      const party = me.pals.map((p) => ({ id: p.id, speciesId: p.speciesId, level: p.level, xp: p.xp, assignment: p.assignment, alpha: p.alpha === true }));
-      this.party.update(party, me.hasBase, me.snacks);
-      this.updateSkillBar(me.activePalId, me.palAuto);
-      if (me.greatBalls === 0) this.useGreatBall = false;
-      this.hud.setBall(this.useGreatBall, me.greatBalls);
-      const myPos = this.me()?.pos ?? me;
-      const nearBase = me.hasBase && distance(myPos, { x: me.baseX, y: me.baseY }) <= CRAFT_RANGE;
-      const items = Object.fromEntries(ITEMS.map((item) => [item, me[item] ?? 0]));
-      this.craft.update({ resources, hasBase: me.hasBase, baseLevel: me.baseLevel || 1, nearBase, items, wardrobe });
-      this.updateRegion(myPos);
-      this.quests.update(me.questIndex ?? 0, me.questProgress ?? 0);
-      this.updateMinimap(me.hasBase ? { x: me.baseX, y: me.baseY } : undefined);
-    }
-  }
-
-  /** Shows the region and climate under the local player; announces arrivals. */
-  private updateRegion(at: Vec2) {
-    const biome = biomeAt(defaultWorld().layout, at.x, at.y);
-    const info = REGION_INFO[biome];
-    this.hud.setRegion(`${info.icon} ${info.name} · ${info.climate}`);
-    const region = biome === "lake" ? "meadow" : biome;
-    if (region === this.region) return;
-    const first = this.region === "";
-    this.region = region;
-    if (!first) this.hud.showToast(`Đến ${info.icon} ${REGION_INFO[region].name} (${REGION_INFO[region].climate})`, "low");
-  }
-
-  private updateMinimap(base: Vec2 | undefined) {
-    const self = this.me();
-    const players: (Vec2 & { color: number })[] = [];
-    this.room.state.players.forEach((p, id) => {
-      const entity = this.players.get(id);
-      if (id !== this.room.sessionId && entity) players.push({ ...entity.actor.pos, color: p.color });
-    });
-    const boss = this.bossId ? this.pals.get(this.bossId)?.actor.pos : undefined;
-    const alphas: Vec2[] = [];
-    this.room.state.pals.forEach((p) => {
-      if (!p.alpha) return;
-      alphas.push({ x: p.x, y: p.y });
-      // Walking into a pack leader's lair: a warning, once per leader each session.
-      if (self && distance(self.pos, p) < ALPHA.sight + 150 && !this.alphasMet.has(p.speciesId)) {
-        this.alphasMet.add(p.speciesId);
-        this.hud.showToast(`★ Lãnh địa của ${getSpecies(p.speciesId).name} đầu đàn (Lv ${p.level}): nó tấn công ai lại gần!`, "normal");
-      }
-    });
-    const chests: Vec2[] = [];
-    this.room.state.chests?.forEach((c) => chests.push({ x: c.x, y: c.y }));
-    const headings = { front: 0, right: Math.PI / 2, back: Math.PI, left: -Math.PI / 2 };
-    this.minimap.update({
-      me: self ? { ...self.pos, heading: headings[self.facing] } : undefined,
-      players,
-      base,
-      boss,
-      alphas,
-      chests,
-    });
-  }
-
-  /** Shows the boss HP bar at the top while the boss is near. */
-  private updateBossBar() {
-    const boss = this.bossId ? this.room.state.pals.get(this.bossId) : undefined;
-    const me = this.me();
-    if (!boss || !me || distance(me.pos, boss) > 450) return this.hud.setBoss(undefined);
-    this.hud.setBoss({ name: BOSS.name, hp: boss.hp, maxHp: boss.maxHp });
-  }
-
-  /** Creates, moves or removes a player's camp to match the synced state. */
-  private syncCamp(sessionId: string, hasBase: boolean, x: number, y: number, color: number, owner: string, level: number) {
-    let camp = this.camps.get(sessionId);
-    // Upgrades change the drawing: rebuild it.
-    if (camp && hasBase && (camp.level !== level || camp.color !== color)) {
-      this.syncCamp(sessionId, false, 0, 0, 0, "", 1);
-      camp = undefined;
-    }
-    if (!hasBase) {
-      if (camp) {
-        camp.root.destroy({ children: true });
-        camp.floor.destroy();
-        this.labels.remove(camp.tag);
-        this.camps.delete(sessionId);
-      }
-      return;
-    }
-    if (!camp) {
-      const art = campArt(color, level);
-      const root = new Container();
-      const base = new Sprite(art.base.texture);
-      base.anchor.set(art.base.anchor.x, art.base.anchor.y);
-      const flag = new Sprite(art.flag.texture);
-      flag.anchor.set(art.flag.anchor.x, art.flag.anchor.y);
-      flag.position.set(art.flagAt.x, art.flagAt.y);
-      root.addChild(base, flag);
-      this.stage.objects.addChild(root);
-      const floor = new Sprite(art.floor.texture);
-      floor.anchor.set(art.floor.anchor.x, art.floor.anchor.y);
-      this.stage.marks.addChild(floor);
-      const at = { x, y };
-      const label = document.createElement("div");
-      label.className = "label base";
-      const span = document.createElement("span");
-      span.textContent = `🏕️ Trại của ${owner} · Cấp ${level}`;
-      label.append(span);
-      const tag = this.labels.add(label, () => at, 96, LABEL_RANK.camp);
-      camp = { root, floor, flag, level, color, tag, at };
-      this.camps.set(sessionId, camp);
-    }
-    camp.at.x = x;
-    camp.at.y = y;
-    camp.root.position.set(x, y);
-    camp.root.zIndex = y;
-    camp.floor.position.set(x, y);
-  }
-
-  private addActor(actor: Actor) {
-    this.stage.shadows.addChild(actor.ground);
-    this.stage.objects.addChild(actor.root);
-  }
-
-  private removeActor(entity: Named<Actor>) {
-    this.labels.remove(entity.tag);
-    entity.actor.destroy();
   }
 
   /** Numbers for tests and the screenshot tool; `prop` also reports the shake and regrow state of the tree or rock with that layout index. */
@@ -919,39 +451,4 @@ export class Game {
       aim: { id: this.aimedId, shown: this.aimMarker.shown, x: this.aimMarker.x, y: this.aimMarker.y },
     };
   }
-}
-
-/** Keeps the local explorer's look and clothes for the lobby next time (it shows them and sends the look). */
-function remember(player: Dressed) {
-  try {
-    localStorage.setItem("petgame:look", JSON.stringify(lookOf(player)));
-    localStorage.setItem("petgame:worn", JSON.stringify(wornOf(player)));
-  } catch {
-    // No storage (private mode): the lobby starts from a random look.
-  }
-}
-
-/** Icons of what is worn that does something: warm or sun-proof clothes, armor, the weapon. */
-function wornIcons(worn: Worn): string[] {
-  return [worn.outfit, worn.hat, worn.weapon]
-    .map((id) => getWearable(id))
-    .filter((w) => w && (w.protects || w.defense || w.weapon))
-    .map((w) => w!.icon);
-}
-
-/** A small health bar under a label, hidden while at full health. */
-function addHpBar(label: HTMLDivElement): HTMLDivElement {
-  const bar = document.createElement("div");
-  bar.className = "hp-bar";
-  const fill = document.createElement("div");
-  bar.append(fill);
-  label.append(bar);
-  return fill;
-}
-
-function setHp(label: HTMLDivElement, fill: HTMLDivElement, hp: number, maxHp: number) {
-  const ratio = maxHp > 0 ? Math.max(0, hp) / maxHp : 1;
-  fill.style.width = `${Math.round(ratio * 100)}%`;
-  fill.classList.toggle("low", ratio < 0.3);
-  label.classList.toggle("hurt", ratio < 1);
 }
