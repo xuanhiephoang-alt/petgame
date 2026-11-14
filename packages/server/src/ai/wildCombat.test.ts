@@ -21,8 +21,8 @@ describe("wild combat", () => {
     expect(300 - pos.x).toBeLessThanOrEqual(WILD_ATTACK_RANGE);
   });
 
-  it("runs straight away when fleeing", () => {
-    const next = stepFlee({ x: 100, y: 100 }, { x: 60, y: 100 }, 200, 100, 10);
+  it("runs along the given heading", () => {
+    const next = stepFlee({ x: 100, y: 100 }, { x: 1, y: 0 }, 200, 100, 10);
     expect(next.x).toBeCloseTo(120);
     expect(next.y).toBeCloseTo(100);
   });
@@ -31,7 +31,7 @@ describe("wild combat", () => {
     let pal = { x: 100, y: 0 };
     let player = { x: 0, y: 0 };
     for (let i = 0; i < 20; i++) {
-      pal = stepFlee(pal, player, fleeSpeed(getSpecies("voltmouse").speed), 50, 12);
+      pal = stepFlee(pal, { x: 1, y: 0 }, fleeSpeed(getSpecies("voltmouse").speed), 50, 12);
       const gap = pal.x - player.x;
       player = { x: player.x + Math.min(PLAYER_SPEED * 0.05, gap), y: 0 };
       expect(pal.x - player.x).toBeLessThanOrEqual(100 + 96 * 0.05 + 0.01);

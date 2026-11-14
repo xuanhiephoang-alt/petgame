@@ -54,10 +54,8 @@ export function stepChase(
   return { pos: next, inRange: distance(next, target) <= range };
 }
 
-/** Runs straight away from `from` (a passive pal that got hit), sliding around obstacles. */
-export function stepFlee(pos: Vec2, from: Vec2, speed: number, dtMs: number, radius: number, obstacles?: CollisionGrid): Vec2 {
-  const dx = pos.x - from.x, dy = pos.y - from.y;
-  const d = Math.hypot(dx, dy) || 1;
-  const goal = { x: pos.x + (dx / d) * 200, y: pos.y + (dy / d) * 200 };
+/** Runs along `dir` (a unit vector, from fleeDirection) at `speed`, sliding around obstacles. */
+export function stepFlee(pos: Vec2, dir: Vec2, speed: number, dtMs: number, radius: number, obstacles?: CollisionGrid): Vec2 {
+  const goal = { x: pos.x + dir.x * 200, y: pos.y + dir.y * 200 };
   return stepToward(pos, goal, 0, dtMs, radius, obstacles, speed);
 }

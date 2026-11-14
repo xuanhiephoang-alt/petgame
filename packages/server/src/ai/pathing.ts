@@ -88,7 +88,8 @@ export class PathPlanner {
   /** What the last `run` cost, for tests. */
   lastRun = { searches: 0, expanded: 0, refused: 0 };
 
-  constructor(private nav: NavGrid, private limits: PathLimits = PATHING) {}
+  /** `nav` is the grid this planner searches; GameRoom shares it for fleeing pals. */
+  constructor(readonly nav: NavGrid, private limits: PathLimits = PATHING) {}
 
   /**
    * The point `key` should walk to this tick: `goal` itself (straight, as before) or a waypoint

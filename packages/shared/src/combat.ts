@@ -1,6 +1,7 @@
 import { PLAYER_SPEED, WORLD_HEIGHT, WORLD_WIDTH } from "./constants.ts";
 import type { CollisionGrid } from "./collision.ts";
 import { clamp, type Vec2 } from "./movement.ts";
+import { NAV_MAX_CLEARANCE, type NavGrid } from "./pathfind.ts";
 import type { Element, PalSpecies } from "./pals.ts";
 import { scaledMaxHp } from "./progression.ts";
 import type { Reward } from "./rewards.ts";
@@ -65,6 +66,108 @@ export const DIZZY_CATCH_BONUS = 1.5;
 export const DIZZY_RECOVER = 0.3;
 /** A passive pal that gets hit runs away this long (ms). */
 export const FLEE_MS = 2500;
+
+/** Numbers of how a fleeing passive pal picks its heading (fleeDirection). */
+export interface FleeSteerTable {
+  /** First pass looks this far (degrees) to either side of straight away from the attacker. */
+  halfAngleDeg: number;
+  /** Headings in the first pass; odd, so straight away (0 degrees) is one of them. */
+  samples: number;
+  /** Length (px) of the stretch a heading must keep clear: one second of running at WILD_FLEE_SPEED_CAP. */
+  lookaheadPx: number;
+  /** Score weight of cos(offset from straight away). */
+  alignWeight: number;
+  /** Score weight of the open space at the end of the stretch (0..1 of NAV_MAX_CLEARANCE). */
+  clearanceWeight: number;
+  /** A chosen heading is kept this long (ms), so the pal does not jitter between near-equal headings. */
+  holdMs: number;
+  /** Headings around the full circle, tried when every forward heading is blocked. */
+  fallbackSamples: number;
+}
+
+/** Tuned in BALANCE.md of T57; see docs/design/pals.md "Chạy về phía thoáng". Changing these is a balance change. */
+export const FLEE_STEER: FleeSteerTable = {
+  halfAngleDeg: 70,
+  samples: 9,
+  lookaheadPx: 96,
+  alignWeight: 1,
+  clearanceWeight: 1,
+  holdMs: 250,
+  fallbackSamples: 16,
+};
+
+/** "ahead": a forward heading is clear; "around": only a wider one is; "straight": boxed in, runs straight away. */
+export type FleeHeading = "ahead" | "around" | "straight";
+export interface FleeChoice {
+  /** Unit vector to run along. */
+  x: number;
+  y: number;
+  heading: FleeHeading;
+}
+/** Server-only steering memory of one fleeing pal. */
+export interface FleeSteerState {
+  dirX: number;
+  dirY: number;
+  /** Keep the heading until this time (ms); 0 forces a new choice. */
+  steerUntil: number;
+}
+
+type FleeNav = Pick<NavGrid, "clearanceAt" | "lineClear">;
+/** Scratch end point of the stretch being tested, so choosing a heading allocates little. */
+const fleeEnd: Vec2 = { x: 0, y: 0 };
+
+/**
+ * Picks the unit direction a hit passive pal runs along: straight away from `from` when that stretch is clear,
+ * else the best clear heading within a wide cone (score: alignment plus open space), else any clear heading
+ * around the circle, else straight away as before. Deterministic: headings are tried in a fixed order and
+ * only a strictly better score replaces the best, so ties keep the heading closest to straight away.
+ */
+export function fleeDirection(pos: Vec2, from: Vec2, radius: number, nav: FleeNav, steer: FleeSteerTable = FLEE_STEER): FleeChoice {
+  const dx = pos.x - from.x, dy = pos.y - from.y;
+  const d = Math.hypot(dx, dy);
+  const ax = d > 1e-6 ? dx / d : 0, ay = d > 1e-6 ? dy / d : 1;
+  const base = Math.atan2(ay, ax);
+  const body = { radius, sea: false };
+
+  /** Best clear heading among `n` ones `stepRad` apart, tried 0, +1, -1, +2, -2 ... steps off straight away. */
+  const pick = (n: number, stepRad: number): { x: number; y: number } | undefined => {
+    let best: { x: number; y: number } | undefined;
+    let bestScore = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const off = (i % 2 === 1 ? 1 : -1) * Math.ceil(i / 2) * stepRad;
+      const hx = Math.cos(base + off), hy = Math.sin(base + off);
+      fleeEnd.x = pos.x + hx * steer.lookaheadPx;
+      fleeEnd.y = pos.y + hy * steer.lookaheadPx;
+      if (!nav.lineClear(pos, fleeEnd, body)) continue;
+      const open = Math.min(nav.clearanceAt(fleeEnd.x, fleeEnd.y), NAV_MAX_CLEARANCE) / NAV_MAX_CLEARANCE;
+      const score = steer.alignWeight * Math.cos(off) + steer.clearanceWeight * open;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x: hx, y: hy };
+      }
+    }
+    return best;
+  };
+
+  const ahead = pick(steer.samples, (2 * steer.halfAngleDeg * Math.PI) / 180 / (steer.samples - 1));
+  if (ahead) return { ...ahead, heading: "ahead" };
+  const around = pick(steer.fallbackSamples, (2 * Math.PI) / steer.fallbackSamples);
+  if (around) return { ...around, heading: "around" };
+  return { x: ax, y: ay, heading: "straight" };
+}
+
+/**
+ * Chooses a new heading for a fleeing pal unless the last one is still held (so it does not jitter).
+ * Returns whether it chose; setting `state.steerUntil = 0` forces a new choice on the next call.
+ */
+export function steerFlee(state: FleeSteerState, pos: Vec2, from: Vec2, radius: number, nav: FleeNav, now: number, steer: FleeSteerTable = FLEE_STEER): boolean {
+  if (now < state.steerUntil) return false;
+  const choice = fleeDirection(pos, from, radius, nav, steer);
+  state.dirX = choice.x;
+  state.dirY = choice.y;
+  state.steerUntil = now + steer.holdMs;
+  return true;
+}
 /** How often a player's hit is critical, and how much harder it hits. */
 export const CRIT_CHANCE = 0.12;
 export const CRIT_MULTIPLIER = 1.6;

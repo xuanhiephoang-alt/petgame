@@ -121,6 +121,8 @@ import {
   biomeAt,
   companionMaxHp,
   fleeSpeed,
+  steerFlee,
+  type FleeSteerState,
   isNight,
   wildDamage,
   type DamageMessage,
@@ -319,8 +321,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private rootedUntil = new Map<string, number>();
   /** Wild pal id -> time until which it reels at 1 HP (pal.dizzy). */
   private dizzyUntil = new Map<string, number>();
-  /** Passive pal id -> who hit it and until when it runs away. */
-  private fleeing = new Map<string, { from: Pick<CombatTarget, "kind" | "id">; until: number }>();
+  /** Passive pal id -> who hit it, until when it runs away, and the heading it holds (server only). */
+  private fleeing = new Map<string, { from: Pick<CombatTarget, "kind" | "id">; until: number } & FleeSteerState>();
   /** Wild pal id -> time until which it sits in a ball that will break open (a failed catch): it cannot act or be hit. */
   private inBall = new Map<string, number>();
   /** Who threw the ball a pal is in: it is angry at them when it breaks out. */
@@ -759,12 +761,15 @@ export class GameRoom extends Room<{ state: GameState }> {
       }
       const flee = this.fleeing.get(id);
       const from = flee && flee.until > now ? this.targetPos(flee.from) : undefined;
-      if (from) {
-        // A passive pal runs away, slower than a walking player (fleeSpeed).
-        const next = stepFlee(pos, from, fleeSpeed(species.speed), dtMs, radius, this.obstacles);
+      if (flee && from) {
+        // A passive pal runs away toward open ground, slower than a walking player (fleeSpeed).
+        steerFlee(flee, pos, from, radius, this.paths.nav, now);
+        const next = stepFlee(pos, { x: flee.dirX, y: flee.dirY }, fleeSpeed(species.speed), dtMs, radius, this.obstacles);
         if (!isSea(this.terrain, next.x, next.y)) {
           pal.x = next.x;
           pal.y = next.y;
+        } else {
+          flee.steerUntil = 0; // pick a new heading next tick instead of standing at the shore
         }
         return;
       }
@@ -1782,7 +1787,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!pal) return;
     const now = this.clock.currentTime;
     if (getSpecies(pal.speciesId).temperament === "passive" && !pal.alpha) {
-      this.fleeing.set(palId, { from: target, until: now + FLEE_MS });
+      this.fleeing.set(palId, { from: target, until: now + FLEE_MS, dirX: 0, dirY: 0, steerUntil: 0 });
       return;
     }
     const existing = this.wildAggro.get(palId);

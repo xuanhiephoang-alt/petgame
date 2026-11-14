@@ -682,6 +682,15 @@ function plantTrees(room: GameRoom, circles: Circle[]) {
   (room as any).paths = new PathPlanner(new NavGrid(grid, defaultWorld().layout.terrain));
 }
 
+/** A land spot just inside the west coast, with sea right next to it. */
+function westShore() {
+  const { layout } = defaultWorld();
+  let x = layout.regions.swamp.x;
+  const y = layout.regions.swamp.y;
+  while (!isSea(layout.terrain, x - 30, y)) x -= 10;
+  return { x, y };
+}
+
 describe("finding a way around trees", () => {
   const C = { x: 3200, y: 2560 };
 
@@ -1774,15 +1783,6 @@ describe("exploration", () => {
 });
 
 describe("regions and climate", () => {
-  /** A land spot just inside the west coast, with sea right next to it. */
-  function westShore() {
-    const { layout } = defaultWorld();
-    let x = layout.regions.swamp.x;
-    const y = layout.regions.swamp.y;
-    while (!isSea(layout.terrain, x - 30, y)) x -= 10;
-    return { x, y };
-  }
-
   /**
    * A straight walk over open ground near the volcano, found in the fixed world: `home`, `stray` far from it and
    * `away` further along the same line. Nothing on the line (tree, rock, lake, volcano, sea) touches even the
@@ -2200,6 +2200,90 @@ describe("chopping, dodging, dizzy pals", () => {
     expect(distance(pal, start)).toBeCloseTo(fleeSpeed(getSpecies("voltmouse").speed) * seconds, 0);
     expect(distance(pal, start)).toBeLessThan(PLAYER_SPEED * seconds);
     expect(pal.x).toBeGreaterThan(start.x);
+  });
+
+  /** Runs 20 real ticks and reports how far the pal got, how many ticks it stood nearly still, and whether it ever touched the sea. */
+  async function fleeRun(room: GameRoom, id: string) {
+    const pal = room.state.pals.get(id)!;
+    const terrain = defaultWorld().layout.terrain;
+    const start = { x: pal.x, y: pal.y };
+    const minStep = 0.3 * fleeSpeed(getSpecies("voltmouse").speed) * (TICK_MS / 1000);
+    let stuck = 0, swam = false;
+    for (let i = 0; i < 20; i++) {
+      const before = { x: pal.x, y: pal.y };
+      await room.waitForNextTimestep();
+      if (distance(pal, before) < minStep) stuck++;
+      if (isSea(terrain, pal.x, pal.y)) swam = true;
+    }
+    return { moved: distance(pal, start), stuck, swam };
+  }
+
+  it("a hit passive pal with a tree right behind it runs around the tree", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const C = { x: 3200, y: 2560 };
+    const tree = { x: C.x + 40, y: C.y, r: 14 };
+    plantTrees(room, [tree]);
+    player.x = C.x - 30;
+    player.y = C.y;
+    const id = placeWild(room, "voltmouse", player, 30);
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    const run = await fleeRun(room, id);
+    const pal = room.state.pals.get(id)!;
+    expect(run.moved).toBeGreaterThanOrEqual(70);
+    expect(run.stuck).toBeLessThanOrEqual(1);
+    expect(distance(pal, player)).toBeGreaterThan(80);
+    expect(distance(pal, tree)).toBeGreaterThanOrEqual(14 + 12 - 0.01);
+  });
+
+  it("a hit passive pal at the shore runs along it instead of standing still", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    plantTrees(room, []);
+    const s = westShore();
+    player.x = s.x + 30;
+    player.y = s.y;
+    const id = placeWild(room, "voltmouse", player, -30);
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    const run = await fleeRun(room, id);
+    expect(run.swam).toBe(false);
+    expect(run.moved).toBeGreaterThanOrEqual(70);
+    expect(run.stuck).toBeLessThanOrEqual(1);
+  });
+
+  it("a hit again from the other side makes a fleeing pal pick a new heading at once", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    plantTrees(room, []);
+    player.x = 3200;
+    player.y = 2560;
+    const id = placeWild(room, "voltmouse", player);
+    const pal = room.state.pals.get(id)!;
+    const hit = { kind: "player", id: client.sessionId };
+    (room as any).provoke(id, hit);
+    // Synchronous ticks: the room clock stands still, so a held heading would stay held.
+    (room as any).tick(TICK_MS);
+    const east = pal.x;
+    expect(east).toBeGreaterThan(3230);
+    expect((room as any).fleeing.get(id).steerUntil).toBeGreaterThan(0);
+    player.x = pal.x + 30;
+    (room as any).provoke(id, hit);
+    expect((room as any).fleeing.get(id).steerUntil).toBe(0);
+    (room as any).tick(TICK_MS);
+    expect(pal.x).toBeLessThan(east);
+  });
+
+  it("only passive common pals flee and steer: aggressive, defensive and alpha pals fight back", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const hit = { kind: "player", id: client.sessionId };
+    const ids = [placeWild(room, "scorchtail", player), placeWild(room, "emberpup", player), placeWild(room, "voltmouse", player)];
+    room.state.pals.get(ids[2])!.alpha = true;
+    for (const id of ids) {
+      (room as any).provoke(id, hit);
+      expect((room as any).fleeing.has(id)).toBe(false);
+      expect((room as any).wildAggro.has(id)).toBe(true);
+    }
   });
 
   it("companions leave a dizzy pal for their owner", async () => {

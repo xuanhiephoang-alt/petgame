@@ -1,46 +1,31 @@
 PASS
-# REVIEW: T67 Trần thế giới với IPv6, vòng 2
+# REVIEW: T57 Thú hiền chạy trốn về phía thoáng, vòng 1
 
 ## Kết luận
-Lỗi chặn của vòng 1 đã được sửa đúng. `total()` giờ bằng số phòng mở cộng `pendingCreations`, nên mỗi lần tạo chỉ tính một lần dù có mấy khoá. Bảng `pending` theo khoá chỉ còn phục vụ `countFor`. Có test chứng minh lỗi cũ không quay lại. Toàn bộ diff T67 khớp PLAN.md và `docs/design/multiplayer.md`; không còn lỗi phải sửa.
+Thay đổi làm đúng và đủ PLAN.md, không có gì ngoài phạm vi. `fleeDirection` và `steerFlee` đúng luật, tất định, dùng đúng đơn vị (px); trạng thái giữ hướng sống trong mục `fleeing` nên không còn hướng cũ sau khi bắt, hạ gục hay choáng. Chi phí mỗi tick không đáng kể, thú không phải loài hiền không bị ảnh hưởng. Typecheck sạch, test liên quan qua (tôi đã chạy lại).
 
-## Lỗi phải sửa (FAIL khi còn mục này)
-(không còn)
+## Lỗi phải sửa
+Không có.
 
-## Đã kiểm ở vòng 2
-- `packages/server/src/worldLimits.ts`, `WorldCensus`:
-  - `admit` tăng `pendingCreations` đúng một lần, sau cả ba lần kiểm trần. Lần bị chặn không tăng bộ đếm nào.
-  - `settle` giảm bộ đếm, chặn ở 0. Việc này giữ đúng hành vi của test "nor go negative". `settle` chỉ được gọi một lần cho mỗi `admit` thành công (trong `finally`), nên việc chặn ở 0 không che lỗi đếm thật nào.
-  - JSDoc của `pending`, `pendingCreations` và `total()` nói đúng lý do không được cộng bảng theo khoá.
-- **Test mới:**
-  - "counts one IPv6 creation once toward the server cap": một lần tạo IPv6 cho `total()` = 1, và IPv4 vẫn được nhận ở `maxWorlds: 2`.
-  - "counts an opened but not yet settled IPv6 world once": phòng đã mở mà chưa `settle` cho 2, sau `settle` còn 1.
-  - Test HTTP 12 kiểm thêm `roomCount` không đổi sau lần 429.
-  - Theo tester, quay `total()` về cách cộng cũ thì hai test census mới đỏ.
-  - Tôi chạy lại `npx vitest run packages/server/src/worldLimits.test.ts`: 53/53 qua. `npm run typecheck` sạch.
-- **Câu cảnh báo:** đổi thành "...If this is not expected, check PETGAME_TRUST_PROXY (docs/deploy.md). Logged once per process."
-  - `docs/deploy.md` ghi đúng là chỉ một lần mỗi lần server chạy, và nêu nguyên nhân vô hại (khách ngắt kết nối giữa chừng).
-  - Câu vẫn không chứa địa chỉ.
-  - Lệch so với chữ trong PLAN.md (câu cũ "If this repeats") là lệch đúng hướng, theo góp ý vòng 1.
-- **`docs/design/multiplayer.md`:** thêm câu về các dạng IPv6 có IPv4 nhúng (`::a.b.c.d`, `64:ff9b::/96`), cạnh ghi chú Teredo. Nội dung chính xác.
-- **Phần đã đạt từ vòng 1, không đổi:**
-  - `parseIp` bỏ đúng cổng, ngoặc vuông và zone. Regex tuyến tính, không có rủi ro ReDoS.
-  - Các dạng khoá không trùng nhau.
-  - Thứ tự kiểm là server, rồi address, rồi network. Chặn theo /48 trả chữ `WORLD_LIMIT_ERROR.address`, nên client cũ vẫn hiện thẻ `tooMany`.
-  - `settle` nằm trong `finally`, nên lần tạo hỏng giữa chừng không làm rò số đếm.
-  - Cờ cảnh báo nằm trong closure của `guardWorldCreation`.
-  - `dev.mjs` giữ giá trị đã đặt. `shots.mjs` và `playwright.config.ts` nâng trần lên 1000. `play`, `start`, `Dockerfile`, `fly.toml` và `render.yaml` không bị đụng tới.
-  - Không file client nào bị sửa. Giao thức không đổi.
-
-## Lỗi e2e chập chờn `boss bar (phone upright, notch)` (multiplayer.spec.ts:2785)
-Tôi xác nhận lỗi này không liên quan T67, vì ba lẽ:
-- **Không có đường nào nối diff với lỗi:** diff T67 không đụng `packages/client` hay `tests/e2e`. Nó chỉ đổi cách server đếm và chặn `/matchmake/create`.
-- **Trần đã được nâng:** trong e2e cả ba trần là 1000 (`playwright.config.ts`).
-- **Lỗi xảy ra sau khi đã vào thế giới:** nếu T67 chặn nhầm thì lần tạo sẽ bị 429 và test hỏng ngay ở `join`/`waitForWorld`, với thẻ sảnh. Ở đây test đã vào thế giới rồi mới hỏng, ở số toast HUD (kỳ vọng 2, nhận 1). Đó là thời điểm toast cùng chuyện trùm đi xa và hộp nhiệm vụ hiện lại, đúng rủi ro T62 đã ghi.
-
-Ghi lỗi này vào T63 là đúng.
+## Đã kiểm
+- **Lấy mẫu góc:** vòng đầu `stepRad = 2·70°/8 = 17,5°`, thứ tự 0, +17,5, −17,5, ..., ±70 (9 hướng). Vòng dự phòng: tôi in thử thứ tự, ra 0, +22,5, −22,5, ..., −157,5, +180, đủ 16 hướng khác nhau, 180° chỉ một lần (đúng rủi ro 4 của PLAN). `i = 0` cho `off = −0`, `cos(−0) = 1`, vô hại.
+- **Chấm điểm và bằng điểm:** `alignWeight·cos(off) + clearanceWeight·min(clearanceAt(end), 64)/64`, chỉ thay khi `>`, nên bằng điểm thì giữ hướng lệch ít hơn, và lệch bằng nhau thì giữ phía `+`. Tôi chạy thử cảnh một cây: ra +52,5°, khớp bản mẫu. Không dùng `Math.random` hay thời gian.
+- **Trùng chỗ kẻ đánh:** `d ≤ 1e-6` cho `(0, 1)`, `atan2(1, 0) = π/2`, không ra NaN.
+- **Đơn vị:** `clearanceAt` trả px (tối đa `NAV_MAX_CLEARANCE` = 64), `radius` là `species.size` px, `lookaheadPx` là px. `lineClear(..., { radius, sea: false })` bỏ mẫu đầu và quét ô biển chính xác, ra khỏi thế giới thì coi là chặn. `this.paths.nav` (`defaultNav()`) dựng từ cùng `defaultWorld().grid` và terrain với `this.obstacles`/`this.terrain`; vật cản là tĩnh (không có chỗ nào thêm hay bớt vòng tròn lúc chạy).
+- **Vòng đời:** mục `fleeing` bị xoá ở `daze`, `removePal` (bắt, hạ gục, biến mất lúc sáng) và khi hết giờ hay mất kẻ đánh (dòng 776). `provoke` ghi đè cả mục (`steerUntil: 0`), nên mỗi đòn mới và mỗi lần thoát bóng đều chọn lại hướng. Mục mới luôn chọn hướng ở tick đầu (`now < 0` không xảy ra), nên `dirX/dirY = 0` không bao giờ được dùng để đi.
+- **Đứng yên ở bờ:** vẫn đứng yên tick đó như trước, đặt `steerUntil = 0` nên tick sau chọn lại. Trường hợp xấu nhất (nhánh `"straight"` đâm ra biển) là chọn lại mỗi tick, khoảng 9-10 µs mỗi lần (tôi đo được 8,9 µs mỗi lần gọi trên `defaultNav()`), không tệ hơn hành vi cũ.
+- **Thú khác:** điều kiện `passive && !alpha` trong `provoke` không đổi; nhánh đuổi, đầu đàn, trùm, thú đi theo không bị chạm. Test mới của tester khoá điều này.
+- **`PathPlanner.nav` công khai `readonly`:** chấp nhận được. Lưới dùng chung giữa các phòng, nhưng `GameRoom` chỉ gọi `lineClear` và `clearanceAt`, hai hàm thuần chỉ đọc. Trạng thái tạm của A* chạy đồng bộ, như JSDoc của `NavGrid` đã nói.
+- **Vòng import:** `combat.ts` → `pathfind.ts` → (`constants`, `collision`, `terrain`, `worldgen`), không file nào trong số đó import `combat.ts`.
+- **Test:** 9 test shared khớp PLAN; 2 test tích hợp hỏng ở code cũ (coder đã kiểm); 2 test tester thêm bắt được đột biến e) và f). Test "hit again" dùng `tick` đồng bộ, không có `await` xen giữa, nên tất định. Hai test `fleeRun` dùng đồng hồ thật, nhưng ngưỡng rộng (≥ 70 px so với khoảng 96 px kỳ vọng, kẹt ≤ 1) và tester đã chạy lặp 3 lần đều qua.
+- **Bảng số:** 7 số nằm trong `FLEE_STEER`; ngoài bảng chỉ có `NAV_MAX_CLEARANCE`, `1e-6` và `(0, 1)` như PLAN cho phép. Số `200` trong `stepFlee` có từ trước.
+- **Tài liệu:** `docs/design/pals.md` mục "Chạy về phía thoáng" khớp tên hàm và số (9 hướng, ±70°, 17,5°, 96 px, 64 px, 16 hướng, 250 ms, chọn lại ở bờ biển).
 
 ## Góp ý không bắt buộc
-- **T68** sửa `RefusalLog` thì giữ số đếm `network` và test "counts /48 refusals apart". Số "worlds open" trong dòng log giờ lấy từ `total()` đã đúng.
-- **PLAN.md** còn câu cảnh báo cũ "If this repeats". PLAN.md bị ghi đè ở nhiệm vụ sau nên không cần sửa. Chỉ cần ghi chú chỗ lệch này trong message commit.
-- **Sau khi deploy**, để ý số `network` trong log chặn: người chơi di động ở Việt Nam dùng IPv6 nhiều. Nếu thấy số này tăng mà không có kẻ phá thì nâng `PETGAME_MAX_WORLDS_PER_NETWORK`.
+- `combat.ts` `fleeDirection`: mỗi lần điểm tốt hơn lại tạo một object `best` (tối đa 9 + 16), cộng thêm closure `pick` và kết quả spread. Có thể giữ `bestX`, `bestY` dạng số. Chỉ chạy mỗi 250 ms mỗi thú, nên không cần làm ngay.
+- `fleeDirection`: nếu `samples = 1` thì `stepRad = Infinity` và `off = −0 · Infinity = NaN`. Bảng là hằng số và test đã khoá `samples` lẻ và bằng 9, nên chỉ thêm guard (`samples > 1 ? ... : 0`) hoặc ghi chú "≥ 3" vào JSDoc nếu muốn chắc.
+- Nhãn `"around"` vẫn có thể là hướng nằm trong ±70° (ví dụ 22,5° hay 45°, vốn không có trong vòng đầu). Hành vi đúng; chỉ cần JSDoc của `FleeHeading` nói "sau vòng đầu" thay vì "only a wider one".
+- Test "is deterministic" gọi cùng một hàm hai lần, nên chỉ chứng minh rất ít. Có thể khoá thêm việc tách hoà: cảnh một cây đối xứng phải ra `y > 0` (+52,5°, hướng `+` xét trước).
+- Trong test bờ biển tích hợp, `swam === false` luôn đúng kể cả ở code cũ (nhờ chốt `isSea`). Phần kiểm thật nằm ở `moved` và `stuck`; giữ lại cũng được.
+- `pals.md` dòng 216 "theo hướng thoáng gần với hướng thẳng ra xa nhất" hơi đơn giản hoá: điểm có cộng độ thoáng, nên hướng lệch nhiều hơn vẫn có thể thắng. Mục con ngay dưới đã nói đúng.
+- Còn lại một trường hợp hiếm: `obstacles.resolve` đẩy thú trượt quanh cây xuống ô biển. Khi đó thú chọn lại đúng hướng cũ (tất định) và đứng yên cho tới khi kẻ đánh di chuyển, giống hành vi trước T57. Chỉ nên xử lý nếu playtest thấy (trùng với ý "trượt dọc bờ" ở Quyết định 2).
