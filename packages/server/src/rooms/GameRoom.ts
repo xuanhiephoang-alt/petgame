@@ -92,6 +92,7 @@ import {
   SKILL_ORDER_RANGE,
   ALPHA,
   ALPHAS,
+  alphaChaseSpeed,
   alphaLairs,
   palName,
   type AlphaDef,
@@ -751,7 +752,7 @@ export class GameRoom extends Room<{ state: GameState }> {
           this.cancelWindup(id, pal);
           pal.angry = false;
         }
-        const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
+        const speed = alphaChaseSpeed(species.speed);
         const via = this.paths.steer(`w:${id}`, pos, home, { radius, sea: false, goalRadius: ALPHA.roam * 0.5, step: (speed * dtMs) / 1000 }, now);
         const step = stepChase(pos, home, speed, dtMs, radius, this.obstacles, 8, via);
         pal.x = step.pos.x;
@@ -791,7 +792,8 @@ export class GameRoom extends Room<{ state: GameState }> {
           return;
         }
         const range = pal.boss ? BOSS.radius + 24 : WILD_ATTACK_RANGE;
-        const speed = species.speed * WILD_CHASE_SPEED_FACTOR;
+        // Pack leaders never outrun a walking player (ALPHA.chaseSpeedMax); others chase at 1.8x.
+        const speed = pal.alpha ? alphaChaseSpeed(species.speed) : species.speed * WILD_CHASE_SPEED_FACTOR;
         const via = this.paths.steer(`w:${id}`, pos, target.pos, {
           radius,
           sea: false,

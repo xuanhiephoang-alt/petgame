@@ -58,6 +58,7 @@ import {
   levelCatchRate,
   ALPHA,
   ALPHAS,
+  WILD_CHASE_SPEED_FACTOR,
   alphaLairs,
   BOSS,
   mulberry32,
@@ -1340,6 +1341,72 @@ describe("pack leaders", () => {
     expect((room as any).wildAggro.has(id)).toBe(false);
     for (let i = 0; i < 400 && distance(pal, home) > ALPHA.roam; i++) await ticks(room, 1);
     expect(distance(pal, home)).toBeLessThanOrEqual(ALPHA.roam);
+  });
+
+  /** Runs `count` synchronous ticks and returns how far the pal moved in each. */
+  const stepsOf = (room: GameRoom, pal: { x: number; y: number }, count: number) => {
+    const steps: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const before = { x: pal.x, y: pal.y };
+      (room as any).tick(TICK_MS);
+      steps.push(distance(before, pal));
+    }
+    return steps;
+  };
+  const capStep = ALPHA.chaseSpeedMax * TICK_MS / 1000;
+
+  it("an alpha Voltmouse chases at most ALPHA.chaseSpeedMax (152 px/s), slower than a walking player", async () => {
+    const { room, client, player } = await setup();
+    const [id, pal] = alphaOf(room, "voltmouse");
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    plantTrees(room, []);
+    (room as any).skillGapUntil.set(`w:${id}`, Number.POSITIVE_INFINITY);
+    const home = alphaLairs().get("meadow")!;
+    pal.x = home.x;
+    pal.y = home.y;
+    player.x = home.x + 150;
+    player.y = home.y;
+    expect(isSea(defaultWorld().layout.terrain, player.x, player.y)).toBe(false);
+    const steps = stepsOf(room, pal, 10);
+    expect((room as any).wildAggro.get(id)?.target).toMatchObject({ kind: "player", id: client.sessionId });
+    for (const step of steps) expect(step).toBeLessThanOrEqual(capStep + 1e-6);
+    expect(steps[0]).toBeCloseTo(capStep, 3);
+    const total = steps.reduce((a, b) => a + b, 0);
+    expect(total).toBeCloseTo(ALPHA.chaseSpeedMax * 0.5, 1);
+    expect(total).toBeLessThan(PLAYER_SPEED * 0.5);
+    expect((room as any).alphaReturning.has(id)).toBe(false);
+  });
+
+  it("an alpha Voltmouse led past its leash walks home no faster than ALPHA.chaseSpeedMax", async () => {
+    const { room, player } = await setup();
+    const [id, pal] = alphaOf(room, "voltmouse");
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    plantTrees(room, []);
+    (room as any).skillGapUntil.set(`w:${id}`, Number.POSITIVE_INFINITY);
+    const home = alphaLairs().get("meadow")!;
+    pal.x = home.x + ALPHA.leash + 40;
+    pal.y = home.y;
+    player.x = pal.x + 60;
+    player.y = pal.y;
+    const steps = stepsOf(room, pal, 5);
+    expect((room as any).alphaReturning.has(id)).toBe(true);
+    for (const step of steps) expect(step).toBeLessThanOrEqual(capStep + 1e-6);
+    expect(steps[0]).toBeCloseTo(capStep, 3);
+  });
+
+  it("a common Scorchtail still chases at the full 1.8x: the cap is only for pack leaders", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    plantTrees(room, []);
+    player.x = 3200;
+    player.y = 2560;
+    const id = placeWild(room, "scorchtail", player, 100);
+    const pal = room.state.pals.get(id)!;
+    (room as any).skillGapUntil.set(`w:${id}`, Number.POSITIVE_INFINITY);
+    (room as any).provoke(id, { kind: "player", id: client.sessionId });
+    const steps = stepsOf(room, pal, 5);
+    expect(steps[0]).toBeCloseTo((getSpecies("scorchtail").speed * WILD_CHASE_SPEED_FACTOR * TICK_MS) / 1000, 3);
+    expect(steps[0]).toBeGreaterThan(capStep);
   });
 
   it("is harder to catch than its kind", async () => {

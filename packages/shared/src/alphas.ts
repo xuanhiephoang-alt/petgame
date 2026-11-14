@@ -3,7 +3,8 @@ import type { Region } from "./terrain.ts";
 import { terrainAt } from "./terrain.ts";
 import { biomeAt, defaultWorld, CLEARING_RADIUS, type WorldLayout } from "./worldgen.ts";
 import type { CollisionGrid } from "./collision.ts";
-import { PIXELS_PER_UNIT } from "./constants.ts";
+import { PIXELS_PER_UNIT, PLAYER_SPEED } from "./constants.ts";
+import { WILD_CHASE_SPEED_FACTOR } from "./combat.ts";
 import { getSpecies } from "./pals.ts";
 
 /**
@@ -46,6 +47,12 @@ export const ALPHA = {
   leash: 12 * PIXELS_PER_UNIT,
   /** It strolls this close to its lair (pixels) when nobody is around. */
   roam: 4 * PIXELS_PER_UNIT,
+  /**
+   * Its chase and walk home are never faster than this (px/s): 0.95 of a walking player's speed, so a
+   * player who runs always pulls away, yet not below 0.9 or a ranged player could shoot, run, and shoot
+   * again around its lair without being bitten (docs/design/pals.md, BALANCE.md of T58).
+   */
+  chaseSpeedMax: PLAYER_SPEED * 0.95,
   /** Back home and left alone, it heals this share of its HP per second. */
   healPerSecond: 0.04,
   /** Its skills: the chance to start one each tick while fighting, and the pause after one (ms). */
@@ -60,6 +67,11 @@ export const ALPHA = {
   /** It comes back this long after it was knocked out or caught (ms). */
   respawnMs: 6 * 60 * 1000,
 } as const;
+
+/** A pack leader's chase and walk-home speed (px/s): a wild pal's chase speed, capped at ALPHA.chaseSpeedMax. */
+export function alphaChaseSpeed(speciesSpeed: number): number {
+  return Math.min(speciesSpeed * WILD_CHASE_SPEED_FACTOR, ALPHA.chaseSpeedMax);
+}
 
 /** A pal's name as players read it: "Voltmouse", or "Voltmouse đầu đàn" for a pack leader, wild or caught. */
 export function palName(speciesId: string, alpha = false): string {

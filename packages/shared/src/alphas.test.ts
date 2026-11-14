@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ALPHAS, ALPHA, alphaLairs, palName } from "./alphas.ts";
+import { ALPHAS, ALPHA, alphaChaseSpeed, alphaLairs, palName } from "./alphas.ts";
+import { WILD_CHASE_SPEED_FACTOR } from "./combat.ts";
+import { PLAYER_SPEED } from "./constants.ts";
 import { getSpecies } from "./pals.ts";
 import { SKILL_LEVELS, knownSkills } from "./skills.ts";
 import { terrainAt } from "./terrain.ts";
@@ -15,6 +17,23 @@ describe("pack leaders", () => {
       expect(knownSkills(species, alpha.level)).toHaveLength(3);
     }
     expect(ALPHA.leash).toBeGreaterThan(ALPHA.sight);
+  });
+
+  it("chase no faster than a walking player, yet fast enough that kiting is not possible", () => {
+    expect(ALPHA.chaseSpeedMax).toBe(152);
+    expect(ALPHA.chaseSpeedMax).toBeLessThan(PLAYER_SPEED);
+    expect(ALPHA.chaseSpeedMax).toBeGreaterThanOrEqual(PLAYER_SPEED * 0.9);
+    for (const def of ALPHAS) expect(alphaChaseSpeed(getSpecies(def.speciesId).speed), def.speciesId).toBeLessThan(PLAYER_SPEED);
+  });
+
+  it("cap only the fast ones: Voltmouse and Scorchtail at 152, the rest at 1.8x", () => {
+    const expected: Record<string, number> = { voltmouse: 152, scorchtail: 152, frostfang: 135, coralcrab: 99, cactoad: 81, bogbloom: 72 };
+    for (const def of ALPHAS) {
+      expect(expected[def.speciesId], def.speciesId).toBeDefined();
+      expect(alphaChaseSpeed(getSpecies(def.speciesId).speed), def.speciesId).toBeCloseTo(expected[def.speciesId], 6);
+    }
+    for (let speed = 10; speed <= 84; speed++) expect(alphaChaseSpeed(speed)).toBe(speed * WILD_CHASE_SPEED_FACTOR);
+    for (let speed = 85; speed <= 200; speed++) expect(alphaChaseSpeed(speed)).toBe(ALPHA.chaseSpeedMax);
   });
 
   it("names a pack leader, wild or caught, as players read it", () => {
