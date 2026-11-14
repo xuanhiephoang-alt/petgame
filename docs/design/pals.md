@@ -61,7 +61,21 @@ Mỗi vùng có một con thú đầu đàn (`packages/shared/src/alphas.ts`) ca
 - Vì sao không bù khi T7 giảm đường cắn: trước T7 cú cắn tăng 15% mỗi cấp (16-42), người né được nửa số đòn vẫn chết 30-94% ở sa mạc, núi tuyết, núi lửa và đảo, tức không đạt mốc trên.
 - Nút chỉnh: `ALPHA.damageMultiplier` 1,25 làm trận gắt hơn (cùng điều kiện, né nửa số đòn: chết 18-43% ở sa mạc, núi tuyết, núi lửa; đảo 86%); 1,5 gần như trước T7.
 - Canh lãnh địa: tấn công ai lại gần (170 px), kể cả loài vốn hiền, không bỏ chạy. Bị kéo xa hơn 12 m khỏi chỗ ở thì bỏ trận, đi về, và hồi máu (4% mỗi giây) khi không ai làm phiền.
-- Đuổi và về hang nhanh gấp 1,8 lần lúc lang thang như thú hoang khác; trần 96 px/s của thú hiền chạy trốn (mục "Tính khí") không áp cho thú đầu đàn. Vì vậy Voltmouse đầu đàn đuổi 171 px/s, nhanh hơn người chơi đi bộ (160): muốn thoát phải lướt hoặc kéo nó quá dây 12 m. Các thú đầu đàn khác đều chậm hơn người chơi (Scorchtail 153, Frostfang 135). Có nên kẹp hay không: việc đề xuất T58 (sau T27).
+- **Tốc độ đuổi và về hang** (đặt ra ở nhiệm vụ T58): gấp 1,8 lần lúc lang thang như thú hoang khác, nhưng **không quá 152 px/s**, tức 0,95 lần tốc độ đi bộ của người chơi (`ALPHA.chaseSpeedMax`, hàm `alphaChaseSpeed` trong `alphas.ts`). Không thú đầu đàn nào nhanh hơn người chơi đi bộ (160). Trần 96 px/s của thú hiền chạy trốn (mục "Tính khí") không áp cho thú đầu đàn, vì chúng không bỏ chạy.
+
+  | Thú đầu đàn | Không kẹp (tốc độ × 1,8) | Đuổi và về hang | So với người chơi |
+  |---|---|---|---|
+  | Voltmouse | 171 | **152** (bị kẹp) | 0,95 |
+  | Scorchtail | 153 | **152** (bị kẹp) | 0,95 |
+  | Frostfang | 135 | 135 | 0,84 |
+  | Coralcrab | 99 | 99 | 0,62 |
+  | Cactoad | 81 | 81 | 0,51 |
+  | Bogbloom | 72 | 72 | 0,45 |
+
+  - **Thoát:** chạy liên tục khoảng 4 giây (hoặc lướt) thì thú đầu đàn bị kéo quá dây 12 m và bỏ cuộc; dừng sớm hơn thì nó vẫn bám sau lưng. Bỏ chạy ngay khi nó vừa thấy mình (170 px) thì không bị đánh; đang đánh giáp lá cà rồi bỏ chạy thì khoảng 30% dính đúng một cú cắn đã gồng sẵn, không ai chết.
+  - **Vì sao kẹp ở 0,95** (`BALANCE.md` của T58): trước T58 Voltmouse đầu đàn đuổi 171 px/s, là loài duy nhất (kể cả trùm và mọi thú thường) nhanh hơn người chơi; một ngoại lệ không có lý do thiết kế, và bất cứ thứ gì làm chậm người chơi (bè 144 px/s, hiệu ứng làm chậm sau này) sẽ để dây giới hạn thành chỗ dựa duy nhất. Kẹp gần như không đổi kết quả thoát (có sát thương 30% thành 29%, chết 0%; bị vật cản làm chậm nặng: chết 9% thành 6,7%) và không đổi thời gian hạ gục (khoảng 8 giây với kiếm và thú đi theo cấp 15), vì thú đầu đàn tự đi tới đứng cách 28 px.
+  - **Không kẹp dưới 0,9** (144 px/s): lấy lại 100 px để bắn ná cần chạy `100 × 160 / (160 − tốc độ đuổi)`. Ở 128 trở xuống chỉ cần 500 px, chạy vòng quanh hang (khoảng 1.500 px mỗi vòng trong dây) mà bắn kéo được, trận đầu đàn mất ý nghĩa; ở 152 cần 2.000 px, vượt xa vòng dây. Chọn 0,95 thay vì 0,9: Voltmouse đầu đàn vẫn là con nhanh nhất, sát người chơi, và Scorchtail đầu đàn (núi lửa, cuối game) không bị chậm đi 6% mà không cần thiết.
+  - Trùm (81 px/s, mục "Trùm Vua Đá") và thú thường không bị kẹp này.
 - Hạ gục (đánh choáng rồi đánh thêm): đồ rơi của loài cộng 🔵 2 bóng xịn và 🥧 2 bánh, thú đi theo của người hạ được 300 kinh nghiệm (`ALPHA.xp`, thay cho kinh nghiệm hạ gục thường), cả thế giới được báo tin, kể cả người hạ ("★ Hiệp đã hạ Voltmouse đầu đàn!"). Bắt: khó gấp 2,5 lần (tỉ lệ ×0,4), được ngay một con thú cấp cao; khi bóng khép, thú đi theo nhận một lần kinh nghiệm bắt theo cấp như mọi lần bắt (60-78) cộng 300; túi đầy thì không ném được.
 - **Tin khi bắt được** (đặt ra ở nhiệm vụ T8):
   - Người bắt thấy "★ Bắt được Voltmouse đầu đàn! 🎉" lúc bóng khép (chữ của chính lần bắt).
@@ -212,7 +226,7 @@ Mỗi loài có một tính khí (`temperament` trong `pals.json`): nó làm gì
 | **aggressive** (hung dữ) | Boulderhorn, Scorchtail | tấn công người chơi hoặc thú đi theo gần nhất trong 120 px (`AGGRESSIVE_SIGHT`) | như thú tự vệ |
 
 - **Bị đánh** gồm đòn của người chơi, đòn và chiêu của thú đi theo, và cả **bóng không giữ được**: thú thoát khỏi bóng coi như vừa bị người ném đánh.
-- **Đuổi theo** nhanh gấp 1,8 lần lúc lang thang (`WILD_CHASE_SPEED_FACTOR`). **Chạy trốn** cũng gấp 1,8 lần nhưng không quá 96 px/s, tức 0,6 lần tốc độ đi bộ của người chơi (`WILD_FLEE_SPEED_CAP`, hàm `fleeSpeed` trong `combat.ts`; đặt ra ở nhiệm vụ T27).
+- **Đuổi theo** nhanh gấp 1,8 lần lúc lang thang (`WILD_CHASE_SPEED_FACTOR`); riêng thú đầu đàn không quá 152 px/s (mục "Thú đầu đàn", T58). **Chạy trốn** cũng gấp 1,8 lần nhưng không quá 96 px/s, tức 0,6 lần tốc độ đi bộ của người chơi (`WILD_FLEE_SPEED_CAP`, hàm `fleeSpeed` trong `combat.ts`; đặt ra ở nhiệm vụ T27).
   - **Thú hiền** chạy ra xa kẻ đánh trong 2,5 giây (`FLEE_MS`), tính lại sau mỗi đòn, theo hướng thoáng gần với hướng thẳng ra xa nhất (mục con "Chạy về phía thoáng" dưới đây):
 
     | Loài | Chạy trốn | Quãng tối đa mỗi lần chạy |
