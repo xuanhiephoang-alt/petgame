@@ -1,4 +1,5 @@
 import {
+  NOTICES,
   NODE_HITS,
   NODE_REGROW_MS,
   NODE_RESOURCE,
@@ -98,7 +99,7 @@ export class World {
     const message: ChestOpenedMessage = { chestId, playerId: sessionId, loot: { ...loot } as Record<string, number>, wear };
     this.room.broadcast(ServerMessage.ChestOpened, message);
     const client = this.room.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.room.notify(client, `Rương báu! ${rewardText({ ...loot, wear })}${wear ? " (mở 👕 Tủ đồ)" : ""}`, "reward");
+    if (client) this.room.notify(client, NOTICES.chestFound(rewardText({ ...loot, wear }), Boolean(wear)));
     this.questEvent(sessionId, "chest");
     this.room.saves.scheduleSave(sessionId);
   }
@@ -117,7 +118,7 @@ export class World {
     const message: QuestDoneMessage = { playerId: sessionId, questId: completed.id };
     this.room.broadcast(ServerMessage.QuestDone, message);
     const client = this.room.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.room.notify(client, `Xong nhiệm vụ "${completed.title}"! ${rewardText(completed.reward)}`, "quest");
+    if (client) this.room.notify(client, NOTICES.questDone(completed.title, rewardText(completed.reward)));
     this.catchUpQuest(sessionId);
   }
 
@@ -212,8 +213,8 @@ export class World {
       if (hurt !== (this.room.hazardWarned.get(sessionId) ?? "")) {
         this.room.hazardWarned.set(sessionId, hurt);
         const client = this.room.clients.find((c) => c.sessionId === sessionId);
-        if (client && hurt === "cold") this.room.notify(client, `${REGION_INFO[biome].name}: lạnh quá! 🥶 Mặc 🧥 Áo ấm (👕 Tủ đồ) hoặc dắt thú hệ lửa`, "warning");
-        if (client && hurt === "heat") this.room.notify(client, `${REGION_INFO[biome].name}: nóng quá! 🥵 Đội 👒 Nón lá (👕 Tủ đồ) hoặc dắt thú hệ nước`, "warning");
+        if (client && hurt === "cold") this.room.notify(client, NOTICES.tooCold(REGION_INFO[biome].name));
+        if (client && hurt === "heat") this.room.notify(client, NOTICES.tooHot(REGION_INFO[biome].name));
       }
       if (!climate || !hurt) return;
       player.hp = Math.max(0, player.hp - climate.damage);

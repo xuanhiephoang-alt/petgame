@@ -1,5 +1,6 @@
 import type { Client } from "colyseus";
 import {
+  NOTICES,
   BITE_KNOCKBACK,
   CRIT_CHANCE,
   CRIT_MULTIPLIER,
@@ -133,7 +134,7 @@ export class Combat {
       applyReward(player, loot);
       if (name) {
         this.room.world.questEvent(sessionId, "alpha");
-        this.room.announce(`★ ${player.name} đã hạ ${name}!`);
+        this.room.announce(NOTICES.alphaKnockedOut(player.name, name));
       }
       // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.
       const follower = player.pals.find((p) => p.id === player.activePalId);
@@ -293,7 +294,7 @@ export class Combat {
     const message: FaintedMessage = { targetType: "player", targetId: sessionId };
     this.room.broadcast(ServerMessage.Fainted, message);
     const client = this.room.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.room.notify(client, player.hasBase ? "Bạn bị ngất và tỉnh dậy ở trại 💫" : "Bạn bị ngất và tỉnh dậy bên lửa trại 💫", "warning");
+    if (client) this.room.notify(client, player.hasBase ? NOTICES.faintedAtCamp : NOTICES.faintedAtCampfire);
   }
 
   /** A knocked-out companion goes back into the party and must rest. */
@@ -308,7 +309,7 @@ export class Combat {
     this.room.faintedUntil.set(ownedId, this.room.clock.currentTime + FAINT_REST_MS);
     const owned = this.room.state.players.get(ownerId)?.pals.find((p) => p.id === ownedId);
     const client = this.room.clients.find((c) => c.sessionId === ownerId);
-    if (client && owned) this.room.notify(client, `${getSpecies(owned.speciesId).name} kiệt sức, cần nghỉ ${FAINT_REST_MS / 1000} giây`, "warning");
+    if (client && owned) this.room.notify(client, NOTICES.palExhausted(getSpecies(owned.speciesId).name, FAINT_REST_MS / 1000));
   }
 
   calmPalsTargeting(kind: CombatTarget["kind"], id: string) {

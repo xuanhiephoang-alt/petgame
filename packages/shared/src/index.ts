@@ -24,3 +24,4 @@ export * from "./gathering.ts";
 export * from "./skills.ts";
 export * from "./alphas.ts";
 export * from "./pathfind.ts";
+export * from "./notices.ts";

@@ -1,66 +1,36 @@
 PASS
-# REVIEW: T11b (đợt 2 của PLAN T11: Phần D-G, `looks.ts`, `hudBridge.ts`, `stateSync.ts`, tài liệu), vòng 1
+# REVIEW: T12 Gom chữ hiển thị tiếng Việt về một chỗ (đợt 1), vòng 1
 
 ## Kết luận
-Đợt 2 là refactor thuần, đúng PLAN.md.
-- **Thân hàm:** chuyển nguyên văn; so cả hai đợt với BASE `767619d`, chỉ mất đúng hai dòng JSDoc cũ của class `Game` mà PLAN yêu cầu thay.
-- **Thứ tự đăng ký** và **`frame()`** giữ nguyên.
-- **Hợp đồng `__petgame.game`** còn nguyên.
-- **`docs/architecture.md`** khớp với code.
+Đợt 1 làm đúng và đủ PLAN.md: 36 mục `NOTICES` đúng khoá, đúng chữ, đúng `kind` như chỗ gọi ở `cb2ab56`; mọi `notify`/`announce` lấy câu từ bảng; `--compare cb2ab56` ra đúng "Sau đợt 1" (exit 0). Không đổi file test có sẵn, không đụng `labelLayout.*` hay e2e spec, `git stash list` còn đủ 2 mục. Reviewer tự chạy lại: `npm test` 36 file, 521 test xanh (có test ghim kind mới của tester), `npm run typecheck` sạch.
 
-Không có lỗi phải sửa.
-
-## Lỗi phải sửa
+## Lỗi phải sửa (FAIL khi còn mục này)
 Không có.
 
-## Đã kiểm (reviewer tự chạy, chỉ đọc; không chạy lệnh `git stash` nào, `git stash list` vẫn 2 mục)
-- **Bảo toàn dòng** (lệnh của PLAN, so `767619d` với `Game.ts` + 6 file):
-  - Dòng MẤT chỉ có `* The game screen: connects the synced room state…` và `* and the DOM HUD, predicts…`, tức JSDoc cũ của class `Game`, đã được Phần G thay.
-  - Tôi so thêm theo số lần xuất hiện (`join` trên `uniq -c`): ngoài hai dòng đó, không dòng nào giảm số lần.
-  - Dòng MỚI chỉ thuộc các loại PLAN cho phép:
-    - JSDoc của 5 class, `bind()` ×2, `build()`, chú thích đầu `looks.ts`, JSDoc mới của `Game`, chú thích khối trường;
-    - `class X {` và `constructor(game: Game) {}` ×5;
-    - 5 trường `x = new X(this);`;
-    - `bind() {` ×2, `build(container: HTMLElement, isTouch: boolean) {`;
-    - `this.bind();` ×2, `this.build(container, isTouch);`;
-    - các dấu đóng.
-- **Thứ tự đăng ký** (`Game.ts` + `stateSync.ts` + `serverEvents.ts`):
-  - Đúng 31 mục: 6 cặp `onAdd`/`onRemove`, rồi `listen("dayTime"`, rồi 18 `onMessage` từ Harvested tới Produced.
-  - `Game.ts` không còn mục nào khớp mẫu.
-- **Gọi một lần, đúng chỗ:**
-  - `init` gọi `this.hudBridge.build(container, isTouch)` đúng chỗ khối cũ: sau `new Labels(...)`, trước `renderer.on("resize")`.
-  - `bindRoom` chỉ còn `this.stateSync.bind(); this.serverEvents.bind();` và vẫn được gọi một lần từ `init`, trước `watchConnection()`.
-  - Không còn ai gọi `bind`, `build` hay `bindRoom` ở chỗ khác.
-- **`frame()`:** so với 868c07e, chỉ đổi `this.stateSync.removeActor(l.entity)`, `this.hudBridge.updateBossBar()` và `this.hudBridge.updateHud()`; cùng với `controls.readInput` của đợt 1 là đủ 4 đường gọi. `updateBossBar` vẫn trước `updateHud`; `this.labels.update(now, aimed?.tag)` rồi `frames++` vẫn ở cuối. `debugInfo` giống hệt BASE.
-- **Không giữ bản sao:**
-  - Cả 5 hàm dựng đều đúng dạng `constructor(private readonly game: Game) {}`.
-  - Grep "bản sao" chỉ ra hai biến cục bộ joystick trong `controls.readInput` (giống BASE, đã giải thích ở vòng trước).
-  - Trong `build`, `panels` và `unlock` vẫn là biến cục bộ; các widget được gán thẳng vào `this.game.hud`, `.party`, `.skillBar`…
-- **Import:**
-  - Không có import giá trị nào từ `./Game.ts` hay giữa các module; chỉ có `import type { Game, PalEntity, Named }`.
-  - `looks.ts` chỉ import từ `@petgame/shared`.
-  - Import giá trị từ các file lá (`labelLayout.ts`, `palSprites.ts`, `entities.ts`, `art/props.ts`, `looks.ts`) không tạo vòng.
-  - `Game.ts` đổi `GameRoom` và `PalSprite` sang `import type`, đúng vì chỉ dùng làm kiểu.
-- **Phạm vi truy cập** (luật 6):
-  - `HudBridge`: `build`, `tip`, `updateHud`, `updateBossBar` là public; `updateSkillBar`, `updateRegion`, `updateMinimap` là private.
-  - `StateSync`: `bind`, `removeActor` là public; `nameTag`, `updateHpBar`, `syncCamp`, `addActor` là private.
-  - `Game` còn lại đúng danh sách "Ở lại `Game.ts`": `create`, `abandon`, `send`, `init`, `watchConnection`, `bindRoom`, `me`, `frame`, `lights`, `nearMe`, `bossActor`, `debugInfo`.
-- **Cấp phát mỗi khung:**
-  - Thân `updateHud`, `updateMinimap`, `updateRegion`, `updateSkillBar`, `updateBossBar` giống hệt BASE. Các cấp phát có sẵn (`resources`, `party`, `players`, `alphas`…) được giữ lại vì PLAN cấm dọn trong refactor.
-  - Không thêm closure, mảng hay object nào; mỗi khung chỉ thêm vài bước tra `.game`/`.hudBridge`/`.stateSync`.
-- **`destroy()` và dọn dẹp:** `chest.body/gem.destroy()`, `camp.root.destroy({ children: true })`, `camp.floor.destroy()`, `labels.remove(camp.tag)` và `removeActor` (`labels.remove` + `actor.destroy()`) đều chuyển nguyên văn. Module không giữ tài nguyên riêng.
-- **Phạm vi file:** `git diff --exit-code 767619d -- <danh sách của PLAN>` cho exit 0. `git diff --stat 767619d` chỉ có `Game.ts`, 6 file mới, `docs/architecture.md` và các file làm việc.
-- **Kiểm tra chạy lại:** `npm run typecheck` sạch; `npx vitest run packages/client` qua 110/110.
-- **Số dòng:** `Game.ts` 454 (< 540). Các file mới đều dưới 380 dòng: 101, 368, 146, 35, 205, 321.
-- **`docs/architecture.md`:**
-  - Bullet `Game.ts` khớp code: những gì còn ở lại, `watchConnection` (dừng cú lướt, xoá `lastSentInput`, gửi đứng yên khi trang bị ẩn), thứ tự `frame()`, và bảng trường e2e/shots kèm ai đọc.
-  - Bảng 6 file và luật làm việc khớp PLAN.
-  - Không còn câu "xử lý mọi `ServerMessage`".
-  - Không tài liệu nào khác (`docs/design/*`, `GAME_PLAN.md`) nhắc phương thức đã chuyển.
-- **Ảnh `island`:** chấp nhận lời giải thích của tester và coder. Cùng hiện tượng (bị Coralcrab đầu đàn hạ rồi tỉnh dậy bên lửa trại) đã tái hiện được ở mã 868c07e và biến mất khi chụp lại trên cây làm việc, nên đây là cuộc đua thời gian, không do refactor. Các dòng CHECK khác là nhiễu thế giới chuyển động; mọi ảnh ≤ 600 sprite, không nhãn nào chồng nhau.
+## Đã kiểm
+- **Chỗ gọi so với BASE:** đọc từng dòng `git diff cb2ab56`. Đối số và thứ tự giữ nguyên: `FAINT_REST_MS / 1000`, `Math.ceil(left / 1000)`, `rewardText(...)`, `xpText` vẫn dựng ở `leaders.ts`, `palName(species.id, true)`, `ITEM_INFO.snacks.icon/name`, `parts.join("  ")`. `Boolean(wear)` cho kết quả giống `wear ? … : ""`, kể cả khi `wear` là chuỗi rỗng. `debug.ts` vẫn gửi `refused` như cũ.
+- **`wild.ts`:** `news` đổi từ `""` sang `undefined`, điều kiện `xp > 0 || news` và `if (news)` giữ đúng nghĩa. Hẹn giờ vẫn tìm lại client theo sessionId.
+- **Kiểu:**
+  - `satisfies Record<string, NoticeMessage | ((...args: never[]) => NoticeMessage)>` là cách đúng để nhận mọi hàm mẫu.
+  - Mục cố định có `kind` dạng literal readonly, gán vào `NoticeMessage` được.
+  - `announce(notice: NoticeMessage & { kind: "news" })` chặn được khi biên dịch: mục cố định không phải `news` và hàm mẫu khai kiểu trả `NoticeMessage` đều không lọt qua. Chỉ hai hàm khai rõ `& { kind: "news" }` gọi được `announce`.
+  - `refusal` nhận `string` bất kỳ, đúng như PLAN (bất biến nằm ở JSDoc và test `craftBlocker`).
+- **Vòng import:** `notices.ts` chỉ import `MAX_PARTY` (`constants.ts` không import gì) và `import type` từ `messages.ts` (bị xoá khi chạy). `capture.ts` và `crafting.ts` import `notices.ts` theo một chiều, nên không có vòng.
+- **`viStrings.mjs`:**
+  - Đi theo AST; `node.text` là giá trị đã giải mã escape (`\xa0`).
+  - Đã thử tay template lồng trong template, chuỗi lồng hai tầng, tagged template, khoá thuộc tính, kiểu literal: mỗi literal được đếm đúng một lần, không đếm trùng phần head/middle/tail.
+  - Đọc ref cũ chỉ bằng `git ls-tree` và `git show`. Không tham số ra 274 chuỗi, 269 khác nhau (277 − 3 bản gộp).
+  - `vitest.config.ts` đã có mẫu `scripts/**/*.test.mjs` từ T34 (cùng chỗ với `chromium.test.mjs`), nên test vào `npm test` mà không phải sửa cấu hình.
+- **Test canh giữ:** danh sách `GUARDED` đúng Thiết kế 6. Đường dẫn sai hoặc file bị đổi tên thì `statSync` ném lỗi, nên test đỏ rõ ràng chứ không âm thầm xanh. Lọc `.test.ts` và `.d.ts` giống công cụ.
+- **Hiệu năng client:** `CRAFT_SOUND_PREFIXES.some(...)` chạy mỗi tin `Notice`, không chạy mỗi khung hình.
 
 ## Góp ý không bắt buộc
-- Phần F.1 của PLAN bảo thêm `export` cho `interface Camp`, nhưng `Camp` vẫn chưa export (`Game.ts:68`). Việc này không gây lỗi vì `stateSync.ts` suy ra kiểu từ `this.game.camps`. Nhưng `PROGRESS.md` ghi "Lệch kế hoạch: không có", tức chưa chính xác. Nên export cho nhất quán với `Named`/`PalEntity`, hoặc ghi lại là cố ý không làm.
-- `looks.ts`: chú thích đầu file là một khối `/** … */` đứng riêng, ngay trên JSDoc của `Dressed`, nên trình soạn thảo có thể coi nó là JSDoc thứ hai của `Dressed`. Đổi thành chú thích thường `//` hoặc `/* … */` thì rõ hơn (việc nhỏ, có thể làm trong T12).
-- `PROGRESS.md` của coder ghi "mọi ảnh ≤ 380 sprite", nhưng bảng ở ngay dưới có `aim-meadow-night` 353 và `labels-portrait-alpha` 372. Đúng ra phải là ngân sách ≤ 600 sprite như tester ghi; nên sửa câu đó cho khỏi nhầm.
-- Ảnh `island` của `npm run shots` phụ thuộc may rủi (đã gặp ở cả hai đợt). Nên thêm vào `TASKS.md` thành một việc riêng (ví dụ cho T14): chụp lúc máu đầy, hoặc tạm cho người chơi không bị cắn trong cảnh đó.
+- `docs/architecture.md:49` còn ghi chữ ký cũ `announce(text, except)`; nên là `announce(notice, except)`. Sửa một chữ, có thể gộp vào commit này hoặc làm ở T12b.
+- **Thứ tự khoá trên dây:** mục `NOTICES` viết `{ kind, text }`, còn BASE dựng `{ text, kind }`. Mục Giao thức của PLAN nói "giống hệt từng byte", nên nói chặt thì msgpack mã hoá thứ tự khoá khác. Về nghĩa thì không khác: client giải mã ra object, không chỗ nào phụ thuộc thứ tự khoá (đã grep test và e2e). Không cần sửa; nếu muốn đúng nguyên văn PLAN thì đổi thành `{ text, kind }`.
+- **`CRAFT_SOUND_PREFIXES`** vẫn là cách dò chữ, nhưng nay có test hai chiều: tiền tố khớp hai câu, và không mục nào khác bắt đầu bằng tiền tố đó. Đủ chắc cho bây giờ.
+  - Giới hạn: test gọi hàm mẫu với tham số mẫu. Các mục mở đầu bằng `${…}` (`fed`, `palExhausted`, `palResting`, `tooCold`, `tooHot`) phụ thuộc tên loài và tên vùng trong dữ liệu. Hiện chưa tên nào bắt đầu bằng "Đã làm" hay "Trại đã lên cấp".
+  - Khi làm đa ngôn ngữ, nên để client quyết định tiếng theo tín hiệu có cấu trúc (khoá câu hoặc cờ âm thanh trong tin) thay vì dò tiền tố chữ.
+- **Mục `NOTICES` cố định là object dùng chung, gửi đi nguyên tham chiếu.** `as const` chỉ có tác dụng ở kiểu. Hiện không ai sửa chúng (msgpack chỉ đọc). Nếu muốn chắc khi chạy, có thể `Object.freeze`.
+- **`GUARDED`** có thể mở rộng sau thành cả `packages/server/src` trừ `index.ts`: `ai/`, `persistence/`, `worldLimits.ts` hiện không có chuỗi tiếng Việt nào, nên canh luôn được.
+- **`viStrings.test.mjs`** chưa có ca template lồng trong template, dù công cụ chạy đúng với ca đó (reviewer đã thử tay). Nên thêm một ca để giữ.
+- **Test "craftBlocker … every branch"** gọi 6 trường hợp, chưa đi qua nhánh `wear` đã có và nhánh `recipe.camp`. Hai nhánh này ra cùng chữ với nhánh đã thử (`craftOwned`, `craftNeedCampLevel`), nên chưa sót chữ nào; có thể đổi tên test cho đúng hơn hoặc thêm hai ca.

@@ -32,6 +32,7 @@ import {
   type CaptureResultMessage,
   type HitMessage,
   type LevelUpMessage,
+  CRAFT_SOUND_PREFIXES,
   type NoticeKind,
   type NoticeMessage,
   type ProducedMessage,
@@ -313,7 +314,7 @@ export class ServerEvents {
     this.game.room.onMessage(ServerMessage.Notice, (msg: NoticeMessage) => {
       if (msg.kind === "quest") return void setTimeout(() => this.game.hud.showToast(msg.text, "high"), QUEST_DELAY_MS);
       this.game.hud.showToast(msg.text, NOTICE_LEVEL[msg.kind] ?? "low");
-      if (msg.text.startsWith("Đã làm") || msg.text.startsWith("Trại đã lên cấp")) this.game.sound.play("craft");
+      if (CRAFT_SOUND_PREFIXES.some((p) => msg.text.startsWith(p))) this.game.sound.play("craft");
     });
 
     this.game.room.onMessage(ServerMessage.LevelUp, (msg: LevelUpMessage) => {

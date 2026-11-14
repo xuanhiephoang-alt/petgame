@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  PARTY_FULL_TEXT,
+  NOTICES,
   WEARABLES,
   GEAR,
   QUESTS,
@@ -65,7 +65,7 @@ export function registerDebugHooks(room: GameRoom) {
   room.onMessage("debug:givePal", (client, message?: { species?: string; level?: number; alpha?: boolean }) => {
     const player = room.state.players.get(client.sessionId);
     if (!player) return;
-    if (player.pals.length >= MAX_PARTY) return room.notify(client, PARTY_FULL_TEXT, "refused");
+    if (player.pals.length >= MAX_PARTY) return room.notify(client, NOTICES.partyFull);
     let species: PalSpecies;
     try {
       species = getSpecies(String(message?.species));

@@ -40,7 +40,7 @@ import {
   type AssignMessage,
   type InputMessage,
   type JoinOptions,
-  type NoticeKind,
+  NOTICES,
   type NoticeMessage,
   type ReleaseMessage,
   type SummonMessage,
@@ -319,7 +319,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         for (const r of RESOURCES) player[r] += made[r];
         this.saves.scheduleSave(client.sessionId);
         // Give the client a moment to register its message handlers.
-        this.clock.setTimeout(() => this.notify(client, `Trong lúc bạn đi vắng, thú đã làm được: ${parts.join("  ")}`, "reward"), 1500);
+        this.clock.setTimeout(() => this.notify(client, NOTICES.workedWhileAway(parts.join("  "))), 1500);
       }
     }
   }
@@ -473,15 +473,14 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Helpers
   // -------------------------------------------------------------------------
 
-  /** Tells one player; `kind` says how much it matters to them (see NoticeKind). */
-  notify(client: Client, text: string, kind: NoticeKind) {
-    const message: NoticeMessage = { text, kind };
-    client.send(ServerMessage.Notice, message);
+  /** Tells one player; the notice (from NOTICES) carries its `kind`, which says how much it matters to them. */
+  notify(client: Client, notice: NoticeMessage) {
+    client.send(ServerMessage.Notice, notice);
   }
 
-  /** Tells everyone in the world but `except` (a "news" notice). */
-  announce(text: string, except?: Client) {
-    this.broadcast(ServerMessage.Notice, { text, kind: "news" } satisfies NoticeMessage, { except });
+  /** Tells everyone in the world but `except`: only a "news" notice goes to all. */
+  announce(notice: NoticeMessage & { kind: "news" }, except?: Client) {
+    this.broadcast(ServerMessage.Notice, notice, { except });
   }
 
   private pickColor(): number {

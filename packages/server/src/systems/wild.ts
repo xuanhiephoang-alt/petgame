@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Client } from "colyseus";
 import {
+  NOTICES,
+  refusal,
   DIZZY_CATCH_BONUS,
   CAPTURE_NEWS_DELAY_MS,
   captureRevealMs,
@@ -57,7 +59,7 @@ export class Wild {
     control.lastThrowAt = now; // a refused throw waits out the cooldown too: refusals cannot flood notices
     // The boss is never caught and a full party has no room: refuse before any roll is made or great ball used.
     const blocker = throwBlocker(player.pals.length, pal);
-    if (blocker) return this.room.notify(client, blocker, "refused");
+    if (blocker) return this.room.notify(client, refusal(blocker));
 
     const species = getSpecies(pal.speciesId);
     const alpha = pal.alpha === true;
@@ -99,7 +101,7 @@ export class Wild {
       // due in the same tick run last-registered first). Not at the throw: a level-up then would give the catch away
       // while the ball still wobbles.
       const xp = follower ? finishXp(XP_PER_CAPTURE, pal.level) + (alpha ? ALPHA.xp : 0) : 0;
-      const news = alpha ? `★ ${player.name} đã bắt được ${palName(species.id, true)}!` : "";
+      const news = alpha ? NOTICES.alphaCaught(player.name, palName(species.id, true)) : undefined;
       if (xp > 0 || news) {
         this.room.clock.setTimeout(() => {
           // Found again now, not the `client` of the throw: a reconnect in between brings a new Client for this session.

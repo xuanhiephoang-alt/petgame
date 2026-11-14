@@ -1,5 +1,6 @@
 import type { Client } from "colyseus";
 import {
+  NOTICES,
   palName,
   companionMaxHp,
   ITEM_INFO,
@@ -44,10 +45,10 @@ export class Party {
     const owned = player?.pals.find((p) => p.id === ownedId);
     if (!player || !owned || owned.assignment === "work") return;
     if (this.tooTired(client.sessionId, owned)) return;
-    if (!player.hasBase) return this.room.notify(client, "Hãy đặt trại trước (nút 🏕️ hoặc phím B)", "refused");
+    if (!player.hasBase) return this.room.notify(client, NOTICES.needCamp);
     const workers = player.pals.filter((p) => p.assignment === "work").length;
     const cap = workerCap(player.baseLevel);
-    if (workers >= cap) return this.room.notify(client, `Trại cấp ${player.baseLevel} chỉ chứa ${cap} thú làm việc`, "refused");
+    if (workers >= cap) return this.room.notify(client, NOTICES.campFull(player.baseLevel, cap));
     this.startWork(client.sessionId, ownedId);
   }
 
@@ -94,7 +95,7 @@ export class Party {
     if (control?.skillOrder?.companionId === ownedId) control.skillOrder = undefined;
     this.room.faintedUntil.delete(ownedId);
     player.pals.splice(index, 1);
-    this.room.notify(client, `Đã thả ${name}. Tạm biệt! 👋`, "done");
+    this.room.notify(client, NOTICES.released(name));
     this.room.saves.scheduleSave(client.sessionId);
   }
 
@@ -102,9 +103,9 @@ export class Party {
     const player = this.room.state.players.get(client.sessionId);
     const owned = player?.pals.find((p) => p.id === ownedId);
     if (!player || !owned) return;
-    if (player.snacks <= 0) return this.room.notify(client, `Hết ${ITEM_INFO.snacks.icon} ${ITEM_INFO.snacks.name}`, "refused");
+    if (player.snacks <= 0) return this.room.notify(client, NOTICES.noSnacks(ITEM_INFO.snacks.icon, ITEM_INFO.snacks.name));
     player.snacks -= 1;
-    this.room.notify(client, `${getSpecies(owned.speciesId).name} ăn ngon lành! +${SNACK_XP} XP`, "done");
+    this.room.notify(client, NOTICES.fed(getSpecies(owned.speciesId).name, SNACK_XP));
     // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.
     this.grantXp(client.sessionId, owned, SNACK_XP);
     this.room.saves.scheduleSave(client.sessionId);
@@ -115,7 +116,7 @@ export class Party {
     const left = (this.room.faintedUntil.get(owned.id) ?? 0) - this.room.clock.currentTime;
     if (left <= 0) return false;
     const client = this.room.clients.find((c) => c.sessionId === sessionId);
-    if (client) this.room.notify(client, `${getSpecies(owned.speciesId).name} đang nghỉ, còn ${Math.ceil(left / 1000)} giây`, "refused");
+    if (client) this.room.notify(client, NOTICES.palResting(getSpecies(owned.speciesId).name, Math.ceil(left / 1000)));
     return true;
   }
 

@@ -1,4 +1,5 @@
 import {
+  NOTICES,
   STOMP_KNOCKBACK,
   rollWearable,
   isSea,
@@ -94,7 +95,7 @@ export class Leaders {
       const client = this.room.clients.find((c) => c.sessionId === sid);
       if (client) {
         const xpText = follower ? ` · ${getSpecies(follower.speciesId).name} +${BOSS.xp} XP` : "";
-        this.room.notify(client, `Hạ được trùm! 🏆 ${rewardText({ ...BOSS.reward, wear: prize })}${xpText}`, "reward");
+        this.room.notify(client, NOTICES.bossDefeated(rewardText({ ...BOSS.reward, wear: prize }), xpText));
       }
       this.room.world.questEvent(sid, "boss");
       // After the news, so a level-up (maybe a new skill) is the last thing its owner reads.

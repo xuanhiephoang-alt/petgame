@@ -1,6 +1,7 @@
 import recipeData from "./data/recipes.json" with { type: "json" };
 import { RESOURCES, workIntervalMs, workOutput, type Resource } from "./work.ts";
 import { getSpecies } from "./pals.ts";
+import { NOTICES } from "./notices.ts";
 
 export const ITEMS = ["greatBalls", "snacks", "raft"] as const;
 export type Item = (typeof ITEMS)[number];
@@ -58,16 +59,16 @@ export function craftBlocker(
     wardrobe?: readonly string[];
   },
 ): string | undefined {
-  if (!state.hasBase) return "Cần dựng trại trước";
-  if (!state.nearBase) return "Hãy đứng gần trại của bạn";
+  if (!state.hasBase) return NOTICES.craftNeedCamp.text;
+  if (!state.nearBase) return NOTICES.craftNotNearCamp.text;
   if ("baseLevel" in recipe.output) {
-    if (state.baseLevel >= recipe.output.baseLevel) return "Trại đã đạt cấp này";
-    if (state.baseLevel !== recipe.output.baseLevel - 1) return `Cần trại cấp ${recipe.output.baseLevel - 1}`;
+    if (state.baseLevel >= recipe.output.baseLevel) return NOTICES.campMaxed.text;
+    if (state.baseLevel !== recipe.output.baseLevel - 1) return NOTICES.craftNeedCampLevel(recipe.output.baseLevel - 1).text;
   }
-  if ("item" in recipe.output && GEAR.includes(recipe.output.item) && (state.items?.[recipe.output.item] ?? 0) > 0) return "Đã có rồi";
-  if ("wear" in recipe.output && state.wardrobe?.includes(recipe.output.wear)) return "Đã có rồi";
-  if (recipe.camp && state.baseLevel < recipe.camp) return `Cần trại cấp ${recipe.camp}`;
-  if (!canAfford(state.resources, recipe.cost)) return "Chưa đủ nguyên liệu";
+  if ("item" in recipe.output && GEAR.includes(recipe.output.item) && (state.items?.[recipe.output.item] ?? 0) > 0) return NOTICES.craftOwned.text;
+  if ("wear" in recipe.output && state.wardrobe?.includes(recipe.output.wear)) return NOTICES.craftOwned.text;
+  if (recipe.camp && state.baseLevel < recipe.camp) return NOTICES.craftNeedCampLevel(recipe.camp).text;
+  if (!canAfford(state.resources, recipe.cost)) return NOTICES.craftNoMaterials.text;
   return undefined;
 }
 

@@ -1,5 +1,6 @@
 import type { Client } from "colyseus";
 import {
+  NOTICES,
   PLAYER_RADIUS,
   type LungeMessage,
   isSea,
@@ -191,7 +192,7 @@ export class Skills {
       if (!target || !targetId) {
         control.skillOrder = undefined;
         const client = this.room.clients.find((c) => c.sessionId === companion.ownerId);
-        if (client) this.room.notify(client, "Không có thú hoang nào ở gần để đánh", "refused");
+        if (client) this.room.notify(client, NOTICES.noWildNear);
         return false;
       }
       // It becomes the fight: the pal runs at it (and joins in after the skill).
