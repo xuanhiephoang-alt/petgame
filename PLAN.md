@@ -1,404 +1,453 @@
-# PLAN: T12 Gom chữ hiển thị tiếng Việt về một chỗ (chuyển thuần, không đổi chữ)
+# PLAN: T13 PWA cài được đúng nghĩa: icon, service worker, lấy bản mới khi có mạng
 
-Code đọc ở `cb2ab56` (commit "Mark T11b done, start T12"), gọi là **BASE** trong cả kế hoạch. Số dòng là số ở BASE và sẽ trôi khi sửa: coder tìm theo **chữ** hoặc tên hàm, không theo số dòng.
+Code đọc ở `b609b39` (commit "Mark T12b done, start T13"), gọi là **BASE**. Số dòng trôi khi sửa: tìm theo chữ hoặc tên hàm.
 
-Mốc đo do designer chạy ở BASE (đếm chuỗi literal TypeScript có chữ cái tiếng Việt có dấu, không tính file test, cách đếm ở mục Thiết kế 4):
+Đề xuất chia hai đợt, mỗi đợt một commit, chung kế hoạch này (giống T10/T10b):
+- **T13 (đợt 1, asset-manager):** Phần A: icon, manifest, thẻ `<link>` trong `index.html`, test manifest. Thuần hình ảnh và khai báo, không đổi hành vi game.
+- **T13b (đợt 2, coder):** Phần B: service worker, đăng ký, plugin build, Playwright, e2e mới, tài liệu.
 
-| Gói | File | Số chuỗi | Thuộc |
-|---|---|---|---|
-| client | `ui/party.ts` | 36 (+1 không dấu: `"✓ Xong"`) | đợt 2 |
-| client | `ui/wardrobe.ts` | 30 | đợt 2 |
-| client | `ui/hud.ts` | 23 | đợt 2 |
-| client | `ui/joinStatus.ts` (thẻ sảnh, gợi ý sảnh) | 19 | đợt 2 |
-| client | `ui/connection.ts` (màn che mất kết nối) | 11 | đợt 2 |
-| client | `game/serverEvents.ts` | 9 (2 trong đó là tiền tố nhận biết tin chế tạo) | 2 tiền tố ở đợt 1, 7 còn lại ở đợt 2 |
-| client | `ui/skillbar.ts` | 8 | đợt 2 |
-| client | `game/stateSync.ts` | 6 | đợt 2 |
-| client | `ui/crafting.ts` | 5 | đợt 2 |
-| client | `main.ts` (nút sảnh) | 3 | đợt 2 |
-| client | `ui/quests.ts` | 3 | đợt 2 |
-| client | `game/controls.ts`, `game/hudBridge.ts` | 2 + 2 | đợt 2 |
-| client | `game/Game.ts`, `ui/minimap.ts` | 1 + 1 | đợt 2 |
-| server | `systems/camp.ts` | 11 | đợt 1 |
-| server | `systems/party.ts` | 6 | đợt 1 |
-| server | `systems/world.ts` | 5 | đợt 1 |
-| server | `systems/combat.ts` | 4 | đợt 1 |
-| server | `rooms/GameRoom.ts`, `systems/leaders.ts`, `skills.ts`, `wild.ts` | 1 mỗi file | đợt 1 |
-| shared | `crafting.ts` (`craftBlocker`) | 8 (trong 11; 3 còn lại là tên vật phẩm `ITEM_INFO`) | đợt 1 |
-| shared | `capture.ts` (`PARTY_FULL_TEXT`, câu trùm) | 2 | đợt 1 |
-
-Tổng cần chuyển: client 159 (+1), server 30, shared 10. Tổng toàn bộ ở BASE: 277 chuỗi, 269 chuỗi khác nhau.
-
-Không chuyển (đã là bảng dữ liệu theo miền, hoặc không phải chữ trong game), ghi lại để biết:
-- shared, dữ liệu theo miền (71): `quests.ts` 34, `terrain.ts` 16 (`REGION_INFO`), `wardrobe.ts` 8 (tên kiểu tóc), `elements.ts` 5, `crafting.ts` 3 (`ITEM_INFO`), `work.ts` 3 (`RESOURCE_INFO`), `boss.ts` 1 (`BOSS.name`), `alphas.ts` 1 (`palName`, chỗ duy nhất ghép "… đầu đàn").
-- JSON (`src/data/`): `skills.json` 60, `wearables.json` 48, `recipes.json` 30 (tên, mô tả); `pals.json` 0 (tên loài không có chữ có dấu).
-- `client/src/gallery.ts` 5 (trang xem hình cho người làm game), `server/src/index.ts` 2 (dòng in ra console khi chạy `npm run play`).
-- `client/index.html`: chữ tĩnh của sảnh (ô tên, nút "Đang tải...", "Thử lại", "Tạo thế giới mới", "Tải lại") và script canh tải inline (chạy trước mọi module, nên không import được bảng chữ).
-- Test: `tests/e2e/multiplayer.spec.ts` 139, `GameRoom.test.ts` 28, `joinStatus.test.ts` 8, các test shared 15: giữ nguyên, xem mục Test.
+Agent chính có thể chạy cả hai đợt trong một vòng (asset-manager làm A rồi coder làm B) nếu muốn; A không phụ thuộc B và B chỉ cần các file PNG của A có sẵn (nếu B làm trước thì e2e phần icon hỏng, phần service worker vẫn đúng).
 
 ## Mục tiêu
 
-Người chơi không thấy gì khác: **mọi chữ giữ đúng từng ký tự**. Người làm game được hai bảng chữ: sửa một câu, rà chính tả, hoặc sau này dịch sang ngôn ngữ khác thì chỉ mở hai file, không phải lục 30 file code.
-- `packages/client/src/ui/strings.ts`: mọi chữ client tự hiện (HUD, bảng, sảnh, thẻ lỗi khi vào, màn che mất kết nối, thông báo do client tạo, nhãn tên, chữ bay, gợi ý).
-- `packages/shared/src/notices.ts`: mọi câu server gửi qua tin `Notice`, mỗi câu kèm `kind` của nó, cùng các câu từ chối mà client và server kiểm tra chung (`throwBlocker`, `craftBlocker`).
-- Một công cụ đếm chữ (`scripts/viStrings.mjs`) chứng minh không chữ nào bị đổi, và một test canh giữ không cho chữ tiếng Việt mọc lại trong code luật chơi, code giao diện.
+- Người chơi thêm PetGame vào Màn hình chính (iPhone: Safari → Chia sẻ → Thêm vào MH chính; Android: Chrome → Cài đặt ứng dụng) thấy **icon Emberpup** trên nền cỏ xanh, không còn ô chụp màn hình mờ hay chữ "P". Chrome coi game là app cài được (manifest đủ icon 192, 512, maskable).
+- Có **service worker** lưu sẵn trang và script của bản build:
+  - mở lại game nhanh hơn một chút và không phụ thuộc HTTP cache;
+  - mất mạng mà mở game (đã mở qua HTTPS trước đó) thì vẫn thấy sảnh và thẻ "Không kết nối được server" có nút Thử lại, thay vì trang lỗi của trình duyệt;
+  - tab cũ sau khi deploy vẫn lấy được script cũ của nó từ bộ nhớ, ít phải tải lại hơn.
+- Không phá những gì T15, T23, T42 đã làm: **Tải lại** luôn ra bản mới khi có mạng; bộ canh tải inline vẫn bắt được script hỏng; không bao giờ lưu `/matchmake`, WebSocket hay `/whoami`.
 
 ## Phạm vi
 
-Làm:
-- Chuyển nguyên văn các chuỗi trong bảng mốc đo (cột "đợt 1", "đợt 2") vào hai bảng chữ.
-- Câu có ghép giá trị thành hàm mẫu nhỏ có kiểu (tham số là `string`, `number`, `boolean`).
-- Gộp các bản trùng cùng nghĩa thành một mục (danh sách chính xác ở Thiết kế 5).
-- Cảnh báo lãnh địa (`game/hudBridge.ts`) lấy tên thú qua `palName(id, true)` thay vì tự ghép `… đầu đàn`. Chữ ra giống hệt.
-- Đổi chữ ký `GameRoom.notify` / `announce` để nhận cả câu lẫn `kind` từ bảng (Thiết kế 2).
-- Công cụ `scripts/viStrings.mjs` và test `scripts/viStrings.test.mjs`, test mới cho hai bảng chữ, cập nhật `docs/architecture.md`.
+**Làm:**
+- 5 file PNG (`icon-192`, `icon-512`, `icon-maskable-192`, `icon-maskable-512`, `apple-touch-icon` 180) làm từ ảnh Emberpup có sẵn bằng một script Python (Pillow), chạy một lần và commit PNG.
+- `manifest.webmanifest`: icon, `id`, `scope`, `lang`, `description`. `index.html`: `apple-touch-icon`, `icon`, `apple-mobile-web-app-title`.
+- Service worker viết bằng TypeScript (`src/pwa/`): logic định tuyến và chiến lược lưu là hàm thuần có unit test; file `sw.js` sinh lúc `npm run build` bằng một plugin nhỏ trong `vite.config.ts`, kèm phiên bản và danh sách lưu sẵn.
+- Chỉ đăng ký ở bản build (`import.meta.env.PROD`). Vite dev (`npm run dev`, e2e hiện có) không bao giờ đăng ký.
+- Playwright:
+  - server e2e bật sau `npm run build`, nên `http://localhost:2567` phục vụ bản build;
+  - mọi context chặn service worker (`serviceWorkers: "block"`);
+  - một spec mới `tests/e2e/pwa.spec.ts` bật lại service worker và kiểm trên bản build.
+- `scripts/shots.mjs` chặn service worker (ảnh chụp và số đo không bị nhiễu).
+- Tài liệu: `docs/architecture.md`, `docs/choi-tren-iphone.md`, `docs/deploy.md`, `docs/art-style.md`, `assets/CREDITS.md`. Designer đã sửa `docs/design/multiplayer.md`: thêm dòng "mất mạng" vào bảng "Mở game", luật "luôn lấy bản mới khi có mạng", và hai giới hạn của app ở Màn hình chính.
 
-KHÔNG làm:
-- **Không đổi chữ nào**: không sửa chính tả, dấu câu, khoảng trắng, emoji, kể cả khi thấy câu chưa hay. Thấy câu cần sửa thì ghi vào `PROGRESS.md` mục "Đề xuất chữ" để làm ở nhiệm vụ khác.
-- Không đổi hành vi, thời điểm, thứ tự tin, mức thông báo (`kind`, `ToastLevel`), giao thức (`NoticeMessage` vẫn là `{ text, kind }`), schema, `Profile`.
-- Không chuyển chữ của dữ liệu theo miền (mục "Không chuyển" ở trên), `gallery.ts`, `server/index.ts`, `index.html`.
-- Không tách markup HTML khỏi chữ: chuỗi có thẻ HTML được chuyển nguyên văn (Thiết kế 3.4).
-- Không chuyển chuỗi chỉ có ASCII, số, emoji (`Lv ${level}`, `+${xp} XP`, `💨`, `✕`). Ngoại lệ duy nhất: `"✓ Xong"` (`ui/party.ts`), tiếng Việt không dấu nên công cụ không thấy, phải chuyển tay.
-- Không làm cơ chế đa ngôn ngữ (chọn ngôn ngữ, tải bảng khác). Chỉ chuẩn bị chỗ.
-- **Không sửa** `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts`, `tests/e2e/multiplayer.spec.ts` (stash T63 đang giữ thay đổi của các file này).
-- **Không dùng `git stash`** dưới bất kỳ dạng nào (`push`, `pop`, `apply`, `drop`): `stash@{0}` là phần dở dang của T63, chờ Q1.
-- Không sửa file test có sẵn nào (xem mục Test).
+**KHÔNG làm** (để coder không lan rộng):
+- **Không thêm Content-Security-Policy** (header, `<meta>` hay trong service worker). Không cần cho T13. Ai thêm sau này phải cho phép script inline của bộ canh tải bằng hash `sha256-…` (ghi trong `docs/deploy.md`).
+- Không `skipWaiting`, không nghe `controllerchange`, không tự tải lại trang, không thông báo "có bản mới". Tải lại sau deploy là việc của **T52** (mục "Phối hợp với T52").
+- Không lưu ảnh AI `/assets/**` (2,8 MB, tên cố định), không lưu icon, không lưu gì của server (`/matchmake`, `/whoami`, `/healthz`), không lưu khác origin.
+- Không gợi ý quay lại thế giới khi mở app từ Màn hình chính (T23); không mang hồ sơ Safari sang app iPhone. Cả hai đề xuất thành việc mới (cuối kế hoạch).
+- Không đổi `start_url`, `display`, `orientation`, màu của manifest; không đổi `apple-mobile-web-app-status-bar-style` (đổi là đổi bố cục tai thỏ trên iOS).
+- Không sửa `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts` (trùng với phần dở dang T63 trong `git stash`). **Không dùng `git stash`** (không `stash`, `stash pop`, `stash apply`) trong T13.
+- Không dùng AI vẽ ảnh (Figma/Canva), không thêm dependency npm (không `vite-plugin-pwa`/Workbox: kéo nhiều gói và khó giữ luật "không bao giờ lưu `/whoami`").
 
 ## Thiết kế
 
-### 1. Bảng chữ thông báo server nằm ở `packages/shared`, không ở server
+### 1. Icon (Phần A, asset-manager)
 
-Chọn `packages/shared/src/notices.ts`. Lý do:
-1. Một phần câu server gửi vốn đã ở shared và client cũng hiện: `throwBlocker` (túi đầy, trùm) và `craftBlocker` (8 câu), dùng chung để client từ chối trước đúng như server. Đặt bảng ở server thì các câu này phải tách ra hai nơi.
-2. Client đang dò chữ của tin server để phát tiếng chế tạo (`msg.text.startsWith("Đã làm") || …startsWith("Trại đã lên cấp")`, `game/serverEvents.ts`). Bảng ở shared cho phép đặt hai tiền tố này ngay cạnh hai câu mẫu, có test giữ chúng khớp nhau.
-3. Muốn dịch sau này, cách gọn nhất là server gửi khoá và tham số, client tra bảng theo ngôn ngữ của mình. Bảng ở shared thì bước đó không phải dời file.
+Nguồn: `packages/client/public/assets/pals/emberpup.webp` (ảnh AI của dự án, đã ghi trong `assets/CREDITS.md`). Ô đầu là hướng `front` (`index.json`: `views[0] = "front"`). Cắt ô giống `palSprites.ts`: rộng ô = `floor(952 / 4) = 238`, cao cả ảnh. Rồi cắt theo vùng có alpha: bbox (27, 8, 211, 264), tức thú 184×256. Emberpup là thiết kế riêng của dự án, không dính bản quyền.
 
-Giá phải trả: bundle client mang thêm khoảng 2 KB chữ server. Chấp nhận được.
-Phương án còn lại (`packages/server/src/notices.ts`) gọn hơn cho server, nhưng phải giữ hai nơi cho câu từ chối và để client dò chữ "mù". Không chọn.
+Mỗi kiểu vẽ ở khung gốc 1024×1024 rồi thu nhỏ bằng LANCZOS. Designer đã thử bản nháp (ảnh xem trước tốt; vùng an toàn đo ở dưới).
 
-### 2. Hình dạng bảng thông báo server
+| File (trong `packages/client/public/`) | Cỡ | Hình nền | Chiều cao thú | Vị trí thú |
+|---|---|---|---|---|
+| `icons/icon-192.png`, `icons/icon-512.png` (`purpose: "any"`) | 192, 512 | vuông bo góc bán kính 0,22·S, ngoài góc trong suốt | 0,80·S | giữa theo chiều ngang, chân ở 0,92·S |
+| `icons/icon-maskable-192.png`, `icons/icon-maskable-512.png` (`purpose: "maskable"`) | 192, 512 | vuông kín, không trong suốt | 0,68·S | tâm bbox thú ở tâm ảnh |
+| `apple-touch-icon.png` | 180 | vuông kín, không trong suốt (iOS tự bo góc; chỗ trong suốt thành màu đen) | 0,76·S | giữa, chân ở 0,90·S |
 
-`notices.ts` export:
-- `NOTICES`: object `as const satisfies Record<string, NoticeMessage | ((...args: never[]) => NoticeMessage)>`.
-  - Câu cố định là một `NoticeMessage` (`{ kind, text }`).
-  - Câu có ghép giá trị là hàm mũi tên nhận giá trị thô, khai báo kiểu trả về `NoticeMessage`.
-  - `kind` luôn nằm cạnh `text` trong cùng mục. Thứ tự mục theo hệ thống (camp, combat, leaders, party, skills, wild, world, GameRoom, rồi các câu từ chối dùng chung). Mỗi nhóm có một dòng chú thích tiếng Anh.
-- `refusal(text: string): NoticeMessage`: trả `{ kind: "refused", text }`. Chỉ dùng ở hai chỗ server nhận câu từ một hàm chặn dùng chung (`throwBlocker`, `craftBlocker`), vì hai hàm này phải tiếp tục trả `string` (client dùng chữ, test có sẵn so chữ). JSDoc nói rõ: chữ truyền vào là `text` của một mục `refused` trong `NOTICES`.
-- `CRAFT_SOUND_PREFIXES = ["Đã làm", "Trại đã lên cấp"] as const`: tiền tố của hai câu mà client phát tiếng chế tạo khi thấy (chuyển nguyên văn từ `serverEvents.ts`). JSDoc nói phải khớp `NOTICES.crafted` và `NOTICES.campLeveled`, có test giữ.
+- **Nền:** gradient tròn, tâm (0,5·S; 0,42·S), từ `#7dbf5e` ở tâm tới `#1f3a1d` ở bán kính 0,72·S, `t = min(1, d / (0,72·S))^1,2`. Sáng ở giữa sau lưng thú, tối dần về mép, hợp màu `theme_color` `#1b2a1b`.
+- **Bóng dưới chân:** elip đen alpha 70/255, rộng 0,72 × bề rộng thú, cao 0,05·S, làm mờ Gauss 0,01·S. Đúng luật "bóng mềm" của `docs/art-style.md`.
+- **Không có chữ:** chữ "PetGame" ở 48 px không đọc được, và tên app đã hiện dưới icon.
+- **Vùng an toàn maskable:** mọi điểm của thú có alpha > 16 phải nằm trong hình tròn bán kính 0,40·S quanh tâm (chuẩn maskable: vùng an toàn là hình tròn đường kính 80%). Bản nháp đo được bán kính xa nhất 0,309·S khi thú cao 0,58·S. Bán kính tăng tuyến tính theo chiều cao, nên với 0,68·S là khoảng 0,36·S, còn dư. Script phải **tự kiểm** điều này và thoát lỗi nếu vượt.
+- **Kiểu `any`:** bản nháp đo thú chạm bán kính 0,446·S, vẫn nằm trong khung vuông bo góc. Launcher Android có thể đặt icon `any` lên nền trắng, nên giữ góc trong suốt.
 
-Luật cho hàm mẫu (cả `ui/strings.ts`):
-- Tham số là giá trị đã sẵn sàng để in (`string`, `number`, `boolean`). Việc tra cứu (`getSpecies(...).name`, `palName`, `rewardText`, `REGION_INFO[...]`, phép chia ms ra giây) vẫn làm ở chỗ gọi, như ở BASE. Bảng chữ không chứa luật chơi, chỉ import hằng số và kiểu.
-- **Giữ nguyên số và thứ tự chỗ ghép `${…}` của mỗi chuỗi**: chỉ biểu thức bên trong được đổi thành tên tham số. Ví dụ `Hạ được trùm! 🏆 ${rewardText(...)}${xpText}` thành `(reward: string, xp: string) => … \`Hạ được trùm! 🏆 ${reward}${xp}\``, chứ không gộp `xpText` vào trong mẫu. Công cụ so sánh dựa vào luật này.
-- Chuỗi con có chữ tiếng Việt nằm trong biểu thức (ví dụ `wear ? " (mở 👕 Tủ đồ)" : ""`) chuyển theo, nằm trong cùng hàm mẫu (tham số `boolean`).
+### 2. Manifest và thẻ trong `<head>` (Phần A)
 
-Danh sách mục `NOTICES` (khoá, `kind`, tham số, nguồn ở BASE). Coder dùng đúng khoá này, chữ chép nguyên văn từ nguồn:
+`manifest.webmanifest` giữ nguyên `name`, `short_name`, `start_url`, `display`, `orientation`, hai màu. Thêm:
+```json
+"id": "/",
+"scope": "/",
+"lang": "vi",
+"dir": "ltr",
+"description": "Bắt thú, chiến đấu và xây trại cùng bạn bè, tối đa 5 người một thế giới.",
+"categories": ["games"],
+"icons": [
+  { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+  { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+  { "src": "/icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+  { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+]
+```
+`index.html` `<head>`, ngay sau `<link rel="manifest" …>`:
+```html
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-title" content="PetGame" />
+```
+`apple-touch-icon.png` nằm ở gốc vì iOS tự dò `/apple-touch-icon.png` khi không thấy thẻ. Vite để nguyên đường dẫn tuyệt đối tới `public/`.
 
-| Khoá | kind | Tham số | Nguồn |
+### 3. Service worker: định tuyến (Phần B)
+
+Một hàm thuần quyết định mỗi request đi đường nào. Xét theo thứ tự, luật đầu tiên khớp thắng:
+
+| # | Request | Cách xử lý | Khoá trong cache |
 |---|---|---|---|
-| `campNearCampfire` | refused | | camp.ts "Quá gần lửa trại chung" |
-| `campBlocked` | refused | | camp.ts "Chỗ này vướng cây hoặc đá" |
-| `campOnSea` | refused | | camp.ts "Không dựng trại trên biển được" |
-| `campNearOther` | refused | | camp.ts "Quá gần trại của người khác" |
-| `campPlaced` | done | | camp.ts "Đã dựng trại 🏕️" |
-| `campLeveled` | reward | `level: number, icon: string` | camp.ts `Trại đã lên cấp ${…}! ${…}` |
-| `crafted` | done | `icon: string, name: string` | camp.ts `Đã làm ${…} ${…}` (2 chỗ gọi, 1 mục) |
-| `wearNotOwned` | refused | | camp.ts "Bạn chưa có món này" |
-| `noBerries` | refused | | camp.ts "Hết 🫐 quả mọng" |
-| `hpFull` | refused | | camp.ts "Máu đang đầy" |
-| `alphaKnockedOut` | news | `player: string, pal: string` | combat.ts `★ ${…} đã hạ ${…}!` |
-| `faintedAtCamp` | warning | | combat.ts "Bạn bị ngất và tỉnh dậy ở trại 💫" |
-| `faintedAtCampfire` | warning | | combat.ts "Bạn bị ngất và tỉnh dậy bên lửa trại 💫" |
-| `palExhausted` | warning | `name: string, seconds: number` | combat.ts `${…} kiệt sức, cần nghỉ ${…} giây` |
-| `bossDefeated` | reward | `reward: string, xp: string` | leaders.ts `Hạ được trùm! 🏆 ${…}${…}` (`xpText` vẫn dựng ở leaders.ts) |
-| `needCamp` | refused | | party.ts "Hãy đặt trại trước (nút 🏕️ hoặc phím B)" |
-| `campFull` | refused | `level: number, cap: number` | party.ts `Trại cấp ${…} chỉ chứa ${…} thú làm việc` |
-| `released` | done | `name: string` | party.ts `Đã thả ${…}. Tạm biệt! 👋` |
-| `noSnacks` | refused | `icon: string, name: string` | party.ts `Hết ${…} ${…}` |
-| `fed` | done | `name: string, xp: number` | party.ts `${…} ăn ngon lành! +${…} XP` |
-| `palResting` | refused | `name: string, seconds: number` | party.ts `${…} đang nghỉ, còn ${…} giây` |
-| `noWildNear` | refused | | skills.ts "Không có thú hoang nào ở gần để đánh" |
-| `alphaCaught` | news | `player: string, pal: string` | wild.ts `★ ${…} đã bắt được ${…}!` |
-| `chestFound` | reward | `reward: string, wardrobeHint: boolean` | world.ts `Rương báu! ${…}${wear ? " (mở 👕 Tủ đồ)" : ""}` |
-| `questDone` | quest | `title: string, reward: string` | world.ts `Xong nhiệm vụ "${…}"! ${…}` |
-| `tooCold` | warning | `region: string` | world.ts `${…}: lạnh quá! 🥶 …` |
-| `tooHot` | warning | `region: string` | world.ts `${…}: nóng quá! 🥵 …` |
-| `workedWhileAway` | reward | `made: string` | GameRoom.ts `Trong lúc bạn đi vắng, thú đã làm được: ${…}` |
-| `partyFull` | refused | | capture.ts `PARTY_FULL_TEXT` (mẫu dùng hằng `MAX_PARTY`, tính lúc nạp module như ở BASE) |
-| `bossUncatchable` | refused | | capture.ts "Không thể bắt trùm! Hãy cùng nhau hạ nó" |
-| `craftNeedCamp` | refused | | crafting.ts "Cần dựng trại trước" |
-| `craftNotNearCamp` | refused | | crafting.ts "Hãy đứng gần trại của bạn" |
-| `campMaxed` | refused | | crafting.ts "Trại đã đạt cấp này" |
-| `craftNeedCampLevel` | refused | `level: number` | crafting.ts `Cần trại cấp ${…}` (2 chỗ gọi, 1 mục) |
-| `craftOwned` | refused | | crafting.ts "Đã có rồi" (2 chỗ gọi, 1 mục) |
-| `craftNoMaterials` | refused | | crafting.ts "Chưa đủ nguyên liệu" |
+| 1 | method khác `GET` (POST `/matchmake/…`, HEAD…) | **bỏ qua** (không `respondWith`, trình duyệt tự đi mạng) | |
+| 2 | khác origin (kể cả `ws:`/`wss:`, server tách riêng qua `VITE_SERVER_URL`) | **bỏ qua** | |
+| 3 | đường dẫn là `/matchmake` hoặc bắt đầu `/matchmake/`; đúng `/whoami`, `/healthz`, `/sw.js` | **bỏ qua** | |
+| 4 | bắt đầu `/build/` (file Vite đã đánh hash) | **cache trước** (cache-first) | `pathname` (bỏ `?…`) |
+| 5 | `mode === "navigate"` tới `/` hoặc `/index.html` (mọi `?room=`, `?quality=`) | **mạng trước** (network-first) | `"/"` |
+| 6 | `/manifest.webmanifest` | **mạng trước** | `pathname` |
+| 7 | còn lại: `/assets/**`, `/icons/**`, `/apple-touch-icon.png`, điều hướng tới đường khác (`/sprites.html`…) | **bỏ qua** | |
 
-`kind` của mỗi câu phải đúng như đối số `kind` ở chỗ gọi tại BASE. `alphaKnockedOut` và `alphaCaught` là `news` (BASE gửi qua `announce`, vốn gắn `news`).
+- WebSocket (kết nối thế giới) không bao giờ đi qua sự kiện `fetch` của service worker. Luật 2 chỉ để chắc chắn, có test.
+- Điều hướng tới `/whoami` (người vận hành mở trên điện thoại, `docs/deploy.md`) rơi vào luật 3 nên luôn là câu trả lời thật của server.
+- **Cache trước** (`/build/*`): có trong cache thì trả ngay. Không có thì `fetch`: status 200 thì cất bản sao (không chặn câu trả lời, qua `event.waitUntil`); status khác (404 sau deploy) thì trả nguyên, không cất. `fetch` ném lỗi (mất mạng) thì ném lại, để trang thấy lỗi mạng. **Không bao giờ thay bằng `index.html` hay bản khác.** Nhờ vậy thẻ `<script>` vẫn báo `error`: bộ canh tải của T15 hiện "Không tải được game", và `import()` động vẫn hỏng thành `vite:preloadError` cho T52.
+- **Mạng trước** (trang, manifest): `fetch` trước. Status 200 mà không `redirected` thì cất bản sao dưới khoá, rồi trả câu trả lời mạng. Status khác (502 lúc Render/Fly đang deploy) thì trả nguyên, không cất, không lùi về cache. Chỉ khi `fetch` **ném lỗi** (không có mạng) mới lấy khoá trong cache; không có thì ném lại (trang lỗi mạng của trình duyệt, như trước T13). Không đặt giờ chờ: chậm thì chờ mạng. Lùi về cache khi mạng chậm có thể ra HTML cũ sau deploy, đúng điều T15 cấm.
+- Cất trang dưới một khoá `"/"` bất kể `?room=`: mọi địa chỉ sảnh trả cùng một `index.html`. Không cất câu trả lời `redirected` (Safari từ chối câu trả lời đã chuyển hướng cho điều hướng).
 
-Chỗ dùng:
-- `GameRoom.notify(client: Client, notice: NoticeMessage)`: gửi nguyên `notice`. Bỏ tham số `kind` riêng.
-- `GameRoom.announce(notice: NoticeMessage & { kind: "news" }, except?: Client)`: gửi nguyên `notice`. Kiểu bắt buộc mục phải là `news`.
-- Ví dụ chỗ gọi:
-  - `this.room.notify(client, NOTICES.hpFull)`
-  - `this.room.notify(client, NOTICES.released(name))`
-  - `this.room.notify(client, refusal(blocker))`
-  - `this.room.announce(NOTICES.alphaKnockedOut(player.name, name))`
-- `wild.ts`: `news` đang dùng chuỗi rỗng làm cờ "không có tin". Đổi thành `NoticeMessage | undefined`. Điều kiện `if (xp > 0 || news)` và `if (news)` giữ nguyên ý nghĩa.
-- `capture.ts`: `export const PARTY_FULL_TEXT = NOTICES.partyFull.text;`. Giữ tên export và JSDoc, vì test có sẵn và `GameRoom.test.ts` import nó. `throwBlocker` trả `NOTICES.bossUncatchable.text` / `PARTY_FULL_TEXT`.
-- `crafting.ts`: `craftBlocker` trả `NOTICES.<khoá>.text` hoặc `NOTICES.craftNeedCampLevel(n).text`. Kiểu trả về vẫn `string | undefined`.
-- Vòng import: `notices.ts` chỉ import `MAX_PARTY` từ `constants.ts` và `import type { NoticeMessage }` từ `messages.ts`, nên không có vòng. Thêm `export * from "./notices.ts";` vào `packages/shared/src/index.ts`. Kiểm tra không trùng tên export (`NOTICES`, `refusal`, `CRAFT_SOUND_PREFIXES` hiện chưa có ở shared).
+### 4. Service worker: phiên bản, lưu sẵn, dọn cache (Phần B)
 
-### 3. Bảng chữ client `packages/client/src/ui/strings.ts`
+- Mỗi bản build có **phiên bản** = 12 ký tự đầu sha256 của (nội dung `dist/index.html` + danh sách lưu sẵn đã sắp xếp). Chỉ phụ thuộc nội dung nên build lại không đổi gì thì ra cùng phiên bản (build tái lập được). Tên cache `petgame-<phiên bản>`.
+- **Danh sách lưu sẵn**, tính từ file trong `dist/`: `/`, `/manifest.webmanifest` và mọi file `/build/*` (bỏ `.map` nếu sau này bật sourcemap). Đo ở bản build ngày 14/11:
+  - `/build` 13 file, 1 037 052 byte, phần lớn trình duyệt vừa tải (đã nằm trong HTTP cache);
+  - chỉ các chunk tải lười của PixiJS chưa được tải (`browserAll` 43 kB, `init` 15 kB, `webworkerAll`), cộng `/` 33 kB;
+  - tức lần đầu tải thêm khoảng 100 kB.
+- **install:** `cache.addAll` cả danh sách. `/` và manifest tải với `cache: "reload"` (bỏ HTTP cache, để bản lưu sẵn khớp phiên bản). `/build/*` tải thường (file bất biến, HTTP cache có sẵn). Một file hỏng thì install hỏng cả, trình duyệt thử lại ở lần mở sau.
+- **activate:** xoá mọi cache tên bắt đầu `petgame-` khác cache hiện tại (cache khác của origin không đụng tới), rồi `clients.claim()`. Nhờ đó ngay lần mở đầu tiên trang đã được service worker điều khiển (e2e kiểm), không cần tải lại.
+- **Không `skipWaiting`.** Sau deploy, bản service worker mới cài xong thì **chờ** tới khi mọi tab của bản cũ đóng. Trong lúc đó:
+  - tab cũ vẫn lấy được chunk cũ từ cache cũ (đã lưu sẵn đủ, kể cả chunk tải lười), nên đang chơi thì không bị hỏng giữa chừng;
+  - tab tải lại vẫn được bản service worker cũ phục vụ, nhưng trang lấy từ mạng trước nên ra **HTML mới**: chunk mới không có trong cache cũ thì tải từ mạng rồi cất vào cache cũ;
+  - khi bản mới kích hoạt thì cache cũ bị xoá.
 
-#### 3.1. Hình dạng
+  Chấp nhận: một tab cứ tải lại mãi (không đóng) giữ bản service worker cũ lâu. Nội dung game vẫn mới, chỉ logic service worker chậm cập nhật.
+- `sw.js` được Express phục vụ như file tĩnh thường (`max-age=0`, có ETag). Trình duyệt luôn kiểm lại `sw.js` khi mở trang (mặc định `updateViaCache: "imports"`). Không cần đổi `packages/server/src/index.ts`.
 
-Hình dạng: các object hằng `as const` theo nơi hiện chữ, tên `UPPER_SNAKE_CASE` có đuôi `_TEXT` (tránh trùng `QUESTS` của shared, class `Hud`...).
-- Câu cố định là giá trị `string`.
-- Câu có ghép giá trị là hàm mũi tên có kiểu, theo luật ở Thiết kế 2.
-- Bảng chỉ import hằng số và kiểu từ `@petgame/shared` (`MAX_PLAYERS`, `MAX_PARTY`, `EMPTY_WORLD_HOLD_MS`, `BERRY_HEAL`, `EAT_COOLDOWN_MS`, `type Element`...), không import gì của `game/` hay DOM. Như vậy sảnh (`main.ts`) import được mà không kéo theo game.
+### 5. Đăng ký (Phần B)
 
-| Object | Lấy chữ từ |
-|---|---|
-| `LOBBY_TEXT` | `main.ts` ("Đang vào...", "Vào chơi" 1 mục), `joinStatus.ts` (`RETURN_HINT`, `INVITE_HINT`) |
-| `JOIN_TEXT` | `joinStatus.ts`: `joinCard` (mỗi `JoinFailure` một mục `{ title, detail }`; `closed` có `detailReturning`, `detailInvited`), `startCard` (`download`, `broken`) |
-| `CONNECTION_TEXT` | `connection.ts`: bảng `TEXT` chuyển nguyên hình dạng, thêm `lobby: "Về sảnh"` |
-| `HUD_TEXT` | `hud.ts` (23 chuỗi: nút Ăn, âm thanh, Mời, trại, bóng, Đánh/Bắt, giờ trong ngày, dòng trạng thái và trợ giúp phím) |
-| `PARTY_TEXT` | `party.ts` (gồm bảng `ELEMENTS` thành `PARTY_TEXT.elements: Record<Element, string>`, `"✓ Xong"`, "Đóng" và "Thả" theo Thiết kế 5) |
-| `SKILLBAR_TEXT`, `WARDROBE_TEXT`, `CRAFTING_TEXT`, `QUEST_TEXT`, `MINIMAP_TEXT` | file cùng tên trong `ui/` (`WARDROBE_TEXT` gồm `TABS` title và `FROM`) |
-| `COMMON_TEXT` | `close: "Đóng"` (dùng chung cho `crafting.ts`, `party.ts`, `wardrobe.ts`) |
-| `GAME_TEXT` | `game/`: thông báo client tự tạo (`Game.ts` "✅ Đã kết nối lại", `controls.ts` 2 câu, `hudBridge.ts` đến vùng và cảnh báo lãnh địa, `serverEvents.ts` bắt được/thoát ra/lên cấp), chữ bay ("Hiệu quả! 💥", "Kém hiệu quả", "Né!", "💫 Choáng!"), nhãn (`stateSync.ts`: "(mất kết nối)", thú đầu đàn, trại), gợi ý choáng (2 câu) |
+- `registerServiceWorker()` gọi trong `main.ts` **sau** `document.dispatchEvent(new Event(LOBBY_READY_EVENT))`, nên không thể làm chậm hay chặn sảnh.
+- Ba điều kiện trong hàm, không thoả thì không làm gì:
+  - `import.meta.env.PROD` (Vite dev không bao giờ đăng ký: HMR và e2e trên 5173 không đổi);
+  - `"serviceWorker" in navigator` (thiếu khi không phải ngữ cảnh an toàn: `http://192.168.…` của `npm run play` qua Wi-Fi; hoặc trình duyệt cũ);
+  - bọc `try/catch` (một số chế độ riêng tư ném `SecurityError`).
+- Đăng ký lúc `load` (`document.readyState === "complete"` thì gọi ngay), để việc lưu sẵn không tranh băng thông với lần tải đầu. Đường dẫn `import.meta.env.BASE_URL + "sw.js"`, scope mặc định `/`. Lỗi đăng ký chỉ `console.warn`, không bao giờ ném.
+- Chạy ở `localhost` của bản build (`npm run play`, e2e mới, `npm run shots`): vẫn đăng ký, vì `localhost` là ngữ cảnh an toàn và đó là cách duy nhất để thử. `npm run shots` tự chặn bằng `serviceWorkers: "block"`.
 
-Coder tự đặt tên khoá trong mỗi object (camelCase, nói nghĩa, không nói vị trí). Ví dụ: `GAME_TEXT.caught(name, alpha)`, `GAME_TEXT.escaped(name, percent)`, `GAME_TEXT.levelUp(name, level)`, `GAME_TEXT.levelUpLearned(name, level, skills)`.
+### 6. Phối hợp với T52 ("tự tải lại sau deploy")
 
-#### 3.2. Giữ export cũ để test không phải sửa
+- T13 **không** tự tải lại, không `skipWaiting`, không nghe `controllerchange`. Cơ chế duy nhất tải lại sau deploy vẫn là của T52 (`vite:preloadError` → tải lại một lần).
+- Hai điều T13 bảo đảm cho T52:
+  1. tải lại luôn lấy HTML từ mạng trước;
+  2. chunk thiếu (404 hay mất mạng) vẫn hỏng như không có service worker, nên `vite:preloadError` vẫn xảy ra.
+- Nhờ lưu sẵn, tab cũ thường tìm thấy chunk cũ trong cache, nên T52 ít phải tải lại hơn. Đó là điều tốt, T52 không cần làm gì thêm.
+- Ghi chú này vào `docs/architecture.md`. Agent chính thêm một câu vào dòng T52 trong `TASKS.md` (mục "Đề xuất cho TASKS.md").
 
-`joinStatus.ts` giữ `export const RETURN_HINT = LOBBY_TEXT.returnHint;` và `INVITE_HINT` tương tự, kèm JSDoc cũ, vì `joinStatus.test.ts` import chúng từ `./joinStatus.ts`.
+### 7. Trải nghiệm theo thiết bị
 
-#### 3.3. Cảnh báo lãnh địa
+- **iPhone, Safari, HTTPS** (Render/Fly, Cách B):
+  - Thêm vào MH chính thì icon `apple-touch-icon.png`, tên "PetGame";
+  - mở toàn màn hình như trước (`apple-mobile-web-app-capable`);
+  - mất mạng mà mở app thì sảnh vẫn hiện, bấm Vào chơi ra thẻ "Không kết nối được server" (đã có ở T23), Thử lại khi có mạng.
+- **iPhone qua Wi-Fi `http://192.168.…`** (Cách A): vẫn thêm được vào MH chính kèm icon. Không có service worker (không phải ngữ cảnh an toàn), game chạy như trước T13.
+- **Android Chrome, HTTPS:** menu có "Cài đặt ứng dụng" hoặc lời mời cài. Icon maskable cắt tròn hay bo góc theo launcher; mở toàn màn hình, nằm ngang (`orientation` giữ nguyên).
+- **Desktop:** tab có icon; Chrome có nút cài trên thanh địa chỉ.
+- **Bàn phím, cảm ứng:** không có nút mới, không đổi HUD. Không có chữ mới trong game; chữ tiếng Việt mới duy nhất là `description` của manifest.
+- **iPhone, điều phải biết** (ghi vào `docs/choi-tren-iphone.md`): app ở MH chính dùng bộ nhớ riêng, không chung `localStorage` với Safari, nên lần đầu mở app là một người chơi mới (tên, thú, trại ở Safari không theo sang). Hành vi của iOS, có từ trước T13 (Thêm vào MH chính đã được khuyên trong tài liệu). Cần kiểm trên máy thật, đề xuất T80.
 
-`hudBridge.ts` gọi `GAME_TEXT.lairWarning(palName(p.speciesId, true), p.level)`. Mẫu là `★ Lãnh địa của ${name} (Lv ${level}): nó tấn công ai lại gần!`. Vì `palName(id, true)` = `` `${getSpecies(id).name} đầu đàn` `` (`alphas.test.ts` giữ điều này), chữ ra giống hệt BASE. Đây là chỗ duy nhất công cụ so sánh báo khác (Thiết kế 5).
+### 8. Quay lại thế giới khi mở app từ Màn hình chính (T23): ngoài phạm vi
 
-Không đổi hai chỗ còn lại có chữ "đầu đàn" ở client:
-- nhãn `★ Đầu đàn · Lv …` (`stateSync.ts`): dạng khác, viết hoa, đứng trước;
-- tiêu đề hộp xác nhận thả `Thả ${getSpecies(...).name} · Lv…?`: BASE dùng tên trơn, dòng "★ Thú đầu đàn" riêng.
+Đã cân nhắc:
+- `start_url` cố định (`/`), không đổi được theo lần chơi; iOS mở lại `start_url` khi app bị đóng hẳn.
+- Danh sách `petgame:worlds` (T65) có `room` và `friends` nhưng **không có giờ**. Sảnh không phân biệt được "thế giới bạn bè vừa chơi 2 phút trước" với "thế giới tuần trước" (đã đóng, sẽ gặp thẻ "đã đóng").
+- Làm đúng cần:
+  - thêm trường giờ vào `RecentWorld`;
+  - ghi giờ lúc rời trang (`pagehide`);
+  - một nút phụ mới ở sảnh, chữ mới trong `ui/strings.ts`;
+  - e2e mới.
 
-#### 3.4. Chuỗi có markup HTML: chuyển nguyên văn
+  Thêm cả phần này thì T13 quá một vòng.
+- Trường hợp hay gặp (chuyển app qua lại) đã được kết nối lại của T3 lo, vì trang vẫn sống.
 
-Có 8 chuỗi:
-- `hud.ts`: nút Ăn `<span class="eat-label">…`, nút Mời `🔗 Mời<span class="invite-more"> bạn</span>`, dòng trạng thái `Người chơi: …<br>${…}<br>`, dòng `Mời bạn: <a href=…>`;
-- `crafting.ts`, `wardrobe.ts`: `<strong>…</strong>`;
-- `quests.ts`: 2 chuỗi.
-
-Tách chữ khỏi markup thì đổi cấu trúc DOM và làm công cụ so sánh mất tác dụng. Để dành cho lúc làm đa ngôn ngữ. Mẫu có `${escapeHtml(invite)}`: hàm mẫu nhận chuỗi đã escape (`shown: string`), `escapeHtml` vẫn gọi ở `hud.ts`. Giữ thứ tự `${…}` theo luật.
-
-#### 3.5. Đầu đọc chữ, điện thoại, bàn phím
-
-Đầu đọc chữ (`aria-label`, `title`), điện thoại, bàn phím: không đổi gì. Bảng giữ cả các câu riêng cho cảm ứng và cho bàn phím (gợi ý choáng, nhãn bóng ngắn) như BASE. Chỗ chọn câu (`this.game.touch ? … : …`, `isTouch`) giữ ở chỗ gọi.
-
-### 4. Công cụ chứng minh không đổi chữ: `scripts/viStrings.mjs`
-
-Script Node (ES module, import `typescript` có sẵn ở devDependencies gốc), chỉ đọc file.
-
-**Đối tượng đếm.** Mọi file `packages/*/src/**/*.ts`, trừ `*.test.ts`, `*.d.ts`, `node_modules`, `dist`. Đi qua cây cú pháp (`ts.createSourceFile`, `forEachChild`), lấy:
-- `StringLiteral`, `NoSubstitutionTemplateLiteral`: lấy `.text`;
-- `TemplateExpression`: `head.text` + với mỗi span: `"${}"` + `literal.text`. Mọi biểu thức bị thay bằng `${}`. Sau đó **vẫn đi tiếp vào trong biểu thức**, để chuỗi lồng như `" (mở 👕 Tủ đồ)"` được đếm riêng.
-
-Chỉ giữ chuỗi có ít nhất một chữ cái tiếng Việt có dấu, theo lớp ký tự:
-`/[À-ÃÈ-ÊÌÍÒ-ÕÙÚÝà-ãè-êìíò-õùúýĂăĐđĨĩŨũƠơƯưẠ-ỹ]/`
-Không dùng khoảng `À-ỹ` rộng: nó dính `×`, `÷`.
-
-Chú thích code không bị đếm vì chỉ lấy literal.
-
-**Chế độ.**
-- Không tham số: in số chuỗi theo file và tổng (giống bảng mốc đo ở đầu).
-- `--list`: in `file:dòng<TAB>chuỗi (JSON)`, cho người rà chữ hoặc dịch.
-- `--compare <ref>`: dựng cùng tập đếm ở commit `<ref>` (đọc bằng `git ls-tree -r --name-only <ref> -- packages` và `git show <ref>:<đường dẫn>` qua `child_process.execFileSync`, chỉ đọc) và ở cây làm việc. Rồi in ba phần:
-  - (a) chuỗi chỉ có ở `<ref>`;
-  - (b) chuỗi chỉ có ở cây làm việc;
-  - (c) chuỗi có ở cả hai nhưng số lần khác (multiset), dạng `cũ -> mới`.
-
-  Có (a) hoặc (b) thì thoát mã 1, còn lại mã 0. (c) chỉ để đối chiếu với danh sách gộp được phép.
-- Export hàm thuần `viLiterals(sourceText, fileName)` → `{ line, text }[]` và `VI_LETTER` (regex), cho test dùng.
-
-**Mốc kiểm chứng.** Designer đã chạy một bản tương đương ở BASE: 277 chuỗi, 269 khác nhau. Chạy không tham số ở BASE phải ra đúng các số trong bảng mốc đo. Lệch thì xem lại cách đếm trước khi sửa code.
-
-### 5. Kết quả so sánh mong đợi (`node scripts/viStrings.mjs --compare cb2ab56`)
-
-Sau đợt 1:
-- (a) rỗng, (b) rỗng.
-- (c) đúng 3 dòng:
-  - `"Đã làm ${} ${}"` 2 -> 1
-  - `"Cần trại cấp ${}"` 2 -> 1
-  - `"Đã có rồi"` 2 -> 1
-
-Sau đợt 2 (vẫn so với `cb2ab56`, cộng dồn):
-- (a) đúng 1 dòng: `"★ Lãnh địa của ${} đầu đàn (Lv ${}): nó tấn công ai lại gần!"`.
-- (b) đúng 1 dòng: `"★ Lãnh địa của ${} (Lv ${}): nó tấn công ai lại gần!"` (Thiết kế 3.3; phần " đầu đàn" giờ đến từ `palName`, chuỗi đó đã được đếm ở `alphas.ts`).
-- (c) đúng 6 dòng: 3 dòng của đợt 1, thêm:
-  - `"Đóng"` 3 -> 1
-  - `"Thả"` 2 -> 1
-  - `"Vào chơi"` 2 -> 1
-
-Ngoài danh sách này, không gộp thêm bản trùng nào khác, kể cả khi chữ giống nhau. `"Ôn hoà"` ×2 ở `terrain.ts` là dữ liệu, không đụng. Mọi dòng khác danh sách là lỗi, phải sửa code, không sửa danh sách.
-
-`"✓ Xong"` không có dấu nên công cụ không thấy. Có test riêng (mục Test).
-
-### 6. Test canh giữ
-
-Trong `scripts/viStrings.test.mjs`, mảng `GUARDED` liệt kê file và thư mục không được chứa chuỗi tiếng Việt (dùng `viLiterals`, đọc file từ đĩa). Lỗi thì in `file:dòng chuỗi` kèm câu "move it to packages/client/src/ui/strings.ts or packages/shared/src/notices.ts".
-- Đợt 1: `packages/server/src/rooms/GameRoom.ts`, `packages/server/src/systems/` (mọi `.ts` không phải test), `packages/shared/src/capture.ts`.
-- Đợt 2 thêm:
-  - `packages/client/src/game/` (đệ quy, gồm `art/`);
-  - `packages/client/src/ui/` trừ `strings.ts`;
-  - `packages/client/src/net/`;
-  - `packages/client/src/main.ts`.
-- `crafting.ts` không vào danh sách vì còn `ITEM_INFO`. `notices.test.ts` giữ phần `craftBlocker`.
+Kết luận: không làm trong T13; ghi giới hạn vào `docs/design/multiplayer.md` (designer đã sửa) và đề xuất **T79**.
 
 ## Kế hoạch triển khai
 
-Hai đợt, mỗi đợt một vòng coder → tester → reviewer và một commit. Trong mỗi đợt, sau mỗi bước phải xanh: `npm run typecheck` và `npm test`. Đợt 2 chạy thêm `npm run test:e2e` ở cuối.
+### Phần A (asset-manager), đợt T13
 
-Đầu mỗi đợt, coder chạy `node scripts/viStrings.mjs` (đợt 1: ngay sau bước 1) và lưu kết quả để đối chiếu. Chạy `--compare cb2ab56` sau mỗi bước.
+**A1. `scripts/appIcons.py`** (mới). Python 3 + Pillow (numpy được phép, đã có trong yêu cầu của photo3d). Chạy: `python3 scripts/appIcons.py` từ gốc repo. Viết file theo bảng ở Thiết kế 1. Yêu cầu:
+- Đọc `views` trong `packages/client/public/assets/pals/index.json` để tìm ô `front`. Bề rộng ô = `floor(W / số hướng)`, giống `palSprites.ts`. Rồi cắt theo bbox alpha.
+- Hằng số ở đầu file, tên `UPPER_SNAKE_CASE`: `SOURCE`, `MASTER = 1024`, màu nền, các tỉ lệ trong bảng, `SAFE_RADIUS = 0.40`.
+- Tất định: không ngẫu nhiên; chạy hai lần ra cùng byte (lưu PNG `optimize=True`, không ghi thời gian).
+- Kiểm vùng an toàn maskable trên ảnh 1024 trước khi thu nhỏ. Vượt `SAFE_RADIUS` thì `sys.exit` kèm số đo.
+- Kiểm `apple-touch-icon.png` và icon maskable không có pixel alpha < 255.
+- In ra mỗi file: cỡ, số byte, bán kính xa nhất của thú.
+- Docstring và chú thích tiếng Anh.
 
-Ở mọi bước: chép chữ bằng copy/paste nguyên dòng, không gõ lại (dễ mất dấu, đổi `…` thành `...`, mất `\xa0`, ` `). Giữ đúng loại dấu ngoặc của literal gốc nếu chuỗi có ` ` hoặc `\xa0` dạng escape.
+**A2.** Chạy script, commit 5 PNG:
+- `packages/client/public/icons/icon-192.png`, `icon-512.png`, `icon-maskable-192.png`, `icon-maskable-512.png`;
+- `packages/client/public/apple-touch-icon.png`.
 
-### Đợt 1 (T12): công cụ, bảng thông báo server, câu từ chối dùng chung
+Ghi vào `PROGRESS.md` cỡ file và bán kính đo được, kèm một ảnh xem trước bản maskable cắt tròn (để trong scratchpad, không commit).
 
-1. `scripts/viStrings.mjs` theo Thiết kế 4. Thêm `scripts/viStrings.test.mjs`:
-   - test `viLiterals` trên mã nguồn nhỏ viết trong test:
-     - chuỗi thường;
-     - template có `${}`;
-     - chuỗi lồng trong biểu thức của template được đếm riêng;
-     - chuỗi chỉ ASCII/emoji bị bỏ;
-     - chú thích có chữ tiếng Việt không bị đếm;
-     - `×` không bị coi là tiếng Việt;
-   - test canh giữ với `GUARDED` rỗng (thêm file ở bước 5).
+**A3. `packages/client/public/manifest.webmanifest`:** đúng khối ở Thiết kế 2, thứ tự khoá: `id, name, short_name, description, lang, dir, start_url, scope, display, orientation, background_color, theme_color, categories, icons`.
 
-   Chạy không tham số: khớp bảng mốc đo. Chạy `--compare cb2ab56`: không có (a), (b), (c).
-2. `packages/shared/src/notices.ts` theo Thiết kế 2 (`NOTICES`, `refusal`, `CRAFT_SOUND_PREFIXES`), export trong `index.ts`.
-   - `capture.ts`: `PARTY_FULL_TEXT` và `throwBlocker` lấy chữ từ `NOTICES`.
-   - `crafting.ts`: `craftBlocker` lấy chữ từ `NOTICES`.
+**A4. `packages/client/index.html`:** 3 dòng ở Thiết kế 2, ngay sau `<link rel="manifest" …>`. Không đụng gì khác trong file (nhất là script canh tải inline).
 
-   Thêm `packages/shared/src/notices.test.ts` (mục Test). `capture.test.ts`, `crafting.test.ts`, `wardrobe.test.ts` phải qua mà không sửa.
-3. Server:
-   - `GameRoom.notify(client, notice)` và `announce(notice, except?)` theo Thiết kế 2. Sửa JSDoc của hai hàm.
-   - Đổi mọi chỗ gọi:
-     - `systems/camp.ts`, `combat.ts`, `leaders.ts`, `party.ts`, `skills.ts`, `wild.ts`, `world.ts`;
-     - `systems/debug.ts` (`NOTICES.partyFull`);
-     - `GameRoom.ts` (`workedWhileAway`).
-   - Chỗ nhận chữ từ `throwBlocker`/`craftBlocker` dùng `refusal(blocker)`.
-   - Bỏ import `NoticeKind` nếu không còn dùng (`noUnusedLocals`).
-   - `GameRoom.test.ts` phải qua mà không sửa.
-4. Client, chỉ một chỗ: `game/serverEvents.ts` thay hai `startsWith("…")` bằng `CRAFT_SOUND_PREFIXES.some((p) => msg.text.startsWith(p))`. Phần còn lại của client để đợt 2.
-5. Thêm các file đợt 1 vào `GUARDED`. Chạy `--compare cb2ab56`: đúng kết quả "Sau đợt 1" ở Thiết kế 5. Dán nguyên kết quả vào `PROGRESS.md`.
-6. `docs/architecture.md`:
-   - bảng shared: thêm dòng `notices.ts` (bảng `NOTICES` mỗi câu kèm `kind`, `refusal`, `CRAFT_SOUND_PREFIXES`; câu mới server gửi phải thêm vào đây);
-   - bullet `rooms/GameRoom.ts`: `notify(client, notice)`, `announce(notice)`;
-   - mục Kiểm thử: `scripts/viStrings.mjs` (`--list`, `--compare <ref>`) và test canh giữ.
+**A5. `scripts/pwaManifest.test.mjs`** (mới; Vitest đã gom `scripts/**/*.test.mjs`; dùng `node:fs` nên không đặt trong `packages/client/src`, vì tsconfig client không có kiểu Node). Đọc PNG qua header IHDR: byte 0-7 là chữ ký PNG, rộng/cao là `readUInt32BE(16)` / `readUInt32BE(20)`. Các ca:
+1. Manifest là JSON hợp lệ, có `name`, `short_name`, `start_url: "/"`, `id`, `scope`, `display`, `background_color`, `theme_color`.
+2. Có ít nhất một icon `any` 192×192, một `any` 512×512, một `maskable` 512×512.
+3. Mỗi `icons[].src` tồn tại trong `packages/client/public/`, là PNG, và cỡ thật đúng `sizes`.
+4. `index.html` có `rel="apple-touch-icon"` trỏ tới file tồn tại, PNG 180×180; có `rel="icon"` trỏ tới file tồn tại.
 
-### Đợt 2 (T12b): bảng chữ client
+**A6. Tài liệu:**
+- `assets/CREDITS.md`: thêm dòng "`packages/client/public/icons/*.png`, `apple-touch-icon.png` | Dựng từ ảnh Emberpup (`pals/emberpup.webp`) bằng `scripts/appIcons.py` | Thuộc dự án".
+- `docs/art-style.md`: thêm đoạn ngắn "Icon app" (nguồn, lệnh, bảng tỉ lệ rút gọn, luật vùng an toàn maskable; muốn đổi thú làm icon thì sửa `SOURCE` rồi chạy lại).
 
-1. Tạo `packages/client/src/ui/strings.ts`, JSDoc đầu file nói:
-   - mọi chữ client hiện nằm ở đây;
-   - chữ server gửi nằm ở `@petgame/shared` `notices.ts`;
-   - chữ của dữ liệu (loài, chiêu, đồ, vùng, nhiệm vụ) nằm trong dữ liệu.
+### Phần B (coder), đợt T13b
 
-   Chuyển nhóm sảnh và kết nối:
-   - `LOBBY_TEXT`, `JOIN_TEXT`, `CONNECTION_TEXT`;
-   - sửa `main.ts`, `ui/joinStatus.ts` (giữ export `RETURN_HINT`, `INVITE_HINT`), `ui/connection.ts`.
+**B1. `packages/client/src/pwa/swLogic.ts`** (mới, hàm thuần, không đụng `self`/`caches` ở cấp module, chạy được trong Node). Export:
+```ts
+/** Prefix of every Cache Storage name this game owns; caches with other names are never touched. */
+export const CACHE_PREFIX = "petgame-";
+export function cacheName(version: string): string;
+/** Paths the worker never answers (server replies): exact match, or the path followed by "/". */
+export const NEVER_HANDLED: readonly string[] = ["/matchmake", "/whoami", "/healthz", "/sw.js"];
+export interface SwRequest { url: string; method: string; mode: string }
+export type SwRoute = { strategy: "network-first" | "cache-first"; key: string } | { strategy: "bypass" };
+export function routeFor(req: SwRequest, origin: string): SwRoute;          // bảng ở Thiết kế 3
+export function precacheUrls(distFiles: readonly string[]): string[];       // Thiết kế 4; nhận đường dẫn tương đối trong dist, đổi "\" thành "/", trả URL đã sắp xếp
+export function freshOnInstall(url: string): boolean;                       // true cho "/" và "/manifest.webmanifest"
+export function staleCaches(names: readonly string[], current: string): string[];
+export interface CacheLike { match(key: string): Promise<Response | undefined>; put(key: string, response: Response): Promise<void> }
+export interface StrategyDeps { fetch(request: Request): Promise<Response>; cache: CacheLike; defer(work: Promise<unknown>): void }
+export function cacheFirst(request: Request, key: string, deps: StrategyDeps): Promise<Response>;
+export function networkFirst(request: Request, key: string, deps: StrategyDeps): Promise<Response>;
+```
+- Điều kiện cất: `status === 200 && !redirected`.
+- `defer` nhận lời hứa `cache.put(key, response.clone())`.
+- JSDoc tiếng Anh nói vì sao: network-first để Tải lại không bao giờ ra HTML cũ (T15); không thay câu trả lời hỏng để bộ canh tải và T52 thấy lỗi.
+- Không import `@petgame/shared` hay gì của game (file này được đóng gói vào `sw.js`).
 
-   `ui/joinStatus.test.ts`, `net/connection.test.ts` qua mà không sửa (`ui/connection.ts` không có test riêng; e2e cắt mạng kiểm chữ màn che).
-2. Chuyển nhóm bảng và HUD (`HUD_TEXT`, `PARTY_TEXT`, `SKILLBAR_TEXT`, `WARDROBE_TEXT`, `CRAFTING_TEXT`, `QUEST_TEXT`, `MINIMAP_TEXT`, `COMMON_TEXT`). Sửa `ui/hud.ts`, `party.ts`, `skillbar.ts`, `wardrobe.ts`, `crafting.ts`, `quests.ts`, `minimap.ts`. Nhớ `"✓ Xong"`.
-3. Chuyển nhóm `game/` (`GAME_TEXT`). Sửa `Game.ts`, `controls.ts`, `hudBridge.ts` (cảnh báo lãnh địa qua `palName`, Thiết kế 3.3; thêm import `palName`, bỏ `getSpecies` nếu thừa), `serverEvents.ts`, `stateSync.ts`. Không đụng `labelLayout.ts`.
-4. Thêm `packages/client/src/ui/strings.test.ts` (mục Test).
-   - Thêm thư mục, file client vào `GUARDED`.
-   - Chạy `--compare cb2ab56`: đúng kết quả "Sau đợt 2" ở Thiết kế 5, dán vào `PROGRESS.md`.
-   - Chạy thêm `--list` lọc theo `packages/client/src/ui/strings.ts` và `packages/shared/src/notices.ts` để chắc mọi chữ đã vào bảng.
-5. `docs/architecture.md`: bullet `ui/` thêm `strings.ts` (bảng chữ client, theo object `*_TEXT`; chữ mới thêm vào đây, không viết thẳng trong code giao diện). Thêm một câu ở mục packages/client: chữ server gửi lấy từ `NOTICES` (shared).
+**B2. `packages/client/src/pwa/sw.ts`** (mới, chỉ nối dây, khoảng 40 dòng):
+- `declare const __PETGAME_SW__: { version: string; precache: string[] };`
+- Kiểu tối thiểu khai báo tại chỗ: `SwEvent` (`waitUntil`), `SwFetchEvent` (`request`, `respondWith`), `SwScope` (`location.origin`, `clients.claim()`, `addEventListener` cho `install`/`activate`/`fetch`). Rồi `const sw = globalThis as unknown as SwScope;`. Lib DOM của tsconfig client không có `FetchEvent`, và không thêm lib `WebWorker` (đụng với DOM).
+- `install`: `event.waitUntil(caches.open(CACHE).then((c) => c.addAll(precache.map((u) => (freshOnInstall(u) ? new Request(u, { cache: "reload" }) : u)))))`.
+- `activate`: xoá `staleCaches(await caches.keys(), CACHE)`, rồi `sw.clients.claim()`, tất cả trong `waitUntil`.
+- `fetch`:
+  - `const route = routeFor({ url, method, mode }, sw.location.origin)`; `bypass` thì `return` (không gọi `respondWith`);
+  - còn lại `event.respondWith(caches.open(CACHE).then((cache) => strategy(event.request, route.key, { fetch: (r) => fetch(r), cache, defer: (p) => event.waitUntil(p) })))`;
+  - gọi `waitUntil` sau khi dispatch là hợp lệ vì lời hứa của `respondWith` còn đang chờ.
+- Không `skipWaiting`, không `message` handler.
+
+**B3. `packages/client/src/pwa/register.ts`** (mới): `export function registerServiceWorker(): void` theo Thiết kế 5. JSDoc nói ba điều kiện và vì sao (dev/HMR/e2e; http trên LAN; không bao giờ ném).
+
+**B4. `packages/client/src/main.ts`:**
+- `import { registerServiceWorker } from "./pwa/register.ts";`;
+- gọi `registerServiceWorker();` ngay sau dòng `document.dispatchEvent(new Event(LOBBY_READY_EVENT));`, kèm chú thích một dòng (sau khi sảnh sẵn sàng; bản build mới đăng ký).
+
+Không đổi gì khác.
+
+**B5. `packages/client/vite.config.ts`:** thêm plugin `serviceWorker()` (`name: "petgame-service-worker"`, `apply: "build"`).
+- `configResolved`: nhớ `root` và `outDir` tuyệt đối.
+- `closeBundle`:
+  1. liệt kê đệ quy file trong `outDir` (đường dẫn tương đối, dạng POSIX);
+  2. `precache = precacheUrls(files)` (import từ `./src/pwa/swLogic.ts`);
+  3. `version = sha256(readFileSync(outDir/index.html) + "\n" + precache.join("\n")).slice(0, 12)` (`node:crypto`);
+  4. gọi `build()` của `vite` lần hai để đóng gói `src/pwa/sw.ts` thành `dist/sw.js` dạng IIFE:
+  ```ts
+  await build({
+    configFile: false, root, logLevel: "warn", publicDir: false,
+    define: { __PETGAME_SW__: JSON.stringify({ version, precache }) },
+    build: { outDir, emptyOutDir: false, copyPublicDir: false, minify: true, sourcemap: false,
+      lib: { entry: resolve(root, "src/pwa/sw.ts"), formats: ["iife"], name: "petgameSw", fileName: () => "sw.js" } },
+  });
+  ```
+  5. in một dòng: `service worker <version>: <n> files precached`.
+- `configFile: false` nên lần build thứ hai không nạp lại plugin (không đệ quy).
+- Giữ nguyên các dòng cấu hình hiện có. Nếu `build.lib` dạng `iife` của Vite 8.3 (rolldown) không ra đúng một file `sw.js` ở gốc `dist/` thì dùng thẳng API `rolldown` (Vite 8 đã kéo theo, không thêm dependency) với `format: "iife"`, cùng `define`. Ghi lựa chọn vào `PROGRESS.md`.
+- `vite.config.ts` nằm ngoài typecheck (như hiện nay), nên logic đáng test phải ở `swLogic.ts`.
+
+**B6. `packages/client/src/pwa/swLogic.test.ts`** (mới): các ca ở mục Test.
+
+**B7. `scripts/viStrings.test.mjs`:** thêm `"packages/client/src/pwa"` vào `GUARDED` (thư mục client mới, không được có chữ tiếng Việt).
+
+**B8. `playwright.config.ts`:**
+- `use`: thêm `serviceWorkers: "block"`, kèm chú thích: e2e chạy trên Vite dev không có service worker; chặn để route và số đo không bao giờ bị service worker chen vào; `tests/e2e/pwa.spec.ts` tự bật lại.
+- `webServer[0]`:
+  - `command: "npm run build && npm run start --workspace=@petgame/server"`, để server ở 2567 phục vụ đúng bản build của cây làm việc hiện tại;
+  - thêm `timeout: 180_000` (mặc định 60 s có thể không đủ cho build cộng khởi động).
+
+  Chú thích: build chạy trước khi có trang nào mở, nên Vite dev ở 5173 không thể tải lại trang nào vì `dist/index.html` đổi (rủi ro của T1).
+- Không đổi gì khác (env, cổng, `webServer[1]`).
+
+**B9. `tests/e2e/pwa.spec.ts`** (mới, các ca ở mục Test). Không import gì từ `multiplayer.spec.ts`; tự viết 2 helper nhỏ (chờ `#join-btn:enabled` rồi điền tên, bấm; chờ vào thế giới như `waitForWorld`). Chú thích rằng chúng chép tạm vì T63 đang giữ `multiplayer.spec.ts`; gom lại ở T16/T20. Mọi context mở bằng `browser.newContext({ serviceWorkers: "allow" })`, ghi rõ để đè `block` của config. Đóng context trong `afterEach`.
+
+**B10. `scripts/shots.mjs`:** thêm `serviceWorkers: "block"` vào cả 4 lời gọi `browser.newContext(...)` (dòng 92, 127, 222, 320 ở BASE; dùng một hằng `const NO_SW = { serviceWorkers: "block" }` trải vào), kèm chú thích: số sprite và giờ `labels.update` không được nhiễu bởi việc lưu sẵn.
+
+**B11. Tài liệu:**
+- `docs/architecture.md`, mục `packages/client`: bullet mới **PWA (T13)**:
+  - các file `pwa/swLogic.ts`, `sw.ts`, `register.ts`;
+  - bảng định tuyến rút gọn;
+  - phiên bản, lưu sẵn, dọn cache, không `skipWaiting`;
+  - plugin trong `vite.config.ts`;
+  - chỉ đăng ký ở bản build và ngữ cảnh an toàn;
+  - ghi chú T52 (Thiết kế 6);
+  - icon do `scripts/appIcons.py` sinh.
+
+  Mục Kiểm thử: `npm run test:e2e` chạy `multiplayer.spec.ts` và `pwa.spec.ts`; server e2e bật sau `npm run build`; `serviceWorkers: "block"` cho mọi context trừ `pwa.spec.ts`; `shots` chặn service worker.
+- `docs/choi-tren-iphone.md`, mục "Mẹo": thay gạch "Thêm vào Màn hình chính" bằng một khối ngắn:
+  - cách thêm, kèm icon PetGame;
+  - Cách B (HTTPS) mở được khi mất mạng tới sảnh, có thẻ "Không kết nối được server";
+  - Cách A (Wi-Fi `http://`) vẫn thêm được nhưng không lưu sẵn;
+  - **app ở MH chính là người chơi riêng**, khác Safari (Thiết kế 7);
+  - app luôn mở ở sảnh, muốn vào lại thế giới bạn bè thì mở lại link mời.
+- `docs/deploy.md`, mục "Ghi chú":
+  - service worker chỉ chạy qua HTTPS;
+  - sau deploy, tab cũ dùng nốt bản cũ, tải lại là ra bản mới;
+  - gỡ service worker khỏi máy người chơi khi cần: deploy một `sw.ts` chỉ xoá cache `petgame-*` rồi `self.registration.unregister()`;
+  - **thêm CSP thì phải cho phép script canh tải inline bằng hash `sha256-…`**, kẻo nó mất tác dụng mà không báo.
 
 ## Giao thức
 
-- Không đổi `schema.ts`, `messages.ts` (`NoticeMessage` vẫn `{ text, kind }`, chữ vẫn gửi nguyên câu), `Profile`. Dữ liệu trên dây giống hệt BASE từng byte cho cùng một sự kiện.
-- Đổi API nội bộ server: `GameRoom.notify(client, notice: NoticeMessage)`, `GameRoom.announce(notice: NoticeMessage & { kind: "news" }, except?)`. Test có sẵn không gọi hai hàm này (đã kiểm tra bằng grep).
-- Shared thêm export: `NOTICES`, `refusal`, `CRAFT_SOUND_PREFIXES`. Giữ nguyên `PARTY_FULL_TEXT`, `throwBlocker`, `craftBlocker`, `palName`.
+- Không đổi `schema.ts`, `messages.ts`, `Profile`, server. Không đổi dữ liệu đã lưu (SQLite, `localStorage`, `sessionStorage`).
+- Client: thêm Cache Storage `petgame-<phiên bản>` và một service worker scope `/` trên origin của game (chỉ bản build, chỉ ngữ cảnh an toàn).
+- `dist/` thêm `sw.js`, `icons/`, `apple-touch-icon.png`. Dockerfile chép cả `dist/` nên không cần sửa.
 
 ## Test
 
-**Quyết định: test giữ chữ viết thẳng (literal), không import từ bảng.**
-- Literal là hàng rào chống lỡ tay đổi chữ: test import từ bảng sẽ luôn xanh dù câu đã bị sửa.
-- Mọi file test có sẵn **không được sửa một byte**: `GameRoom.test.ts`, các test shared, `joinStatus.test.ts`, `connection.test.ts`, `toastQueue.test.ts`, `tests/e2e/multiplayer.spec.ts`...
-- Những test đang import hằng (`PARTY_FULL_TEXT`, `RETURN_HINT`, `INVITE_HINT`) vẫn import đúng tên, đúng đường dẫn cũ, nhờ alias ở Thiết kế 2 và 3.2.
-- Kiểm: `git diff --stat cb2ab56 -- '*.test.ts' '*.test.mjs' tests/` chỉ được có file **mới** (`notices.test.ts`, `strings.test.ts`, `viStrings.test.mjs`), không có file sửa.
+**Unit, `packages/client/src/pwa/swLogic.test.ts`** (Node; `Request`/`Response` có sẵn trong Node 22). Origin dùng trong test: `http://localhost:2567`.
 
-Test mới, chữ mong đợi viết literal.
+`routeFor`:
+1. Điều hướng `GET` tới `/`, `/?room=abc&quality=low`, `/index.html`: network-first, khoá `"/"`.
+2. `GET /build/index-Abc.js` với mode `cors`, `no-cors`: cache-first, khoá `/build/index-Abc.js`. Có `?v=1` thì khoá không có `?v=1`.
+3. `GET /manifest.webmanifest`: network-first, khoá chính nó.
+4. Bỏ qua:
+   - `POST /matchmake/create/world`;
+   - `GET /matchmake/abc` (kiểm luật đường dẫn, không chỉ luật method);
+   - `GET /matchmake`;
+   - `GET /whoami` với mode `cors` và `navigate`;
+   - `GET /healthz`, `GET /sw.js`.
+5. Bỏ qua tài nguyên tĩnh khác: `/assets/pals/emberpup.webp`, `/assets/pals/index.json`, `/icons/icon-192.png`, `/apple-touch-icon.png`, điều hướng tới `/sprites.html`.
+6. Bỏ qua địa chỉ ngoài: `ws://localhost:2567/abc/def`, `wss://…`, `https://server.example/build/x.js` (server tách riêng), `HEAD /build/x.js`.
+7. Luật đường dẫn không khớp nhầm: `/buildx/y.js` và `/build` (không gạch chéo) là bỏ qua, không phải cache-first.
 
-`packages/shared/src/notices.test.ts` (đợt 1):
-- Mọi mục của `NOTICES` (gọi hàm mẫu với tham số mẫu) có `kind` thuộc 6 loại `NoticeKind`, `text` không rỗng. Mục `news` chỉ có `alphaKnockedOut`, `alphaCaught`.
-- Chữ ra đúng từng ký tự ở các mẫu có nhánh hoặc ký tự đặc biệt:
-  - `NOTICES.released("Voltmouse").text` = `"Đã thả Voltmouse. Tạm biệt! 👋"`;
-  - `NOTICES.chestFound("🪵\xa05", true).text` = `"Rương báu! 🪵\xa05 (mở 👕 Tủ đồ)"`, với `false` thì không có phần ngoặc;
-  - `NOTICES.questDone("Bắt thú đầu tiên", "🪵\xa05").text` = `"Xong nhiệm vụ \"Bắt thú đầu tiên\"! 🪵\xa05"`;
-  - `NOTICES.partyFull.text` = `"Túi thú đầy (30/30): mở 🐾 Thú và bấm 🕊️ Thả bớt"`, và `=== PARTY_FULL_TEXT`.
-- `CRAFT_SOUND_PREFIXES`:
-  - `NOTICES.crafted("🔵", "Bóng xịn").text` và `NOTICES.campLeveled(2, "🏕️").text` bắt đầu bằng một tiền tố;
-  - không mục nào khác (gọi với tham số mẫu) bắt đầu bằng tiền tố nào, để tiếng chế tạo không kêu nhầm.
-- `refusal("x")` = `{ kind: "refused", text: "x" }`. `throwBlocker(0, { boss: true })` = `NOTICES.bossUncatchable.text`. Với các nhánh của `craftBlocker`: chữ trả về là `text` của một mục `refused`.
+Các hàm còn lại:
 
-`packages/client/src/ui/strings.test.ts` (đợt 2, chạy trong Node, không DOM):
-- `GAME_TEXT.caught("Voltmouse đầu đàn", true)` = `"★ Bắt được Voltmouse đầu đàn! 🎉"`; với `false` thì không có `★ `.
-- `GAME_TEXT.lairWarning(palName("voltmouse", true), 7)` = `"★ Lãnh địa của Voltmouse đầu đàn (Lv 7): nó tấn công ai lại gần!"`. Đây là chuỗi BASE ghép cho cùng thú, viết literal.
-- Lên cấp có và không có chiêu mới: hai câu literal.
-- `JOIN_TEXT` câu `full` chứa `` `${MAX_PLAYERS} người` ``; câu `tooMany` chứa `"sau 1 phút"` (`EMPTY_WORLD_HOLD_MS` = 60 s).
-- `PARTY_TEXT` có đúng `"✓ Xong"` (công cụ không thấy chuỗi này).
-- File này không được import `hud.ts` hay module có DOM. Nếu `strings.ts` buộc phải import gì từ `ui/` khác thì sai thiết kế.
+8. `precacheUrls` nhận `["index.html", "manifest.webmanifest", "sw.js", "build/index-A.js", "build\\b-B.js", "build/x.js.map", "assets/pals/index.json", "assets/pals/emberpup.webp", "icons/icon-192.png", "apple-touch-icon.png"]` và trả đúng `["/", "/build/b-B.js", "/build/index-A.js", "/manifest.webmanifest"]` (đã sắp xếp).
+9. Nhất quán: mọi URL của `precacheUrls(...)` đi qua `routeFor` (mode `navigate` cho `/`, `cors` cho phần còn lại) đều **không** ra `bypass`.
+10. `freshOnInstall`: true cho `/` và manifest, false cho `/build/…`.
+11. `staleCaches(["petgame-a", "petgame-b", "other", "petgame-"], "petgame-b")` trả `["petgame-a", "petgame-"]`; không bao giờ có cache hiện tại hay cache tên khác.
 
-`scripts/viStrings.test.mjs`: như kế hoạch đợt 1 bước 1 và Thiết kế 6.
+Chiến lược, dùng fake `CacheLike` (một `Map`), fake `fetch` đếm số lần gọi, `defer` gom lời hứa rồi `await` hết trước khi kiểm cache:
 
-Tích hợp server (`GameRoom.test.ts`) và e2e: không thêm. Bộ có sẵn đã so chữ và `kind` của nhiều thông báo. Tester chạy:
-- đợt 1: `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` (server đổi chỗ gửi tin, e2e đọc chữ toast);
-- đợt 2: như đợt 1. E2E là kiểm tra chính cho client.
+12. `cacheFirst`:
+    - trong cache có thì trả bản đó, `fetch` không bị gọi;
+    - không có, mạng 200: gọi `fetch` đúng một lần, cất đúng khoá, thân câu trả lời đọc được ở cả hai bên (đã `clone`);
+    - không có, mạng 404: trả 404, không cất;
+    - không có, `fetch` ném: lời hứa bị từ chối với **đúng lỗi đó**, không cất, không trả gì khác.
+13. `networkFirst`:
+    - mạng 200: trả câu trả lời mạng, cất dưới khoá, kể cả khi cache đã có bản cũ (bản mới đè bản cũ);
+    - mạng 503: trả 503, không cất, không đọc cache dù có;
+    - `fetch` ném mà cache có khoá: trả bản cache;
+    - `fetch` ném mà cache trống: ném lại đúng lỗi;
+    - câu trả lời giả `{ status: 200, redirected: true, clone() }`: trả nó, không cất.
+
+**Unit, `scripts/pwaManifest.test.mjs`** (Phần A): 4 ca ở A5.
+
+**E2E, `tests/e2e/pwa.spec.ts`** (mới; chạy trong `npm run test:e2e` cùng `multiplayer.spec.ts`):
+
+1. `pwa: the built game lists its icons, and a service worker caches the game shell but never the server's replies`. Trang `http://localhost:2567/?quality=low`, context `serviceWorkers: "allow"`.
+   - (a) Icon:
+     - đọc `href` của `link[rel=manifest]` rồi tải bằng `page.request.get` (ngoài service worker);
+     - mỗi `icons[].src` trả 200, `content-type` `image/png`, cỡ IHDR đúng `sizes`;
+     - có `any` 192, `any` 512, `maskable` 512;
+     - `link[rel=apple-touch-icon]` trả PNG 180×180.
+   - (b) Chờ `#join-btn:enabled`, rồi chờ `navigator.serviceWorker.controller !== null` (tối đa 60 s, vì `clients.claim`). `context.serviceWorkers()` có đúng một cái, URL kết thúc `/sw.js`.
+   - (c) Trong trang:
+     - `caches.keys()` lọc `petgame-` còn đúng một tên;
+     - đường dẫn của mọi mục chứa `/`, `/manifest.webmanifest`, và mọi `/build/…` mà `index.html` trỏ tới (`script[type=module][src]`, `link[rel=modulepreload][href]`);
+     - không mục nào bắt đầu `/assets/`, `/icons/`, `/matchmake`, `/whoami`, `/sw.js`, và không có `/apple-touch-icon.png`.
+   - (d) `page.reload()`:
+     - câu trả lời điều hướng có `fromServiceWorker() === true`;
+     - câu trả lời của chunk vào (`script[type=module]`) có `fromServiceWorker() === true`;
+     - `#join-btn:enabled` lại hiện.
+   - (e) `fetch("/whoami")` trong trang trả 200; `page.waitForResponse` của nó có `fromServiceWorker() === false`; cache vẫn không có `/whoami`.
+   - (f) Vào thế giới bằng helper (tên "Pwa"), chờ vào xong (thế giới đã vẽ, sảnh mất; `room.state.players.size > 0`), nghĩa là matchmake và WebSocket chạy bình thường khi service worker điều khiển trang. `navigator.serviceWorker.controller` vẫn khác null; cache vẫn không có mục nào bắt đầu `/matchmake`.
+2. `pwa: Vite dev registers no service worker`. Trang `http://localhost:5173/?quality=low`, context `serviceWorkers: "allow"`:
+   - ghi mọi request có đường dẫn `/sw.js`;
+   - chờ `#join-btn:enabled` và `waitForLoadState("load")`;
+   - `navigator.serviceWorker.getRegistrations()` dài 0, không có request `/sw.js`.
+
+Không kiểm được bằng Playwright 1.56.1:
+- **Mở khi mất mạng.** `context.setOffline` không áp cho mạng của service worker. Phần đó chỉ bật bằng cờ thử nghiệm `PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS` (`crServiceWorker.js`), không dùng.
+- **Cập nhật sau deploy.** Phải đổi `dist` giữa chừng trên server dùng chung.
+
+Hai phần này được unit test 12-13 và 11 lo; còn lại kiểm tay (dưới).
+
+**E2E hiện có:** không sửa `multiplayer.spec.ts`. Phải qua nguyên như trước, khi:
+- config có `serviceWorkers: "block"`;
+- server phục vụ `dist/` (trước T13, khi chưa build thì không phục vụ).
+
+**Kiểm tay** (agent chính thêm vào "Ghi chú chờ người chơi thử" của `TASKS.md`; theo `docs/choi-tren-iphone.md`):
+1. **iPhone, Cách B (HTTPS):**
+   - Thêm vào MH chính thì icon Emberpup, tên "PetGame"; mở toàn màn hình.
+   - Bật chế độ máy bay rồi mở app: sảnh hiện, Vào chơi ra "Không kết nối được server". Tắt chế độ máy bay, Thử lại thì vào được.
+   - Ghi lại thú ở Safari có theo sang app không (dự kiến không, xem T80).
+2. **iPhone, Cách A (`http://192.168.…`):** thêm vào MH chính có icon, game chạy như trước.
+3. **Android Chrome (HTTPS):** có "Cài đặt ứng dụng"; icon tròn không bị cắt mất tai hay chân.
+4. **Desktop Chrome** (`npm run play`, `http://localhost:2567`), DevTools → Application:
+   - Manifest không báo lỗi, thấy 4 icon;
+   - Service workers: `sw.js` activated;
+   - Cache storage: `petgame-<12 ký tự>` không có `/matchmake`, `/whoami`.
 
 ## Tiêu chí hoàn thành
 
-Đợt 1 (T12):
-- [ ] `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` xanh.
-- [ ] `node scripts/viStrings.mjs --compare cb2ab56` in đúng "Sau đợt 1" (Thiết kế 5), thoát mã 0. Kết quả dán trong `PROGRESS.md`.
-- [ ] Không còn chuỗi tiếng Việt trong `server/src/rooms/GameRoom.ts`, `server/src/systems/*.ts`, `shared/src/capture.ts`. Test canh giữ xanh. `craftBlocker` không còn literal tiếng Việt (`--list` trên `crafting.ts` chỉ còn 3 tên `ITEM_INFO`).
-- [ ] `NOTICES` có đủ 36 mục ở bảng Thiết kế 2, đúng khoá, đúng `kind` như chỗ gọi ở BASE. Mọi `notify`/`announce` lấy câu từ `NOTICES` (trực tiếp, hoặc qua `refusal` cho chữ của hàm chặn dùng chung).
-- [ ] Hàm mẫu chỉ nhận giá trị thô, giữ số và thứ tự `${}`. Bảng không gọi `getSpecies`, `palName`, `rewardText`.
-- [ ] `serverEvents.ts` dò tiếng chế tạo qua `CRAFT_SOUND_PREFIXES`. Test giữ tiền tố khớp mẫu.
-- [ ] Không file test có sẵn nào bị sửa (lệnh `git diff --stat` ở mục Test).
-- [ ] Không đụng `labelLayout.ts`, `labelLayout.test.ts`, `tests/e2e/multiplayer.spec.ts`. Không chạy `git stash`. `git stash list` vẫn còn đủ hai mục như lúc bắt đầu.
-- [ ] `docs/architecture.md` cập nhật (đợt 1 bước 6).
+Phần A:
+- [ ] 5 PNG đúng cỡ, ở đúng đường dẫn. `apple-touch-icon.png` và 2 icon maskable không có pixel trong suốt. Script in bán kính xa nhất của thú trong icon maskable ≤ 0,40·S và ghi số đó vào `PROGRESS.md`.
+- [ ] `python3 scripts/appIcons.py` chạy lại ra đúng các byte đã commit (`git status` sạch sau khi chạy).
+- [ ] Manifest có `id`, `scope`, `lang`, `description` tiếng Việt, 4 icon. `index.html` có 3 thẻ mới; khối script canh tải inline không đổi một byte (`git diff` chỉ có 3 dòng trong `<head>`).
+- [ ] `scripts/pwaManifest.test.mjs` qua. `assets/CREDITS.md` và `docs/art-style.md` có mục icon.
 
-Đợt 2 (T12b):
-- [ ] Bốn lệnh kiểm thử xanh. E2E chạy đủ, không bỏ test nào.
-- [ ] `--compare cb2ab56` in đúng "Sau đợt 2", thoát mã 1 chỉ vì đúng một cặp (a)/(b) của cảnh báo lãnh địa. Kết quả dán trong `PROGRESS.md`.
-- [ ] Không còn chuỗi tiếng Việt trong `client/src/game/**`, `client/src/ui/**` (trừ `strings.ts`), `client/src/net/**`, `client/src/main.ts`. Test canh giữ xanh. `"✓ Xong"` nằm trong `PARTY_TEXT`.
-- [ ] `strings.ts` chỉ import hằng số và kiểu từ `@petgame/shared`. Không có trạng thái, không DOM.
-- [ ] Cảnh báo lãnh địa dùng `palName(id, true)`.
-- [ ] `RETURN_HINT`, `INVITE_HINT` vẫn export từ `joinStatus.ts`. Không file test có sẵn nào bị sửa.
-- [ ] Không đụng ba file của stash T63, không `git stash`.
-- [ ] `docs/architecture.md` cập nhật (đợt 2 bước 5).
+Phần B:
+- [ ] `npm run build` tạo `dist/sw.js` (IIFE, không có `import`, không có `export`) chứa phiên bản 12 ký tự và danh sách lưu sẵn. Danh sách gồm `/`, `/manifest.webmanifest` và mọi file `dist/build/*`, không gồm `/assets`, `/icons`, `/sw.js`. Build hai lần liền ra cùng phiên bản.
+- [ ] `routeFor` đúng bảng Thiết kế 3. Không request nào tới `/matchmake*`, `/whoami`, `/healthz`, `/sw.js`, khác origin hay khác `GET` được `respondWith`.
+- [ ] Không có `skipWaiting`, không có `controllerchange`, không tự `location.reload()` nào mới. Không thêm CSP ở đâu cả (`grep -ri "content-security-policy"` không thấy dòng mới).
+- [ ] `registerServiceWorker` chỉ chạy khi `import.meta.env.PROD`, có `"serviceWorker" in navigator` và `try/catch`, gọi sau khi sảnh sẵn sàng, đăng ký lúc `load`.
+- [ ] Cache-first và network-first không bao giờ thay câu trả lời hỏng bằng nội dung khác. Chỉ network-first lùi về cache, và chỉ khi `fetch` ném lỗi (unit test 12-13 chứng minh).
+- [ ] `activate` chỉ xoá cache `petgame-*` cũ, rồi `clients.claim()`.
+- [ ] `playwright.config.ts`: `serviceWorkers: "block"`; server e2e bật sau `npm run build`, có `timeout: 180_000`. `scripts/shots.mjs` chặn service worker ở cả 4 context.
+- [ ] `npm run typecheck` sạch; `npm test` qua (gồm `swLogic.test.ts`, `pwaManifest.test.mjs`, `viStrings.test.mjs` có thêm `pwa/`); `npm run build` qua; `npm run test:e2e` qua toàn bộ, gồm 2 test `pwa:` và mọi test cũ không sửa.
+- [ ] `tests/e2e/multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts` không đổi; không dùng `git stash`.
+- [ ] Tài liệu cập nhật đủ B11; `docs/design/multiplayer.md` (designer đã sửa) khớp với code.
 
 ## Rủi ro, câu hỏi mở
 
 Không có mục CHẶN.
 
-1. **Chép sai chữ khi chuyển** (mất dấu, `…` thành `...`, mất khoảng trắng không ngắt `\xa0`/` `, đổi `"` thành `'` trong chữ). Chặn bằng `--compare` (bắt mọi đổi chữ trong chuỗi có dấu) cộng e2e/unit test có sẵn so chữ literal.
-   - Chỗ công cụ không thấy: chuỗi không có dấu (chỉ `"✓ Xong"`, có test riêng) và chữ nằm trong biểu thức đã bị thay bằng `${}`. Ví dụ đổi nhầm `Math.ceil(left / 1000)` thành `left`: số và thứ tự tham số đúng nhưng giá trị sai. Reviewer đọc từng chỗ gọi so với BASE (`git diff cb2ab56`), chú ý phép tính và thứ tự đối số.
-2. **Đổi chữ ký `notify` làm sai `kind`**. Bảng Thiết kế 2 ghi `kind` theo BASE. Reviewer so từng mục với `git show cb2ab56:<file>`. `GameRoom.test.ts` có so `kind` ở một số tin.
-3. **`news` chuỗi rỗng ở `wild.ts`** đổi sang `undefined`: giữ đúng điều kiện hẹn giờ (`xp > 0 || news`). Nếu sai, tin ★ hoặc kinh nghiệm bắt thú đầu đàn mất. Có test tích hợp T8 bắt thú đầu đàn.
-4. **Bundle sảnh lớn thêm** vì `strings.ts` chứa cả chữ game: vài KB, chấp nhận. Nếu `npm run build` báo chunk sảnh tăng bất thường (> 20 KB) thì ghi vào `PROGRESS.md`, không tự tách file.
-5. **Stash T63 còn sửa `PROGRESS.md` và `REVIEW.md`.** Hai file này đội nào cũng ghi mỗi nhiệm vụ, nên khi mở lại T63 sẽ đụng. Đây là việc của agent chính lúc khôi phục T63: lấy bản của stash cho hai file đó. Không ảnh hưởng code T12.
-6. **Chữ còn rải rác sau T12** (ghi để agent chính cân nhắc thêm việc, không làm ở đây):
-   - chữ tĩnh của `index.html` (sảnh và bộ canh tải; `startCard` lặp lại hai câu "Không tải được game", "Kiểm tra mạng rồi bấm Tải lại." của bộ canh tải);
-   - chuỗi ASCII người chơi thấy (`Lv`, `XP`);
-   - markup trong 8 chuỗi;
-   - `PARTY_TEXT.elements` lặp `ELEMENT_INFO` của shared;
-   - `server/index.ts` in console.
+1. **API build lần hai của Vite 8.3 (rolldown).** `build.lib` + `iife` có thể đặt tên file khác hoặc tách chunk. Đã có đường lùi: dùng thẳng `rolldown` (B5). Tester kiểm `dist/sw.js` là một file, không có `import`.
+2. **Service worker cũ kẹt trên máy người chơi.**
+   - Trang luôn lấy từ mạng trước nên nội dung game không bao giờ cũ khi có mạng;
+   - logic service worker cập nhật khi mọi tab cũ đóng;
+   - cách gỡ khẩn cấp ghi trong `docs/deploy.md`.
 
-## Đề xuất tách nhiệm vụ (cho agent chính cập nhật `TASKS.md`)
+   Lỗi nặng nhất có thể là `routeFor` bắt nhầm request của server. Unit test 4, 6, 7 và e2e (e), (f) canh việc đó.
+3. **`serviceWorkers: "block"` có áp cho `browser.newContext()` tự tạo trong spec không.** Playwright áp tuỳ chọn `use` cho context tự tạo (như `baseURL` mà spec hiện có đang dựa vào). Nếu không áp thì hiện cũng vô hại, vì Vite dev không đăng ký. Tester xác nhận bằng một lần đọc `navigator.serviceWorker.controller` trong một test cũ, nếu cần.
+4. **Build trong `webServer` làm e2e chậm thêm** thời gian một lần `npm run build`. Tester ghi số giây vào `PROGRESS.md`. Build hỏng thì e2e hỏng ngay, đúng ý (trước đây CI e2e không build). Đây cũng là một nửa việc của T16.
+5. **Không kiểm e2e được việc mở khi mất mạng** (Playwright không áp offline cho service worker): unit test và kiểm tay thay thế.
+6. **iPhone: bộ nhớ riêng của app ở Màn hình chính.** Tài liệu ghi theo hành vi đã biết của iOS; cần xác nhận trên máy thật (kiểm tay 1). Nếu sai (thú có theo sang) thì bỏ câu đó trong `docs/choi-tren-iphone.md`, `docs/design/multiplayer.md` và bỏ T80.
+7. **`orientation: "landscape"`** khoá app Android nằm ngang, dù game đã hỗ trợ điện thoại dọc (T6, T61, T62). Giữ nguyên vì không thuộc T13; nếu người dùng muốn dọc thì đổi thành `"any"` (một dòng).
+8. **Xung đột với stash T63:** chỉ ở `PROGRESS.md`, `REVIEW.md` (file làm việc, ghi đè mỗi nhiệm vụ). Khi người dùng trả lời Q1 và mở lại stash, agent chính giữ bản của stash cho hai file đó.
 
-- **T12** (đợt 1): công cụ `viStrings`, bảng `NOTICES` ở shared kèm `kind`, server dùng bảng, câu từ chối dùng chung, tiền tố tiếng chế tạo. Một commit.
-- **T12b** (đợt 2, ngay sau T12): bảng chữ client `ui/strings.ts`, mọi file `ui/`, `game/`, `main.ts`, cảnh báo lãnh địa qua `palName`. Một commit.
-- Việc mới (ưu tiên thấp, sau T12b): **"Chuẩn bị đa ngôn ngữ phần còn lại"**. Gồm chữ tĩnh `index.html` và bộ canh tải (gộp hai câu lặp với `startCard`), chuỗi ASCII (`Lv`, `XP`), tách markup khỏi 8 chuỗi HTML, `PARTY_TEXT.elements` lấy từ `ELEMENT_INFO`. Chỉ nên làm khi có quyết định làm bản tiếng Anh.
+## Đề xuất cho TASKS.md
+
+- Tách **T13** (đợt 1, Phần A, asset-manager) và **T13b** (đợt 2, Phần B, coder), chung `PLAN.md` này.
+- **T79 (P2). Gợi ý quay lại thế giới cùng bạn bè khi mở app từ Màn hình chính.** Sau T13: app luôn mở `/` (`start_url`). Hướng làm:
+  - thêm giờ thấy lần cuối vào `RecentWorld` (`ui/joinStatus.ts`; mục cũ không có giờ thì coi như cũ);
+  - ghi giờ khi rời trang (`pagehide`);
+  - mở ở `/` mà thế giới mới nhất có bạn bè và vừa thấy trong vòng vài phút thì sảnh có nút phụ "Quay lại thế giới cùng bạn bè" (đặt `?room=` rồi vào; thế giới đã đóng thì thẻ "đã đóng" như T23);
+  - luật ở `docs/design/multiplayer.md` mục "Tải lại trang".
+- **T80 (P2). iPhone: app ở Màn hình chính là người chơi mới.** Sau T13, kiểm trên máy thật trước. Hướng làm:
+  - ghi thêm token thiết bị vào một cookie cùng origin (`Secure`, `SameSite=Lax`, hạn dài); khi `localStorage` không có token mà cookie có thì dùng lại. iOS 17 trở lên chép cookie sang app lúc Thêm vào MH chính;
+  - nếu không đủ thì làm "mã chuyển máy" (cân nhắc an toàn: token là tài khoản).
+- **Ghi chú thêm vào T52:** "Sau T13: service worker không tự tải lại và không `skipWaiting`; trang luôn lấy từ mạng trước, chunk thiếu vẫn hỏng thành `vite:preloadError`. T52 không cần đụng service worker."
+- **Ghi chú thêm vào T16:** "Sau T13: server e2e đã bật sau `npm run build` và mọi context đã `serviceWorkers: "block"`; còn đổi `baseURL` sang 2567 và `LOBBY_SCRIPT`. Gom helper chép trong `tests/e2e/pwa.spec.ts` vào một module chung khi T63 xong."
+- **"Ghi chú chờ người chơi thử":** thêm 4 bước kiểm tay ở mục Test (iPhone HTTPS và Wi-Fi, Android, desktop).

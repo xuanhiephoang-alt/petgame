@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -13,8 +13,10 @@ Sảnh (ngoại hình, tên, nút "Vào chơi") chỉ dùng được khi script 
 | Tải hỏng: mất mạng giữa chừng, file thiếu (server vừa đổi bản) | thẻ "Không tải được game", dòng "Kiểm tra mạng rồi bấm Tải lại." và nút **Tải lại** đang có focus (Enter là tải lại); ô tên và nút "Đang tải..." ẩn đi | ngay khi trình duyệt báo lỗi tải |
 | Script chạy lỗi (thường do trình duyệt quá cũ) | như trên, dòng giữa là "Trình duyệt gặp lỗi khi mở game. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt." | ngay khi lỗi |
 | Trình duyệt tắt JavaScript | "Cần bật JavaScript để chơi PetGame." | luôn |
+| Mất mạng, mở game đã từng mở trên máy này qua HTTPS (T13) | sảnh hiện như thường, lấy từ bộ nhớ của máy (không có ô chọn ngoại hình: ảnh nhân vật không được lưu sẵn). Bấm "Vào chơi" thì thẻ "Không kết nối được server" của mục "Vào thế giới" | ngay |
 
 - **Tải lại** mở lại đúng địa chỉ đang có, giữ `?room=` của link mời và mọi tham số khác. Có link mời thì thông báo ghi thêm "Link mời vẫn được giữ."
+- **Luôn lấy bản mới khi có mạng (T13).** Trang game (sảnh) luôn được lấy từ server trước; bộ nhớ của máy chỉ dùng khi không có mạng. Vì vậy **Tải lại** sau khi server vừa đổi bản luôn ra bản mới, không bao giờ ra trang cũ trỏ tới file đã bị xoá. Các file script đã đánh số phiên bản (`/build/…`) lấy từ bộ nhớ nếu có. Không lưu gì của việc vào thế giới (`/matchmake`, kết nối WebSocket) hay `/whoami`. Chỉ có khi địa chỉ là HTTPS hoặc `localhost`: chơi qua Wi-Fi bằng `http://192.168.…` (Cách A của `docs/choi-tren-iphone.md`) thì trình duyệt không cho lưu, game chạy như trước T13.
 - Thông báo "mạng chậm" không chặn gì, không đổi nút "Đang tải..." và không lấy focus. Chỉ khi trình duyệt báo lỗi thật mới hiện thẻ "Không tải được game".
 - Vì sao chờ 15 giây: script sảnh của bản build khoảng 960 kB (server chưa nén). Đo được sảnh sẵn sàng sau 5,3 giây ở 4G chậm (1,6 Mbps), 11,3 giây ở 3G (750 kbps), 20,7 giây ở 3G chậm (400 kbps). Với 15 giây, mạng từ 3G trở lên không bị làm phiền, còn người bị treo mạng không phải chờ quá lâu mới có nút Tải lại.
 - Phạm vi: chỉ lúc tải trang, trước khi sảnh dùng được. Lỗi khi bấm "Vào chơi" là mục "Vào thế giới: lỗi và cách đi tiếp" (T23) và "Vào được nhưng game không mở được" (T42). Mất mạng khi đang chơi là màn che kết nối ở mục "Quay lại".
@@ -98,7 +100,8 @@ Trong lúc chơi, thanh địa chỉ luôn ghi nơi mà lần mở trang sau s�
 - Có bạn bè mà thế giới đã đóng (mọi người đã rời đi hơn 60 giây): thẻ "Thế giới này đã đóng" ở mục dưới, vì người chơi đang mong gặp bạn bè.
 - Vào lại từ sảnh là phiên mới: bắt đầu ở giữa bản đồ, đầy máu (như mục "Quay lại").
 - Trang nhớ (trong `sessionStorage` của tab) thế giới vừa chơi và lần cuối có bạn bè trong đó không, chỉ để chọn chữ trên sảnh và cách báo khi thế giới đã đóng. Địa chỉ mới là thứ quyết định vào đâu. Tab cũ (trước T49) không có dấu bạn bè thì coi như có bạn bè.
-- Giới hạn: app mở từ Màn hình chính (PWA) luôn mở lại từ `/`, nên chưa về được thế giới cũ.
+- Giới hạn: app mở từ Màn hình chính (PWA) luôn mở lại từ `/` (`start_url` của `manifest.webmanifest`), nên chưa về được thế giới cũ. Chỉ ảnh hưởng khi app bị đóng hẳn rồi mở lại (iOS dỡ app ở nền); chuyển app qua lại thì trang vẫn còn và kết nối lại như mục "Quay lại". T13 không làm phần gợi ý quay lại: danh sách thế giới gần đây (T65) chưa ghi giờ, nên sảnh không biết thế giới cuối còn mở không. Đề xuất việc riêng (ghi trong `PLAN.md` của T13): ghi giờ thấy lần cuối vào danh sách, và khi mở ở `/` mà thế giới mới nhất có bạn bè và vừa thấy gần đây thì sảnh có thêm nút phụ "Quay lại thế giới cùng bạn bè".
+- iPhone: app ở Màn hình chính dùng bộ nhớ riêng, không chung `localStorage` với Safari (hành vi của iOS; cần kiểm trên máy thật). Tên, token thiết bị và danh sách thế giới nằm ở đó, nên lần đầu mở app là **một người chơi mới**: thú, đồ, trại đã có trong Safari không theo sang. Đề xuất việc riêng (trong `PLAN.md` của T13) để mang hồ sơ sang app.
 
 ### Dấu trang, địa chỉ dán sang tab mới (T65)
 
