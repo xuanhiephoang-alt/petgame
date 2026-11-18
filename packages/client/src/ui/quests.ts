@@ -1,4 +1,5 @@
 import { QUESTS, rewardText } from "@petgame/shared";
+import { QUEST_TEXT } from "./strings.ts";
 
 /** Small panel under the status showing the current quest and its progress. */
 export class QuestTracker {
@@ -17,12 +18,12 @@ export class QuestTracker {
     this.last = key;
     const quest = QUESTS[index];
     if (!quest) {
-      this.element.innerHTML = `<strong>📜 Đã xong mọi nhiệm vụ!</strong>`;
+      this.element.innerHTML = QUEST_TEXT.allDone;
       return;
     }
-    const count = quest.event === "palLevel" ? `cấp ${progress}/${quest.goal}` : `${progress}/${quest.goal}`;
+    const count = quest.event === "palLevel" ? QUEST_TEXT.levelCount(progress, quest.goal) : `${progress}/${quest.goal}`;
     this.element.innerHTML =
       `<strong>📜 ${quest.title}</strong> <span class="quest-count">${quest.goal > 1 ? count : ""}</span>` +
-      `<small>${quest.hint}</small><small class="quest-reward">Thưởng: ${rewardText(quest.reward)}</small>`;
+      QUEST_TEXT.hintAndReward(quest.hint, rewardText(quest.reward));
   }
 }

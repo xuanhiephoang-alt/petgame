@@ -9,17 +9,9 @@ import {
   strongAgainst,
   workOutput,
   xpToNext,
-  type Element,
   type SkillDef,
 } from "@petgame/shared";
-
-const ELEMENTS: Record<Element, string> = {
-  grass: "🌿 Cỏ",
-  fire: "🔥 Lửa",
-  water: "💧 Nước",
-  earth: "🪨 Đất",
-  electric: "⚡ Điện",
-};
+import { COMMON_TEXT, PARTY_TEXT } from "./strings.ts";
 
 /** The release button in the confirm dialog stays locked this long, so a double tap on a card's button cannot confirm. */
 const CONFIRM_ARM_MS = 500;
@@ -97,12 +89,12 @@ export class PartyPanel {
     this.releaseToggle = document.createElement("button");
     this.releaseToggle.type = "button";
     this.releaseToggle.className = "party-release-toggle";
-    this.releaseToggle.title = "Chọn thú để thả về thiên nhiên";
+    this.releaseToggle.title = PARTY_TEXT.releaseTitle;
     this.releaseToggle.addEventListener("click", () => this.setReleasing(!this.releasing));
     const close = document.createElement("button");
     close.className = "party-close";
     close.textContent = "✕";
-    close.setAttribute("aria-label", "Đóng");
+    close.setAttribute("aria-label", COMMON_TEXT.close);
     close.addEventListener("click", () => this.toggle(false));
     header.append(this.title, this.releaseToggle, close);
     this.list = document.createElement("div");
@@ -124,25 +116,25 @@ export class PartyPanel {
     this.confirmTitle.id = "party-confirm-title";
     this.confirmAlpha = document.createElement("p");
     this.confirmAlpha.className = "party-confirm-alpha";
-    this.confirmAlpha.textContent = "★ Thú đầu đàn";
+    this.confirmAlpha.textContent = PARTY_TEXT.alphaBadge;
     const text = document.createElement("p");
     text.className = "party-confirm-text";
-    text.textContent = "Nó sẽ về với thiên nhiên, không quay lại và không để lại gì.";
+    text.textContent = PARTY_TEXT.confirmText;
     this.confirmStatus = document.createElement("p");
     this.confirmStatus.className = "party-confirm-status";
     this.confirmWarn = document.createElement("p");
     this.confirmWarn.className = "party-confirm-warn";
-    this.confirmWarn.textContent = "Đây là con thú cuối cùng của bạn.";
+    this.confirmWarn.textContent = PARTY_TEXT.lastPal;
     const choices = document.createElement("div");
     choices.className = "party-confirm-buttons";
     this.keepButton = document.createElement("button");
     this.keepButton.type = "button";
     this.keepButton.className = "confirm-keep";
-    this.keepButton.textContent = "Giữ lại";
+    this.keepButton.textContent = PARTY_TEXT.keep;
     this.releaseButton = document.createElement("button");
     this.releaseButton.type = "button";
     this.releaseButton.className = "confirm-release";
-    this.releaseButton.textContent = "Thả";
+    this.releaseButton.textContent = PARTY_TEXT.release;
     choices.append(this.keepButton, this.releaseButton);
     box.append(this.confirmHead, this.confirmAlpha, text, this.confirmStatus, this.confirmWarn, choices);
     this.confirm.append(box);
@@ -210,12 +202,12 @@ export class PartyPanel {
 
   private render() {
     const party = this.party;
-    this.title.textContent = `Túi thú ${party.length}/${MAX_PARTY}`;
+    this.title.textContent = PARTY_TEXT.bag(party.length, MAX_PARTY);
     // Full: the button says so (and turns yellow), so the player frees a place before stunning another pal.
-    this.button.textContent = party.length < MAX_PARTY ? `🐾 Thú (${party.length})` : `🐾 Thú (${party.length}/${MAX_PARTY})`;
+    this.button.textContent = party.length < MAX_PARTY ? PARTY_TEXT.openButton(party.length) : PARTY_TEXT.openButtonFull(party.length, MAX_PARTY);
     this.button.classList.toggle("full", party.length >= MAX_PARTY);
     this.releaseToggle.hidden = party.length === 0;
-    this.releaseToggle.textContent = this.releasing ? "✓ Xong" : "🕊️ Thả bớt";
+    this.releaseToggle.textContent = this.releasing ? PARTY_TEXT.releaseDone : PARTY_TEXT.releaseMode;
     this.releaseToggle.classList.toggle("on", this.releasing);
     this.releaseToggle.setAttribute("aria-pressed", String(this.releasing));
 
@@ -223,19 +215,19 @@ export class PartyPanel {
     if (party.length === 0) {
       const empty = document.createElement("p");
       empty.className = "party-empty";
-      empty.textContent = "Túi đang trống. Đánh đến khi thú choáng 💫 rồi ném bóng để bắt!";
+      empty.textContent = PARTY_TEXT.empty;
       this.list.append(empty);
       return;
     }
     if (this.releasing) {
       const hint = document.createElement("p");
       hint.className = "party-hint release";
-      hint.textContent = "Chọn thú muốn thả. Thú được thả sẽ về với thiên nhiên và không quay lại.";
+      hint.textContent = PARTY_TEXT.releaseHint;
       this.list.append(hint);
     } else if (!this.hasBase) {
       const hint = document.createElement("p");
       hint.className = "party-hint";
-      hint.textContent = "Đặt trại (🏕️ / phím B) để giao việc cho thú.";
+      hint.textContent = PARTY_TEXT.needCampHint;
       this.list.append(hint);
     }
     for (const entry of party) this.list.append(this.card(entry, this.hasBase, this.snacks > 0));
@@ -255,7 +247,7 @@ export class PartyPanel {
     swatch.className = "party-swatch";
     swatch.style.background = species.color;
     swatch.textContent = String(entry.level);
-    swatch.title = `Cấp ${entry.level}`;
+    swatch.title = PARTY_TEXT.level(entry.level);
     const picture = this.portrait?.(entry.speciesId);
     if (picture) {
       swatch.classList.add("portrait");
@@ -281,15 +273,15 @@ export class PartyPanel {
       const star = document.createElement("span");
       star.className = "party-star";
       star.textContent = "★";
-      star.title = "Thú đầu đàn";
+      star.title = PARTY_TEXT.alphaTitle;
       name.append(star, " ");
     }
     // No-break space: a long name wraps before "Lv", never between it and the number (T18).
     name.append(`${species.name} · Lv\u00A0${entry.level}`);
     const detail = document.createElement("small");
-    const status = entry.assignment === "follow" ? "Đang đi theo" : entry.assignment === "work" ? `Đang làm ${output.icon}` : `Làm ra ${output.icon}`;
+    const status = entry.assignment === "follow" ? PARTY_TEXT.following : entry.assignment === "work" ? PARTY_TEXT.working(output.icon) : PARTY_TEXT.makes(output.icon);
     const strong = ELEMENT_INFO[strongAgainst(species.element)];
-    detail.textContent = `${ELEMENTS[species.element]} (khắc ${strong.icon}) · ${status}`;
+    detail.textContent = PARTY_TEXT.detail(PARTY_TEXT.elements[species.element], strong.icon, status);
     const xp = document.createElement("div");
     xp.className = "party-xp";
     const fill = document.createElement("div");
@@ -303,7 +295,7 @@ export class PartyPanel {
       const known = entry.level >= level;
       chip.className = `skill-chip ${skill.element}${known ? "" : " locked"}`;
       chip.textContent = known ? `${skill.icon} ${skill.name} ${skillValue(skill, entry.level)}` : `🔒 ${skill.name} · Lv ${level}`;
-      chip.title = `${skill.name}: ${skill.description}${known ? "" : ` (học ở cấp ${level})`}`;
+      chip.title = `${skill.name}: ${skill.description}${known ? "" : PARTY_TEXT.learnsAt(level)}`;
       skills.append(chip);
     }
     info.append(name, detail, skills, xp);
@@ -320,19 +312,19 @@ export class PartyPanel {
       return b;
     };
     if (this.releasing) {
-      add("Thả", () => this.openConfirm(entry), "release").setAttribute("aria-label", `Thả ${palName(entry.speciesId, entry.alpha)} · Lv ${entry.level}`);
+      add(PARTY_TEXT.release, () => this.openConfirm(entry), "release").setAttribute("aria-label", PARTY_TEXT.releaseLabel(palName(entry.speciesId, entry.alpha), entry.level));
     } else {
-      if (entry.assignment !== "follow") add("Đi theo", () => this.actions.summon(entry.id));
-      if (entry.assignment !== "work") add("Làm việc", () => this.actions.work(entry.id), "work", !hasBase);
-      if (entry.assignment) add(entry.assignment === "follow" ? "Cho về" : "Nghỉ", () => this.actions.rest(entry.id), "rest");
-      if (canFeed) add("Cho ăn 🥧", () => this.actions.feed(entry.id), "feed");
+      if (entry.assignment !== "follow") add(PARTY_TEXT.follow, () => this.actions.summon(entry.id));
+      if (entry.assignment !== "work") add(PARTY_TEXT.work, () => this.actions.work(entry.id), "work", !hasBase);
+      if (entry.assignment) add(entry.assignment === "follow" ? PARTY_TEXT.sendBack : PARTY_TEXT.rest, () => this.actions.rest(entry.id), "rest");
+      if (canFeed) add(PARTY_TEXT.feed, () => this.actions.feed(entry.id), "feed");
     }
 
     card.append(swatch, info, buttons);
     return card;
   }
 
-  /** Asks whether to let this pal go. "Giữ lại" has the focus, so a stray Enter cancels; "Thả" wakes up after CONFIRM_ARM_MS. */
+  /** Asks whether to let this pal go. PARTY_TEXT.keep has the focus, so a stray Enter cancels; "Thả" wakes up after CONFIRM_ARM_MS. */
   private openConfirm(entry: PartyEntry) {
     this.confirmId = entry.id;
     this.fillConfirm();
@@ -347,11 +339,11 @@ export class PartyPanel {
   private fillConfirm() {
     const entry = this.party.find((p) => p.id === this.confirmId);
     if (!entry) return;
-    this.confirmTitle.textContent = `Thả ${getSpecies(entry.speciesId).name} · Lv\u00A0${entry.level}?`;
+    this.confirmTitle.textContent = PARTY_TEXT.confirmTitle(getSpecies(entry.speciesId).name, entry.level);
     this.confirmHead.replaceChildren(this.swatch(entry), this.confirmTitle);
     this.confirmAlpha.hidden = !entry.alpha;
     this.confirmStatus.hidden = entry.assignment === "";
-    this.confirmStatus.textContent = entry.assignment === "follow" ? "Đang đi theo bạn." : "Đang làm việc ở trại.";
+    this.confirmStatus.textContent = entry.assignment === "follow" ? PARTY_TEXT.confirmFollowing : PARTY_TEXT.confirmWorking;
     this.confirmWarn.hidden = this.party.length !== 1;
   }
 

@@ -42,6 +42,7 @@ import {
 } from "@petgame/shared";
 import type { ToastLevel } from "../ui/toastQueue.ts";
 import type { Game } from "./Game.ts";
+import { GAME_TEXT } from "../ui/strings.ts";
 
 /** A finished quest is celebrated this long (ms) after the news, once what finished it has played out. */
 const QUEST_DELAY_MS = 2100;
@@ -100,8 +101,8 @@ export class ServerEvents {
         this.game.effects.impact({ x: pal.actor.pos.x, y: pal.actor.pos.y - lift * 0.5 }, msg.crit);
         this.game.labels.float(pal.actor.pos, lift - 6, msg.crit ? `💥${msg.damage}` : `${msg.damage}`, msg.crit ? "crit" : msg.companionId ? "hit small" : "hit");
       }
-      if (pal && msg.effect === "super") this.game.labels.float(pal.actor.pos, pal.actor.height + 14, "Hiệu quả! 💥", "super");
-      if (pal && msg.effect === "weak") this.game.labels.float(pal.actor.pos, pal.actor.height + 14, "Kém hiệu quả", "weak");
+      if (pal && msg.effect === "super") this.game.labels.float(pal.actor.pos, pal.actor.height + 14, GAME_TEXT.superEffective, "super");
+      if (pal && msg.effect === "weak") this.game.labels.float(pal.actor.pos, pal.actor.height + 14, GAME_TEXT.notEffective, "weak");
       if (msg.companionId) {
         // (A skill's caster already struck when it let go.)
         const companion = skill ? undefined : this.game.companions.get(msg.companionId);
@@ -140,7 +141,7 @@ export class ServerEvents {
         attacker.actor.play("attack");
       }
       if (!msg.dodged || !target) return;
-      this.game.labels.float(target.actor.pos, target.actor.height, "Né!", "dodge");
+      this.game.labels.float(target.actor.pos, target.actor.height, GAME_TEXT.dodge, "dodge");
       if (msg.targetId === this.game.room.sessionId) this.game.sound.play("dodge");
     });
 
@@ -208,7 +209,7 @@ export class ServerEvents {
       const verdict = () => {
         if (!mine) return;
         this.game.sound.play(msg.success ? "capture" : "escape");
-        this.game.hud.showToast(msg.success ? `${msg.alpha ? "★ " : ""}Bắt được ${name}! 🎉` : `${name} thoát ra rồi (${Math.round(msg.chance * 100)}%)`, msg.success ? "high" : "normal");
+        this.game.hud.showToast(msg.success ? GAME_TEXT.caught(name, Boolean(msg.alpha)) : GAME_TEXT.escaped(name, Math.round(msg.chance * 100)), msg.success ? "high" : "normal");
       };
       if (msg.success) this.setFate(msg.palId, "caught");
       if (mine) this.game.sound.play("throw");
@@ -325,8 +326,8 @@ export class ServerEvents {
         // Every skill learned on the way, even when the gain climbed past the level that teaches it.
         const learned = skillsLearnedBetween(species, msg.fromLevel, msg.level);
         this.game.hud.showToast(learned.length > 0
-          ? `${species.name} lên cấp ${msg.level}! ⭐ Học được chiêu mới: ${learned.map((s) => `${s.icon} ${s.name}`).join(", ")}`
-          : `${species.name} lên cấp ${msg.level}! ⭐`, "high");
+          ? GAME_TEXT.levelUpLearned(species.name, msg.level, learned.map((s) => `${s.icon} ${s.name}`).join(", "))
+          : GAME_TEXT.levelUp(species.name, msg.level), "high");
         this.game.sound.play("levelup");
         if (companion) {
           learned.forEach((skill, i) => {

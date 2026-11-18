@@ -1,4 +1,5 @@
 import type { SkillDef } from "@petgame/shared";
+import { SKILLBAR_TEXT } from "./strings.ts";
 
 /** One of the following pal's skills, as the bar shows it. */
 export interface SkillSlot {
@@ -83,15 +84,15 @@ export class SkillBar {
       b.querySelector(".icon")!.textContent = slot.known ? slot.skill.icon : "🔒";
       b.querySelector(".value")!.textContent = slot.known ? slot.value : `Lv ${slot.level}`;
       b.title = slot.known
-        ? `${slot.skill.name} (phím ${i + 1}): ${slot.skill.description}`
-        : `${slot.skill.name}: học ở cấp ${slot.level}`;
-      b.setAttribute("aria-label", slot.known ? slot.skill.name : `${slot.skill.name}, học ở cấp ${slot.level}`);
+        ? SKILLBAR_TEXT.knownTitle(slot.skill.name, i + 1, slot.skill.description)
+        : SKILLBAR_TEXT.lockedTitle(slot.skill.name, slot.level);
+      b.setAttribute("aria-label", slot.known ? slot.skill.name : SKILLBAR_TEXT.lockedLabel(slot.skill.name, slot.level));
     });
     this.autoButton.classList.toggle("on", auto);
-    this.autoButton.textContent = auto ? "Tự động ✓" : "Theo lệnh";
+    this.autoButton.textContent = auto ? SKILLBAR_TEXT.auto : SKILLBAR_TEXT.onOrder;
     this.autoButton.title = auto
-      ? "Thú tự dùng chiêu (bấm để chỉ dùng khi bạn ra lệnh bằng phím 1-3)"
-      : "Thú chỉ dùng chiêu khi bạn ra lệnh (bấm để thú tự dùng)";
+      ? SKILLBAR_TEXT.autoTitle
+      : SKILLBAR_TEXT.onOrderTitle;
   }
 
   /** One of the following pal's skills just went off: it recharges for its cooldown. */
@@ -113,7 +114,7 @@ export class SkillBar {
     if (!slot || this.root.hidden) return;
     if (!slot.known) {
       this.nope(button);
-      this.actions.hint(`🔒 ${slot.skill.name}: thú học ở cấp ${slot.level}`);
+      this.actions.hint(SKILLBAR_TEXT.lockedHint(slot.skill.name, slot.level));
       return;
     }
     if ((this.recharge.get(slot.skill.id)?.until ?? 0) > performance.now()) return this.nope(button);

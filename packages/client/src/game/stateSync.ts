@@ -8,6 +8,7 @@ import { spriteFor } from "./palSprites.ts";
 import { campArt, chestArt, gemArt } from "./art/props.ts";
 import { lookOf, wornOf, dressKey, remember } from "./looks.ts";
 import type { Game, PalEntity, Named } from "./Game.ts";
+import { GAME_TEXT } from "../ui/strings.ts";
 
 /** How faint a player waiting to reconnect is drawn (0..1). */
 const AWAY_ALPHA = 0.45;
@@ -38,7 +39,7 @@ export class StateSync {
         away = player.offline;
         actor.root.alpha = actor.ground.alpha = away ? AWAY_ALPHA : 1;
         label.classList.toggle("offline", away);
-        text.textContent = away ? `${player.name} (mất kết nối)` : player.name;
+        text.textContent = away ? GAME_TEXT.offlineName(player.name) : player.name;
       };
       showAway(); // a player who joins after the drop still sees them dimmed
       $.onChange(player, () => {
@@ -85,7 +86,7 @@ export class StateSync {
       const { tag, label } = pal.boss
         ? this.nameTag(`👑 ${BOSS.name}`, "label pal boss", () => actor.pos, actor.height + 8, LABEL_RANK.leader)
         : pal.alpha
-          ? this.nameTag(`★ Đầu đàn · Lv ${pal.level} ${species.name}`, "label pal alpha", () => actor.pos, actor.height + 6, LABEL_RANK.leader)
+          ? this.nameTag(GAME_TEXT.alphaLabel(pal.level, species.name), "label pal alpha", () => actor.pos, actor.height + 6, LABEL_RANK.leader)
           : this.nameTag(`Lv ${pal.level} ${species.name}`, "label pal", () => actor.pos, actor.height + 4, LABEL_RANK.wild);
       const hpFill = addHpBar(label);
       const aim: AimCandidate = { id, x: pal.x, y: pal.y, hp: pal.hp, maxHp: pal.maxHp, dizzy: pal.dizzy, boss: pal.boss, inBall: false };
@@ -119,10 +120,10 @@ export class StateSync {
           actor.setDizzy(dizzy);
           label.classList.toggle("dizzy", dizzy);
           if (dizzy && near) {
-            this.game.labels.float(actor.pos, actor.height + 4, "💫 Choáng!", "dizzy");
+            this.game.labels.float(actor.pos, actor.height + 4, GAME_TEXT.stunned, "dizzy");
             if (this.game.nearMe(actor.pos, 260)) this.game.hudBridge.tip("dizzy", this.game.touch
-              ? "💫 Thú choáng: bấm Bắt để dễ bắt, hoặc Đánh tiếp để hạ gục lấy đồ"
-              : "💫 Thú choáng: ném bóng (E) để dễ bắt, hoặc đánh tiếp (Space) để hạ gục lấy đồ");
+              ? GAME_TEXT.stunTipTouch
+              : GAME_TEXT.stunTipKeys);
           }
         }
         if (pal.angry !== angry) {
@@ -279,7 +280,7 @@ export class StateSync {
       const label = document.createElement("div");
       label.className = "label base";
       const span = document.createElement("span");
-      span.textContent = `🏕️ Trại của ${owner} · Cấp ${level}`;
+      span.textContent = GAME_TEXT.campLabel(owner, level);
       label.append(span);
       const tag = this.game.labels.add(label, () => at, 96, LABEL_RANK.camp);
       camp = { root, floor, flag, level, color, tag, at };

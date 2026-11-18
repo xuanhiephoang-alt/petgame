@@ -1,4 +1,5 @@
 import { RECIPES, RESOURCES, RESOURCE_INFO, craftBlocker, type Item, type Resource } from "@petgame/shared";
+import { COMMON_TEXT, CRAFTING_TEXT } from "./strings.ts";
 
 export interface CraftState {
   resources: Record<Resource, number>;
@@ -25,8 +26,8 @@ export class CraftPanel {
   constructor(parent: HTMLElement, private onCraft: (recipeId: string) => void) {
     this.button = document.createElement("button");
     this.button.className = "craft-btn";
-    this.button.textContent = "🔨 Chế tạo";
-    this.button.title = "Chế tạo ở trại của bạn (phím C)";
+    this.button.textContent = CRAFTING_TEXT.button;
+    this.button.title = CRAFTING_TEXT.buttonTitle;
     this.button.addEventListener("click", () => this.toggle());
 
     this.panel = document.createElement("div");
@@ -34,11 +35,11 @@ export class CraftPanel {
     this.panel.hidden = true;
     const header = document.createElement("div");
     header.className = "party-header";
-    header.innerHTML = "<strong>Chế tạo</strong>";
+    header.innerHTML = CRAFTING_TEXT.header;
     const close = document.createElement("button");
     close.className = "party-close";
     close.textContent = "✕";
-    close.setAttribute("aria-label", "Đóng");
+    close.setAttribute("aria-label", COMMON_TEXT.close);
     close.addEventListener("click", () => this.toggle(false));
     header.append(close);
     this.list = document.createElement("div");
@@ -103,7 +104,7 @@ export class CraftPanel {
 
       const make = document.createElement("button");
       make.className = "party-action";
-      make.textContent = "Làm";
+      make.textContent = CRAFTING_TEXT.make;
       make.disabled = !!blocker;
       make.addEventListener("click", () => this.onCraft(recipe.id));
 

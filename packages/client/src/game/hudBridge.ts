@@ -2,6 +2,7 @@ import {
   ClientMessage,
   distance,
   getSpecies,
+  palName,
   CRAFT_RANGE,
   BOSS,
   ALPHA,
@@ -31,6 +32,7 @@ import { restingNameTop } from "./labelLayout.ts";
 import { palPortrait, spriteFor } from "./palSprites.ts";
 import { lookOf, wornOf, wornIcons } from "./looks.ts";
 import type { Game } from "./Game.ts";
+import { GAME_TEXT } from "../ui/strings.ts";
 
 /**
  * Wires the DOM HUD (ui/) to the game: builds the panels, buttons and keys, and refreshes them from the synced state every frame.
@@ -161,7 +163,7 @@ export class HudBridge {
     if (region === this.game.region) return;
     const first = this.game.region === "";
     this.game.region = region;
-    if (!first) this.game.hud.showToast(`Đến ${info.icon} ${REGION_INFO[region].name} (${REGION_INFO[region].climate})`, "low");
+    if (!first) this.game.hud.showToast(GAME_TEXT.enterRegion(info.icon, REGION_INFO[region].name, REGION_INFO[region].climate), "low");
   }
 
   private updateMinimap(base: Vec2 | undefined) {
@@ -179,7 +181,7 @@ export class HudBridge {
       // Walking into a pack leader's lair: a warning, once per leader each session.
       if (self && distance(self.pos, p) < ALPHA.sight + 150 && !this.game.alphasMet.has(p.speciesId)) {
         this.game.alphasMet.add(p.speciesId);
-        this.game.hud.showToast(`★ Lãnh địa của ${getSpecies(p.speciesId).name} đầu đàn (Lv ${p.level}): nó tấn công ai lại gần!`, "normal");
+        this.game.hud.showToast(GAME_TEXT.lairWarning(palName(p.speciesId, true), p.level), "normal");
       }
     });
     const chests: Vec2[] = [];

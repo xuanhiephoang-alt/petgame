@@ -42,6 +42,7 @@ import { ServerEvents } from "./serverEvents.ts";
 import { Controls } from "./controls.ts";
 import { HudBridge } from "./hudBridge.ts";
 import { StateSync } from "./stateSync.ts";
+import { GAME_TEXT } from "../ui/strings.ts";
 
 export interface GameAssets {
   pals: Map<string, PalSprite>;
@@ -243,7 +244,7 @@ export class Game {
       if (status.state !== "online" || previous.state !== "reconnecting") return;
       // The server cleared the walk when the connection dropped: the next frame says which way is held now.
       this.lastSentInput = STILL;
-      this.hud.showToast("✅ Đã kết nối lại", "normal");
+      this.hud.showToast(GAME_TEXT.reconnected, "normal");
     });
     // A phone changing apps stops this loop, yet the server keeps the last walk: stop first.
     document.addEventListener("visibilitychange", () => {

@@ -10,6 +10,7 @@ import {
   type Wearable,
   type Worn,
 } from "@petgame/shared";
+import { COMMON_TEXT, WARDROBE_TEXT } from "./strings.ts";
 import { drawDoll, drawItem, hasDollArt, type DollView } from "../game/art/doll.ts";
 
 const hex = (color: number) => `#${color.toString(16).padStart(6, "0")}`;
@@ -26,7 +27,7 @@ export class DollPreview {
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
     this.canvas.className = "doll-preview";
-    this.canvas.title = "Bấm để xoay";
+    this.canvas.title = WARDROBE_TEXT.turnHint;
     const order: (DollView | "left")[] = ["front", "right", "back", "left"];
     this.canvas.addEventListener("click", () => {
       this.facing = order[(order.indexOf(this.facing) + 1) % order.length];
@@ -75,27 +76,27 @@ export class LookPicker {
 
   private render() {
     this.root.replaceChildren();
-    const styles = row("Kiểu tóc");
+    const styles = row(WARDROBE_TEXT.hairStyle);
     for (const style of HAIR_STYLES) {
       const b = button(HAIR_STYLE_NAMES[style], "style-btn", style === this.look.hair);
       b.dataset.hair = style;
       b.addEventListener("click", () => this.pick({ hair: style }));
       styles.list.append(b);
     }
-    const hair = row("Màu tóc");
+    const hair = row(WARDROBE_TEXT.hairColor);
     HAIR_COLORS.forEach((color, i) => {
       const b = button("", "swatch", i === this.look.hairColor);
       b.style.background = hex(color);
-      b.setAttribute("aria-label", `Màu tóc ${i + 1}`);
+      b.setAttribute("aria-label", WARDROBE_TEXT.hairColorLabel(i + 1));
       b.dataset.hairColor = String(i);
       b.addEventListener("click", () => this.pick({ hairColor: i }));
       hair.list.append(b);
     });
-    const skin = row("Màu da");
+    const skin = row(WARDROBE_TEXT.skinTone);
     SKIN_TONES.forEach((color, i) => {
       const b = button("", "swatch", i === this.look.skin);
       b.style.background = hex(color);
-      b.setAttribute("aria-label", `Màu da ${i + 1}`);
+      b.setAttribute("aria-label", WARDROBE_TEXT.skinToneLabel(i + 1));
       b.dataset.skin = String(i);
       b.addEventListener("click", () => this.pick({ skin: i }));
       skin.list.append(b);
@@ -141,18 +142,13 @@ export interface WardrobeActions {
 }
 
 const TABS: { key: "look" | WearSlot; title: string }[] = [
-  { key: "look", title: "Ngoại hình" },
-  { key: "outfit", title: "Quần áo" },
-  { key: "hat", title: "Mũ" },
-  { key: "weapon", title: "Vũ khí" },
+  { key: "look", title: WARDROBE_TEXT.tabs.look },
+  { key: "outfit", title: WARDROBE_TEXT.tabs.outfit },
+  { key: "hat", title: WARDROBE_TEXT.tabs.hat },
+  { key: "weapon", title: WARDROBE_TEXT.tabs.weapon },
 ];
 
-const FROM: Record<Wearable["from"], string> = {
-  starter: "",
-  craft: "Chế ở trại (🔨)",
-  chest: "Tìm trong rương báu",
-  boss: "Phần thưởng hạ trùm",
-};
+const FROM: Record<Wearable["from"], string> = WARDROBE_TEXT.from;
 
 /**
  * The "Tủ đồ" (wardrobe) button and panel: a turning preview of the
@@ -178,8 +174,8 @@ export class WardrobePanel {
     this.state = initial;
     this.button = document.createElement("button");
     this.button.className = "wardrobe-btn";
-    this.button.textContent = "👕 Tủ đồ";
-    this.button.title = "Ngoại hình, quần áo, mũ và vũ khí (phím T)";
+    this.button.textContent = WARDROBE_TEXT.button;
+    this.button.title = WARDROBE_TEXT.buttonTitle;
     this.button.addEventListener("click", () => this.toggle());
 
     this.panel = document.createElement("div");
@@ -187,11 +183,11 @@ export class WardrobePanel {
     this.panel.hidden = true;
     const header = document.createElement("div");
     header.className = "party-header";
-    header.innerHTML = "<strong>Tủ đồ</strong>";
+    header.innerHTML = WARDROBE_TEXT.header;
     const close = document.createElement("button");
     close.className = "party-close";
     close.textContent = "✕";
-    close.setAttribute("aria-label", "Đóng");
+    close.setAttribute("aria-label", COMMON_TEXT.close);
     close.addEventListener("click", () => this.toggle(false));
     header.append(close);
 
@@ -305,21 +301,21 @@ export class WardrobePanel {
     const info = document.createElement("div");
     info.className = "party-info";
     const name = document.createElement("strong");
-    name.textContent = item ? `${item.icon} ${item.name}` : slot === "hat" ? "Không đội mũ" : "Tay không";
+    name.textContent = item ? `${item.icon} ${item.name}` : slot === "hat" ? WARDROBE_TEXT.noHat : WARDROBE_TEXT.bareHand;
     const desc = document.createElement("small");
-    desc.textContent = item?.description ?? (slot === "hat" ? "Để lộ kiểu tóc" : "Đấm thường");
+    desc.textContent = item?.description ?? (slot === "hat" ? WARDROBE_TEXT.noHatDesc : WARDROBE_TEXT.bareHandDesc);
     info.append(name, desc);
     if (slot === "weapon") {
       const stats = weaponStats(id);
       const line = document.createElement("small");
       line.className = "wear-stats";
-      line.textContent = `⚔️ ${stats.damage}  ${stats.ranged ? "🎯 bắn xa" : "✋ đánh gần"} ${stats.range}`;
+      line.textContent = `⚔️ ${stats.damage}  ${stats.ranged ? WARDROBE_TEXT.ranged : WARDROBE_TEXT.melee} ${stats.range}`;
       info.append(line);
     }
     if (item?.defense) {
       const line = document.createElement("small");
       line.className = "wear-stats";
-      line.textContent = `🛡️ bớt ${Math.round(item.defense * 100)}% sát thương`;
+      line.textContent = WARDROBE_TEXT.armor(Math.round(item.defense * 100));
       info.append(line);
     }
     if (!owned) {
@@ -331,7 +327,17 @@ export class WardrobePanel {
 
     const act = document.createElement("button");
     act.className = "party-action";
-    act.textContent = worn ? "Đang dùng" : slot === "outfit" ? "Mặc" : slot === "hat" ? (item ? "Đội" : "Bỏ mũ") : item ? "Cầm" : "Cất";
+    act.textContent = worn
+      ? WARDROBE_TEXT.worn
+      : slot === "outfit"
+        ? WARDROBE_TEXT.wearOutfit
+        : slot === "hat"
+          ? item
+            ? WARDROBE_TEXT.wearHat
+            : WARDROBE_TEXT.takeOffHat
+          : item
+            ? WARDROBE_TEXT.holdWeapon
+            : WARDROBE_TEXT.putAwayWeapon;
     act.disabled = worn || !owned;
     act.addEventListener("click", () => this.actions.equip(slot, id));
     card.append(pic, info, act);

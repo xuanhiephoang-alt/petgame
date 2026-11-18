@@ -14,6 +14,7 @@ import {
   type Vec2,
 } from "@petgame/shared";
 import type { Game, PalEntity } from "./Game.ts";
+import { GAME_TEXT } from "../ui/strings.ts";
 
 /**
  * What the local player does with keys, buttons and the stick: walk input, attack, dash, throw a ball, eat, switch balls.
@@ -116,7 +117,7 @@ export class Controls {
     if (!pal || performance.now() < pal.heldUntil) {
       const boss = this.game.bossId ? this.game.pals.get(this.game.bossId) : undefined;
       const bossNear = boss && distance(me.pos, boss.actor.pos) <= THROW_RANGE;
-      this.game.hud.showToast((bossNear && throwBlocker(0, { boss: true })) || "Không có thú nào ở gần", "low");
+      this.game.hud.showToast((bossNear && throwBlocker(0, { boss: true })) || GAME_TEXT.noPalNear, "low");
       return;
     }
     const state = this.game.room.state.players.get(this.game.room.sessionId);
@@ -138,7 +139,7 @@ export class Controls {
     if (!me) return;
     if (me.greatBalls <= 0) {
       this.game.useGreatBall = false;
-      this.game.hud.showToast("Chưa có 🔵 Bóng xịn. Chế tạo ở trại (phím C)", "low");
+      this.game.hud.showToast(GAME_TEXT.noGreatBall, "low");
       return;
     }
     this.game.useGreatBall = !this.game.useGreatBall;

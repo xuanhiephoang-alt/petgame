@@ -10,6 +10,7 @@ import { ConnectionOverlay } from "./ui/connection.ts";
 import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
 import { arrival, arrivalHint, joinCard, recentWorlds, startCard, startFailure, withRecentWorld, type JoinCard } from "./ui/joinStatus.ts";
 import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
+import { LOBBY_TEXT } from "./ui/strings.ts";
 
 const lobby = document.getElementById("lobby")!;
 const form = document.getElementById("join-form") as HTMLFormElement;
@@ -157,7 +158,7 @@ async function enter() {
   joinStatus.hidden = true;
   joinBtn.hidden = false;
   joinBtn.disabled = true;
-  joinBtn.textContent = "Đang vào...";
+  joinBtn.textContent = LOBBY_TEXT.joining;
   try {
     // The connection is watched from the moment the room is joined, so a drop while the pictures still load is not missed.
     // Both are awaited even when one fails first: a room that was joined must never be left behind unheld.
@@ -180,7 +181,7 @@ async function enter() {
       // The address tells the truth: the world is gone, so a reload opens a new one instead of meeting this card again.
       if (failure === "closed") dropWorldFromAddress();
       joinBtn.disabled = false;
-      joinBtn.textContent = "Vào chơi";
+      joinBtn.textContent = LOBBY_TEXT.join;
       showJoinCard(joinCard(failure, returning));
       return;
     }
@@ -220,7 +221,7 @@ reloadGameBtn.addEventListener("keydown", (event) => {
 // script, never about the server: T23 added no request before it).
 nameInput.disabled = false;
 joinBtn.disabled = false;
-joinBtn.textContent = "Vào chơi";
+joinBtn.textContent = LOBBY_TEXT.join;
 if (returning) joinBtn.focus({ preventScroll: true });
 document.dispatchEvent(new Event(LOBBY_READY_EVENT));
 

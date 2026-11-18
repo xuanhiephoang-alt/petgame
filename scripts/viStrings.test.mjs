@@ -39,6 +39,10 @@ const GUARDED = [
   "packages/server/src/rooms/GameRoom.ts",
   "packages/server/src/systems",
   "packages/shared/src/capture.ts",
+  "packages/client/src/game",
+  "packages/client/src/ui",
+  "packages/client/src/net",
+  "packages/client/src/main.ts",
 ];
 
 function guardedFiles(path) {
@@ -46,7 +50,7 @@ function guardedFiles(path) {
   if (!statSync(full).isDirectory()) return [path];
   return readdirSync(full, { recursive: true })
     .map((f) => `${path}/${f}`.split("\\").join("/"))
-    .filter((f) => f.endsWith(".ts") && !/\.(test|d)\.ts$/.test(f));
+    .filter((f) => f.endsWith(".ts") && !/\.(test|d)\.ts$/.test(f) && f !== "packages/client/src/ui/strings.ts");
 }
 
 describe("guarded files", () => {

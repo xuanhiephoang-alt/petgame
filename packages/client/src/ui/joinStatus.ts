@@ -1,10 +1,10 @@
-import { EMPTY_WORLD_HOLD_MS, MAX_PLAYERS } from "@petgame/shared";
 import type { JoinFailure } from "../net/connection.ts";
+import { JOIN_TEXT, LOBBY_TEXT } from "./strings.ts";
 
 /** Lobby hint when the page was opened again at the world the player was in (same tab). */
-export const RETURN_HINT = "Quay lại thế giới bạn đang chơi cùng bạn bè";
+export const RETURN_HINT = LOBBY_TEXT.returnHint;
 /** Lobby hint when the page was opened from an invite link. */
-export const INVITE_HINT = "Bạn được mời vào thế giới của bạn bè";
+export const INVITE_HINT = LOBBY_TEXT.inviteHint;
 
 /** How the lobby was opened: fresh, from an invite link, or coming back to a world this tab or this device was in (with or without friends). */
 export type Arrival = "new" | "invited" | "back" | "backAlone";
@@ -81,46 +81,23 @@ export function joinCard(failure: JoinFailure, returning: boolean): JoinCard {
   switch (failure) {
     case "closed":
       return {
-        title: "Thế giới này đã đóng",
-        detail: returning
-          ? "Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn."
-          : "Mọi người đã rời đi. Xin bạn bè link mời mới, hoặc tạo thế giới mới.",
+        title: JOIN_TEXT.closed.title,
+        detail: returning ? JOIN_TEXT.closed.detailReturning : JOIN_TEXT.closed.detailInvited,
         retry: false,
         newWorld: true,
         reload: false,
         primary: "newWorld",
       };
     case "full":
-      return {
-        title: `Thế giới đã đủ ${MAX_PLAYERS} người`,
-        detail: "Chờ chút rồi bấm Thử lại, hoặc tạo thế giới mới.",
-        retry: true,
-        newWorld: true,
-        reload: false,
-        primary: "retry",
-      };
+      return { ...JOIN_TEXT.full, retry: true, newWorld: true, reload: false, primary: "retry" };
     case "unreachable":
-      return { title: "Không kết nối được server", detail: "Kiểm tra mạng rồi bấm Thử lại.", retry: true, newWorld: false, reload: false, primary: "retry" };
+      return { ...JOIN_TEXT.unreachable, retry: true, newWorld: false, reload: false, primary: "retry" };
     case "busy":
-      return {
-        title: "Server đang có quá nhiều thế giới",
-        detail: "Chưa tạo thêm được thế giới mới. Chờ một lát rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời.",
-        retry: true,
-        newWorld: false,
-        reload: false,
-        primary: "retry",
-      };
+      return { ...JOIN_TEXT.busy, retry: true, newWorld: false, reload: false, primary: "retry" };
     case "tooMany":
-      return {
-        title: "Đã mở nhiều thế giới quá",
-        detail: `Mạng bạn đang dùng đã mở nhiều thế giới cùng lúc. Thế giới không còn ai sẽ tự đóng sau ${EMPTY_WORLD_HOLD_MS / 60_000} phút: chờ chút rồi bấm Thử lại, hoặc vào thế giới của bạn bè bằng link mời.`,
-        retry: true,
-        newWorld: false,
-        reload: false,
-        primary: "retry",
-      };
+      return { ...JOIN_TEXT.tooMany, retry: true, newWorld: false, reload: false, primary: "retry" };
     case "failed":
-      return { title: "Không vào được thế giới", detail: "Có lỗi khi vào. Chờ giây lát rồi bấm Thử lại.", retry: true, newWorld: false, reload: false, primary: "retry" };
+      return { ...JOIN_TEXT.failed, retry: true, newWorld: false, reload: false, primary: "retry" };
   }
 }
 
@@ -143,7 +120,5 @@ export function startFailure(err: unknown): StartFailure {
 /** The card shown when the room was joined but the game could not open: one button, Tải lại. */
 export function startCard(failure: StartFailure): JoinCard {
   const card = { retry: false, newWorld: false, reload: true, primary: "reload" } as const;
-  return failure === "download"
-    ? { ...card, title: "Không tải được game", detail: "Kiểm tra mạng rồi bấm Tải lại." }
-    : { ...card, title: "Không mở được game", detail: "Trình duyệt gặp lỗi khi mở thế giới. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt." };
+  return { ...card, ...JOIN_TEXT[failure] };
 }

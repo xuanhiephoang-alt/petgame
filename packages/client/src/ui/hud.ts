@@ -1,4 +1,5 @@
-import { BERRY_HEAL, EAT_COOLDOWN_MS, MAX_PLAYERS, RESOURCES, RESOURCE_INFO, type Resource } from "@petgame/shared";
+import { MAX_PLAYERS, RESOURCES, RESOURCE_INFO, type Resource } from "@petgame/shared";
+import { HUD_TEXT } from "./strings.ts";
 import { TOAST, ToastQueue, toastRoom, type ToastFit, type ToastLevel } from "./toastQueue.ts";
 
 /** How long (ms) a toast fades out before its element is removed; matches the CSS transition on `.toast`. */
@@ -66,14 +67,14 @@ export class Hud {
     this.health.innerHTML = `<span class="hud-time"></span><span class="hud-region"></span><span class="hud-heart">❤️</span><div class="hud-hp"><div></div></div><span class="hud-hp-text"></span>`;
     this.eatButton = document.createElement("button");
     this.eatButton.className = "eat-btn";
-    this.eatButton.innerHTML = `<span class="eat-label">🫐 Ăn</span><span class="eat-cd"></span><span class="eat-secs"></span>`;
+    this.eatButton.innerHTML = HUD_TEXT.eatButton;
     this.eatCover = this.eatButton.querySelector<HTMLSpanElement>(".eat-cd")!;
     this.eatSecs = this.eatButton.querySelector<HTMLSpanElement>(".eat-secs")!;
-    this.eatButton.title = `Ăn 1 quả mọng: hồi ${BERRY_HEAL} máu, rồi chờ ${EAT_COOLDOWN_MS / 1000} giây mới ăn tiếp (phím H)`;
+    this.eatButton.title = HUD_TEXT.eatTitle;
     onPress(this.eatButton, actions.eat);
     this.soundButton = document.createElement("button");
     this.soundButton.className = "sound-btn";
-    this.soundButton.title = "Bật/tắt âm thanh (phím M)";
+    this.soundButton.title = HUD_TEXT.soundTitle;
     this.soundButton.addEventListener("click", () => this.setMuted(actions.toggleSound()));
     // The two buttons wrap to the second line together, so the health row keeps its height (T18).
     const actionsRow = div("hud-actions");
@@ -85,14 +86,14 @@ export class Hud {
       this.status.append(this.statusCounts, " ");
       const invite = document.createElement("button");
       invite.className = "invite-btn";
-      invite.setAttribute("aria-label", "Mời bạn");
-      invite.innerHTML = '🔗 Mời<span class="invite-more"> bạn</span>';
+      invite.setAttribute("aria-label", HUD_TEXT.inviteLabel);
+      invite.innerHTML = HUD_TEXT.inviteButton;
       // Invite button (phones): share sheet if available, else copy the link. It stays on click: both need a user gesture,
       // which a touch only gives as the finger lifts.
       invite.addEventListener("click", () => {
         const link = invite.dataset.link ?? "";
-        if (navigator.share) navigator.share({ title: "PetGame", text: "Vào chơi cùng mình!", url: link }).catch(() => {});
-        else navigator.clipboard?.writeText(link).then(() => this.showToast("Đã chép link mời 🔗", "low"), () => this.showToast(link, "low"));
+        if (navigator.share) navigator.share({ title: "PetGame", text: HUD_TEXT.shareText, url: link }).catch(() => {});
+        else navigator.clipboard?.writeText(link).then(() => this.showToast(HUD_TEXT.linkCopied, "low"), () => this.showToast(link, "low"));
       });
       this.inviteButton = invite;
       // One element, moved (not rebuilt) when the phone turns, so it keeps its listener and link.
@@ -114,19 +115,19 @@ export class Hud {
     this.root.append(this.left);
     const base = document.createElement("button");
     base.className = "base-btn";
-    base.textContent = "🏕️ Đặt trại";
-    base.title = "Dựng trại ở chỗ đang đứng (phím B)";
+    base.textContent = HUD_TEXT.placeCamp;
+    base.title = HUD_TEXT.placeCampTitle;
     base.addEventListener("click", actions.placeBase);
     this.root.append(base);
     this.ballButton = document.createElement("button");
     this.ballButton.className = isTouch ? "ball-btn touch" : "ball-btn";
-    this.ballButton.title = "Đổi loại bóng (phím R)";
+    this.ballButton.title = HUD_TEXT.ballTitle;
     onPress(this.ballButton, actions.toggleBall);
     this.root.append(this.ballButton);
 
     if (isTouch) {
       this.root.append(this.joystickZone);
-      this.root.append(button("btn-attack", "Đánh", actions.attack), button("btn-capture", "Bắt", actions.capture), button("btn-dash", "💨", actions.dash));
+      this.root.append(button("btn-attack", HUD_TEXT.attack, actions.attack), button("btn-capture", HUD_TEXT.capture, actions.capture), button("btn-dash", "💨", actions.dash));
     }
     parent.append(this.root);
   }
@@ -206,7 +207,7 @@ export class Hud {
     if (phase === this.lastTime) return;
     this.lastTime = phase;
     // The word hides on a sideways phone (CSS), leaving the icon; it stays in the DOM and the title.
-    const labels = { day: ["☀️", "Ngày"], dusk: ["🌇", "Hoàng hôn"], night: ["🌙", "Đêm"], dawn: ["🌅", "Bình minh"] } as const;
+    const labels = { day: ["☀️", HUD_TEXT.day], dusk: ["🌇", HUD_TEXT.dusk], night: ["🌙", HUD_TEXT.night], dawn: ["🌅", HUD_TEXT.dawn] } as const;
     const [icon, word] = labels[phase];
     const el = this.health.querySelector<HTMLElement>(".hud-time")!;
     el.innerHTML = `${icon}<span class="hud-time-word"> ${word}</span>`;
@@ -215,9 +216,9 @@ export class Hud {
 
   /** Shows which ball the next throw uses. */
   setBall(great: boolean, greatCount: number) {
-    const name = great ? `🔵 Bóng xịn (${greatCount})` : "⚪ Bóng thường";
+    const name = great ? HUD_TEXT.greatBall(greatCount) : HUD_TEXT.plainBall;
     // Touch screens: a short label, so the button fits left of Bắt in the right half (T18); the full name is read out.
-    const text = !this.isTouch ? name : great ? `🔵 Xịn (${greatCount})` : "⚪ Thường";
+    const text = !this.isTouch ? name : great ? HUD_TEXT.greatBallShort(greatCount) : HUD_TEXT.plainBallShort;
     if (this.ballButton.textContent === text) return;
     this.ballButton.textContent = text;
     this.ballButton.setAttribute("aria-label", name);
@@ -246,11 +247,10 @@ export class Hud {
       this.statusCounts.innerHTML = html;
       return;
     }
-    const help = "WASD/↑↓←→ đi • Space đánh (cả chặt cây, đập đá) • Shift lướt né • 1-3 thú dùng chiêu • E ném • R bóng • H ăn • Q thú • B trại • C chế tạo • T tủ đồ • N bản đồ • M âm thanh";
+    const help = HUD_TEXT.keyHelp;
     const items = RESOURCES.map((r) => `${RESOURCE_INFO[r].icon} ${resources[r]}`).join(" &nbsp; ") + (gear ? ` &nbsp; ${gear}` : "");
     const html =
-      `Người chơi: ${players}/${MAX_PLAYERS} &nbsp; Thú: ${captured} &nbsp; ${items}<br>${help}<br>` +
-      `Mời bạn: <a href="${invite}" target="_blank" rel="noopener">${escapeHtml(invite)}</a>`;
+      HUD_TEXT.statusLines(players, captured, items, help) + HUD_TEXT.inviteLine(invite, escapeHtml(invite));
     if (html === this.lastStatus) return;
     this.lastStatus = html;
     this.status.innerHTML = html;

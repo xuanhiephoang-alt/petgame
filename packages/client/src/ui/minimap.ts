@@ -1,4 +1,5 @@
 import { REGION_INFO, WORLD_HEIGHT, WORLD_WIDTH, defaultWorld, terrainAt, type Region, type TerrainKind, type Vec2 } from "@petgame/shared";
+import { MINIMAP_TEXT } from "./strings.ts";
 
 export interface MinimapMarkers {
   me?: Vec2 & { heading: number };
@@ -31,7 +32,7 @@ export class Minimap {
   constructor(parent: HTMLElement) {
     this.element = document.createElement("div");
     this.element.className = "minimap";
-    this.element.title = "Bản đồ (phím N để phóng to)";
+    this.element.title = MINIMAP_TEXT.title;
     this.canvas = document.createElement("canvas");
     this.canvas.width = WORLD_WIDTH * SCALE;
     this.canvas.height = WORLD_HEIGHT * SCALE;
