@@ -1,61 +1,52 @@
 PASS
-# REVIEW: T13b Service worker (PWA, Phần B), vòng 1
+# REVIEW: T82 Service worker không chặn game khi Cache Storage lỗi, vòng 1
 
 ## Kết luận
-Đợt này làm đủ B1-B11 và khớp Thiết kế 3-7. Bảng định tuyến chặt theo kiểu "mặc định bỏ qua": chỉ `/build/*`, điều hướng tới `/` và `/index.html`, và manifest được trả lời. Không có `skipWaiting`, không tự tải lại. Hành vi của bộ canh tải T15 và `vite:preloadError` vẫn như trước, vì câu trả lời hỏng không bao giờ bị thay. Không có lỗi phải sửa; còn vài chỗ nên làm cứng thêm (dưới).
+Coder làm đủ 8 bước của PLAN.md và đạt cả 13 tiêu chí, gồm cả 7 góp ý của reviewer T13b. Lỗi của Cache Storage giờ chỉ làm worker lấy từ mạng; lỗi mạng vẫn ném ra đúng như trước, nên bộ canh tải T15 và `vite:preloadError` không đổi. Không có lỗi phải sửa.
 
 ## Đã kiểm
-- **Bảo mật, riêng tư, scope:**
-  - `sw.js` ở gốc nên scope là `/`. `routeFor` bỏ qua mọi request khác `GET`, khác origin (kể cả `ws:`/`wss:`), `/matchmake*`, `/whoami`, `/healthz`, `/sw.js`, và mọi đường dẫn không có trong bảng.
-  - Thứ được lưu chỉ gồm `index.html` tĩnh (khoá `"/"`, mọi `?room=` dùng chung), manifest, và file `/build/*` có hash. Không có gì riêng của người chơi; server không đặt cookie trên các đường này.
-  - Test (c), (e), (f) trong `tests/e2e/pwa.spec.ts` kiểm cache thật trên bản build.
-- **`sw.js` hỏng hoặc 404 sau rollback:** `index.ts` phục vụ `sw.js` bằng `express.static` với `max-age=0`, không có route bắt-tất-cả.
-  - `sw.js` 404 hoặc sai MIME thì lần cập nhật hỏng. Worker đang chạy giữ nguyên, nhưng nó vẫn lấy trang từ mạng trước và lấy từ mạng chunk nào chưa có. Người chơi luôn nhận bản đang deploy, không bị kẹt.
-  - Lần cài lỗi (một file 404 giữa lúc deploy) chỉ làm `addAll` hỏng; trình duyệt thử lại lần sau.
-- **Vòng đời cập nhật:**
-  - `install` lưu sẵn với `cache: "reload"` cho `/` và manifest. `activate` chỉ xoá `petgame-*` khác cache hiện tại, rồi `clients.claim()`.
-  - Tab cũ trong lúc deploy:
-    - chunk tải lười đã được lưu sẵn, nên không còn `vite:preloadError` cho phần đó;
-    - Tải lại dưới worker cũ vẫn ra HTML mới (mạng trước), chunk mới thì lấy từ mạng rồi cất vào cache cũ;
-    - cache cũ bị xoá khi worker mới kích hoạt.
-  - Hai lần deploy liền nhau: worker đang chờ bị thay, và `staleCaches` dọn cache của nó khi bản mới nhất kích hoạt.
-  - Đúng phần "Phối hợp với T52": T52 chỉ cần `vite:preloadError`, mà sự kiện này vẫn xảy ra khi chunk thật sự thiếu (404 trả nguyên, mất mạng thì ném lại đúng lỗi). Unit test có ca cache có file khác mà 404 vẫn trả nguyên; tester đã thử đột biến c1, c2.
-- **Bộ canh tải T15:** chỗ đăng ký chạy sau `LOBBY_READY_EVENT`, lúc bộ canh tải đã gỡ listener. Chunk thiếu vẫn ra `error` trên thẻ `<script>`; tester kiểm tay 3b, 3c.
-- **Plugin Vite** (`packages/client/vite.config.ts`):
-  - `apply: "build"`. Lần build thứ hai dùng `configFile: false` nên không gọi lại chính plugin.
-  - `dist/sw.js` 2087 byte, dạng IIFE, không có `import`/`export`.
-  - Tôi tính lại phiên bản bằng tay từ `dist/index.html` cộng danh sách: ra `64daf4b17bef`, khớp `sw.js`.
-  - Danh sách lưu sẵn có 15 mục: `/`, manifest, 13 file `/build/*`. Bao trọn mọi `script`/`modulepreload` của `index.html`, cộng 3 chunk tải lười của PixiJS. Không có `/assets`, `/icons`, `/sw.js`.
-- **Thời điểm đăng ký:**
-  - chỉ khi `import.meta.env.PROD` và có `"serviceWorker" in navigator`;
-  - gọi sau khi sảnh sẵn sàng;
-  - đăng ký lúc `load`, hoặc ngay nếu trang đã `complete`.
-  - Vite dev không đăng ký (e2e thứ 2). Sảnh không bị làm chậm.
-- **Playwright và shots:**
-  - `serviceWorkers: "block"` trong `use`.
-  - `webServer` 2567 build trước rồi mới bật, kèm `timeout: 180_000`. Đây là hạn khởi động `webServer`, không phải hạn mỗi test; hạn mỗi test đã 180 s từ trước.
-  - Không nới gì; `multiplayer.spec.ts` không đổi.
-  - `shots.mjs` chạy trên server bản build (`http://localhost:${port}`), nên `NO_SW` ở cả 4 context là cần thiết.
-- **Test và typecheck:** tôi chạy lại `swLogic.test.ts` và `viStrings.test.mjs`, 31 ca qua; `npm run typecheck` sạch. Test chiến lược kiểm đúng hành vi: số lần `fetch`, không đọc cache khi 503/404, ném lại đúng lỗi, không cất câu trả lời `redirected`.
+- **Xử lý lỗi** (`packages/client/src/pwa/swLogic.ts`):
+  - `lookup`: `deps.openCache()` nằm trong `try`, nên cả lỗi ném đồng bộ (`caches` báo `SecurityError`) cũng bị bắt và tính là "không có". Hàm chỉ nuốt lỗi **bộ nhớ**; `deps.fetch` gọi ở ngoài `try`, nên lỗi mạng vẫn ra ngoài. Test kiểm điều này bằng `rejects.toBe(offline)`, tức đúng đối tượng lỗi mạng, cho cả hai chiến lược với 3 kiểu hỏng.
+  - `storeLater`:
+    - `clone()` gọi đồng bộ trước khi trả câu trả lời. Phần ghi nằm trong một hàm `async` tự gọi, có `.catch(() => {})`, nên `put` ném đồng bộ cũng thành lời hứa bị từ chối rồi bị nuốt. Lời hứa đưa cho `waitUntil` không bao giờ bị từ chối, và không có rejection nào không được xử lý.
+    - `defer`, tức `event.waitUntil`, được gọi trước khi chiến lược trả về, lúc lời hứa của `respondWith` còn chờ, nên hợp lệ.
+    - Test bắt được cả khi bỏ `.catch`: `settle()` sẽ bị từ chối.
+  - `respondWith` trong `sw.ts` giờ chỉ nhận lời hứa của chiến lược, và lời hứa này chỉ bị từ chối khi `fetch` ném. Không còn `caches.open(...).then` bọc ngoài.
+  - `activate` không đổi, đúng phạm vi. Nếu `caches.keys()` hỏng ở đó thì trình duyệt vẫn kích hoạt worker, mà install với cùng bộ nhớ đó đã hỏng từ trước.
+- **`precacheAll`:**
+  - Tải song song. Câu trả lời khác 200 hoặc `redirected` thì ném và chưa `put` gì; `fetch` ném thì ném lại đúng lỗi. Nghiêm hơn `addAll` (nhận mọi 2xx) và vẫn giữ "tất cả hoặc hỏng".
+  - `Promise.all` gắn handler cho mọi lời hứa con, nên lỗi thứ hai không thành rejection không được xử lý.
+  - Lỗi bộ nhớ ở bước install không bị nuốt, nên install hỏng. Đúng thiết kế: một worker không có cache thì vô dụng.
+  - Khoá là đường dẫn tương đối, trùng khoá `routeFor` dùng. `/` và manifest tải với `cache: "reload"` (có test).
+  - `put` hỏng giữa chừng có thể để lại vài mục trong cache; PLAN đã ghi giới hạn này.
+- **Phiên bản (`swVersion`):**
+  - Băm `JSON.stringify` của `index.html`, manifest, nguồn `sw.ts` + `swLogic.ts` và danh sách lưu sẵn. Có test ranh giới `"ab"+"c"` khác `"a"+"bc"`.
+  - Web Crypto có sẵn trên Node v22.23.4 của máy này (`crypto.subtle.digest` là function).
+  - `dist/sw.js` 2480 byte: không chứa `subtle` hay `addAll`, có `redirected`.
+  - `vite.config.ts` truyền đúng 4 nguồn.
+- **Lần deploy đầu sau T82:** worker T13b có `sw.js` khác byte, nên trình duyệt cài worker mới vào `petgame-<phiên bản mới>`. Worker mới chờ tới khi tab cũ đóng, rồi `activate` xoá `petgame-64daf4b17bef` qua `staleCaches`. Đây là đường cập nhật bình thường, không đụng `localStorage` hay SQLite. Trong lúc chờ, worker cũ vẫn chạy code cũ; đây là rủi ro sẵn có, không tệ hơn.
+- **`closeBundle`:**
+  - Thoát sớm khi có tham số `error` hoặc cờ `failed` (từ `buildEnd(err)` hoặc `renderError`).
+  - `buildStart` đặt lại cờ. Không dùng `existsSync`.
+  - Tôi kiểm trong khai báo của rolldown (`define-config-*.d.mts`): `buildEnd(err?)`, `renderError(error)` và `closeBundle(error?)` đều có thật.
+- **`register.ts`:** mọi lần đọc `navigator.serviceWorker` đều nằm trong `try`, kể cả trong callback `load`. Ca getter ném trong listener của `register.test.ts` hỏng với code cũ. Ca `PROD=false` chứng minh getter không bị đọc.
+- **Test:** tôi chạy lại `packages/client/src/pwa`: 52 ca qua, `npm run typecheck` sạch. Không test cũ nào bị xoá hay nới; helper `fakes` chỉ đổi cách dựng deps.
+- **Phạm vi:** `multiplayer.spec.ts` và `labelLayout.ts` không đổi; `git stash list` vẫn 2 mục. `pwa.spec.ts` chỉ đổi import kiểu.
 - **Tài liệu:**
-  - `docs/architecture.md`: mục PWA riêng (lệch nhỏ đã ghi trong PROGRESS, hợp lý) và mục Kiểm thử.
-  - `docs/deploy.md`: HTTPS, tab cũ, cách gỡ, CSP.
-  - `docs/choi-tren-iphone.md`: Cách A/B, app là người chơi riêng, luôn mở ở sảnh.
-  - Tất cả khớp code và `docs/design/multiplayer.md` dòng 15, 19, 103-104. Chữ "Không kết nối được server" và "Thử lại" có thật trong `ui/strings.ts`.
+  - `deploy.md`: cách gỡ khẩn cấp có `skipWaiting()` và không có listener `fetch`. Đúng: sau `skipWaiting`, worker gỡ điều khiển các tab ngay, và vì không có `fetch` nên mọi request đi mạng.
+  - `choi-tren-iphone.md` có câu "sau lần đầu mở app có mạng".
+  - `multiplayer.md` dòng 19 và `architecture.md` khớp code.
 
 ## Lỗi phải sửa
 Không có.
 
 ## Góp ý không bắt buộc
-- `packages/client/src/pwa/sw.ts:47-49`: nếu `caches.open` hoặc `cache.match` bị từ chối (Cache Storage hỏng, hiếm gặp), lời hứa của `respondWith` bị từ chối. Khi đó trang hay chunk hỏng **dù có mạng**. Đây là đường duy nhất worker này có thể làm game không mở được. Nên bọc thêm: lỗi của Cache Storage thì lùi về `fetch(request)`. Phải giữ nguyên luật "lỗi mạng thì ném lại", và có một unit test với `CacheLike` ném lỗi.
-- `packages/client/src/pwa/register.ts:13-17`: `try/catch` chỉ bọc lúc gắn listener `load`. Nếu `navigator.serviceWorker` ném `SecurityError` ngay khi được đọc (một số cấu hình Firefox chặn bộ nhớ), lỗi đó nổ trong listener và thành lỗi chưa bắt.
-  - Vô hại: bộ canh tải T15 đã gỡ listener, game vẫn chạy.
-  - Nhưng trái với JSDoc "never throws". Nên chuyển `try/catch` vào trong `register`.
-- `docs/deploy.md`, gạch "Gỡ service worker": vì không có `skipWaiting`, một `sw.ts` chỉ dọn cache rồi `unregister()` sẽ chờ tới khi mọi tab cũ đóng mới chạy. Nên ghi rõ bản gỡ khẩn cấp gọi `self.skipWaiting()` trong `install`, rồi dọn cache và `unregister()` trong `activate`.
-- `docs/choi-tren-iphone.md`, Cách B: nên thêm "sau lần mở app đầu tiên có mạng". App ở MH chính có bộ nhớ riêng, nên bản lưu của Safari không theo sang; lần đầu mở app phải có mạng.
-- `vite.config.ts`, `closeBundle`: nếu build chính lỗi mà hook này vẫn được gọi, `readFileSync(index.html)` ném `ENOENT` và có thể che lỗi gốc. Nên kiểm `existsSync` rồi `return`.
-- Phiên bản chỉ băm `index.html` và tên file lưu sẵn. Đổi riêng manifest hay riêng logic `sw.ts` thì tên cache giữ nguyên.
-  - Vô hại: manifest đi mạng trước, và `sw.js` vẫn đổi byte nên trình duyệt vẫn cập nhật.
-  - Nếu muốn chặt: băm thêm nội dung manifest.
-- `install` dùng `addAll`: không kiểm `redirected` như đường mạng trước. Server hiện không chuyển hướng `/`. Nếu sau này có proxy chuyển hướng `/`, bản lưu sẵn có thể bị Safari từ chối khi mở lúc mất mạng.
-- `tests/e2e/pwa.spec.ts:13`: dùng `import("@playwright/test").Browser` ngay trong chú thích kiểu; đổi thành import `type Browser` ở dòng 1 cho gọn.
+- **Lỗi bị nuốt không để lại dấu vết:**
+  - Cái giá của `lookup` và `storeLater`: nếu sau này nối dây sai (ví dụ `openCache` mở nhầm tên cache), worker lặng lẽ thành "chỉ đi mạng". Không test nào bắt, vì e2e (d) chỉ kiểm `fromServiceWorker()`, và câu trả lời mạng đi qua worker cũng ra `true`.
+  - Đề xuất 1: thêm `console.warn` trong hai nhánh `catch` (chỉ hiện ở console của worker, không đổi hành vi).
+  - Đề xuất 2: thêm một kiểm tra e2e rằng chunk vào được lấy **từ cache** khi tải lại. Ví dụ: ghi đè mục cache của chunk vào bằng nội dung gốc có chèn thêm `window.__fromCache = 1;`, tải lại, rồi đọc cờ đó.
+- `docs/architecture.md`, dòng định tuyến của mục PWA: câu T82 chen giữa "không bao giờ thay câu trả lời 404/502" và "mọi thứ khác bị bỏ qua (...)". Vì vậy "mọi thứ khác" đọc như nói về Cache Storage. Nên tách câu T82 thành một gạch riêng, hoặc đưa xuống cuối dòng.
+- `swLogic.test.ts`:
+  - `it.each` đầu tiên của nhóm "a broken Cache Storage" viết lại mảng literal thay vì dùng hằng `all` khai báo ngay trên; nên dùng `all`.
+  - Các ca `put`/`putThrows` nên thêm `expect(f.state.puts).toBe(1)`, để chắc nhánh ghi thật sự đã chạy chứ không chỉ "không lỗi".
+- `swVersion` băm nguồn dạng văn bản, nên một checkout CRLF (Windows) ra phiên bản khác bản build trên Linux. Vô hại, vì deploy build trong Docker; chỉ ghi lại để không ai ngạc nhiên.

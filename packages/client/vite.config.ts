@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { build, defineConfig, type Plugin } from "vite";
-import { precacheUrls } from "./src/pwa/swLogic.ts";
+import { precacheUrls, swVersion } from "./src/pwa/swLogic.ts";
 
 /** Lists the files under `dir` recursively, as POSIX paths relative to `base`. */
 function listFiles(dir: string, base: string): string[] {
@@ -14,11 +13,13 @@ function listFiles(dir: string, base: string): string[] {
 
 /**
  * After the build, bundles src/pwa/sw.ts into dist/sw.js (one classic script) with the build version and the
- * precache list baked in. The version depends only on the content, so an unchanged build gives the same version.
+ * precache list baked in. The version hashes index.html, the manifest, the worker's own source and the precache
+ * list, so an unchanged build gives the same version and any change to what the worker stores or does gives a new cache.
  */
 function serviceWorker(): Plugin {
   let root = "";
   let outDir = "";
+  let failed = false;
   return {
     name: "petgame-service-worker",
     apply: "build",
@@ -26,12 +27,25 @@ function serviceWorker(): Plugin {
       root = config.root;
       outDir = resolve(config.root, config.build.outDir);
     },
-    async closeBundle() {
+    buildStart() {
+      failed = false;
+    },
+    buildEnd(error) {
+      if (error) failed = true;
+    },
+    renderError() {
+      failed = true;
+    },
+    async closeBundle(error) {
+      // A failed main build keeps its own error; reading dist/index.html here would only add an ENOENT on top.
+      if (error || failed) return;
       const precache = precacheUrls(listFiles(outDir, outDir));
-      const version = createHash("sha256")
-        .update(readFileSync(join(outDir, "index.html"), "utf8") + "\n" + precache.join("\n"))
-        .digest("hex")
-        .slice(0, 12);
+      const version = await swVersion({
+        indexHtml: readFileSync(join(outDir, "index.html"), "utf8"),
+        manifest: readFileSync(join(outDir, "manifest.webmanifest"), "utf8"),
+        workerSources: [resolve(root, "src/pwa/sw.ts"), resolve(root, "src/pwa/swLogic.ts")].map((f) => readFileSync(f, "utf8")),
+        precache,
+      });
       // configFile: false, so this second build does not load this plugin again.
       await build({
         configFile: false,

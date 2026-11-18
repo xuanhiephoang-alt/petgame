@@ -1,6 +1,6 @@
 // Service worker entry: only wiring. The rules are in swLogic.ts. Built into dist/sw.js by vite.config.ts, which
 // injects the build version and the precache list as __PETGAME_SW__.
-import { cacheFirst, cacheName, freshOnInstall, networkFirst, routeFor, staleCaches } from "./swLogic.ts";
+import { cacheFirst, cacheName, networkFirst, precacheAll, routeFor, staleCaches } from "./swLogic.ts";
 
 declare const __PETGAME_SW__: { version: string; precache: string[] };
 
@@ -22,12 +22,12 @@ interface SwScope {
 const sw = globalThis as unknown as SwScope;
 const { version, precache } = __PETGAME_SW__;
 const CACHE = cacheName(version);
+// `caches` is only touched inside this function, so a throwing `caches` is caught by the strategies.
+const openCache = () => caches.open(CACHE);
 
 // No skipWaiting: a new worker waits until the tabs of the old build are closed, so they keep their own chunks.
 sw.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(precache.map((u) => (freshOnInstall(u) ? new Request(u, { cache: "reload" }) : u)))),
-  );
+  event.waitUntil(precacheAll(precache, sw.location.origin, { fetch: (r) => fetch(r), openCache }));
 });
 
 sw.addEventListener("activate", (event) => {
@@ -44,7 +44,6 @@ sw.addEventListener("fetch", (event) => {
   const route = routeFor({ url: request.url, method: request.method, mode: request.mode }, sw.location.origin);
   if (route.strategy === "bypass") return;
   const strategy = route.strategy === "cache-first" ? cacheFirst : networkFirst;
-  event.respondWith(
-    caches.open(CACHE).then((cache) => strategy(request, route.key, { fetch: (r) => fetch(r), cache, defer: (p) => event.waitUntil(p) })),
-  );
+  // Cache Storage errors never reach respondWith: the strategies fall back to the network (T82).
+  event.respondWith(strategy(request, route.key, { fetch: (r) => fetch(r), openCache, defer: (p) => event.waitUntil(p) }));
 });

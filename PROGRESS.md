@@ -1,53 +1,33 @@
-# PROGRESS: T13b Service worker (PWA, Phần B)
+# PROGRESS: T82 Service worker: Cache Storage lỗi không chặn game mở
 
-## Vòng 1 (Phần B): coder
+## Vòng 1: coder
+- [x] Bước 1: `swLogic.ts`: `StrategyDeps.openCache`, `lookup` (lỗi cache = miss), `storeLater` (ghi nền, clone đồng bộ, không bao giờ từ chối), `cacheFirst`/`networkFirst` dùng chúng; lỗi mạng vẫn ném đúng lỗi mạng.
+- [x] Bước 2: `swLogic.ts`: `precacheAll` (tải hết, chỉ `put` khi mọi câu trả lời 200 và không chuyển hướng).
+- [x] Bước 3: `swLogic.ts`: `SwVersionInputs`, `swVersion` (Web Crypto). Rolldown loại khỏi `sw.js`, không cần tách file.
+- [x] Bước 4: `sw.ts`: `openCache`, install qua `precacheAll`, `respondWith` không còn bọc `caches.open().then`; bỏ import `freshOnInstall`.
+- [x] Bước 5: `vite.config.ts`: cờ `failed` (`buildStart`/`buildEnd`/`renderError`), `closeBundle(error)` thoát sớm; phiên bản bằng `swVersion` (index.html, manifest, `sw.ts`, `swLogic.ts`, precache); bỏ `node:crypto`; sửa JSDoc.
+- [x] Bước 6: `register.ts`: `try/catch` bọc cả callback `load`; thêm `register.test.ts` (4 ca).
+- [x] Bước 7: `tests/e2e/pwa.spec.ts`: import `type Browser`.
+- [x] Bước 8: `docs/deploy.md`, `docs/choi-tren-iphone.md`, `docs/architecture.md` theo đúng chữ trong kế hoạch.
+- [x] Test: `swLogic.test.ts` (helper `fakes` có `broken`, nhóm "a broken Cache Storage never blocks the network", `precacheAll`, `swVersion`, ca "does not store a redirected answer" cho `cacheFirst`); test cũ giữ nguyên nghĩa.
+- Chứng minh test bắt lỗi code cũ (không dùng git stash): đặt tạm `register.ts` cũ từ `git show c97a472:...` thì ca "never throws, not even inside the load callback" FAIL (3 ca khác qua), rồi khôi phục bản mới. Với cache hỏng: `swLogic.ts` cũ (xuất ra file tạm, đã xoá) có `match` bị từ chối thì `cacheFirst` ném `Error: x` thay vì trả câu trả lời mạng. Các ca mới trong `swLogic.test.ts` dùng API `openCache` nên không chạy trực tiếp được trên code cũ; ca tương đương được thử bằng file tạm.
+- Lệch kế hoạch: không có. (`vi.stubEnv("PROD", true)` hoạt động, không cần tách `registerWhenLoaded`.)
+- Kết quả kiểm tra:
+  - build hai lần: cùng `service worker dabb78817fd3: 15 files precached` (N = 15 như `c97a472`).
+  - `dist/sw.js`: 2480 byte (trước T82: 2087), không có `subtle`, có `redirected`, không có `import`/`export`.
+  - `git stash list`: vẫn 2 mục. Không đụng `multiplayer.spec.ts`, `labelLayout.ts`. Không commit.
+- Lệnh đã chạy: typecheck ✓, test ✓ (583 test), build ✓ (x2), test:e2e đầy đủ ✓ (58 test), `pwa.spec.ts` ×3 ✓ (6 lượt).
+- Chưa kiểm tay tiêu chí 8 (build lỗi in lỗi gốc, không phải ENOENT): để tester/reviewer.
 
-Không commit, không dùng `git stash`. `multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts` không đụng tới.
-
-- [x] B1. `packages/client/src/pwa/swLogic.ts`: `routeFor`, `precacheUrls`, `freshOnInstall`, `staleCaches`, `cacheFirst`, `networkFirst`, `cacheName`, `CACHE_PREFIX`, `NEVER_HANDLED`. Hàm thuần, không import gì của game.
-- [x] B2. `packages/client/src/pwa/sw.ts`: nối dây `install` / `activate` / `fetch`, không `skipWaiting`, không `message`.
-- [x] B3. `packages/client/src/pwa/register.ts`: `registerServiceWorker` (PROD, `"serviceWorker" in navigator`, `try/catch`, đăng ký lúc `load`).
-- [x] B4. `packages/client/src/main.ts`: import và gọi sau `LOBBY_READY_EVENT`.
-- [x] B5. `packages/client/vite.config.ts`: plugin `petgame-service-worker`. `build.lib` dạng `iife` của Vite 8 chạy được ngay, ra đúng một file `dist/sw.js` (không `import`, không `skipWaiting`), nên không cần lùi về `rolldown` trực tiếp. Phiên bản `64daf4b17bef`, 15 file lưu sẵn; build ba lần liền cùng phiên bản.
-- [x] B6. `packages/client/src/pwa/swLogic.test.ts`: các ca 1-13 của mục Test.
-- [x] B7. `scripts/viStrings.test.mjs`: thêm `packages/client/src/pwa` vào `GUARDED`.
-- [x] B8. `playwright.config.ts`: `serviceWorkers: "block"`; server 2567 chạy `npm run build && npm run start ...`, `timeout: 180_000`.
-- [x] B9. `tests/e2e/pwa.spec.ts`: 2 test (bản build trên 2567 với icon, worker, cache, reload, `/whoami`, vào thế giới; Vite dev không đăng ký).
-- [x] B10. `scripts/shots.mjs`: hằng `NO_SW` trải vào cả 4 `browser.newContext`.
-- [x] B11. Tài liệu: `docs/architecture.md` (mục "PWA (T13)" mới và mục Kiểm thử), `docs/choi-tren-iphone.md`, `docs/deploy.md`.
-
-### Lệch kế hoạch
-
-- `docs/architecture.md`: kế hoạch nói "bullet mới trong mục `packages/client`"; tôi tạo mục `## PWA (T13)` riêng ngay trước "Hình ảnh và asset", vì mục `packages/client` gồm toàn dòng rất dài và khó đọc thêm. Nội dung đúng như kế hoạch.
-- `NO_SW` đặt ở đầu `scripts/shots.mjs` (sau import) chứ không cạnh `LABEL_VIEWS`, vì các hàm ở dòng 92 và 127 dùng nó và `const` ở giữa file có thể chưa khởi tạo.
-- Không có lệch nào khác.
-
-### Lệnh đã chạy
-
-- `npm run typecheck` ✓
-- `npm test` ✓ (39 file, 551 test; gồm `swLogic.test.ts`, `pwaManifest.test.mjs`, `viStrings.test.mjs`)
-- `npm run build` ✓ (ra `dist/sw.js`; "service worker 64daf4b17bef: 15 files precached")
-- `npx playwright test tests/e2e/pwa.spec.ts --repeat-each=5 --workers=1 --retries=0` ✓ (10/10, 26.9 s)
-- `npm run test:e2e` ✓ (58 test qua, gồm 2 test `pwa:`; 8 phút 50 giây gồm bước build thêm vào server)
-
-## Kiểm thử vòng 1 (T13b): PASS
-- typecheck ✓   test ✓ (39 file, 551 test; sau khi thêm 4 ca vào `swLogic.test.ts` là 24 ca trong thư mục pwa, tất cả qua)   build ✓ ("service worker 64daf4b17bef: 15 files precached")   e2e ✓ (58, gồm 2 test `pwa:`)   `pwa.spec.ts` x5 (`--repeat-each=5 --workers=1 --retries=0`) ✓ 10/10   photo3d (không chạy)
+## Kiểm thử vòng 1 (T82): PASS
+- typecheck ✓   test ✓ (40 file, 583 test)   build ✓ (hai lần liền cùng `service worker dabb78817fd3: 15 files precached`; `dist/sw.js` hai lần giống hệt từng byte, không có `subtle`)   e2e ✓ (58)   `pwa.spec.ts` x3 ✓ (6/6)   photo3d (không chạy)
 - Tiêu chí hoàn thành:
-  - [x] `dist/sw.js` (2087 byte) là IIFE, không có `import`/`export`, không `skipWaiting`, không `controllerchange`.
-  - [x] `playwright.config.ts` `timeout: 180_000`: KHÔNG nới. Ở 261f7e9 timeout mỗi test đã là `180_000` (dòng 7). Diff chỉ thêm `timeout: 180_000` cho `webServer` 2567 (do thêm bước `npm run build &&`), cùng `serviceWorkers: "block"` và lệnh `npm run build && npm run start ...`.
-  - [x] Định tuyến khớp PLAN, từng ca có unit test: non-GET, khác origin (ws/wss), `/matchmake`, `/whoami` (cả điều hướng), `/healthz`, `/sw.js`, `/assets`, `/icons`, điều hướng tới `/sprites.html` đều bypass; `/build/*` cache-first khoá bỏ query; `/` và `/index.html` (navigate) network-first khoá `/`; manifest network-first.
-  - [x] Kiểm tay trên bản build (Playwright, `serviceWorkers: "allow"`):
-    1. Trang được worker điều khiển ngay lần mở đầu; cache `petgame-64daf4b17bef` có 15 mục: `/`, `/manifest.webmanifest`, 13 file `/build/*`; không có `/assets`, `/icons`, `/whoami`, `/matchmake`.
-    2. Giả lập deploy (thêm dấu vào `dist/index.html`), tải lại -> HTML mới có dấu; bản cất `/` cũng cập nhật (network-first đúng).
-    3a. Xoá chunk vào của `dist/build` trên đĩa, tab đã có cache, tải lại -> sảnh vẫn chạy vì chunk lấy từ cache. Khớp ý định PLAN: file có hash bất biến và đã lưu sẵn cùng HTML cũ; sau deploy thật HTML mới trỏ tới hash mới nên không bị che.
-    3b. Context mới (không cache), chunk 404 -> thẻ "Không tải được game" của T15 hiện, nút vào game vẫn khoá.
-    3c. Tab đã có worker cũ, HTML mới trỏ tới chunk hash mới không tồn tại -> thẻ "Không tải được game" vẫn hiện (404 không bị thay bằng bản cache).
-    4. Tắt mạng rồi mở lại: sảnh vẫn có `#join-btn` (lùi về HTML đã lưu).
-  - [x] Đột biến (đã hoàn nguyên, `diff` với bản gốc rỗng), mỗi cái bị đúng một test bắt:
-    a) `/whoami` được cache-first/network-first -> "bypasses everything the server answers".
-    b) điều hướng thành cache-first -> "answers navigations to the lobby network-first under one key".
-    c1) `cacheFirst` thay 404 bằng bản cache -> ca mới "passes a 404 on even when other files are stored". Trước khi tôi thêm ca này, đột biến này KHÔNG bị bắt (ca cũ dùng cache rỗng).
-    c2) `networkFirst` thay 404 bằng bản cache -> ca mới "returns a 404 as it is, without storing it or reading the cache" (ca cũ chỉ thử 503).
-  - [x] Vite dev không đăng ký worker: test e2e `pwa: Vite dev registers no service worker` qua 5/5 (không có request `/sw.js`, `getRegistrations()` rỗng).
-- Test đã thêm trong `packages/client/src/pwa/swLogic.test.ts` (4 ca): cacheFirst 404 khi cache có file khác; cacheFirst rethrow khi mất mạng dù cache có file khác; networkFirst 404 trả nguyên không đọc cache; `/` không phải navigate (hoặc POST) thì bypass.
-- Lưu ý: `dist/` đã build lại sau khi kiểm tay (nội dung như ban đầu); server 2567 đã tắt.
+  - [x] Tiêu chí 8 (coder chưa kiểm): thêm `const = ;` vào cuối `packages/client/src/main.ts`, `npm run build` -> exit 1, in lỗi gốc `[builtin:vite-transform] Unexpected token ... src/main.ts:288:7`, KHÔNG có `ENOENT` nào. Đã hoàn nguyên, `git diff packages/client/src/main.ts` rỗng, build lại ra cùng phiên bản `dabb78817fd3`.
+  - [x] Kiểm tay trên bản build (server kiểu `npm run play`, `serviceWorkers: "allow"`): trang được worker điều khiển; rồi làm hỏng Cache Storage ngay trong worker (qua `sw.evaluate`, gán `self.caches.open/match/keys` thành Promise.reject, xác nhận `caches.open` bị từ chối `UnknownError`). Tải lại: HTML 200 và script `/build/index-*.js` 200 đều đi qua worker (fromServiceWorker = true), không có lỗi trang, sảnh sẵn sàng, rồi vào được thế giới. Tức Cache Storage hỏng không chặn game. (Gây lỗi từ ngữ cảnh trang không có tác dụng với worker vì `caches` của worker là đối tượng riêng; nên làm bên trong worker.)
+  - [x] Đột biến (đã hoàn nguyên, `diff` rỗng), mỗi cái bị bắt:
+    a) `lookup` ném lại lỗi cache -> 7 ca đỏ ("cacheFirst answers from the network when the cache is broken at open/openThrows/match", "both strategies throw the network error, not the cache error ...", ...).
+    b) `precacheAll` nhận câu trả lời chuyển hướng -> "rejects and stores nothing when the page is a redirected answer".
+    c) lỗi mạng bị thay bằng lỗi cache khi cả hai hỏng -> 3 ca "both strategies throw the network error, not the cache error".
+    d) `swVersion` bỏ qua manifest -> "changes when any single input changes".
+  - [x] `multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts` không đổi (không có trong `git status`, `git diff c97a472` rỗng).
+- Không thêm test mới (bộ test của coder đã bắt cả 4 đột biến). Không có lỗi.

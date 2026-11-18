@@ -115,9 +115,9 @@ Chữ người chơi thấy: chữ client tự hiện nằm ở `ui/strings.ts`;
 
 ## PWA (T13)
 
-- `packages/client/src/pwa/`: `swLogic.ts` (hàm thuần có test: `routeFor`, `precacheUrls`, `cacheFirst`, `networkFirst`...), `sw.ts` (chỉ nối dây sự kiện), `register.ts` (`registerServiceWorker`, gọi trong `main.ts` sau khi sảnh sẵn sàng).
-- Định tuyến: `/build/*` cache trước; trang `/` (mọi `?room=`) và `/manifest.webmanifest` mạng trước, chỉ lùi về cache khi `fetch` ném lỗi (không có mạng), không bao giờ thay câu trả lời 404/502; mọi thứ khác bị bỏ qua (không phải GET, khác origin, `/matchmake*`, `/whoami`, `/healthz`, `/sw.js`, `/assets/**`, icon).
-- `vite.config.ts` có plugin `petgame-service-worker`: sau build, đóng gói `sw.ts` thành `dist/sw.js` (IIFE) với phiên bản (12 ký tự sha256 của `index.html` + danh sách lưu sẵn) và danh sách lưu sẵn (`/`, manifest, mọi file `/build/*`). Cache tên `petgame-<phiên bản>`; `activate` xoá cache `petgame-*` cũ rồi `clients.claim()`. Không `skipWaiting`, không tự tải lại.
+- `packages/client/src/pwa/`: `swLogic.ts` (hàm thuần có test: `routeFor`, `precacheUrls`, `cacheFirst`, `networkFirst`, `precacheAll`, `swVersion`...), `sw.ts` (chỉ nối dây sự kiện), `register.ts` (`registerServiceWorker`, gọi trong `main.ts` sau khi sảnh sẵn sàng).
+- Định tuyến: `/build/*` cache trước; trang `/` (mọi `?room=`) và `/manifest.webmanifest` mạng trước, chỉ lùi về cache khi `fetch` ném lỗi (không có mạng), không bao giờ thay câu trả lời 404/502. Cache Storage lỗi (mở, đọc, ghi) tính như không có trong bộ nhớ: trả lời từ mạng, chỉ lỗi mạng mới ném (T82); mọi thứ khác bị bỏ qua (không phải GET, khác origin, `/matchmake*`, `/whoami`, `/healthz`, `/sw.js`, `/assets/**`, icon).
+- `vite.config.ts` có plugin `petgame-service-worker`: sau build, đóng gói `sw.ts` thành `dist/sw.js` (IIFE) với phiên bản (12 ký tự sha256 của `index.html`, manifest, mã nguồn `sw.ts` + `swLogic.ts` và danh sách lưu sẵn) và danh sách lưu sẵn (`/`, manifest, mọi file `/build/*`). Install là `precacheAll`: tải hết, chỉ cất khi mọi câu trả lời 200 và không chuyển hướng. Cache tên `petgame-<phiên bản>`; `activate` xoá cache `petgame-*` cũ rồi `clients.claim()`. Không `skipWaiting`, không tự tải lại.
 - Chỉ đăng ký ở bản build (`import.meta.env.PROD`) và khi trình duyệt có service worker (ngữ cảnh an toàn: HTTPS hoặc localhost). Vite dev không bao giờ đăng ký.
 - T52 (tự tải lại sau deploy): service worker không đụng tới. Trang luôn lấy từ mạng trước, chunk thiếu vẫn hỏng thành `vite:preloadError`.
 - Icon và `apple-touch-icon.png` do `scripts/appIcons.py` sinh.

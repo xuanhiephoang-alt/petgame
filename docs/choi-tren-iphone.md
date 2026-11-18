@@ -63,7 +63,7 @@ Lưu ý gói **miễn phí** của Render:
 
 - **Xoay ngang** điện thoại cho dễ chơi.
 - **Thêm vào Màn hình chính** để chơi toàn màn hình như app: trong Safari bấm nút Chia sẻ → **Thêm vào MH chính**. App có icon Emberpup và tên **PetGame**.
-  - **Cách B (HTTPS):** game lưu sẵn trang và script, nên khi mất mạng vẫn mở được tới sảnh; bấm Vào chơi sẽ ra thẻ "Không kết nối được server", có nút **Thử lại** khi có mạng. Khi có mạng, mở lại luôn ra bản mới nhất.
+  - **Cách B (HTTPS):** game lưu sẵn trang và script **sau lần đầu mở app có mạng**, nên từ đó khi mất mạng vẫn mở được tới sảnh (app ở Màn hình chính có bộ nhớ riêng, không dùng bản Safari đã lưu, nên lần đầu mở app phải có mạng); bấm Vào chơi sẽ ra thẻ "Không kết nối được server", có nút **Thử lại** khi có mạng. Khi có mạng, mở lại luôn ra bản mới nhất.
   - **Cách A (Wi-Fi, `http://192.168...`):** vẫn thêm được và có icon, nhưng không lưu sẵn gì (trình duyệt chỉ cho phép khi dùng HTTPS), game chạy như trước.
   - **App ở Màn hình chính là người chơi riêng**, khác Safari: iOS cho app bộ nhớ riêng, nên lần đầu mở app thú, tên và trại đã chơi trong Safari không theo sang. Chọn một nơi để chơi.
   - App luôn mở ở sảnh. Muốn vào lại thế giới của bạn bè thì mở lại link mời.

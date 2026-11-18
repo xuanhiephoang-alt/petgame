@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 // The built game on 2567 (the e2e server builds first). Contexts here turn service workers back on: the config
 // blocks them for every other test.
@@ -10,7 +10,7 @@ test.afterEach(async () => {
   await Promise.all(contexts.splice(0).map((c) => c.close()));
 });
 
-async function openWithWorkers(browser: import("@playwright/test").Browser, url: string): Promise<{ context: BrowserContext; page: Page }> {
+async function openWithWorkers(browser: Browser, url: string): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ serviceWorkers: "allow" });
   contexts.push(context);
   const page = await context.newPage();

@@ -4,18 +4,24 @@
  * - the browser has service workers (missing on plain http over the LAN, e.g. `npm run play` from a phone, and in
  *   old browsers);
  * - registering does not throw (some private modes raise SecurityError).
- * It registers on `load` so that precaching never competes with the first download, and never throws.
+ * It registers on `load` so that precaching never competes with the first download, and never throws, not even
+ * later in the load callback.
  */
 export function registerServiceWorker(): void {
   if (!import.meta.env.PROD) return;
-  if (!("serviceWorker" in navigator)) return;
+  const warn = (err: unknown) => console.warn("Service worker not registered", err);
   try {
+    if (!("serviceWorker" in navigator)) return;
     const register = () => {
-      navigator.serviceWorker.register(import.meta.env.BASE_URL + "sw.js").catch((err) => console.warn("Service worker not registered", err));
+      try {
+        navigator.serviceWorker.register(import.meta.env.BASE_URL + "sw.js").catch(warn);
+      } catch (err) {
+        warn(err);
+      }
     };
     if (document.readyState === "complete") register();
     else window.addEventListener("load", register, { once: true });
   } catch (err) {
-    console.warn("Service worker not registered", err);
+    warn(err);
   }
 }
