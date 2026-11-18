@@ -63,6 +63,12 @@ Công cụ tự xử lý: tách nền trơn và giữ lỗ thủng thật (giữ
 
 Không dùng tên, hình hay thiết kế của Pokémon, Palworld: xem kỹ ảnh AI vẽ, giống quá thì đổi mô tả rồi vẽ lại (ví dụ Scorchtail đổi từ thằn lằn đứng hai chân đuôi có lửa thành kỳ nhông bò bốn chân).
 
+## Icon app
+
+Icon cài lên màn hình chính (PWA) dựng từ ảnh Emberpup có sẵn (ô `front` của `pals/emberpup.webp`), không dùng AI vẽ mới, không có chữ. Chạy `python3 scripts/appIcons.py` (Pillow + numpy) để ra 5 PNG trong `packages/client/public/`: `icons/icon-192.png`, `icon-512.png` (kiểu `any`, vuông bo góc, góc trong suốt, thú cao 0,80 cỡ icon), `icons/icon-maskable-192.png`, `icon-maskable-512.png` (kín, thú cao 0,68), `apple-touch-icon.png` (180 px, kín, thú cao 0,76). Nền là gradient tròn xanh lá `#7dbf5e` về `#1f3a1d`, có bóng mềm dưới chân.
+
+Luật vùng an toàn maskable: mọi pixel của thú phải nằm trong hình tròn bán kính 0,40 cỡ icon quanh tâm (launcher có thể cắt tròn); script tự kiểm và thoát lỗi nếu vượt. Kết quả chạy ra cùng byte mỗi lần. Muốn đổi thú làm icon: sửa `SOURCE` và `PAL_ID` ở đầu script rồi chạy lại.
+
 ## Ngân sách hiệu năng (điện thoại)
 
 - Mục tiêu 60 FPS trên iPhone đời 2020 trở lên.
