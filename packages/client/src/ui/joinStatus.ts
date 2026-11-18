@@ -1,3 +1,4 @@
+import { EMPTY_WORLD_HOLD_MS } from "@petgame/shared";
 import type { JoinFailure } from "../net/connection.ts";
 import { JOIN_TEXT, LOBBY_TEXT } from "./strings.ts";
 
@@ -13,6 +14,8 @@ export type Arrival = "new" | "invited" | "back" | "backAlone";
 export interface RecentWorld {
   room: string;
   friends: boolean;
+  /** When (Date.now() ms) this device was last connected in the world; 0 = unknown (written before T79) or known closed. */
+  seen: number;
 }
 
 /**
@@ -21,24 +24,56 @@ export interface RecentWorld {
  */
 export const RECENT_WORLDS_MAX = 20;
 
-/** Reads the stored list of recent worlds. Takes any JSON value and never throws: anything unusable is dropped. */
+/** Friends likely still play this long after the player stepped out: 31/40 of a 40-minute session (docs/design/multiplayer.md). */
+export const FRIENDS_STAY_MS = 9 * 60_000;
+/** How long after the device was last connected in a world with friends the lobby at `/` offers to go back (10 min). */
+export const RETURN_OFFER_MS = EMPTY_WORLD_HOLD_MS + FRIENDS_STAY_MS;
+/** How often (ms) the device notes it is still connected in its world, so a page killed without notice is at most this late. */
+export const SEEN_EVERY_MS = 60_000;
+
+/**
+ * Reads the stored list of recent worlds. Takes any JSON value and never throws: anything unusable is dropped.
+ * A missing or invalid `seen` (entries written before T79) becomes 0, "long ago": the world is kept, never offered.
+ */
 export function recentWorlds(raw: unknown): RecentWorld[] {
   if (!Array.isArray(raw)) return [];
   const list: RecentWorld[] = [];
   for (const item of raw) {
     if (typeof item !== "object" || item === null) continue;
-    const { room, friends } = item as { room?: unknown; friends?: unknown };
+    const { room, friends, seen } = item as { room?: unknown; friends?: unknown; seen?: unknown };
     if (typeof room !== "string" || room.length < 1 || room.length > 64 || typeof friends !== "boolean") continue;
     if (list.some((w) => w.room === room)) continue;
-    list.push({ room, friends });
+    list.push({ room, friends, seen: typeof seen === "number" && Number.isFinite(seen) && seen > 0 ? seen : 0 });
     if (list.length >= RECENT_WORLDS_MAX) break;
   }
   return list;
 }
 
-/** The list with `room` at the front (and only once), newest first, cut to `RECENT_WORLDS_MAX`. `list` is not changed. */
-export function withRecentWorld(list: readonly RecentWorld[], room: string, friends: boolean): RecentWorld[] {
-  return [{ room, friends }, ...list.filter((w) => w.room !== room)].slice(0, RECENT_WORLDS_MAX);
+/** The list with `room` at the front (and only once) with the time it was seen, newest first, cut to `RECENT_WORLDS_MAX`. `list` is not changed. */
+export function withRecentWorld(list: readonly RecentWorld[], room: string, friends: boolean, seen: number): RecentWorld[] {
+  return [{ room, friends, seen }, ...list.filter((w) => w.room !== room)].slice(0, RECENT_WORLDS_MAX);
+}
+
+/** A copy of the list where `room` is known closed (`seen` 0, place and `friends` kept). A room not in the list changes nothing. `list` is not changed. */
+export function withWorldClosed(list: readonly RecentWorld[], room: string): RecentWorld[] {
+  return list.map((w) => (w.room === room ? { ...w, seen: 0 } : { ...w }));
+}
+
+/**
+ * Which world the lobby at `/` offers to go back to, or null. Only without `?room=` (`invited`). The candidate is the
+ * world with the latest `seen` (not the first in the list: opening an old bookmark moves it to the front without
+ * entering it), ignoring unknown times (0) and times in the future by more than the window (a wrong clock, bad data),
+ * so one bad value cannot hide the others. It must have had friends and be seen within `RETURN_OFFER_MS` of `now`.
+ */
+export function returnOffer(invited: string | null, recent: readonly RecentWorld[], now: number): string | null {
+  if (invited) return null;
+  let best: RecentWorld | undefined;
+  for (const w of recent) {
+    if (w.seen <= 0 || w.seen > now + RETURN_OFFER_MS) continue;
+    if (!best || w.seen > best.seen) best = w;
+  }
+  if (!best || !best.friends || Math.abs(now - best.seen) > RETURN_OFFER_MS) return null;
+  return best.room;
 }
 
 /**

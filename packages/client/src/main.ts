@@ -8,7 +8,7 @@ import { loadDollArt } from "./game/art/doll.ts";
 import { DollPreview, LookPicker } from "./ui/wardrobe.ts";
 import { ConnectionOverlay } from "./ui/connection.ts";
 import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
-import { arrival, arrivalHint, joinCard, recentWorlds, startCard, startFailure, withRecentWorld, type JoinCard } from "./ui/joinStatus.ts";
+import { arrival, arrivalHint, joinCard, recentWorlds, returnOffer, startCard, startFailure, SEEN_EVERY_MS, withRecentWorld, withWorldClosed, type JoinCard } from "./ui/joinStatus.ts";
 import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
 import { LOBBY_TEXT } from "./ui/strings.ts";
 import { registerServiceWorker } from "./pwa/register.ts";
@@ -17,6 +17,7 @@ const lobby = document.getElementById("lobby")!;
 const form = document.getElementById("join-form") as HTMLFormElement;
 const nameInput = document.getElementById("name") as HTMLInputElement;
 const joinBtn = document.getElementById("join-btn") as HTMLButtonElement;
+const rejoinBtn = document.getElementById("rejoin-btn") as HTMLButtonElement;
 const joinStatus = document.getElementById("join-status")!;
 const joinTitle = document.getElementById("join-title")!;
 const joinDetail = document.getElementById("join-detail")!;
@@ -72,15 +73,18 @@ const assets: Promise<GameAssets> = Promise.all([loadPalSprites(), loadPictures(
 
 // Opened at ?room=X: coming back (this tab or this device joined X, alone or with friends) or invited (anything else). Runs before the lobby unlocks and must not throw.
 const invited = new URLSearchParams(location.search).get("room");
+const recent = recentWorlds(readJson(RECENT_WORLDS_KEY));
 const arrived = arrival(
   invited,
   safeStorage(() => sessionStorage.getItem(ROOM_KEY)),
   safeStorage(() => sessionStorage.getItem(FRIENDS_KEY)),
-  recentWorlds(readJson(RECENT_WORLDS_KEY)),
+  recent,
 );
-const returning = arrived === "back" || arrived === "backAlone";
-// A world in use moves to the front of the device's list.
-if (returning && invited) noteRecentWorld(invited, arrived === "back");
+let returning = arrived === "back" || arrived === "backAlone";
+// A world in use moves to the front of the device's list; the time last seen stays (the player has not entered yet).
+if (returning && invited) noteRecentWorld(invited, arrived === "back", recent.find((w) => w.room === invited)?.seen ?? 0);
+// At "/" shortly after playing with friends: the world the second button goes back to (T79).
+const offered = returnOffer(invited, recent, Date.now());
 roomHint.textContent = arrivalHint(arrived);
 /** Coming back alone to a world that has closed is no news: one quiet retry opens a new world, with no card. */
 let quietRetry = arrived === "backAlone";
@@ -91,15 +95,20 @@ function setAddress(url: string) {
 }
 
 /** Puts a world at the front of the device's list. Reads the list again each time: another tab may have just written it. */
-function noteRecentWorld(roomId: string, friends: boolean) {
-  safeStorage(() => localStorage.setItem(RECENT_WORLDS_KEY, JSON.stringify(withRecentWorld(recentWorlds(readJson(RECENT_WORLDS_KEY)), roomId, friends))));
+function noteRecentWorld(roomId: string, friends: boolean, seen: number) {
+  safeStorage(() => localStorage.setItem(RECENT_WORLDS_KEY, JSON.stringify(withRecentWorld(recentWorlds(readJson(RECENT_WORLDS_KEY)), roomId, friends, seen))));
+}
+
+/** The world is known closed: the device forgets when it was last there, so the lobby does not offer it again. */
+function forgetWorldTime(roomId: string) {
+  safeStorage(() => localStorage.setItem(RECENT_WORLDS_KEY, JSON.stringify(withWorldClosed(recentWorlds(readJson(RECENT_WORLDS_KEY)), roomId))));
 }
 
 /** Notes the world this tab is in, and whether friends are there, and puts it in the address so a reload comes back to it. */
 function rememberWorld(roomId: string, friends: boolean) {
   safeStorage(() => sessionStorage.setItem(ROOM_KEY, roomId));
   safeStorage(() => sessionStorage.setItem(FRIENDS_KEY, friends ? "1" : "0"));
-  noteRecentWorld(roomId, friends);
+  noteRecentWorld(roomId, friends, Date.now());
   setAddress(lobbyUrl(roomId, true));
 }
 
@@ -108,6 +117,13 @@ function dropWorldFromAddress() {
   const room = new URLSearchParams(location.search).get("room");
   if (room) setAddress(lobbyUrl(room, false));
   roomHint.textContent = "";
+}
+
+/** The world in the address is known to be closed: forget its time, then drop it from the address. */
+function worldClosed() {
+  const room = new URLSearchParams(location.search).get("room");
+  if (room) forgetWorldTime(room);
+  dropWorldFromAddress();
 }
 
 function showJoinCard(card: JoinCard) {
@@ -153,6 +169,7 @@ function failToStart(room: GameRoom, watch: ConnectionWatch, err: unknown) {
 async function enter() {
   if (joining || broken) return;
   joining = true;
+  rejoinBtn.hidden = true;
   const name = nameInput.value.trim();
   safeStorage(() => localStorage.setItem("petgame:name", name));
   safeStorage(() => localStorage.setItem("petgame:look", JSON.stringify(look)));
@@ -173,14 +190,14 @@ async function enter() {
     ) {
       // Alone, back to a world that closed: nobody to be told, so go straight into a new world (once per page).
       quietRetry = false;
-      dropWorldFromAddress();
+      worldClosed();
       [joined, art] = await attempt();
     }
     if (joined.status === "rejected") {
       console.error(joined.reason);
       const failure = joinFailure(joined.reason);
       // The address tells the truth: the world is gone, so a reload opens a new one instead of meeting this card again.
-      if (failure === "closed") dropWorldFromAddress();
+      if (failure === "closed") worldClosed();
       joinBtn.disabled = false;
       joinBtn.textContent = LOBBY_TEXT.join;
       showJoinCard(joinCard(failure, returning));
@@ -201,6 +218,12 @@ async function enter() {
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
+  void enter();
+});
+rejoinBtn.addEventListener("click", () => {
+  if (joining || broken || !offered) return;
+  setAddress(lobbyUrl(offered, true));
+  returning = true;
   void enter();
 });
 retryBtn.addEventListener("click", () => void enter());
@@ -224,6 +247,11 @@ nameInput.disabled = false;
 joinBtn.disabled = false;
 joinBtn.textContent = LOBBY_TEXT.join;
 if (returning) joinBtn.focus({ preventScroll: true });
+// Never focused: Enter in the name box stays "Vào chơi", Tab reaches this button after it.
+if (offered) {
+  rejoinBtn.textContent = LOBBY_TEXT.rejoinFriends;
+  rejoinBtn.hidden = false;
+}
 document.dispatchEvent(new Event(LOBBY_READY_EVENT));
 // After the lobby is ready: the production build registers its service worker (never delays the lobby).
 registerServiceWorker();
@@ -242,15 +270,32 @@ async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets
   };
   room.onStateChange(syncAddress);
   syncAddress();
+  // The device notes when it was last connected here (T79), so "/" can offer the way back. Three ways, as iOS can drop a
+  // backgrounded web app without a `pagehide`: a timer, the page turning hidden, and the page closing. Only while online:
+  // a dropped or replaced tab may no longer be in the world.
+  const noteSeen = () => {
+    if (watch.online && friends !== undefined) noteRecentWorld(room.roomId, friends, Date.now());
+  };
+  const seenTimer = setInterval(noteSeen, SEEN_EVERY_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") noteSeen();
+  });
   // Closing the page is leaving on purpose: the server frees the place at once instead of holding it for a reconnection.
-  window.addEventListener("pagehide", () => watch.leave());
+  window.addEventListener("pagehide", () => {
+    noteSeen();
+    watch.leave();
+  });
 
   // Whether "Về sảnh" and the address name this world: it is kept for a while even when empty.
   let keepWorld = true;
   const overlay = new ConnectionOverlay(container, () => location.assign(lobbyUrl(room.roomId, keepWorld)));
   const react = (status: NetStatus) => {
     // A server that went down took every world with it: there is nothing to rejoin.
-    if (status.state === "lost" && status.reason === "shutdown") keepWorld = false;
+    if (status.state === "lost" && status.reason === "shutdown") {
+      keepWorld = false;
+      forgetWorldTime(room.roomId);
+    }
+    if (status.state === "lost") clearInterval(seenTimer);
     if (status.state === "lost") setAddress(lobbyUrl(room.roomId, keepWorld));
     overlay.show(status);
   };

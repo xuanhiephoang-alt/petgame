@@ -388,6 +388,9 @@
         #lobby h1 { font-size: 22px; margin: 0; }
         .lobby-look { flex-direction: row; align-items: center; gap: 16px; }
         #lobby input, #join-btn { padding: 9px 12px; }
+        /* Room for the second button (#rejoin-btn, T79): the look picker, not the explorer, sets the height here, so tighten the gaps. */
+        #lobby form:has(#rejoin-btn:not([hidden])) { gap: 4px 8px; padding: 0; }
+        #lobby form:has(#rejoin-btn:not([hidden])) .look-picker { gap: 4px; }
       }
       /* Phones: smaller buttons (after the rules they change). */
       @media (max-width: 600px) {
@@ -457,12 +460,14 @@
            the ?room= of an invite link would be lost. The end-to-end tests wait for the button to be enabled.
            #join-status is the card for a failed join (T23): world closed or full, server unreachable; it is also the card
            for a game that could not open after joining (T42), with only a reload button.
+           #rejoin-btn is the second button at "/" after playing with friends (T79): src/main.ts sets its text and shows it.
            #load-status is the notice of the load watchdog (the inline script after #lobby, T15): slow or broken loading. -->
       <form id="join-form">
         <h1>🐾 PetGame</h1>
         <div id="look" class="lobby-look"></div>
         <input id="name" placeholder="Tên của bạn" maxlength="16" autocomplete="nickname" disabled />
         <button type="submit" id="join-btn" disabled autocomplete="off">Đang tải...</button>
+        <button type="button" id="rejoin-btn" class="lobby-action" hidden></button>
         <div id="join-status" class="lobby-alert failed" role="alert" hidden>
           <strong id="join-title"></strong>
           <p id="join-detail"></p>

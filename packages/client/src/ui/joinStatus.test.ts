@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MAX_PLAYERS } from "@petgame/shared";
+import { EMPTY_WORLD_HOLD_MS, MAX_PLAYERS } from "@petgame/shared";
 import type { JoinFailure } from "../net/connection.ts";
-import { INVITE_HINT, RECENT_WORLDS_MAX, RETURN_HINT, arrival, arrivalHint, joinCard, recentWorlds, startCard, startFailure, withRecentWorld, type RecentWorld } from "./joinStatus.ts";
+import { FRIENDS_STAY_MS, INVITE_HINT, RECENT_WORLDS_MAX, RETURN_HINT, RETURN_OFFER_MS, SEEN_EVERY_MS, arrival, arrivalHint, joinCard, recentWorlds, returnOffer, startCard, startFailure, withRecentWorld, withWorldClosed, type RecentWorld } from "./joinStatus.ts";
 
 const ALL: JoinFailure[] = ["closed", "full", "unreachable", "busy", "tooMany", "failed"];
 
@@ -37,14 +37,14 @@ describe("arrival", () => {
 
 describe("arrival with the device's recent worlds", () => {
   it("knows a world this device was in, though this tab was not", () => {
-    expect(arrival("X", "Y", "1", [{ room: "X", friends: false }])).toBe("backAlone");
-    expect(arrival("X", "Y", "1", [{ room: "X", friends: true }])).toBe("back");
-    expect(arrival("X", null, null, [{ room: "Z", friends: true }])).toBe("invited");
+    expect(arrival("X", "Y", "1", [{ room: "X", friends: false, seen: 0 }])).toBe("backAlone");
+    expect(arrival("X", "Y", "1", [{ room: "X", friends: true, seen: 0 }])).toBe("back");
+    expect(arrival("X", null, null, [{ room: "Z", friends: true, seen: 0 }])).toBe("invited");
   });
 
   it("lets the tab win over the device, and needs ?room= to be anything but new", () => {
-    expect(arrival("X", "X", "0", [{ room: "X", friends: true }])).toBe("backAlone");
-    expect(arrival(null, null, null, [{ room: "X", friends: true }])).toBe("new");
+    expect(arrival("X", "X", "0", [{ room: "X", friends: true, seen: 0 }])).toBe("backAlone");
+    expect(arrival(null, null, null, [{ room: "X", friends: true, seen: 0 }])).toBe("new");
   });
 });
 
@@ -58,14 +58,21 @@ describe("recentWorlds", () => {
     expect(recentWorlds(raw)).toEqual([]);
   });
 
-  it("keeps only room and friends", () => {
-    expect(recentWorlds([{ room: "A", friends: true, extra: 1 }])).toEqual([{ room: "A", friends: true }]);
+  it("keeps room, friends and seen", () => {
+    expect(recentWorlds([{ room: "A", friends: true, extra: 1 }])).toEqual([{ room: "A", friends: true, seen: 0 }]);
+    expect(recentWorlds([{ room: "A", friends: true, seen: 5, extra: 1 }])).toEqual([{ room: "A", friends: true, seen: 5 }]);
+  });
+
+  it("keeps a world whose seen is missing or unusable, as 0", () => {
+    for (const seen of ["5", Number.NaN, Number.POSITIVE_INFINITY, -1, 0, null]) {
+      expect(recentWorlds([{ room: "A", friends: true, seen }])).toEqual([{ room: "A", friends: true, seen: 0 }]);
+    }
   });
 
   it("keeps the first of a repeated room", () => {
     expect(recentWorlds([{ room: "A", friends: true }, { room: "B", friends: false }, { room: "A", friends: false }])).toEqual([
-      { room: "A", friends: true },
-      { room: "B", friends: false },
+      { room: "A", friends: true, seen: 0 },
+      { room: "B", friends: false, seen: 0 },
     ]);
   });
 
@@ -79,39 +86,115 @@ describe("recentWorlds", () => {
 });
 
 describe("withRecentWorld", () => {
-  it("adds a world at the front", () => {
-    expect(withRecentWorld([{ room: "A", friends: true }], "B", false)).toEqual([
-      { room: "B", friends: false },
-      { room: "A", friends: true },
+  it("adds a world at the front with the time seen", () => {
+    expect(withRecentWorld([{ room: "A", friends: true, seen: 1 }], "B", false, 7)).toEqual([
+      { room: "B", friends: false, seen: 7 },
+      { room: "A", friends: true, seen: 1 },
     ]);
   });
 
-  it("moves a known world to the front with the new flag, once", () => {
-    const list = [{ room: "A", friends: true }, { room: "B", friends: true }];
-    expect(withRecentWorld(list, "B", false)).toEqual([
-      { room: "B", friends: false },
-      { room: "A", friends: true },
+  it("moves a known world to the front with the new flag and time, once", () => {
+    const list = [{ room: "A", friends: true, seen: 1 }, { room: "B", friends: true, seen: 2 }];
+    expect(withRecentWorld(list, "B", false, 9)).toEqual([
+      { room: "B", friends: false, seen: 9 },
+      { room: "A", friends: true, seen: 1 },
     ]);
   });
 
   it("drops the oldest when full", () => {
-    const list: RecentWorld[] = Array.from({ length: RECENT_WORLDS_MAX }, (_, i) => ({ room: `w${i}`, friends: true }));
-    const next = withRecentWorld(list, "new", true);
+    const list: RecentWorld[] = Array.from({ length: RECENT_WORLDS_MAX }, (_, i) => ({ room: `w${i}`, friends: true, seen: 0 }));
+    const next = withRecentWorld(list, "new", true, 1);
     expect(next).toHaveLength(RECENT_WORLDS_MAX);
     expect(next[0].room).toBe("new");
     expect(next.some((w) => w.room === `w${RECENT_WORLDS_MAX - 1}`)).toBe(false);
   });
 
   it("does not change the list it is given", () => {
-    const list = [{ room: "A", friends: true }];
+    const list = [{ room: "A", friends: true, seen: 1 }];
     const copy = structuredClone(list);
-    withRecentWorld(list, "B", false);
-    withRecentWorld(list, "A", false);
+    withRecentWorld(list, "B", false, 2);
+    withRecentWorld(list, "A", false, 2);
     expect(list).toEqual(copy);
   });
 
   it("remembers 20 worlds", () => {
     expect(RECENT_WORLDS_MAX).toBe(20);
+  });
+});
+
+describe("withWorldClosed", () => {
+  it("zeroes seen of that world only, keeping place and friends", () => {
+    const list = [{ room: "A", friends: true, seen: 5 }, { room: "B", friends: true, seen: 6 }, { room: "C", friends: false, seen: 7 }];
+    expect(withWorldClosed(list, "B")).toEqual([
+      { room: "A", friends: true, seen: 5 },
+      { room: "B", friends: true, seen: 0 },
+      { room: "C", friends: false, seen: 7 },
+    ]);
+  });
+
+  it("leaves the list as it is for an unknown room, and never changes its input", () => {
+    const list = [{ room: "A", friends: true, seen: 5 }];
+    const copy = structuredClone(list);
+    expect(withWorldClosed(list, "Z")).toEqual(copy);
+    withWorldClosed(list, "A");
+    expect(list).toEqual(copy);
+  });
+});
+
+describe("returnOffer", () => {
+  const now = 1_000_000_000_000;
+  const w = (room: string, friends: boolean, seen: number): RecentWorld => ({ room, friends, seen });
+
+  it("never offers when the page was opened with ?room=; an empty one counts as none", () => {
+    expect(returnOffer("X", [w("X", true, now - 60_000)], now)).toBeNull();
+    expect(returnOffer("Y", [w("X", true, now - 60_000)], now)).toBeNull();
+    expect(returnOffer("", [w("X", true, now - 60_000)], now)).toBe("X");
+    expect(returnOffer(null, [w("X", true, now - 60_000)], now)).toBe("X");
+  });
+
+  it("offers nothing for an empty list", () => {
+    expect(returnOffer(null, [], now)).toBeNull();
+  });
+
+  it("offers a world with friends seen a minute ago", () => {
+    expect(returnOffer(null, [w("X", true, now - 60_000)], now)).toBe("X");
+  });
+
+  it("is inclusive at the edge of the window", () => {
+    expect(returnOffer(null, [w("X", true, now - RETURN_OFFER_MS)], now)).toBe("X");
+    expect(returnOffer(null, [w("X", true, now - RETURN_OFFER_MS - 1)], now)).toBeNull();
+  });
+
+  it("does not offer a recent solo world, nor one without a time", () => {
+    expect(returnOffer(null, [w("X", false, now - 1000)], now)).toBeNull();
+    expect(returnOffer(null, [w("X", true, 0)], now)).toBeNull();
+  });
+
+  it("picks the latest seen, not the first in the list", () => {
+    expect(returnOffer(null, [w("Y", true, 0), w("X", true, now - 60_000)], now)).toBe("X");
+    expect(returnOffer(null, [w("A", false, now - 30_000), w("B", true, now - 60_000)], now)).toBeNull();
+  });
+
+  it("picks the world seen last among several offerable ones, wherever it is in the list", () => {
+    expect(returnOffer(null, [w("Old", true, now - 5 * 60_000), w("New", true, now - 60_000)], now)).toBe("New");
+    expect(returnOffer(null, [w("New", true, now - 60_000), w("Old", true, now - 5 * 60_000)], now)).toBe("New");
+  });
+
+  it("accepts a small future time but ignores one beyond the window", () => {
+    expect(returnOffer(null, [w("X", true, now + 30_000)], now)).toBe("X");
+    expect(returnOffer(null, [w("Bad", true, now + RETURN_OFFER_MS + 1), w("X", true, now - 60_000)], now)).toBe("X");
+    expect(returnOffer(null, [w("Bad", true, now + RETURN_OFFER_MS + 1)], now)).toBeNull();
+  });
+
+  it("takes the earlier entry on a tie", () => {
+    expect(returnOffer(null, [w("A", false, now - 1000), w("B", true, now - 1000)], now)).toBeNull();
+    expect(returnOffer(null, [w("A", true, now - 1000), w("B", false, now - 1000)], now)).toBe("A");
+  });
+
+  it("has a 10 minute window made of the empty-world hold and the friends' stay, and a timer well inside it", () => {
+    expect(RETURN_OFFER_MS).toBe(EMPTY_WORLD_HOLD_MS + FRIENDS_STAY_MS);
+    expect(RETURN_OFFER_MS).toBe(10 * 60_000);
+    expect(SEEN_EVERY_MS).toBeLessThanOrEqual(RETURN_OFFER_MS / 10);
   });
 });
 

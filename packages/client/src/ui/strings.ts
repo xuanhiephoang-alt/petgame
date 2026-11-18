@@ -21,6 +21,8 @@ export const LOBBY_TEXT = {
   returnHint: "Quay lại thế giới bạn đang chơi cùng bạn bè",
   /** When the page was opened from an invite link. */
   inviteHint: "Bạn được mời vào thế giới của bạn bè",
+  /** The lobby's second button at "/" when the device was just in a world with friends (T79). */
+  rejoinFriends: "Quay lại thế giới cùng bạn bè",
 } as const;
 
 /** The lobby's cards: why joining failed, and why the game could not open. */
