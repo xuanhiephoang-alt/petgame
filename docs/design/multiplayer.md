@@ -128,7 +128,7 @@ App ở Màn hình chính luôn mở `/`, và người chơi cũng có thể gõ
 
 | Thế giới đó, lúc thiết bị ở trong lần cuối | Sảnh ở `/` |
 |---|---|
-| Có bạn bè, cách đây không quá **10 phút** | thêm nút phụ **Quay lại thế giới cùng bạn bè** ngay dưới "Vào chơi" |
+| Có bạn bè, cách đây không quá **10 phút** | thêm nút phụ **Quay lại thế giới cùng bạn bè** ngay dưới "Vào chơi" (điện thoại ngang: cùng hàng, bên phải "Vào chơi") |
 | Chỉ có mình | như trước: chỉ "Vào chơi" |
 | Quá 10 phút, không rõ giờ (danh sách ghi trước T79), hoặc đã biết thế giới đó đóng | như trước |
 
@@ -138,7 +138,8 @@ App ở Màn hình chính luôn mở `/`, và người chơi cũng có thể gõ
   - Đã đóng: thẻ "Thế giới này đã đóng" / "Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn." / **Tạo thế giới mới** (mục "Vào thế giới: lỗi và cách đi tiếp").
   - Lỗi khác (đủ 5 người, mất mạng...): thẻ tương ứng; **Thử lại** là thử vào lại đúng thế giới đó.
 - "Vào chơi" vẫn là nút chính và không đổi: tạo thế giới mới; Enter trong ô tên là "Vào chơi". Không nút nào tự lấy focus. Bàn phím: Tab từ "Vào chơi" sang nút phụ, Enter hay Space để bấm.
-- Bấm một trong hai nút thì nút phụ ẩn đi cho đến khi mở lại trang; từ đó đi tiếp theo thẻ (nếu có).
+- Bấm một trong hai nút thì trong lúc đang vào ("Vào chơi" ghi "Đang vào..."), nút phụ **ở yên chỗ cũ, mờ đi và không bấm được nữa** (từ T83): sảnh không nhảy, và bấm bằng phím thì focus ở lại trên nút phụ chứ không rơi ra ngoài. Vào được thì sảnh biến mất như thường. Vào hỏng thì thẻ thay chỗ cả hai nút, nút phụ ẩn đi cho đến khi mở lại trang; từ đó đi tiếp theo thẻ (focus ở nút chính của thẻ).
+- Điện thoại ngang (màn thấp): nút phụ nằm cùng hàng với ô tên và "Vào chơi" (ô tên hẹp lại), nên sảnh cao đúng như khi không có nút; tiêu đề không bị đẩy sát mép trên (T83). Trình duyệt quá cũ không hiểu quy tắc này (trước Safari 15.4) thì nút xuống hàng riêng và sảnh cuộn được một chút.
 - Nút chỉ có ở `/`. Mở bằng `?room=` thì theo các mục trên (chữ "Quay lại…" hay "Bạn được mời…"), không có nút phụ. Sảnh ở `/` không có dòng chữ gợi ý nào: tên nút đã nói đủ.
 - Biết thế giới đã đóng (thẻ "đã đóng" ở bất kỳ đường nào, hoặc màn "Server đang khởi động lại") thì thiết bị quên giờ của thế giới đó: lần mở sau không mời quay lại nữa. Thế giới vẫn ở trong danh sách, nên dấu trang của nó vẫn được nhận là "quay lại" (T65).
 - Mở `/` ở tab khác trong lúc tab cũ vẫn đang chơi cùng bạn bè: nút có hiện; bấm thì phiên ở tab cũ kết thúc như mục "Mỗi thiết bị một nhân vật" (bấm "Vào chơi" cũng vậy).
