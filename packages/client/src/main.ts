@@ -8,8 +8,9 @@ import { loadDollArt } from "./game/art/doll.ts";
 import { DollPreview, LookPicker } from "./ui/wardrobe.ts";
 import { ConnectionOverlay } from "./ui/connection.ts";
 import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
-import { arrival, arrivalHint, joinCard, recentWorlds, returnOffer, startCard, startFailure, SEEN_EVERY_MS, withRecentWorld, withWorldClosed, type JoinCard } from "./ui/joinStatus.ts";
+import { arrival, arrivalHint, joinCard, recentWorlds, returnOffer, startCard, startFailure, withRecentWorld, withWorldClosed, type JoinCard } from "./ui/joinStatus.ts";
 import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
+import { SeenNotes } from "./net/seen.ts";
 import { LOBBY_TEXT } from "./ui/strings.ts";
 import { registerServiceWorker } from "./pwa/register.ts";
 
@@ -137,6 +138,7 @@ function showJoinCard(card: JoinCard) {
   reloadGameBtn.classList.toggle("quiet", card.primary !== "reload");
   joinStatus.hidden = false;
   joinBtn.hidden = true;
+  rejoinBtn.hidden = true;
   // The lobby may scroll on short screens; the reason must show.
   joinStatus.scrollIntoView({ block: "nearest" });
   ({ retry: retryBtn, newWorld: newWorldBtn, reload: reloadGameBtn })[card.primary].focus({ preventScroll: true });
@@ -169,7 +171,8 @@ function failToStart(room: GameRoom, watch: ConnectionWatch, err: unknown) {
 async function enter() {
   if (joining || broken) return;
   joining = true;
-  rejoinBtn.hidden = true;
+  // The second button stays put (dimmed) so the lobby does not jump and keyboard focus stays; a failure card hides it.
+  rejoinBtn.setAttribute("aria-disabled", "true");
   const name = nameInput.value.trim();
   safeStorage(() => localStorage.setItem("petgame:name", name));
   safeStorage(() => localStorage.setItem("petgame:look", JSON.stringify(look)));
@@ -273,16 +276,18 @@ async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets
   // The device notes when it was last connected here (T79), so "/" can offer the way back. Three ways, as iOS can drop a
   // backgrounded web app without a `pagehide`: a timer, the page turning hidden, and the page closing. Only while online:
   // a dropped or replaced tab may no longer be in the world.
-  const noteSeen = () => {
-    if (watch.online && friends !== undefined) noteRecentWorld(room.roomId, friends, Date.now());
-  };
-  const seenTimer = setInterval(noteSeen, SEEN_EVERY_MS);
+  const seen = new SeenNotes(
+    () => watch.online,
+    (time) => {
+      if (friends !== undefined) noteRecentWorld(room.roomId, friends, time);
+    },
+  );
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") noteSeen();
+    if (document.visibilityState === "hidden") seen.note();
   });
   // Closing the page is leaving on purpose: the server frees the place at once instead of holding it for a reconnection.
   window.addEventListener("pagehide", () => {
-    noteSeen();
+    seen.note();
     watch.leave();
   });
 
@@ -295,7 +300,7 @@ async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets
       keepWorld = false;
       forgetWorldTime(room.roomId);
     }
-    if (status.state === "lost") clearInterval(seenTimer);
+    if (status.state === "lost") seen.stop();
     if (status.state === "lost") setAddress(lobbyUrl(room.roomId, keepWorld));
     overlay.show(status);
   };

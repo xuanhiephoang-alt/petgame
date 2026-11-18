@@ -227,7 +227,7 @@ test("rejoin: no second button when the last world was solo, too old, undated, o
   await expect(page.locator("#rejoin-btn")).toBeHidden();
 });
 
-test("rejoin: the time is not written while the connection is down (the tab may no longer be in the world)", async ({ browser }) => {
+test("rejoin: the time is written when the page turns hidden while connected, and not while the connection is down", async ({ browser }) => {
   test.slow();
   const context = await newContext(browser);
   const page = await lobbyAt(context);
@@ -237,6 +237,28 @@ test("rejoin: the time is not written while the connection is down (the tab may 
   await observer(roomId, "Friend");
   await expect.poll(() => playerCount(page)).toBe(2);
   await expect.poll(async () => (await worlds(page))[0]?.friends).toBe(true);
+
+  // Online half, in one synchronous evaluate so no timer can write in between: hidden writes a fresh time, visible does not.
+  const hidden = await page.evaluate((room) => {
+    const OLD = 12345;
+    type Item = { room: string; seen: number };
+    const read = () => (JSON.parse(localStorage.getItem("petgame:worlds")!) as Item[]).find((w) => w.room === room)!.seen;
+    const age = () =>
+      localStorage.setItem("petgame:worlds", JSON.stringify((JSON.parse(localStorage.getItem("petgame:worlds")!) as Item[]).map((w) => ({ ...w, seen: OLD }))));
+    const online = !document.querySelector(".net-overlay.reconnecting");
+    age();
+    const before = Date.now();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    const seen = read();
+    delete (document as any).visibilityState;
+    age();
+    document.dispatchEvent(new Event("visibilitychange"));
+    return { online, before, seen, shown: read() };
+  }, roomId);
+  expect(hidden.online).toBe(true);
+  expect(hidden.seen).toBeGreaterThanOrEqual(hidden.before);
+  expect(hidden.shown).toBe(12345);
 
   // Make the stored time old, drop the connection the way the browser's own "offline" event does, and, in the same page
   // task as soon as the net overlay says it is down, make the page hidden. A hidden page writes the time only when online.
@@ -255,4 +277,90 @@ test("rejoin: the time is not written while the connection is down (the tab may 
   }, roomId);
   expect(result.down).toBe(true);
   expect(result.seen).toBe(12345);
+});
+
+const BOXED = ["#lobby h1", "#look", "#name", "#join-btn", "#rejoin-btn"];
+/** Rounded [x, y, width, height] of the lobby's parts (zeros when hidden). */
+const boxes = (page: Page) =>
+  page.evaluate(
+    (sel) =>
+      Object.fromEntries(
+        sel.map((s) => {
+          const r = document.querySelector(s)!.getBoundingClientRect();
+          return [s, [r.x, r.y, r.width, r.height].map(Math.round)];
+        }),
+      ),
+    BOXED,
+  );
+
+test("rejoin: the lobby does not move while joining by the second button, keyboard focus stays on it, and sideways it shares the row of Vào chơi", async ({ browser }) => {
+  test.slow();
+  const SIDEWAYS = { width: 844, height: 390 };
+  const plainPage = await lobbyAt(await newContext(browser, { viewport: SIDEWAYS }));
+  const plain = await boxes(plainPage);
+  const offer = await newContext(browser, { viewport: SIDEWAYS, hasTouch: true });
+  await offer.addInitScript(() => {
+    localStorage.setItem("petgame:worlds", JSON.stringify([{ room: "r1", friends: true, seen: Date.now() - 60_000 }]));
+  });
+
+  // Part 1: with the button the lobby keeps the height it has without it, and the button shares the row.
+  const withBtn = await lobbyAt(offer);
+  await expect(withBtn.locator("#rejoin-btn")).toBeVisible();
+  const own = await boxes(withBtn);
+  expect(own["#lobby h1"]).toEqual(plain["#lobby h1"]);
+  expect(own["#look"]).toEqual(plain["#look"]);
+  expect([own["#name"][0], own["#name"][1], own["#name"][3]]).toEqual([plain["#name"][0], plain["#name"][1], plain["#name"][3]]);
+  expect([own["#join-btn"][1], own["#join-btn"][3]]).toEqual([plain["#join-btn"][1], plain["#join-btn"][3]]);
+  expect([own["#rejoin-btn"][1], own["#rejoin-btn"][3]]).toEqual([own["#join-btn"][1], own["#join-btn"][3]]);
+  expect(own["#rejoin-btn"][0]).toBeGreaterThanOrEqual(own["#join-btn"][0] + own["#join-btn"][2]);
+  expect(own["#name"][2]).toBeGreaterThanOrEqual(200);
+  expect(own["#lobby h1"][1]).toBeGreaterThanOrEqual(8);
+  expect(own["#rejoin-btn"][2]).toBeGreaterThanOrEqual(44);
+  expect(own["#rejoin-btn"][3]).toBeGreaterThanOrEqual(44);
+  await expect(withBtn.locator("#rejoin-btn")).toBeInViewport({ ratio: 1 });
+  await withBtn.close();
+
+  // Part 2: nothing moves while the join is held, at three sizes.
+  for (const [width, height, how] of [[844, 390, "tap"], [390, 844, "tap"], [1280, 720, "keys"]] as const) {
+    const label = `${width}x${height} ${how}`;
+    const page = await lobbyAt(offer);
+    await page.setViewportSize({ width, height });
+    const rejoin = page.locator("#rejoin-btn");
+    await expect(rejoin, label).toBeVisible();
+    const before = await boxes(page);
+
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    await page.route(/:2567\/matchmake\//, async (route) => {
+      await held;
+      await route.continue();
+    });
+
+    // force: Playwright counts aria-disabled as "not enabled", but the button still takes the press (and must ignore it).
+    const press = async () => {
+      if (how === "tap") await rejoin.tap({ force: true });
+      else await page.keyboard.press("Enter");
+    };
+    if (how === "keys") {
+      await page.locator("#join-btn").focus();
+      await page.keyboard.press("Tab");
+      await expect(rejoin, label).toBeFocused();
+    }
+    await press();
+
+    await expect(page.locator("#join-btn"), label).toHaveText("Đang vào...");
+    await expect(rejoin, label).toBeVisible();
+    await expect(rejoin, label).toHaveAttribute("aria-disabled", "true");
+    expect(await boxes(page), label).toEqual(before);
+    if (how === "keys") await expect(rejoin, label).toBeFocused();
+    await press();
+    await expect(page.locator("#join-btn"), label).toHaveText("Đang vào...");
+    expect(await boxes(page), label).toEqual(before);
+
+    release();
+    await expect(page.locator("#join-status"), label).toContainText("Thế giới này đã đóng");
+    await expect(rejoin, label).toBeHidden();
+    await expect(page.locator("#new-world-btn"), label).toBeFocused();
+    await page.close();
+  }
 });

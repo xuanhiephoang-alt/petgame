@@ -1,71 +1,53 @@
 PASS
-# REVIEW: T79 Nút "Quay lại thế giới cùng bạn bè" ở sảnh `/`, vòng 1
+# REVIEW: T83 Test đường ghi giờ và dọn nút phụ sau T79, vòng 1
 
 ## Kết luận
-Coder làm đủ các bước và tiêu chí của PLAN.md. Code khớp `docs/design/multiplayer.md` mục "Mở lại ở `/` ngay sau khi chơi cùng bạn bè (T79)". Có hai chỗ lệch đã ghi trong PROGRESS và có lý do (CSS ngang dùng `:has()` thay `zoom`; trường `ago` trong e2e). Không có lỗi phải sửa.
+Coder làm đủ 7 bước và mọi tiêu chí của PLAN.md T83, phủ cả 4 góp ý trong REVIEW T79. Đường ghi giờ chính cho iPhone (trang ẩn lúc còn kết nối) và nhịp 60 s giờ đã có test. Nút phụ ở yên khi đang vào; ở màn ngang nút nằm cùng hàng với "Vào chơi". Không có lỗi phải sửa.
 
 ## Đã kiểm
-- **Ghi giờ `seen`** (`packages/client/src/main.ts`, `startGame`):
-  - **Timer:** `setInterval(noteSeen, SEEN_EVERY_MS)` chỉ tạo một lần mỗi trang (`startGame` chỉ chạy một lần). Mọi trạng thái `lost` đều `clearInterval`:
-    - `left` khi `pagehide` hoặc `failToStart` (`watch.leave()` gọi `react` qua `onChange`, đăng ký trước `Game.create`);
-    - `replaced`, `failed`, `shutdown`.
-    - `reconnecting` thì timer vẫn chạy nhưng `noteSeen` không ghi (`watch.online` là false), nối lại được thì ghi tiếp. Không rò.
-  - **Sau khi rời:** `pagehide` gọi `noteSeen()` **trước** `watch.leave()`, lúc còn online. Sau `leave()` trạng thái là `lost`, nên mọi `visibilitychange` sau đó, hay trang được khôi phục từ bfcache, đều không ghi. Màn `shutdown` gọi `forgetWorldTime` và không có lần ghi nào đè lại sau đó.
-  - **Không ghi mỗi khung hình:** chỉ ghi từ timer 60 s, từ 2 sự kiện trang, và từ `syncAddress`. `syncAddress` chạy mỗi patch nhưng thoát sớm khi cờ bạn bè không đổi, như trước.
-  - **Hai tab:**
-    - Mỗi lần ghi đều đọc lại danh sách rồi mới ghi. Hai tab ở hai thế giới thì thế giới ghi sau cùng thắng, đúng nghĩa "ở trong gần nhất".
-    - Tab mới ở `/` thấy nút trong lúc tab cũ còn chơi; bấm thì tab cũ thành `replaced`, tức thôi ghi.
-    - Ghi chồng giữa hai tab có thể mất một lần ghi, lần sau (≤ 60 s) sửa lại.
-    - Tài liệu thiết kế đã chấp nhận cả ba điều trên.
-  - Mở ở `?room=X` (T65) giữ `seen` cũ của X. Mở bằng link mời mà chưa vào thì không ghi gì.
-- **Quyết định `returnOffer`** (`ui/joinStatus.ts`):
-  - Chọn mục có `seen` lớn nhất, không lấy `recent[0]` (T65 đưa dấu trang lên đầu dù chưa vào).
-  - Bỏ `seen` ≤ 0 và `seen` ở tương lai quá `RETURN_OFFER_MS`, nên một giá trị hỏng không che các mục khác.
-  - Rồi đòi có bạn bè và `|now - seen| ≤ RETURN_OFFER_MS`.
-  - Lệch đồng hồ:
-    - chỉnh lùi ít hơn 10 phút thì vẫn mời;
-    - chỉnh lùi nhiều hơn thì bỏ qua mục đó;
-    - chỉnh tiến thì mục trông cũ, nên không mời.
-    - Cả ba đều hỏng theo hướng an toàn.
-  - `?room=` rỗng coi như không có, khớp `arrival`. Unit test phủ biên dưới (có/không), bằng nhau, tương lai nhỏ/lớn, thứ tự trong danh sách.
-- **Đóng và quên:**
-  - `worldClosed()` lấy `room` từ địa chỉ, nên đúng cả nhánh `quietRetry` lẫn đường bấm nút phụ (địa chỉ đã có `?room=offered`).
-  - "Tạo thế giới mới" vẫn chỉ gọi `dropWorldFromAddress()` (thế giới đầy không phải đã đóng).
-- **Sảnh:**
-  - `#rejoin-btn` dùng `.lobby-action` (có `:focus-visible`, `min-height: 44px`), ẩn sẵn trong HTML.
-  - Chữ lấy từ `LOBBY_TEXT.rejoinFriends`: `viStrings --list` không thấy chữ mới nào trong `main.ts` hay `index.html`.
-  - Nút hiện trước `petgame:lobby-ready`, không tự lấy focus. Thứ tự Tab: ô tên, rồi "Vào chơi", rồi nút phụ (e2e 2 kiểm).
-  - Bấm nút thì bỏ qua khi `joining || broken`, rồi đặt `?room=` (giữ `quality`), `returning = true`, rồi `enter()`.
-  - `enter()` ẩn nút ngay đầu hàm.
-- **`:has()`:** có từ Safari 15.4, Chrome 105, Firefox 121. Sảnh đã dùng `100dvh`, mà `dvh` cũng chỉ có từ Safari 15.4, nên mốc trình duyệt không đổi.
-  - Trình duyệt cũ hơn bỏ cả quy tắc (bộ chọn không hợp lệ). Khi đó khoảng cách giữ 8 px, form cao hơn khoảng 16 px; `#lobby` có `overflow-y: auto`, nên sảnh cuộn được và nút vẫn tới được.
-  - Quy tắc chỉ bật khi nút đang hiện. Tester đo: lúc nút ẩn, hộp sảnh giống HEAD ở 3 cỡ màn.
-- **Lưu dữ liệu:**
-  - Cùng key `petgame:worlds`.
-  - Mục T65 không có `seen`, hay `seen` hỏng (`"5"`, `NaN`, `Infinity`, âm, `null`), được giữ với `seen: 0`, nên T65 vẫn nhận dấu trang. Có test.
-  - Bản cũ đọc danh sách mới thì bỏ qua trường thừa. Tab bản cũ ghi lại thì mất giờ, chỉ mất nút (đã ghi trong tài liệu).
-  - Không đổi server, schema, message, `Profile`.
-- **Test:**
-  - Unit: 40 ca của `joinStatus.test.ts` qua (tôi chạy lại); `npm run typecheck` sạch.
-  - E2E: 4 test có ý nghĩa.
-    - Test 3 có ca đối chứng (cách dựng danh sách có tác dụng) và ca storage ném lỗi.
-    - Test 4 của tester giữ trang ở trạng thái `reconnecting` qua sự kiện `offline` thật (`reconnect.ts:171`), rồi giả trang ẩn. Test bắt đúng đột biến "ghi khi mất kết nối".
-    - Ca unit "picks the world seen last ... wherever it is in the list" bắt đột biến "lấy mục đầu".
-  - `multiplayer.spec.ts` không đổi; `git stash list` vẫn 2 mục.
+- **`SeenNotes`** (`packages/client/src/net/seen.ts`):
+  - **Vòng đời:**
+    - Tạo một lần trong `startGame` (mỗi trang chạy một lần), không có timer đôi.
+    - `stop()` chạy ở mọi trạng thái `lost`: `react` đăng ký qua `watch.onChange` ngay sau đó (chỉ có hàm khởi tạo đồng bộ của `ConnectionOverlay` ở giữa). Nếu đã mất kết nối từ trước thì có `if (!watch.online) react(watch.status)`.
+    - `failToStart` gọi `watch.leave()`, nên `react` chạy và `stop()` được gọi.
+    - `stop()` gọi nhiều lần vẫn an toàn.
+    - `note()` sau `stop()` vẫn bị chặn bởi `online()`; có ca test riêng nói rõ điều này.
+  - `main.ts` không còn `setInterval`, `clearInterval` hay `SEEN_EVERY_MS`. `pagehide` vẫn ghi trước `watch.leave()`.
+  - Unit test dùng fake timer, 5 ca đúng PLAN. Bắt được đột biến "đổi nhịp thành 120 s" vì kiểm biên `SEEN_EVERY_MS - 1` và `+1`.
+- **Test 4 nửa online:**
+  - Một `page.evaluate` đồng bộ: đặt giờ cũ, giả `visibilityState = "hidden"`, bắn sự kiện, rồi đọc. Không timer hay `syncAddress` nào chen vào giữa được, nên chỉ listener `visibilitychange` làm `seen` mới.
+  - Đối chứng: `delete` thuộc tính giả, trả về getter gốc ("visible"). Bắn sự kiện lần nữa thì `seen` giữ nguyên, nên bắt được đột biến bỏ `=== "hidden"`.
+  - `Game.ts:250` đọc `document.hidden`, không đọc `visibilityState`, nên game không bị ảnh hưởng.
+- **`aria-disabled`:**
+  - `disabled` sẽ làm nút mất focus, nên dùng `aria-disabled` là đúng. Trình đọc màn hình đọc nút "không dùng được", Tab vẫn tới.
+  - Chặn bấm bằng `joining` trong handler `click`. Chạm, Enter, Space và `dispatchEvent` đều đi qua `click`, nên đều bị chặn; tester đếm được đúng 1 request matchmake.
+  - Không có đường nào để nút còn hiện và mờ sau khi `joining` hết:
+    - vào được thì `lobby.remove()`;
+    - mọi đường hỏng (thẻ vào hỏng, `failToStart`) đều qua `showJoinCard`, và hàm này ẩn nút;
+    - `quietRetry` không bao giờ gặp nút (`offered` là `null` khi có `?room=`).
+- **Lưới ngang** (`index.html`):
+  - Hai quy tắc chỉ bật khi `#rejoin-btn:not([hidden])`. Bộ chọn trong `:has()` mang id nên thắng `#lobby form > * { grid-column: 1 / -1 }`.
+  - Media query ngang đứng sau `@media (min-width: 601px)` nên `width: min(680px, 94vw)` thắng.
+  - Từ 560 đến 900 px rộng (cao ≤ 560): form rộng 526-680 px, ô tên còn khoảng 98-252 px. Cột `minmax(0, 1fr)` giữ ô tên không tràn.
+  - Desktop thấp (ví dụ 1280×500) cũng rơi vào quy tắc này, và vẫn vừa.
+  - Quy tắc gap của T79 đã xoá. Tester đo: lúc nút ẩn, hộp sảnh khớp `83497b0` ở 3 cỡ màn.
+- **Test 5:**
+  - `page.route(/:2567\/matchmake\//)` giữ request `joinById` của SDK (fetch HTTP tới server 2567) bằng một lời hứa chưa giải. Route được gắn trước khi bấm và chỉ giữ, không chặn. Thời gian giữ chỉ bằng vài lệnh kiểm tra, ngắn hơn nhiều so với bất kỳ hạn nào.
+  - Thế giới `r1` không tồn tại nên luôn ra thẻ "đã đóng". `addInitScript` ghi lại danh sách ở mỗi trang mới, nên không phụ thuộc lần trước đã "quên" `r1`.
+  - Kiểm hộp trước, trong và sau lần bấm thứ hai, ở 3 cỡ màn; có cả đường phím Tab + Enter.
+  - Tester chạy 25/25 qua.
 - **Tài liệu:**
-  - `docs/architecture.md` có câu T79 đúng tên hàm, hằng và điều kiện.
-  - `docs/design/multiplayer.md` khớp code: 10 phút, `seen` lớn nhất, chỉ ở `/`, không focus, Tab, quên giờ khi đóng hoặc `shutdown`, `seen: 0` cho danh sách cũ.
+  - `docs/architecture.md`: câu `arrival(...)` nối liền sau T65. Khối **Quay lại từ `/` (T79, T83):** đứng riêng trước T42, nhắc `SeenNotes`, `aria-disabled`, `showJoinCard`, quy tắc ngang.
+  - `docs/design/multiplayer.md` dòng 131, 141, 142 khớp code.
+- **Lệnh và phạm vi:** tôi chạy lại `seen.test.ts` và `joinStatus.test.ts` (45 ca qua); `npm run typecheck` sạch. `multiplayer.spec.ts` không đổi; `git stash list` vẫn 2 mục.
 
 ## Lỗi phải sửa
 Không có.
 
 ## Góp ý không bắt buộc
-- **Cách ghi chính cho iOS chưa có test.**
-  - Theo thiết kế, `visibilitychange` sang `hidden` là "cách chính", vì iOS dỡ app mà không bắn `pagehide`. Hiện xoá listener đó (hoặc xoá `setInterval`) thì không test nào hỏng: test 1 qua nhờ `pagehide`, test 4 chỉ kiểm phía "không ghi".
-  - Đề xuất thêm vào test 4 một nửa đối xứng: trước khi gửi `offline`, giả trang ẩn lúc còn online, rồi kiểm `seen` đã thành giờ mới.
-  - Nhịp 60 s có thể test bằng unit nếu tách `noteSeen` ra hàm nhận `setInterval` từ ngoài. Không cần gấp: thiếu một trong hai thì giờ chậm nhiều nhất 60 s so với khoảng 10 phút.
-- **Màn 844×390:** tiêu đề chỉ cách mép trên khoảng 4 px khi nút hiện. Đó là màn standalone; Safari thường ở chế độ ngang còn có thanh công cụ, nên sảnh sẽ phải cuộn (vẫn tới được nút). Thêm gì vào sảnh ngang sau này cần đo lại.
-  - Khi bấm nút, nút ẩn đi, khoảng cách trở lại 8 px, nên bố cục nhảy nhẹ trong lúc đang vào. Chỉ là thẩm mỹ.
-- **Focus khi bấm bằng phím:** bấm nút phụ bằng Enter thì nút ẩn ngay nên focus rơi về `body` trong lúc vào. Hỏng thì thẻ lấy lại focus (e2e 2 kiểm), nên chấp nhận được. Có thể chuyển focus sang `#join-btn` cho trình đọc màn hình nếu muốn.
-- **Dòng dài trong `docs/architecture.md`:** câu T79 chen giữa phần T65 (`noteRecentWorld`...) và câu `arrival(...)`, và kết bằng "Luật ở `docs/design/multiplayer.md`." nên câu `arrival` sau đó đọc như lạc chỗ. Nên dời câu T79 xuống sau đoạn `quietRetry`/`joinCard`, hoặc tách thành câu đậm riêng **Quay lại từ `/` (T79):**.
-- `failToStart` ghi `seen` mới, nên vào được mà game không mở được rồi tải lại `/` sẽ có nút. Khớp bảng của PLAN; ghi lại cho rõ.
+- **Hướng phụ thuộc:** `net/seen.ts` import `SEEN_EVERY_MS` từ `ui/joinStatus.ts`, tức thư mục `net/` phụ thuộc `ui/`. Đúng như PLAN, nhưng ngược hướng các file `net/` khác. Có thể chuyển `SEEN_EVERY_MS` sang `seen.ts` (`joinStatus.test.ts` import lại từ đó), hoặc để cạnh `RETURN_OFFER_MS` mà không import chéo.
+- **Chữ dài hơn ở màn ngang hẹp:** cột nút phụ là `auto` + `nowrap`. Nếu chữ `LOBBY_TEXT.rejoinFriends` dài thêm (đổi chữ, dịch) thì ở khoảng 560-600 px rộng, ô tên co về 0 rồi form tràn ngang.
+  - Có thể thêm `max-width` cho cột 3 (ví dụ `minmax(0, 260px)`) kèm `text-overflow: ellipsis`.
+  - Hoặc ghi chú cạnh `rejoinFriends` trong `strings.ts` rằng chữ phải vừa một dòng khoảng 230 px.
+- **Thông báo cho trình đọc màn hình:** focus ở lại nút phụ (đọc "không dùng được"), nhưng chữ "Đang vào..." trên `#join-btn` không được đọc. Một vùng `aria-live="polite"`, hoặc `aria-busy` trên form, giúp người dùng biết đang vào. Chuyện này có từ trước T83 cho "Vào chơi".
+- `seen.test.ts`: `write` là `vi.fn()` dùng chung ở mức `describe`, xoá bằng `mockClear()` trong `beforeEach`. Ổn. Nếu thêm ca đặt `mockImplementation` thì phải đổi sang `mockReset()`.
