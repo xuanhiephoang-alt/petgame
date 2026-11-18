@@ -1,45 +1,53 @@
-# PROGRESS: T13 Cài game lên màn hình chính (PWA)
+# PROGRESS: T13b Service worker (PWA, Phần B)
 
-## Vòng 1 (Phần A): asset-manager
+## Vòng 1 (Phần B): coder
 
-Không commit, không `git stash`, không dùng AI vẽ ảnh (không tốn credit).
+Không commit, không dùng `git stash`. `multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts` không đụng tới.
 
-- [x] A1. `scripts/appIcons.py` (Pillow + numpy). Đọc ô `front` của `emberpup.webp` theo `index.json` (rộng ô = `floor(W/4)`), cắt bbox alpha, vẽ ở 1024 rồi thu LANCZOS. Tất định: chạy hai lần, `md5sum -c` khớp cả 5 file. Tự kiểm: thú ngoài `SAFE_RADIUS = 0.40` ở maskable thì `sys.exit`; icon maskable và apple-touch có alpha < 255 thì `sys.exit`.
-- [x] A2. Chạy `python3 scripts/appIcons.py`, 5 PNG (bán kính xa nhất của thú, tính trên ảnh 1024):
+- [x] B1. `packages/client/src/pwa/swLogic.ts`: `routeFor`, `precacheUrls`, `freshOnInstall`, `staleCaches`, `cacheFirst`, `networkFirst`, `cacheName`, `CACHE_PREFIX`, `NEVER_HANDLED`. Hàm thuần, không import gì của game.
+- [x] B2. `packages/client/src/pwa/sw.ts`: nối dây `install` / `activate` / `fetch`, không `skipWaiting`, không `message`.
+- [x] B3. `packages/client/src/pwa/register.ts`: `registerServiceWorker` (PROD, `"serviceWorker" in navigator`, `try/catch`, đăng ký lúc `load`).
+- [x] B4. `packages/client/src/main.ts`: import và gọi sau `LOBBY_READY_EVENT`.
+- [x] B5. `packages/client/vite.config.ts`: plugin `petgame-service-worker`. `build.lib` dạng `iife` của Vite 8 chạy được ngay, ra đúng một file `dist/sw.js` (không `import`, không `skipWaiting`), nên không cần lùi về `rolldown` trực tiếp. Phiên bản `64daf4b17bef`, 15 file lưu sẵn; build ba lần liền cùng phiên bản.
+- [x] B6. `packages/client/src/pwa/swLogic.test.ts`: các ca 1-13 của mục Test.
+- [x] B7. `scripts/viStrings.test.mjs`: thêm `packages/client/src/pwa` vào `GUARDED`.
+- [x] B8. `playwright.config.ts`: `serviceWorkers: "block"`; server 2567 chạy `npm run build && npm run start ...`, `timeout: 180_000`.
+- [x] B9. `tests/e2e/pwa.spec.ts`: 2 test (bản build trên 2567 với icon, worker, cache, reload, `/whoami`, vào thế giới; Vite dev không đăng ký).
+- [x] B10. `scripts/shots.mjs`: hằng `NO_SW` trải vào cả 4 `browser.newContext`.
+- [x] B11. Tài liệu: `docs/architecture.md` (mục "PWA (T13)" mới và mục Kiểm thử), `docs/choi-tren-iphone.md`, `docs/deploy.md`.
 
-| File (trong `packages/client/public/`) | Cỡ | Byte | Bán kính thú |
-|---|---|---|---|
-| `icons/icon-192.png` | 192 | 38537 | 0.447·S |
-| `icons/icon-512.png` | 512 | 164055 | 0.447·S |
-| `icons/icon-maskable-192.png` | 192 | 32927 | 0.364·S (≤ 0.40) |
-| `icons/icon-maskable-512.png` | 512 | 141541 | 0.364·S (≤ 0.40) |
-| `apple-touch-icon.png` | 180 | 31565 | 0.426·S |
+### Lệch kế hoạch
 
-  Xem trước (bản `any`, maskable cắt tròn, apple-touch; không commit): `/tmp/claude-0/-home-user-petgame/ee57c635-d235-5b8f-aee0-2769b26aceb9/scratchpad/icons-preview.png`. Đã xem: thú nằm gọn trong vòng tròn, không bị cắt, không có chữ.
-- [x] A3. `packages/client/public/manifest.webmanifest`: thêm `id`, `scope`, `lang`, `dir`, `description`, `categories`, 4 icon, đúng thứ tự khoá PLAN.
-- [x] A4. `packages/client/index.html`: 3 dòng (`icon`, `apple-touch-icon`, `apple-mobile-web-app-title`) ngay sau `<link rel="manifest">`; `git diff` chỉ có 3 dòng thêm, script canh tải inline không đổi.
-- [x] A5. `scripts/pwaManifest.test.mjs`: 5 ca (manifest hợp lệ; có 192 any, 512 any, 512 maskable; mỗi `icons[].src` tồn tại, là PNG, cỡ thật khớp `sizes`; `apple-touch-icon` là PNG 180x180; `icon` tồn tại). Đọc cỡ qua IHDR.
-- [x] A6. `assets/CREDITS.md` thêm dòng nguồn icon; `docs/art-style.md` thêm mục "Icon app".
+- `docs/architecture.md`: kế hoạch nói "bullet mới trong mục `packages/client`"; tôi tạo mục `## PWA (T13)` riêng ngay trước "Hình ảnh và asset", vì mục `packages/client` gồm toàn dòng rất dài và khó đọc thêm. Nội dung đúng như kế hoạch.
+- `NO_SW` đặt ở đầu `scripts/shots.mjs` (sau import) chứ không cạnh `LABEL_VIEWS`, vì các hàm ở dòng 92 và 127 dùng nó và `const` ở giữa file có thể chưa khởi tạo.
+- Không có lệch nào khác.
 
 ### Lệnh đã chạy
-- `npm run typecheck`: sạch.
-- `npm test`: 38 file, 531 test qua.
-- `npm run build`: thành công.
-- `npm run test:e2e` (cổng 2567, 5173 trống): 56 qua.
-- `npm run shots -- --only world`: 15 ảnh vào `shots/latest/`, số sprite bình thường (ví dụ pal-closeup 310, phone 317, phone-lake 376, đều < 600). Thay đổi chỉ là file tĩnh trong `public/` và thẻ `<head>`, không đụng gì trong game; không chạy bộ `before` riêng vì không có thay đổi hình trong game.
 
-### Lệch so với PLAN
-- Không có lệch về nội dung. Hai chi tiết nhỏ do tự chọn: bóng dưới chân đặt cao hơn đường chân 0.3 chiều cao bóng để bóng ôm lấy chân thay vì lệch xuống; `SOURCE` đi kèm hằng `PAL_ID` (đọc `index.json` cần id loài).
-- `shots` không chạy `--name before` (xem trên), nên không có đường dẫn ảnh so sánh trước/sau.
+- `npm run typecheck` ✓
+- `npm test` ✓ (39 file, 551 test; gồm `swLogic.test.ts`, `pwaManifest.test.mjs`, `viStrings.test.mjs`)
+- `npm run build` ✓ (ra `dist/sw.js`; "service worker 64daf4b17bef: 15 files precached")
+- `npx playwright test tests/e2e/pwa.spec.ts --repeat-each=5 --workers=1 --retries=0` ✓ (10/10, 26.9 s)
+- `npm run test:e2e` ✓ (58 test qua, gồm 2 test `pwa:`; 8 phút 50 giây gồm bước build thêm vào server)
 
-## Kiểm thử vòng 1 (T13 Phần A): PASS
-- typecheck ✓   test ✓ (38 file, 531 test; `scripts/pwaManifest.test.mjs` 5/5)   build ✓   e2e ✓ (56, cổng 2567/5173 trống)   photo3d (không chạy, không đụng)
-- Tiêu chí hoàn thành Phần A:
-  - [x] `git diff packages/client/index.html` chỉ thêm đúng 3 dòng (`icon`, `apple-touch-icon`, `apple-mobile-web-app-title`) ngay sau `<link rel="manifest">`; script canh tải inline không đổi (không có hash sha256 nào trong docs để so, chỉ PLAN nhắc cho CSP sau này).
-  - [x] Manifest là JSON hợp lệ, đúng thứ tự khoá và nội dung PLAN: 192 any, 512 any, 192 maskable, 512 maskable; `sizes` khớp cỡ thật qua IHDR.
-  - [x] `python3 scripts/appIcons.py` tất định: chạy lại, sha256 cả 5 file khớp. Bán kính thú maskable 0.364 ≤ 0.40.
-  - [x] Bản build (`npm run play`): `/manifest.webmanifest` 200 `application/manifest+json`; 4 icon và `/apple-touch-icon.png` 200 `image/png`, byte khớp file.
-  - [x] Đột biến 1: nâng chiều cao thú maskable lên 0.90 -> script `exit=1`, "pet radius 0.482 exceeds safe zone 0.4". Đột biến 2: manifest ghi `256x256` cho icon-192 -> test hỏng 2 ca ("expected '192x192' to be '256x256'" và ca thiếu 192 any). Đã hoàn nguyên cả hai; PNG và manifest về đúng byte cũ.
-  - [x] Xem ảnh: icon maskable cắt tròn đẹp, thú gọn trong vòng, không bị cắt tai/chân/lửa; bản any và apple-touch cũng ổn, không có chữ.
-- Ghi chú nhỏ (không chặn): khi vượt vùng an toàn, script đã ghi xong các file `any` trước khi `sys.exit` (không hại vì kết quả tất định). Trong e2e có log `MatchMakeError: too many worlds` là của test "a refused new world says why" (mong đợi).
-- Test đã thêm: không (test của asset-manager đủ; đã mutation xác nhận bắt được).
+## Kiểm thử vòng 1 (T13b): PASS
+- typecheck ✓   test ✓ (39 file, 551 test; sau khi thêm 4 ca vào `swLogic.test.ts` là 24 ca trong thư mục pwa, tất cả qua)   build ✓ ("service worker 64daf4b17bef: 15 files precached")   e2e ✓ (58, gồm 2 test `pwa:`)   `pwa.spec.ts` x5 (`--repeat-each=5 --workers=1 --retries=0`) ✓ 10/10   photo3d (không chạy)
+- Tiêu chí hoàn thành:
+  - [x] `dist/sw.js` (2087 byte) là IIFE, không có `import`/`export`, không `skipWaiting`, không `controllerchange`.
+  - [x] `playwright.config.ts` `timeout: 180_000`: KHÔNG nới. Ở 261f7e9 timeout mỗi test đã là `180_000` (dòng 7). Diff chỉ thêm `timeout: 180_000` cho `webServer` 2567 (do thêm bước `npm run build &&`), cùng `serviceWorkers: "block"` và lệnh `npm run build && npm run start ...`.
+  - [x] Định tuyến khớp PLAN, từng ca có unit test: non-GET, khác origin (ws/wss), `/matchmake`, `/whoami` (cả điều hướng), `/healthz`, `/sw.js`, `/assets`, `/icons`, điều hướng tới `/sprites.html` đều bypass; `/build/*` cache-first khoá bỏ query; `/` và `/index.html` (navigate) network-first khoá `/`; manifest network-first.
+  - [x] Kiểm tay trên bản build (Playwright, `serviceWorkers: "allow"`):
+    1. Trang được worker điều khiển ngay lần mở đầu; cache `petgame-64daf4b17bef` có 15 mục: `/`, `/manifest.webmanifest`, 13 file `/build/*`; không có `/assets`, `/icons`, `/whoami`, `/matchmake`.
+    2. Giả lập deploy (thêm dấu vào `dist/index.html`), tải lại -> HTML mới có dấu; bản cất `/` cũng cập nhật (network-first đúng).
+    3a. Xoá chunk vào của `dist/build` trên đĩa, tab đã có cache, tải lại -> sảnh vẫn chạy vì chunk lấy từ cache. Khớp ý định PLAN: file có hash bất biến và đã lưu sẵn cùng HTML cũ; sau deploy thật HTML mới trỏ tới hash mới nên không bị che.
+    3b. Context mới (không cache), chunk 404 -> thẻ "Không tải được game" của T15 hiện, nút vào game vẫn khoá.
+    3c. Tab đã có worker cũ, HTML mới trỏ tới chunk hash mới không tồn tại -> thẻ "Không tải được game" vẫn hiện (404 không bị thay bằng bản cache).
+    4. Tắt mạng rồi mở lại: sảnh vẫn có `#join-btn` (lùi về HTML đã lưu).
+  - [x] Đột biến (đã hoàn nguyên, `diff` với bản gốc rỗng), mỗi cái bị đúng một test bắt:
+    a) `/whoami` được cache-first/network-first -> "bypasses everything the server answers".
+    b) điều hướng thành cache-first -> "answers navigations to the lobby network-first under one key".
+    c1) `cacheFirst` thay 404 bằng bản cache -> ca mới "passes a 404 on even when other files are stored". Trước khi tôi thêm ca này, đột biến này KHÔNG bị bắt (ca cũ dùng cache rỗng).
+    c2) `networkFirst` thay 404 bằng bản cache -> ca mới "returns a 404 as it is, without storing it or reading the cache" (ca cũ chỉ thử 503).
+  - [x] Vite dev không đăng ký worker: test e2e `pwa: Vite dev registers no service worker` qua 5/5 (không có request `/sw.js`, `getRegistrations()` rỗng).
+- Test đã thêm trong `packages/client/src/pwa/swLogic.test.ts` (4 ca): cacheFirst 404 khi cache có file khác; cacheFirst rethrow khi mất mạng dù cache có file khác; networkFirst 404 trả nguyên không đọc cache; `/` không phải navigate (hoặc POST) thì bypass.
+- Lưu ý: `dist/` đã build lại sau khi kiểm tay (nội dung như ban đầu); server 2567 đã tắt.

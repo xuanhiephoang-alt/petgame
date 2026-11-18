@@ -62,7 +62,11 @@ Lưu ý gói **miễn phí** của Render:
 ## Mẹo khi chơi trên iPhone
 
 - **Xoay ngang** điện thoại cho dễ chơi.
-- **Thêm vào Màn hình chính** để chơi toàn màn hình như app: trong Safari bấm nút Chia sẻ → **Thêm vào MH chính**.
+- **Thêm vào Màn hình chính** để chơi toàn màn hình như app: trong Safari bấm nút Chia sẻ → **Thêm vào MH chính**. App có icon Emberpup và tên **PetGame**.
+  - **Cách B (HTTPS):** game lưu sẵn trang và script, nên khi mất mạng vẫn mở được tới sảnh; bấm Vào chơi sẽ ra thẻ "Không kết nối được server", có nút **Thử lại** khi có mạng. Khi có mạng, mở lại luôn ra bản mới nhất.
+  - **Cách A (Wi-Fi, `http://192.168...`):** vẫn thêm được và có icon, nhưng không lưu sẵn gì (trình duyệt chỉ cho phép khi dùng HTTPS), game chạy như trước.
+  - **App ở Màn hình chính là người chơi riêng**, khác Safari: iOS cho app bộ nhớ riêng, nên lần đầu mở app thú, tên và trại đã chơi trong Safari không theo sang. Chọn một nơi để chơi.
+  - App luôn mở ở sảnh. Muốn vào lại thế giới của bạn bè thì mở lại link mời.
 - **Không nghe tiếng?** Gạt **nút im lặng** bên cạnh iPhone sang chế độ có tiếng (Safari tắt âm thanh web khi iPhone ở chế độ im lặng), rồi chạm vào màn hình game một lần.
 - **Mất mạng, chuyển app hay khoá màn hình?** Game tự kết nối lại, nhân vật đứng yên chờ bạn khoảng 20 giây. Lâu hơn thì bấm **Về sảnh**: thú, đồ và trại vẫn còn.
 - **Giật lag?** Tắt **Chế độ nguồn điện thấp** (Low Power Mode). Chế độ này giới hạn game ở 30 khung hình/giây.

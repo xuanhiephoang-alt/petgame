@@ -60,4 +60,8 @@ Giá trị sai (ngoài khoảng cho phép: ba trần là số nguyên ≥ 1, `PE
 
 - Không bao giờ đặt `PETGAME_DEBUG=1` trên server thật (biến này chỉ để chạy test).
 - Muốn tách client lên CDN riêng (Cloudflare Pages...), build với `VITE_SERVER_URL=https://<server>` rồi upload `packages/client/dist`.
+- Service worker (`dist/sw.js`, T13) chỉ chạy qua HTTPS (và `localhost`); trên `http://192.168...` trình duyệt không cho đăng ký. Nó lưu sẵn trang, manifest và file `/build/*`; không lưu `/assets`, icon hay thứ gì của server.
+- Sau deploy, tab cũ dùng nốt bản cũ (service worker mới chờ tới khi các tab cũ đóng); tải lại là ra HTML mới vì trang luôn lấy từ mạng trước.
+- Gỡ service worker khỏi máy người chơi khi cần: deploy một `sw.ts` chỉ xoá các cache `petgame-*` rồi gọi `self.registration.unregister()`.
+- **Nếu thêm Content-Security-Policy** (hiện chưa có), phải cho phép script canh tải inline trong `index.html` bằng hash `sha256-...` của nó, kẻo bộ canh tải mất tác dụng mà không báo gì.
 - CI (`.github/workflows/ci.yml`) chạy typecheck, unit test, build và e2e mỗi lần push.

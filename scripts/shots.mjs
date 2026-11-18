@@ -13,6 +13,9 @@ import { join } from "node:path";
 import { chromium, devices } from "@playwright/test";
 import { chromiumLaunchOptions } from "./chromium.mjs";
 
+// Service workers blocked: sprite counts and labels.update timings must not be disturbed by precaching.
+const NO_SW = { serviceWorkers: "block" };
+
 const args = process.argv.slice(2);
 const name = args.includes("--name") ? args[args.indexOf("--name") + 1] : "latest";
 const only = new Set((args.includes("--only") ? args[args.indexOf("--only") + 1] ?? "" : "world,labels,aim").split(","));
@@ -89,7 +92,7 @@ const report = [];
 
 /** The regions, a pal close-up and the phone screens. */
 async function worldShots(browser) {
-  const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+  const page = await (await browser.newContext({ ...NO_SW, viewport: { width: 1280, height: 720 } })).newPage();
   await page.goto(url);
   await page.fill("#name", "Shots");
   await page.click("#join-btn");
@@ -124,7 +127,7 @@ async function worldShots(browser) {
   // Phone in portrait. Close the desktop page first: two software-rendered
   // pages at once starve each other and drop the phone's connection.
   await page.context().close();
-  const phone = await (await browser.newContext({ ...devices["iPhone 13"] })).newPage();
+  const phone = await (await browser.newContext({ ...NO_SW, ...devices["iPhone 13"] })).newPage();
   try {
   await phone.goto(url);
   await phone.fill("#name", "Phone");
@@ -219,7 +222,7 @@ function labelUpdateMs(page) {
 async function labelShots(browser) {
   const { Client } = createRequire(import.meta.url)("@colyseus/sdk");
   for (const [view, options] of Object.entries(LABEL_VIEWS)) {
-    const context = await browser.newContext(options);
+    const context = await browser.newContext({ ...NO_SW, ...options });
     const page = await context.newPage();
     const guests = [];
     try {
@@ -317,7 +320,7 @@ async function aimShots(browser) {
     ["phone-landscape", devices["iPhone 13 landscape"], [AIM_SPOTS[0]]],
   ];
   for (const [view, options, spots] of views) {
-    const context = await browser.newContext(options);
+    const context = await browser.newContext({ ...NO_SW, ...options });
     const page = await context.newPage();
     try {
       await page.goto(url);

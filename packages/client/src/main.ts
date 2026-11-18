@@ -11,6 +11,7 @@ import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.
 import { arrival, arrivalHint, joinCard, recentWorlds, startCard, startFailure, withRecentWorld, type JoinCard } from "./ui/joinStatus.ts";
 import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
 import { LOBBY_TEXT } from "./ui/strings.ts";
+import { registerServiceWorker } from "./pwa/register.ts";
 
 const lobby = document.getElementById("lobby")!;
 const form = document.getElementById("join-form") as HTMLFormElement;
@@ -224,6 +225,8 @@ joinBtn.disabled = false;
 joinBtn.textContent = LOBBY_TEXT.join;
 if (returning) joinBtn.focus({ preventScroll: true });
 document.dispatchEvent(new Event(LOBBY_READY_EVENT));
+// After the lobby is ready: the production build registers its service worker (never delays the lobby).
+registerServiceWorker();
 
 async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets) {
   // Expose for debugging and end-to-end tests (the room first: tests poll it).

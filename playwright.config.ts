@@ -10,11 +10,17 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     // Chromium to start: the cloud container's preinstalled one if present; PETGAME_CHROMIUM overrides (scripts/chromium.mjs).
     launchOptions: chromiumLaunchOptions(),
+    // The tests run on Vite dev, which has no service worker; blocking keeps routes and measurements free of one.
+    // tests/e2e/pwa.spec.ts turns it back on for its own contexts.
+    serviceWorkers: "block",
   },
   webServer: [
     {
-      command: "npm run start --workspace=@petgame/server",
+      // The build runs before any page is open, so Vite dev on 5173 cannot reload a page because dist/ changed.
+      // The server on 2567 then serves the build of the current working tree (tests/e2e/pwa.spec.ts uses it).
+      command: "npm run build && npm run start --workspace=@petgame/server",
       port: 2567,
+      timeout: 180_000,
       // Enables test-only messages such as debug:spawnPal.
       // The world caps are lifted: e2e opens many worlds from one address (127.0.0.1) within a minute and each lives
       // 60 s. The caps themselves are tested in packages/server/src/worldLimits.test.ts. The IPv6 /48 cap is lifted

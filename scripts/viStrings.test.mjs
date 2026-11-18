@@ -42,6 +42,7 @@ const GUARDED = [
   "packages/client/src/game",
   "packages/client/src/ui",
   "packages/client/src/net",
+  "packages/client/src/pwa",
   "packages/client/src/main.ts",
 ];
 

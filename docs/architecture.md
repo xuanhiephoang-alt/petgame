@@ -113,6 +113,15 @@ Chữ người chơi thấy: chữ client tự hiện nằm ở `ui/strings.ts`;
 - Hiệu năng điện thoại: resolution ≤ 2, dùng chung texture, không tạo object mới mỗi khung hình, ẩn thứ ở xa camera, `destroy()` khi xoá. Ngân sách: ≤ 600 sprite mỗi khung hình (in bởi `npm run shots`), ảnh ≤ 1024×1024, ảnh thú cao 256 px mỗi ô.
 - Mọi thao tác dùng được bằng cả cảm ứng lẫn bàn phím; nút cảm ứng ≥ 44×44 px; kiểm tra ở điện thoại dọc, ngang và desktop 1280×720.
 
+## PWA (T13)
+
+- `packages/client/src/pwa/`: `swLogic.ts` (hàm thuần có test: `routeFor`, `precacheUrls`, `cacheFirst`, `networkFirst`...), `sw.ts` (chỉ nối dây sự kiện), `register.ts` (`registerServiceWorker`, gọi trong `main.ts` sau khi sảnh sẵn sàng).
+- Định tuyến: `/build/*` cache trước; trang `/` (mọi `?room=`) và `/manifest.webmanifest` mạng trước, chỉ lùi về cache khi `fetch` ném lỗi (không có mạng), không bao giờ thay câu trả lời 404/502; mọi thứ khác bị bỏ qua (không phải GET, khác origin, `/matchmake*`, `/whoami`, `/healthz`, `/sw.js`, `/assets/**`, icon).
+- `vite.config.ts` có plugin `petgame-service-worker`: sau build, đóng gói `sw.ts` thành `dist/sw.js` (IIFE) với phiên bản (12 ký tự sha256 của `index.html` + danh sách lưu sẵn) và danh sách lưu sẵn (`/`, manifest, mọi file `/build/*`). Cache tên `petgame-<phiên bản>`; `activate` xoá cache `petgame-*` cũ rồi `clients.claim()`. Không `skipWaiting`, không tự tải lại.
+- Chỉ đăng ký ở bản build (`import.meta.env.PROD`) và khi trình duyệt có service worker (ngữ cảnh an toàn: HTTPS hoặc localhost). Vite dev không bao giờ đăng ký.
+- T52 (tự tải lại sau deploy): service worker không đụng tới. Trang luôn lấy từ mạng trước, chunk thiếu vẫn hỏng thành `vite:preloadError`.
+- Icon và `apple-touch-icon.png` do `scripts/appIcons.py` sinh.
+
 ## Hình ảnh và asset
 
 - Phong cách và câu lệnh vẽ: `docs/art-style.md`; mô tả từng loài (tiếng Việt và tiếng Anh cho AI vẽ): `docs/design/pals.md`. Không sao chép thiết kế của Palworld, Pokémon hay game có bản quyền.
@@ -122,7 +131,7 @@ Chữ người chơi thấy: chữ client tự hiện nằm ở `ui/strings.ts`;
 ## Kiểm thử
 
 - `npm test` (Vitest): `packages/**/src/**/*.test.ts` và `scripts/**/*.test.mjs`. Test tích hợp server ở `rooms/GameRoom.test.ts` dùng `@colyseus/testing` với các helper `setup`, `capture`, `giveCompanion`, `placeWild`, `ticks`, `collect`, `plantTrees`. Phần kết nối lại (`describe("reconnecting after a dropped connection")`) thêm `cutConnection` (server đóng socket của người chơi: thấy 1006 như mạng chết), `holdReconnect` (client nối lại ngay nhưng chờ ở một cổng) và `reconnected` (chờ `onReconnect` và state đầy đủ sau khi nối lại; gọi trước khi mở cổng). Test dùng trường riêng của `GameRoom` qua `as any` (`holds`, `reconnectGraceMs`, `controls`, `saveNow`...); trạng thái vẫn ở `GameRoom` nên dùng được như cũ. Phương thức đã chuyển mà test cũ gọi bằng tên cũ thì đi qua cửa `// Test access`. Test **mới** cần một phương thức của hệ thống thì gọi `(room as any).<hệ thống>.<phương thức>`, không thêm cửa mới. Giới hạn thế giới (T64) có `worldLimits.test.ts` (unit, và `describe("creating worlds over HTTP")` gọi `/matchmake/create` bằng `fetch` thật); e2e đặt ba trần lên 1000 (`playwright.config.ts`); `npm run shots` (`scripts/shots.mjs`) và `npm run dev` (`scripts/dev.mjs`, trừ khi đã tự đặt biến) đặt `PETGAME_MAX_WORLDS_PER_ADDRESS=1000` và `PETGAME_MAX_WORLDS_PER_NETWORK=1000`, vì đều mở nhiều thế giới từ 127.0.0.1 (hoặc ::1); `npm run play` và `npm run dev:server` giữ trần thật. Server test nghe ở cổng do hệ điều hành chọn (`bootTestServer`, `listen(0)` trên `127.0.0.1`), không dùng cổng cố định, nên nhiều lần `npm test` chạy song song được; `beforeAll` tạo và dọn một phòng để làm nóng (phòng đầu tiên sinh thế giới và lưới đường đi, khoảng 0,45 s, khoảng 1,6 s khi máy bận); test nào chờ thật gần 5 s hoặc nặng CPU thì đặt hạn riêng kèm số đo (khí hậu trong `GameRoom.test.ts`, `worldgen.test.ts`), không đặt hạn chung.
-- `npm run test:e2e` (Playwright): `tests/e2e/multiplayer.spec.ts`, tự bật server (2567, `PETGAME_DEBUG=1`, DB trong RAM) và Vite (5173). Chromium vẽ WebGL bằng phần mềm nên chờ `window.__petgame.game.frames` tăng thay vì chờ theo giờ.
+- `npm run test:e2e` (Playwright): `tests/e2e/multiplayer.spec.ts` và `tests/e2e/pwa.spec.ts`, tự bật server (2567, `PETGAME_DEBUG=1`, DB trong RAM, bật sau `npm run build` nên phục vụ bản build của cây làm việc) và Vite (5173). Mọi context đặt `serviceWorkers: "block"` (`playwright.config.ts`) trừ `pwa.spec.ts`; `npm run shots` cũng chặn service worker. Chromium vẽ WebGL bằng phần mềm nên chờ `window.__petgame.game.frames` tăng thay vì chờ theo giờ.
   - Trình duyệt: `scripts/chromium.mjs` (`chromiumLaunchOptions`, dùng chung cho `playwright.config.ts` và `scripts/shots.mjs`) chọn Chromium theo thứ tự sau.
     - `PETGAME_CHROMIUM=playwright`: để Playwright tự chọn bản của nó (CI đặt sẵn).
     - `PETGAME_CHROMIUM=<đường dẫn>`: dùng file đó; không có file thì báo lỗi ngay.
