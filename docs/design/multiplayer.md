@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13; nút quay lại thế giới cùng bạn bè khi mở ở `/` từ T79). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -100,14 +100,14 @@ Trong lúc chơi, thanh địa chỉ luôn ghi nơi mà lần mở trang sau s�
 - Có bạn bè mà thế giới đã đóng (mọi người đã rời đi hơn 60 giây): thẻ "Thế giới này đã đóng" ở mục dưới, vì người chơi đang mong gặp bạn bè.
 - Vào lại từ sảnh là phiên mới: bắt đầu ở giữa bản đồ, đầy máu (như mục "Quay lại").
 - Trang nhớ (trong `sessionStorage` của tab) thế giới vừa chơi và lần cuối có bạn bè trong đó không, chỉ để chọn chữ trên sảnh và cách báo khi thế giới đã đóng. Địa chỉ mới là thứ quyết định vào đâu. Tab cũ (trước T49) không có dấu bạn bè thì coi như có bạn bè.
-- Giới hạn: app mở từ Màn hình chính (PWA) luôn mở lại từ `/` (`start_url` của `manifest.webmanifest`), nên chưa về được thế giới cũ. Chỉ ảnh hưởng khi app bị đóng hẳn rồi mở lại (iOS dỡ app ở nền); chuyển app qua lại thì trang vẫn còn và kết nối lại như mục "Quay lại". T13 không làm phần gợi ý quay lại: danh sách thế giới gần đây (T65) chưa ghi giờ, nên sảnh không biết thế giới cuối còn mở không. Đề xuất việc riêng (ghi trong `PLAN.md` của T13): ghi giờ thấy lần cuối vào danh sách, và khi mở ở `/` mà thế giới mới nhất có bạn bè và vừa thấy gần đây thì sảnh có thêm nút phụ "Quay lại thế giới cùng bạn bè".
+- App mở từ Màn hình chính (PWA) luôn mở lại từ `/` (`start_url` của `manifest.webmanifest`), không có `?room=`. Chỉ ảnh hưởng khi app bị đóng hẳn rồi mở lại (iOS dỡ app ở nền); chuyển app qua lại thì trang vẫn còn và kết nối lại như mục "Quay lại". Từ T79 sảnh ở `/` có nút phụ để về thế giới vừa chơi cùng bạn bè: mục "Mở lại ở `/` ngay sau khi chơi cùng bạn bè" bên dưới.
 - iPhone: app ở Màn hình chính dùng bộ nhớ riêng, không chung `localStorage` với Safari (hành vi của iOS; cần kiểm trên máy thật). Tên, token thiết bị và danh sách thế giới nằm ở đó, nên lần đầu mở app là **một người chơi mới**: thú, đồ, trại đã có trong Safari không theo sang. Đề xuất việc riêng (trong `PLAN.md` của T13) để mang hồ sơ sang app.
 
 ### Dấu trang, địa chỉ dán sang tab mới (T65)
 
 Từ T49 địa chỉ lúc chơi một mình cũng có `?room=`. Tab mới (dấu trang, dán lại địa chỉ, mở lại trình duyệt) không có trí nhớ của tab cũ, nên trước T65 nó coi địa chỉ của chính mình là link mời: "Bạn được mời vào thế giới của bạn bè", rồi nếu thế giới đã đóng thì thẻ "Xin bạn bè link mời mới". Từ T65 **thiết bị** (không chỉ tab) nhớ các thế giới đã vào gần đây:
 
-- Nhớ **20 thế giới** gần nhất (`localStorage`, chung mọi tab của trình duyệt đó), mỗi thế giới kèm "lần cuối thấy có bạn bè không". Ghi cùng lúc với địa chỉ (lúc vào, và khi có bạn bè vào hay ra hết), không ghi theo nhịp.
+- Nhớ **20 thế giới** gần nhất (`localStorage`, chung mọi tab của trình duyệt đó), mỗi thế giới kèm "lần cuối thấy có bạn bè không". Ghi cùng lúc với địa chỉ (lúc vào, và khi có bạn bè vào hay ra hết). Từ T79 mỗi thế giới còn kèm giờ thiết bị ở trong đó lần cuối, ghi thêm theo nhịp và lúc rời trang (mục "Mở lại ở `/` ngay sau khi chơi cùng bạn bè").
 - Mở trang ở `?room=X`: tab này vừa ở X thì dùng trí nhớ của tab (như trên). Không thì xem X có trong danh sách của thiết bị không. Thấy thì coi như **quay lại** (không phải được mời):
 
 | Lần cuối ở X | Chữ trên sảnh | X còn mở | X đã đóng |
@@ -117,10 +117,45 @@ Từ T49 địa chỉ lúc chơi một mình cũng có `?room=`. Tab mới (dấ
 | Không có trong danh sách (máy khác, link bạn bè gửi mà chưa vào bao giờ, quá 20 thế giới trước) | "Bạn được mời vào thế giới của bạn bè" (như trước) | vào X | thẻ "đã đóng" chữ link mời (như trước) |
 
 - Mở bằng một thế giới trong danh sách thì thế giới đó được đưa lên đầu danh sách. Vì vậy một dấu trang dùng mỗi ngày không bao giờ bị quên, dù mỗi lần dùng lại mở một thế giới mới. Chỉ dấu trang bỏ không dùng trong khi thiết bị đã vào thêm 20 thế giới khác mới trở lại thành "được mời".
-- Vì sao 20: chơi một mình thì mỗi lần quay lại sau hơn 60 giây là một thế giới mới, nên 20 là khoảng 20 buổi chơi (vài tuần nếu chơi một hai lần mỗi ngày). Danh sách dưới 1 kB. Quên thì vẫn có đường đi tiếp (thẻ có nút Tạo thế giới mới).
+- Vì sao 20: chơi một mình thì mỗi lần quay lại sau hơn 60 giây là một thế giới mới, nên 20 là khoảng 20 buổi chơi (vài tuần nếu chơi một hai lần mỗi ngày). Danh sách khoảng 1,2 kB (kể cả giờ của T79). Quên thì vẫn có đường đi tiếp (thẻ có nút Tạo thế giới mới).
 - Id thế giới do server sinh ngẫu nhiên và không dùng lại, nên một id có trong danh sách chắc chắn là thế giới thiết bị này đã vào. Link bạn bè gửi tới thế giới mình đã chơi cùng họ cũng được coi là "quay lại": đúng cả hai cách.
 - Tab mới mở ở thế giới mà tab cũ đang chơi: sảnh không ghi gì (một mình) hay ghi "Quay lại…" (có bạn bè). Vào thì phiên ở tab cũ kết thúc như mục "Mỗi thiết bị một nhân vật".
 - Trình duyệt chặn hoặc xoá `localStorage` (chế độ riêng tư, xoá dữ liệu trang) thì như trước T65: link được coi là link mời. Xoá dữ liệu trang cũng xoá token, tức là một người chơi mới.
+
+### Mở lại ở `/` ngay sau khi chơi cùng bạn bè (T79)
+
+App ở Màn hình chính luôn mở `/`, và người chơi cũng có thể gõ thẳng địa chỉ game hay mở dấu trang không có `?room=`. Khi đó "Vào chơi" tạo thế giới mới, kể cả khi bạn bè vẫn đang chờ trong thế giới vừa chơi. Từ T79 sảnh ở `/` xem **thế giới thiết bị ở trong gần nhất**:
+
+| Thế giới đó, lúc thiết bị ở trong lần cuối | Sảnh ở `/` |
+|---|---|
+| Có bạn bè, cách đây không quá **10 phút** | thêm nút phụ **Quay lại thế giới cùng bạn bè** ngay dưới "Vào chơi" |
+| Chỉ có mình | như trước: chỉ "Vào chơi" |
+| Quá 10 phút, không rõ giờ (danh sách ghi trước T79), hoặc đã biết thế giới đó đóng | như trước |
+
+- "Thế giới ở trong gần nhất" là thế giới có giờ ở trong lần cuối muộn nhất, chỉ tính lúc đang kết nối. Mở một link hay dấu trang mà chưa vào thì không tính. Ví dụ: chơi cùng bạn bè, rồi tự vào một thế giới một mình, thì không có nút (người chơi đã chủ động rời bạn bè).
+- **Bấm nút:** địa chỉ thêm `?room=` của thế giới đó rồi vào ngay, dùng tên và ngoại hình đang chọn ở sảnh (như "Vào chơi").
+  - Thế giới còn mở: về đúng thế giới đó, gặp lại bạn bè. Là phiên mới: bắt đầu ở giữa bản đồ, đầy máu (mục "Quay lại").
+  - Đã đóng: thẻ "Thế giới này đã đóng" / "Mọi người đã rời đi. Thú, đồ và trại của bạn vẫn còn." / **Tạo thế giới mới** (mục "Vào thế giới: lỗi và cách đi tiếp").
+  - Lỗi khác (đủ 5 người, mất mạng...): thẻ tương ứng; **Thử lại** là thử vào lại đúng thế giới đó.
+- "Vào chơi" vẫn là nút chính và không đổi: tạo thế giới mới; Enter trong ô tên là "Vào chơi". Không nút nào tự lấy focus. Bàn phím: Tab từ "Vào chơi" sang nút phụ, Enter hay Space để bấm.
+- Bấm một trong hai nút thì nút phụ ẩn đi cho đến khi mở lại trang; từ đó đi tiếp theo thẻ (nếu có).
+- Nút chỉ có ở `/`. Mở bằng `?room=` thì theo các mục trên (chữ "Quay lại…" hay "Bạn được mời…"), không có nút phụ. Sảnh ở `/` không có dòng chữ gợi ý nào: tên nút đã nói đủ.
+- Biết thế giới đã đóng (thẻ "đã đóng" ở bất kỳ đường nào, hoặc màn "Server đang khởi động lại") thì thiết bị quên giờ của thế giới đó: lần mở sau không mời quay lại nữa. Thế giới vẫn ở trong danh sách, nên dấu trang của nó vẫn được nhận là "quay lại" (T65).
+- Mở `/` ở tab khác trong lúc tab cũ vẫn đang chơi cùng bạn bè: nút có hiện; bấm thì phiên ở tab cũ kết thúc như mục "Mỗi thiết bị một nhân vật" (bấm "Vào chơi" cũng vậy).
+- Không hỏi server trước khi hiện nút (như T65): sảnh không thêm yêu cầu nào trước khi sẵn sàng. Mất mạng (sảnh lấy từ bộ nhớ máy, T13) thì nút vẫn hiện; bấm thì thẻ "Không kết nối được server".
+
+Giờ ở trong lần cuối:
+- Mỗi thế giới trong danh sách (T65) kèm giờ thiết bị **đang kết nối** trong đó lần cuối. Ghi khi vào và khi bạn bè vào hay ra hết (như T65), **mỗi 60 giây** trong lúc kết nối, khi **trang bị ẩn** (chuyển app, khoá màn hình, đổi tab) và khi **đóng trang**. Đang kết nối lại hay đã mất kết nối thì không ghi.
+- Vì sao không chỉ ghi lúc đóng trang: iOS dỡ app đang nằm nền mà không báo cho trang, nên lúc "đóng trang" có thể không bao giờ đến. Lúc trang bị ẩn là lần cuối trình duyệt điện thoại báo chắc chắn. Nhịp 60 giây che nốt trình duyệt bị tắt đột ngột khi đang mở, và giữ giờ đúng khi trang ẩn mà vẫn kết nối (Android giữ kết nối khi ẩn). Mỗi lần ghi khoảng 1,2 kB, một lần mỗi phút: không đáng kể.
+- Danh sách cũ không có giờ thì coi như đã lâu: không có nút, mọi luật T65 giữ nguyên. Tab chạy bản cũ (trước T79) ghi lại danh sách thì mất giờ: lại coi như đã lâu (hỏng theo hướng an toàn, chỉ mất nút).
+- Đồng hồ máy bị chỉnh lùi: giờ đã lưu nằm ở tương lai quá 10 phút thì coi như không có giờ (thế giới đó không được mời, cũng không che các thế giới khác); lệch ít hơn thì vẫn tính.
+
+Vì sao 10 phút (`RETURN_OFFER_MS` = `EMPTY_WORLD_HOLD_MS` 1 phút + `FRIENDS_STAY_MS` 9 phút):
+- **1 phút chắc chắn còn mở:** người chơi rời đi thì thế giới còn được giữ ít nhất 60 giây (mục "Thế giới không còn ai"), dù bạn bè đã đi hết. Rớt mạng thì còn thêm 20 giây chờ nối lại.
+- **9 phút nhờ bạn bè:** sau đó thế giới chỉ còn mở nếu bạn bè còn chơi. Lấy một buổi chơi 40 phút (`docs/design/pals.md`), người chơi bước ra vào một lúc bất kỳ, bạn bè chơi hết buổi: sau 9 phút bạn bè vẫn còn trong khoảng 31/40 ≈ 78% số lần. Ở cuối khoảng 10 phút, nút vẫn đúng khoảng 3 lần trong 4; sớm hơn thì đúng nhiều hơn. Với 20 phút chỉ còn khoảng 52%, nút nói "cùng bạn bè" mà sai gần một nửa.
+- Lần bước ra hay gặp (trả lời tin nhắn, gửi link mời, một cuộc gọi ngắn) kéo dài vài phút; ngắn hơn 10 phút thì bỏ lỡ đúng những lần đó.
+- Đoán sai rẻ: nút hiện mà thế giới đã đóng thì tốn một lần bấm và thẻ nói rõ "Mọi người đã rời đi", có sẵn **Tạo thế giới mới**. Không hiện mà thế giới còn mở thì người chơi phải xin bạn bè link mời mới. Vì vậy chọn khoảng dài nhất mà nút vẫn đúng phần lớn số lần.
+- Nhịp ghi 60 giây làm giờ lưu chậm nhiều nhất 1 phút so với lúc rời thật (chỉ khi trang bị tắt mà không báo gì), một phần mười khoảng 10 phút.
 
 ## Vào thế giới: lỗi và cách đi tiếp (T23)
 
@@ -205,4 +240,5 @@ Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server
 - Trần /48 (T67) không có trần tương ứng cho IPv4 (ví dụ theo /24): mỗi khách hàng IPv4 thường chỉ có một địa chỉ, và gộp /24 sẽ dồn cả khu dân cư vào một trần. Không xử lý riêng các dạng IPv6 hiếm: người dùng Teredo (`2001:0::/32`) qua cùng một server Teredo chung một khối /48; địa chỉ 6to4 (`2002::/16`) có /48 đúng bằng một địa chỉ IPv4 nên tự khớp. Các dạng IPv6 hiếm có IPv4 nhúng (`::a.b.c.d`, `64:ff9b::/96`) rơi vào cùng một khối /48 (ba nhóm đầu bằng 0 hoặc `64:ff9b:0`); không xử lý riêng. Không có ngoại lệ cho mạng di động: chưa có danh sách khối /48 di động đáng tin, và mức chặn nhầm đã tính ở mục "Giới hạn số thế giới".
 - Giữ một kết nối trong mỗi thế giới thì thế giới không đóng, như trước T49. Trần 10 mỗi mạng đếm cả thế giới có người, nên cách này cũng không vượt được 10.
 - Nhận ra thế giới của mình (T65) bằng danh sách trên thiết bị, không nhờ server theo token. Server không nhớ thế giới đã đóng, nên cách theo token cần thêm bảng lưu hoặc bộ nhớ riêng, thêm một lần hỏi server trước khi sảnh sẵn sàng hoặc đổi giao thức báo lỗi khi vào. Đổi lại không biết thêm gì: token cũng nằm trong `localStorage`, mất danh sách là mất luôn token. Danh sách không cho ai vào được đâu thêm: nó chỉ đổi chữ trên sảnh và cách báo khi thế giới đã đóng.
+- Nút "Quay lại thế giới cùng bạn bè" (T79) có thể mời về một thế giới đã đóng (bạn bè rời hết trong 10 phút đó). Không hỏi server trước, vì sảnh không được chờ server trước khi sẵn sàng và thế giới vẫn có thể đóng giữa lúc hỏi và lúc bấm; thẻ "đã đóng" nói rõ ngay và thiết bị không mời lại thế giới đó nữa.
 - Dấu trang cũ của thế giới có bạn bè vẫn ghi "Quay lại thế giới bạn **đang** chơi cùng bạn bè" dù đã lâu. Sảnh chưa biết thế giới còn mở hay không (không hỏi server trước khi bấm), và nếu đã đóng thì thẻ nói rõ ngay. Giữ một câu cho cả tải lại lẫn dấu trang.

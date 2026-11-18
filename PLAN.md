@@ -1,255 +1,254 @@
-# PLAN: T82 Service worker: không bao giờ chặn game mở khi Cache Storage lỗi
+# PLAN: T79 Gợi ý quay lại thế giới cùng bạn bè khi mở app từ Màn hình chính
 
-Code đọc ở `c97a472` ("Mark T13b done, add T82, start T82"). Nguồn: góp ý không bắt buộc trong `REVIEW.md` của commit T13b (`git show 06a92a8:REVIEW.md`) và thiết kế service worker trong `PLAN.md` của T13 (`git show 363dc31:PLAN.md`, mục "Thiết kế" 3-7). Số dòng có thể trôi: tìm theo chữ hoặc tên hàm.
+Code đọc ở `52cf8dc` ("Mark T82 done, start T79"). Nguồn: đề xuất trong `PLAN.md` của T13 (`git show 363dc31:PLAN.md`, mục đề xuất tách việc), luật T23/T49/T65 trong `docs/design/multiplayer.md`. Số dòng có thể trôi: tìm theo chữ hoặc tên hàm.
+
+**Thiết kế đã ghi sẵn** trong `docs/design/multiplayer.md` (game-designer sửa cùng PLAN này): mục mới "Mở lại ở `/` ngay sau khi chơi cùng bạn bè (T79)" (sau mục T65), dòng đầu file, bullet app ở Màn hình chính trong "Tải lại trang", hai bullet của T65 (ghi theo nhịp, cỡ danh sách) và một bullet trong "Đã cân nhắc và chấp nhận". Coder không cần sửa file đó, trừ khi làm khác PLAN (khi đó ghi lý do vào `PROGRESS.md`).
 
 ## Mục tiêu
 
-- Người chơi có mạng thì **luôn** mở được game, kể cả khi Cache Storage của trình duyệt hỏng (bộ nhớ hỏng, hết chỗ, trình duyệt chặn bộ nhớ). Hiện `sw.ts` dòng 47-49 gọi `caches.open(CACHE).then(...)` ngay trong `respondWith`. Nếu `caches.open` hoặc `cache.match` bị từ chối thì `respondWith` nhận lời hứa bị từ chối, nên trang `/` hoặc chunk `/build/*` hỏng dù mạng tốt. Đây là đường duy nhất worker có thể làm game không mở được. Sau T82, lỗi của bộ nhớ được coi như "không có trong bộ nhớ": lấy từ mạng như khi chưa có worker.
-- Dọn 7 góp ý còn lại của reviewer T13b. Mỗi góp ý nhỏ, nhưng gom lại thì worker đúng với lời hứa trong tài liệu: không ném lỗi, gỡ khẩn cấp được, phiên bản đổi đúng lúc, build lỗi thì báo đúng lỗi.
+Nhóm bạn đang chơi chung. Một người chuyển sang app khác vài phút (trả lời tin nhắn, gửi link mời, nghe điện thoại); iOS dỡ app ở nền. Mở lại app từ Màn hình chính thì app luôn mở `/` (`start_url`), không có `?room=`: bấm "Vào chơi" là vào một thế giới mới một mình, và muốn về với bạn bè thì phải xin link mời mới. Từ T79, nếu thiết bị vừa ở trong một thế giới có bạn bè trong vòng 10 phút, sảnh có thêm nút phụ **Quay lại thế giới cùng bạn bè**: một lần bấm là về đúng thế giới đó. Đúng cả khi gõ thẳng địa chỉ game trên trình duyệt.
 
 ## Phạm vi
 
 Làm:
-1. Logic lùi về mạng khi bộ nhớ lỗi, viết thuần trong `swLogic.ts` (`cacheFirst`, `networkFirst`), có unit test với cache giả ném lỗi.
-2. Bước install tự tải và kiểm từng câu trả lời (không cất câu trả lời bị chuyển hướng hay khác 200), cũng viết thuần trong `swLogic.ts` (`precacheAll`), thay `cache.addAll`.
-3. Phiên bản tính cả manifest và mã nguồn worker (`sw.ts`, `swLogic.ts`), bằng hàm thuần `swVersion` có test.
-4. `register.ts`: `try/catch` bọc cả trong callback `load`.
-5. `vite.config.ts`, `closeBundle`: build chính lỗi thì thoát sớm, không che lỗi gốc bằng `ENOENT`.
-6. `tests/e2e/pwa.spec.ts`: import kiểu `Browser` ở dòng 1.
-7. Tài liệu: `docs/deploy.md` (gỡ khẩn cấp phải `skipWaiting()`), `docs/choi-tren-iphone.md` (mở offline chỉ được sau lần mở app có mạng), `docs/architecture.md` (mục PWA). `docs/design/multiplayer.md` dòng 19 game-designer đã sửa sẵn trong bước kế hoạch.
+- Thêm giờ ở trong lần cuối (`seen`) vào `RecentWorld` của danh sách `petgame:worlds` (T65), đọc tương thích ngược.
+- Ghi giờ đó khi vào, khi bạn bè đổi (như nay), mỗi 60 giây khi đang kết nối, khi trang bị ẩn, khi đóng trang.
+- Quên giờ của thế giới đã biết là đóng (thẻ "đã đóng", server khởi động lại).
+- Hàm thuần quyết định có mời quay lại không (`returnOffer`), có unit test.
+- Nút phụ `#rejoin-btn` ở sảnh, chữ trong `strings.ts`.
+- E2E trong file mới `tests/e2e/rejoin.spec.ts`.
+- Một đoạn trong `docs/architecture.md`.
 
 KHÔNG làm:
-- Không đổi bảng định tuyến `routeFor`, `NEVER_HANDLED`, `precacheUrls`, `freshOnInstall`, `staleCaches`, `cacheName`. Không đổi điều kiện cất `storable` (200 và không `redirected`).
-- Không thêm `skipWaiting`, không tự tải lại, không thêm hẹn giờ cho mạng trước. Không đổi bước `activate` trong `sw.ts`.
-- Không đổi luật "lỗi mạng thì ném lại": câu trả lời 404/502 vẫn trả nguyên; `fetch` ném lỗi mà không có bản lưu thì ném lại **đúng lỗi mạng đó**, không phải lỗi của bộ nhớ. Bộ canh tải T15 và `vite:preloadError` (T52) dựa vào luật này.
-- **Không sửa `tests/e2e/multiplayer.spec.ts` và `packages/client/src/game/labelLayout.ts`** (thuộc T63, đang chờ Q1; phần dở dang nằm trong `stash@{0}`).
-- **Cấm dùng `git stash`** dưới mọi dạng (`push`, `pop`, `apply`, `drop`...). `stash@{0}` là phần dở dang của T63, `stash@{1}` của tester; đụng vào là mất việc của nhiệm vụ khác. Cần so với bản cũ thì dùng `git show c97a472:<file>` hoặc `git diff`.
-- Không thêm e2e mới: Chromium không có cách làm hỏng Cache Storage từ Playwright; unit test bao phần đó. E2E `pwa.spec.ts` có sẵn kiểm lại đường bình thường (install vẫn cất đủ, reload vẫn qua worker).
+- Không đổi server, `schema.ts`, `messages.ts`, `Profile`, `GameRoom`. Không hỏi server trước khi hiện nút.
+- Không đổi luật T23/T49/T65 khi mở bằng `?room=` (chữ "Quay lại…", "Bạn được mời…", `quietRetry`, `arrival`).
+- Không đổi nút "Vào chơi" (vẫn là nút chính, vẫn tạo thế giới mới ở `/`), không tự vào, không đổi focus mặc định.
+- Không sửa `tests/e2e/multiplayer.spec.ts` (xung đột với phần dở của T63 đang chờ Q1). **Không dùng `git stash`** dưới bất kỳ hình thức nào (`stash@{0}` của T63 phải giữ nguyên).
+- Không đụng service worker, manifest (`start_url` giữ là `/`).
 
 ## Thiết kế
 
-Không có chữ người chơi thấy mới. Không đổi thao tác cảm ứng hay bàn phím.
+Luật đầy đủ cho người chơi: `docs/design/multiplayer.md`, mục "Mở lại ở `/` ngay sau khi chơi cùng bạn bè (T79)". Tóm tắt kỹ thuật:
 
-### 1. Bộ nhớ lỗi thì coi như "không có", mạng vẫn trả lời
+### 1. Dữ liệu lưu: `localStorage` `petgame:worlds`
 
-Quy tắc chung cho cả hai chiến lược:
-- **Đọc bộ nhớ** (mở cache rồi `match`): mọi lỗi, kể cả ném đồng bộ, đều tính là **không có trong bộ nhớ** (`undefined`).
-- **Ghi bộ nhớ** (mở cache rồi `put`): chạy nền qua `defer`. Mọi lỗi bị nuốt: câu trả lời đã giao rồi, lời hứa đưa cho `defer` không bao giờ bị từ chối.
-- **Lỗi mạng** (`fetch` ném) vẫn đi ra ngoài như cũ. Mạng lỗi và bộ nhớ cũng lỗi thì ném **lỗi mạng**, để trình duyệt hiện trang lỗi mạng hoặc `<script>` báo `error` như khi không có worker.
+```ts
+interface RecentWorld {
+  room: string;
+  friends: boolean;
+  /** When (Date.now() ms) this device was last connected in the world; 0 = unknown (written before T79) or known closed. */
+  seen: number;
+}
+```
 
-Theo từng chiến lược:
-- `cacheFirst`: đọc bộ nhớ. Có thì trả. Không có hoặc bộ nhớ lỗi thì `fetch` đúng một lần. Câu trả lời cất được thì ghi nền. Trả câu trả lời mạng; `fetch` ném thì ném lại.
-- `networkFirst`: `fetch` trước. Thành công thì ghi nền nếu cất được, rồi trả. `fetch` ném thì đọc bộ nhớ. Có thì trả bản lưu; không có hoặc bộ nhớ lỗi thì ném lại lỗi mạng gốc.
+JSON lưu: `[{"room":"abc123xyz","friends":true,"seen":1763500000000}, ...]`, thứ tự như T65 (mới ghi nhất ở đầu), tối đa 20, khoảng 1,2 kB.
 
-Vì vậy với bộ nhớ hỏng, worker cư xử y như không có worker. Không bao giờ tệ hơn không có worker.
+Tương thích và bền:
+- **Mục cũ (T65) không có `seen`**, hoặc `seen` không phải số hữu hạn > 0 (chuỗi, `NaN`, `Infinity`, âm, `null`): `recentWorlds` giữ mục đó với `seen: 0` (không bỏ: T65 vẫn cần nó để nhận dấu trang). `seen: 0` nghĩa là "đã lâu": không bao giờ được mời.
+- **Danh sách hỏng** (không phải JSON, sai kiểu, trình duyệt chặn storage): như T65, `readJson` + `safeStorage` cho `[]` hoặc `undefined`, không ném lỗi; không có nút. Ghi hỏng thì bỏ qua im lặng.
+- **Tab bản cũ** (trước T79, ví dụ đang mở lúc deploy) ghi lại danh sách: `recentWorlds` cũ chỉ giữ `room` và `friends`, nên giờ mất, mọi mục thành "đã lâu". Hỏng theo hướng an toàn (chỉ mất nút), không cần xử lý.
+- Không có phiên bản hay key mới: cùng key `petgame:worlds`.
 
-Mở cache nằm **trong** hàm thuần (qua `deps.openCache()`), không còn ở `sw.ts`. Lý do: để lỗi của `caches.open` (kể cả `caches` ném `SecurityError` ngay khi gọi) rơi vào cùng `try/catch` với `match`, và test được bằng cache giả.
+### 2. Khi nào ghi giờ (`seen = Date.now()`)
 
-### 2. Install kiểm từng câu trả lời
+| Lúc | Đã có trước T79? | Điều kiện |
+|---|---|---|
+| Vào thế giới, bạn bè vào hay ra hết (`rememberWorld` qua `syncAddress`), `failToStart` | có (thêm giờ) | luôn |
+| Mỗi `SEEN_EVERY_MS` = 60 s (`setInterval` trong `startGame`) | mới | `watch.online` |
+| `visibilitychange` sang `hidden` | mới | `watch.online` |
+| `pagehide` (trước `watch.leave()`) | mới | `watch.online` |
 
-`cache.addAll` chấp nhận câu trả lời bị chuyển hướng. Safari từ chối câu trả lời chuyển hướng cho điều hướng, nên một `/` lưu sẵn kiểu đó sẽ làm app không mở được lúc mất mạng. Đường mạng trước đã chặn điều này (`storable`), đường install thì chưa.
+Mở trang ở `?room=X` có trong danh sách (T65 đưa X lên đầu): **giữ nguyên `seen` cũ của X**, không ghi giờ mới, vì chưa vào. Biết thế giới đóng: đặt `seen = 0` cho thế giới đó (giữ chỗ, giữ `friends`).
 
-`precacheAll` thay `addAll`, giữ đúng ngữ nghĩa "tất cả hoặc hỏng":
-- Tải mọi URL song song. `/` và manifest dùng `cache: "reload"` như cũ (`freshOnInstall`); `/build/*` tải thường.
-- Bất kỳ câu trả lời nào không `storable` (khác 200, hoặc `redirected`) thì hàm ném `Error`, và **chưa `put` gì**. Lỗi mạng cũng ném lại.
-- Chỉ khi mọi câu trả lời đều tốt mới mở cache rồi `put` từng cái dưới khoá là đường dẫn (`"/"`, `"/manifest.webmanifest"`, `"/build/..."`). Khoá trùng với khoá `routeFor` dùng: chuỗi tương đối, trình duyệt tự đổi thành địa chỉ đầy đủ theo origin của worker, như `addAll` làm trước đây.
+Vì sao cả ba cách mới, không chỉ `pagehide` như dòng nhiệm vụ:
+- iOS treo app web ở nền rồi dỡ nó mà **không** bắn `pagehide`. Chính trường hợp T79 nhắm tới (app bị dỡ) là lúc `pagehide` hay không đến; khi đó giờ lưu có thể là lúc vào thế giới, 30 phút trước, và nút không hiện.
+- `visibilitychange` → `hidden` là sự kiện cuối cùng mà trình duyệt điện thoại báo chắc chắn (chuyển app, khoá màn hình, đổi tab). Đây là cách chính.
+- Nhịp 60 s che phần còn lại: trình duyệt bị tắt hay sập khi đang hiện, và trang ẩn mà vẫn kết nối (Android giữ WebSocket khi ẩn; Chrome vẫn chạy timer của tab ẩn tối thiểu mỗi phút một lần), nên giờ đúng nghĩa "lần cuối còn ở trong thế giới". Giá: đọc và ghi khoảng 1,2 kB `localStorage` mỗi phút.
+- `pagehide` vẫn giữ: desktop đóng tab, tải lại, điều hướng đi.
+- Điều kiện `watch.online`: đang kết nối lại hay đã mất hẳn thì không chắc còn ở trong thế giới, không ghi. Tab bị tab khác thay (`replaced`) thôi ghi, nên không đẩy thế giới cũ lên đầu danh sách. Mất hẳn kết nối thì `clearInterval`.
 
-Install hỏng thì trình duyệt bỏ worker mới và thử lại ở lần mở sau, như khi `addAll` hỏng. Không có worker thì game chạy như trước T13, nên an toàn. Install **không** nuốt lỗi bộ nhớ (khác bước 1). Một worker cài với cache rỗng hay thiếu là vô ích; để install hỏng là đúng.
+### 3. Quyết định: `returnOffer(invited, recent, now)`
 
-Giới hạn chấp nhận: nếu `put` hỏng giữa chừng (hết chỗ), cache `petgame-<phiên bản>` có thể còn vài mục. Install vẫn hỏng nên worker không chạy. Cache dở đó bị ghi đè ở lần install sau cùng phiên bản, hoặc bị `staleCaches` xoá khi một phiên bản khác kích hoạt.
+Hàm thuần trong `ui/joinStatus.ts`, trả về id thế giới để mời, hoặc `null`:
+1. `invited` (có `?room=`) khác rỗng: `null`. Nút chỉ có ở `/`.
+2. Ứng viên = mục có `seen` lớn nhất trong các mục `0 < seen <= now + RETURN_OFFER_MS` (bằng nhau thì mục đứng trước). Không có: `null`.
+   - Vì sao "seen lớn nhất" chứ không phải `recent[0]`: T65 đưa thế giới lên đầu khi chỉ mới mở link mà chưa vào. Ví dụ chơi cùng bạn bè ở X, rồi mở dấu trang thế giới cũ Y mà không vào: `recent[0]` là Y nhưng thế giới ở trong gần nhất vẫn là X.
+   - Giờ ở tương lai quá 10 phút (đồng hồ máy bị chỉnh lùi, dữ liệu hỏng) bị bỏ qua, để một giá trị hỏng không che mãi các thế giới khác.
+3. Ứng viên `friends === false`: `null` (người chơi đã chủ động chơi một mình sau đó).
+4. `Math.abs(now - seen) > RETURN_OFFER_MS`: `null`. Còn lại: `room` của ứng viên.
 
-### 3. Phiên bản
+### 4. Khoảng "vừa thấy": 10 phút
 
-Hiện phiên bản chỉ băm `dist/index.html` và danh sách lưu sẵn. Đổi riêng manifest, hoặc riêng logic của worker (như chính T82), thì tên cache giữ nguyên. Khi đó worker mới cài vào **cùng** cache mà worker cũ đang dùng, và `activate` không dọn gì.
+```ts
+/** Friends likely still play this long after the player stepped out: 31/40 of a 40-minute session (docs/design/multiplayer.md). */
+export const FRIENDS_STAY_MS = 9 * 60_000;
+/** How long after the device was last connected in a world with friends the lobby at `/` offers to go back (10 min). */
+export const RETURN_OFFER_MS = EMPTY_WORLD_HOLD_MS + FRIENDS_STAY_MS;
+/** How often (ms) the device notes it is still connected in its world, so a page killed without notice is at most this late. */
+export const SEEN_EVERY_MS = 60_000;
+```
 
-Phiên bản mới là 12 ký tự hex đầu của SHA-256 trên `JSON.stringify([indexHtml, manifest, workerSources, precache])`, với:
-- `manifest`: nội dung `dist/manifest.webmanifest`;
-- `workerSources`: mã nguồn `src/pwa/sw.ts` và `src/pwa/swLogic.ts`, theo thứ tự đó.
+Lý do (chi tiết trong tài liệu thiết kế):
+- 1 phút chắc chắn: người cuối rời thì thế giới còn giữ `EMPTY_WORLD_HOLD_MS` = 60 s (T49), rớt mạng thì thêm 20 s.
+- 9 phút nhờ bạn bè: buổi chơi 40 phút (`docs/design/pals.md`), người chơi bước ra ở một lúc bất kỳ, bạn bè chơi hết buổi: sau 9 phút bạn bè còn ở khoảng (40 − 9)/40 = 77,5% số lần. Ở 20 phút chỉ còn 52,5%: nút "cùng bạn bè" sai gần một nửa.
+- Đoán sai rẻ (một lần bấm, thẻ "đã đóng" có sẵn Tạo thế giới mới); bỏ lỡ thì đắt (xin link mời mới). Nên chọn khoảng dài nhất mà nút vẫn đúng khoảng 3/4 số lần.
+- Nhịp 60 s làm giờ chậm nhiều nhất 1 phút, một phần mười của khoảng.
 
-Dùng `JSON.stringify` để hai bộ đầu vào khác nhau không bao giờ ghép thành cùng một chuỗi (ví dụ `"ab" + "c"` và `"a" + "bc"`). Băm bằng Web Crypto (`crypto.subtle.digest`), có sẵn trong Node 22 và trong lib DOM của client. Nhờ vậy không cần kiểu `node:crypto` trong `tsconfig` của client (`types: ["vite/client"]`), và test chạy bằng hàm băm thật.
+Hằng số nằm ở client (`ui/joinStatus.ts`, cạnh `RECENT_WORLDS_MAX`) vì chỉ client dùng; import `EMPTY_WORLD_HOLD_MS` từ `@petgame/shared`.
 
-Băm nguồn chứ không băm `sw.js` đã build: `sw.js` chứa chính phiên bản, nên không băm nó được. Hệ quả: sửa chú thích trong `sw.ts` cũng ra phiên bản mới, tức tải lại khoảng 1 MB một lần. Chấp nhận được, vì gần như mọi deploy đều đã đổi `index.html`.
+### 5. Sảnh
 
-### 4. `register.ts`
-
-Đúng JSDoc "never throws": mọi chỗ đụng tới `navigator.serviceWorker` nằm trong `try/catch`, kể cả khi chạy trong callback `load`. Lỗi thì `console.warn("Service worker not registered", err)`, như hiện tại.
-
-### 5. Gỡ khẩn cấp (tài liệu)
-
-Worker không `skipWaiting`, nên một bản `sw.ts` gỡ worker mà không `skipWaiting` sẽ chờ tới khi mọi tab cũ đóng mới chạy; điện thoại có thể giữ tab nhiều ngày. Bản gỡ khẩn cấp phải:
-- `install`: gọi `self.skipWaiting()`;
-- `activate`: xoá mọi cache `petgame-*`, rồi `self.registration.unregister()`;
-- không có listener `fetch`.
+- Nút mới `<button type="button" id="rejoin-btn" class="lobby-action" hidden></button>` ngay **sau** `#join-btn`, trước `#join-status`. Chữ đặt từ `LOBBY_TEXT.rejoinFriends` = **"Quay lại thế giới cùng bạn bè"** (`strings.ts`), không viết chữ trong HTML.
+- Kiểu: dùng nguyên `.lobby-action` (nền trong, viền trắng 60%, chữ trắng đậm 16 px, `min-height: 44px`), đúng kiểu nút phụ "Tải lại" của thông báo "mạng chậm": rõ là phụ so với nút xanh "Vào chơi". Trong form dạng cột, nút giãn hết chiều ngang như "Vào chơi". Điện thoại ngang (`@media (max-height: 560px) and (min-width: 560px)`): `#lobby form > *` đã chiếm cả hàng, nút nằm hàng riêng dưới ô tên và "Vào chơi". Ước lượng cao form ngang: 8 + 27 + 8 + 180 + 8 + 44 + 8 + 44 + 8 + 8 ≈ 343 px < 390 px, nên nút nằm trọn trong màn 844×390 không cần cuộn. Nếu e2e cho thấy không vừa: trong media query ngang đó thêm `.lobby-look .doll-preview { zoom: 0.8; }` (như điện thoại dọc thấp), không đổi gì khác.
+- Hiện khi: `returnOffer(...)` khác `null`, đặt ngay lúc mở khoá sảnh (cạnh `nameInput.disabled = false`), trước khi bắn `petgame:lobby-ready`. Trước đó nút ẩn sẵn trong HTML, nên không cần trạng thái khoá. Thẻ hỏng tải của bộ canh T15 không bao giờ gặp nút (script không chạy thì nút vẫn ẩn).
+- **Focus:** không đổi: ở `/` không nút nào tự có focus (như nay). Enter trong ô tên = "Vào chơi". Thứ tự Tab: ô tên → "Vào chơi" → nút phụ (theo thứ tự DOM). Enter/Space trên nút: nút `<button>` gốc.
+- **Bấm nút phụ:**
+  1. bỏ qua nếu `joining || broken`;
+  2. `setAddress(lobbyUrl(offered, true))`: địa chỉ có `?room=` (giữ `quality` và tham số khác), y như mở lại từ link quay lại;
+  3. `returning = true` (thẻ "đã đóng" dùng chữ "Thú, đồ và trại của bạn vẫn còn", như T65 với thế giới có bạn bè);
+  4. `void enter()`.
+  `quietRetry` vẫn `false` (chỉ đặt cho `backAlone`, và điều kiện `room === invited` cũng không khớp vì `invited` là `null`): thế giới có bạn bè mà đóng thì luôn có thẻ.
+- `enter()` ẩn nút phụ ngay đầu (`rejoinBtn.hidden = true`), kể cả khi bấm "Vào chơi". Từ đó đi tiếp theo thẻ T23: Thử lại thử đúng địa chỉ đang có (có `?room=` nếu đã bấm nút phụ), Tạo thế giới mới bỏ `room`. Lý do: một lần thử là đủ để thẻ dẫn đường; ít tổ hợp trạng thái hơn.
+- **Với chữ gợi ý:** nút chỉ có khi không có `?room=`, tức `arrival` là `"new"` và `#room-hint` rỗng. Không bao giờ đi cùng "Quay lại thế giới bạn đang chơi cùng bạn bè" hay "Bạn được mời…". Không thêm dòng gợi ý nào.
+- **Đã đóng:** không có hành vi mới. Thẻ "Thế giới này đã đóng" / `JOIN_TEXT.closed.detailReturning` / Tạo thế giới mới (có focus), địa chỉ bỏ `room`. Thêm: thiết bị đặt `seen = 0` cho thế giới đó, nên tải lại `/` không còn nút.
 
 ## Kế hoạch triển khai
 
-Thứ tự gợi ý: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8. Mỗi bước typecheck được.
+1. **`packages/client/src/ui/joinStatus.ts`**
+   - `import { EMPTY_WORLD_HOLD_MS } from "@petgame/shared";`
+   - `RecentWorld`: thêm `seen: number` kèm JSDoc như mục Thiết kế 1.
+   - Hằng `FRIENDS_STAY_MS`, `RETURN_OFFER_MS`, `SEEN_EVERY_MS` (mục Thiết kế 4), JSDoc tiếng Anh nói lý do.
+   - `recentWorlds(raw)`: đọc thêm `seen`; `typeof seen === "number" && Number.isFinite(seen) && seen > 0 ? seen : 0`. Mục không có `seen` vẫn được giữ. Sửa JSDoc.
+   - `withRecentWorld(list, room, friends, seen: number)`: thêm tham số bắt buộc, ghi vào mục đầu.
+   - Hàm mới `withWorldClosed(list, room): RecentWorld[]`: bản sao, mục `room` có `seen: 0`, giữ vị trí và `friends`; không có `room` thì bản sao y nguyên. Không đổi `list`.
+   - Hàm mới `returnOffer(invited: string | null, recent: readonly RecentWorld[], now: number): string | null` theo mục Thiết kế 3, JSDoc nói luật và vì sao "seen lớn nhất".
+2. **`packages/client/src/ui/strings.ts`**: trong `LOBBY_TEXT` thêm `rejoinFriends: "Quay lại thế giới cùng bạn bè"` kèm chú thích `/** The lobby's second button at "/" when the device was just in a world with friends (T79). */`.
+3. **`packages/client/index.html`**
+   - Thêm `<button type="button" id="rejoin-btn" class="lobby-action" hidden></button>` ngay sau `#join-btn`.
+   - Bổ sung chú thích HTML phía trên form: `#rejoin-btn` là nút phụ quay lại thế giới cùng bạn bè (T79), `main.ts` đặt chữ và hiện nó.
+   - CSS: không cần quy tắc mới nếu e2e kích thước và trong khung nhìn qua; chỉ thêm `zoom: 0.8` theo mục Thiết kế 5 khi cần.
+4. **`packages/client/src/main.ts`**
+   - Lấy `rejoinBtn = document.getElementById("rejoin-btn") as HTMLButtonElement`.
+   - Import thêm `returnOffer`, `withWorldClosed`, `SEEN_EVERY_MS`.
+   - `const recent = recentWorlds(readJson(RECENT_WORLDS_KEY));` dùng cho cả `arrival(...)` và `returnOffer(...)`.
+   - `returning` đổi từ `const` sang `let`.
+   - Dòng T65 `if (returning && invited) noteRecentWorld(...)`: truyền thêm `recent.find((w) => w.room === invited)?.seen ?? 0` (giữ giờ cũ, không làm mới).
+   - `const offered = returnOffer(invited, recent, Date.now());`
+   - `noteRecentWorld(roomId, friends, seen: number)`: truyền `seen` cho `withRecentWorld`. `rememberWorld` gọi với `Date.now()`.
+   - Hàm mới `forgetWorldTime(roomId: string)`: `safeStorage(() => localStorage.setItem(RECENT_WORLDS_KEY, JSON.stringify(withWorldClosed(recentWorlds(readJson(RECENT_WORLDS_KEY)), roomId))))`.
+   - Hàm mới `worldClosed()`: lấy `room` từ địa chỉ hiện tại, có thì `forgetWorldTime(room)`, rồi `dropWorldFromAddress()`. Thay `dropWorldFromAddress()` bằng `worldClosed()` ở **hai** chỗ biết thế giới đóng trong `enter()`: nhánh `quietRetry` và `if (failure === "closed")`. Nút Tạo thế giới mới giữ `dropWorldFromAddress()` (đầy người không phải đóng).
+   - `enter()`: đầu hàm (sau kiểm `joining || broken`) thêm `rejoinBtn.hidden = true;`.
+   - Handler `rejoinBtn` `click`: theo mục Thiết kế 5 (bỏ qua khi `joining || broken || !offered`; `setAddress(lobbyUrl(offered, true))`; `returning = true`; `void enter()`).
+   - Lúc mở khoá sảnh: `if (offered) { rejoinBtn.textContent = LOBBY_TEXT.rejoinFriends; rejoinBtn.hidden = false; }`, trước `document.dispatchEvent(...)`. Không gọi `focus()`.
+   - `startGame`:
+     - sau `syncAddress()` thêm `const noteSeen = () => { if (watch.online && friends !== undefined) noteRecentWorld(room.roomId, friends, Date.now()); };`
+     - `const seenTimer = setInterval(noteSeen, SEEN_EVERY_MS);`
+     - `document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") noteSeen(); });`
+     - listener `pagehide` sửa thành `() => { noteSeen(); watch.leave(); }` (ghi **trước** khi rời, lúc còn `online`).
+     - trong `react`: `if (status.state === "lost") clearInterval(seenTimer);` và khi `reason === "shutdown"` thì thêm `forgetWorldTime(room.roomId)`.
+     - Chú thích tiếng Anh ngắn: vì sao cả ba (iOS dỡ app ở nền không bắn `pagehide`).
+   - Không tạo object mỗi khung hình: mọi thứ trên là sự kiện hoặc timer 60 s.
+5. **`packages/client/src/ui/joinStatus.test.ts`**: thêm và sửa test (mục Test).
+6. **`tests/e2e/rejoin.spec.ts`** (file mới): mục Test.
+7. **`docs/architecture.md`**: trong đoạn **Vào lại thế giới (T23)** của `main.ts`, sau phần T65 thêm một câu T79: `RecentWorld.seen` (ms, 0 = không rõ hay đã đóng; `recentWorlds` cho 0 khi thiếu); ghi qua `rememberWorld` và `noteSeen` (nhịp `SEEN_EVERY_MS`, `visibilitychange` ẩn, `pagehide`, chỉ khi `watch.online`); `forgetWorldTime` khi "closed" hay `shutdown`; `returnOffer(invited, recent, now)` chọn thế giới có `seen` lớn nhất, có bạn bè, trong `RETURN_OFFER_MS` (10 phút) thì hiện `#rejoin-btn`, bấm thì đặt `?room=` rồi `enter()`. Luật ở `docs/design/multiplayer.md`.
+8. Chạy `npm run typecheck`, `npx vitest run packages/client/src/ui/joinStatus.test.ts`, `npx playwright test tests/e2e/rejoin.spec.ts`; ghi `PROGRESS.md`.
 
-1. **`packages/client/src/pwa/swLogic.ts`: deps và lùi về mạng.**
-   - `StrategyDeps`: bỏ trường `cache: CacheLike`, thay bằng `openCache(): Promise<CacheLike>`. JSDoc: "Opens this build's cache. May throw or reject when Cache Storage is broken or blocked; the strategies then answer from the network alone." `CacheLike` giữ nguyên.
-   - Hàm nội bộ (không export):
-     - `async function lookup(deps: Pick<StrategyDeps, "openCache">, key: string): Promise<Response | undefined>`: `try { return await (await deps.openCache()).match(key); } catch { return undefined; }`. Lời gọi `deps.openCache()` phải nằm trong `try`, để lỗi ném đồng bộ cũng bị bắt. JSDoc: lỗi của bộ nhớ tính là "không có", để bộ nhớ hỏng không bao giờ chặn một câu trả lời mạng.
-     - `function storeLater(deps: StrategyDeps, key: string, response: Response): void`. Nếu `!storable(response)` thì `return`. Gọi `response.clone()` **đồng bộ**, trước khi trả `response` cho trình duyệt. Rồi gọi `deps.defer(...)` với một lời hứa không bao giờ bị từ chối. Ví dụ: một hàm `async` mở cache rồi `await cache.put(key, copy)`, bên ngoài nối `.catch(() => {})`. Bên trong phải `async` để `openCache`/`put` ném đồng bộ cũng thành lời hứa bị từ chối, rồi bị `.catch` nuốt.
-   - `cacheFirst`: `const hit = await lookup(deps, key); if (hit) return hit; const response = await deps.fetch(request); storeLater(deps, key, response); return response;`.
-   - `networkFirst`: trong `catch (error)` của `fetch`, dùng `const stored = await lookup(deps, key); if (stored) return stored; throw error;`. Nhánh thành công dùng `storeLater`.
-   - Cập nhật JSDoc của hai hàm: thêm một câu "A broken cache counts as a miss and a failed store is ignored; only a network error is thrown."
-
-2. **`swLogic.ts`: `precacheAll`.**
-   ```ts
-   /**
-    * Install step: fetches every URL and stores them only if all are storable (200, not redirected), so a
-    * redirected lobby page is never kept (Safari refuses it for a navigation). Throws on any bad answer or
-    * network error before storing anything, so the install fails and the browser retries, as addAll did.
-    * Cache errors are thrown too: a worker with a missing cache is worth nothing.
-    */
-   export async function precacheAll(urls: readonly string[], origin: string, deps: Pick<StrategyDeps, "fetch" | "openCache">): Promise<void>
-   ```
-   - Mỗi URL: `new Request(origin + url, freshOnInstall(url) ? { cache: "reload" } : undefined)`. Origin cần thiết vì `Request` trong Node không nhận đường dẫn tương đối; trong worker là `sw.location.origin`.
-   - `const responses = await Promise.all(urls.map(...))`. Trong `map`: câu trả lời `!storable(r)` thì `throw new Error(\`precache ${url}: ${r.status}${r.redirected ? " redirected" : ""}\`)`.
-   - Sau đó `const cache = await deps.openCache();` rồi `await Promise.all(responses.map((r, i) => cache.put(urls[i], r)))`.
-
-3. **`swLogic.ts`: `swVersion`.** Đặt ngay sau `precacheUrls` (cùng nhóm "dùng lúc build").
-   ```ts
-   /** Everything a worker build stores or runs; any change gives a new version, so a new cache. */
-   export interface SwVersionInputs {
-     indexHtml: string;
-     manifest: string;
-     /** Source text of sw.ts then swLogic.ts. */
-     workerSources: readonly string[];
-     precache: readonly string[];
-   }
-   /** First 12 hex chars of SHA-256 over the inputs as JSON (no two inputs join into the same text). Web Crypto, so no Node types are needed. */
-   export async function swVersion(inputs: SwVersionInputs): Promise<string>
-   ```
-   - Thân hàm: `crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([inputs.indexHtml, inputs.manifest, inputs.workerSources, inputs.precache])))`. Rồi đổi sang hex: `Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("")`, lấy `.slice(0, 12)`.
-   - `sw.ts` không import hàm này, nên rolldown loại nó khỏi `sw.js`; kiểm bằng tiêu chí 9. Nếu vẫn lọt vào `sw.js`, chuyển `SwVersionInputs` và `swVersion` sang file mới `packages/client/src/pwa/swVersion.ts`, kèm test riêng, rồi ghi lệch vào `PROGRESS.md`.
-   - Sửa chú thích đầu file: thêm "plus two build-time helpers (`precacheUrls`, `swVersion`) used by vite.config.ts".
-
-4. **`packages/client/src/pwa/sw.ts`.**
-   - Import thêm `precacheAll`; bỏ `freshOnInstall`, vì giờ chỉ `swLogic.ts` dùng nó (giữ typecheck sạch với `noUnusedLocals`).
-   - `const openCache = () => caches.open(CACHE);`. Tham chiếu `caches` chỉ nằm trong thân hàm, để `caches` ném lỗi thì lỗi rơi vào `try` của `lookup`.
-   - `install`: `event.waitUntil(precacheAll(precache, sw.location.origin, { fetch: (r) => fetch(r), openCache }));`. Giữ chú thích "No skipWaiting...".
-   - `fetch`: `event.respondWith(strategy(request, route.key, { fetch: (r) => fetch(r), openCache, defer: (p) => event.waitUntil(p) }));`. Không còn `caches.open(...).then(...)` bọc ngoài.
-   - Thêm chú thích một dòng trên `respondWith`: "Cache Storage errors never reach respondWith: the strategies fall back to the network (T82)."
-   - `activate`: không đổi.
-
-5. **`packages/client/vite.config.ts`.**
-   - Bỏ `import { createHash } from "node:crypto"`. Import thêm `swVersion` (cùng dòng với `precacheUrls`).
-   - Thêm biến `let failed = false;` cạnh `root`/`outDir`, và các hook:
-     - `buildStart() { failed = false; }`;
-     - `buildEnd(error) { if (error) failed = true; }`;
-     - `renderError() { failed = true; }`;
-     - `async closeBundle(error) { if (error || failed) return; ... }`.
-     
-     Kèm chú thích: "A failed main build keeps its own error; reading dist/index.html here would only add an ENOENT on top." Rolldown khai báo `buildEnd(err?)` và `closeBundle(error?)` (`node_modules/rolldown/dist/shared/define-config-*.d.mts`).
-   - **Không** dùng `existsSync(index.html)` để thoát: build thành công mà thiếu `index.html` là lỗi thật, phải nổ.
-   - Phiên bản: `await swVersion({ indexHtml, manifest, workerSources, precache })`. Đọc bằng `readFileSync(..., "utf8")`:
-     - `indexHtml`: `join(outDir, "index.html")`;
-     - `manifest`: `join(outDir, "manifest.webmanifest")`;
-     - `workerSources`: `resolve(root, "src/pwa/sw.ts")`, `resolve(root, "src/pwa/swLogic.ts")`.
-   - Sửa JSDoc của `serviceWorker()`: "The version hashes index.html, the manifest, the worker's own source and the precache list, so an unchanged build gives the same version and any change to what the worker stores or does gives a new cache."
-
-6. **`packages/client/src/pwa/register.ts`.**
-   - Thân hàm sau `if (!import.meta.env.PROD) return;`: một `try` bọc `"serviceWorker" in navigator`, và chỗ gắn listener hoặc gọi ngay.
-   - `register` bên trong có `try/catch` riêng: `try { navigator.serviceWorker.register(...).catch(warn); } catch (err) { warn(err); }`, với `const warn = (err: unknown) => console.warn("Service worker not registered", err);`.
-   - Sửa JSDoc dòng cuối: "...and never throws, not even later in the load callback."
-
-7. **`tests/e2e/pwa.spec.ts`.** Dòng 1: `import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";`. Dòng 13: `browser: Browser`. Không đổi gì khác.
-
-8. **Tài liệu.**
-   - `docs/deploy.md` dòng 65 (gạch "Gỡ service worker"), thay bằng: "Gỡ service worker khỏi máy người chơi khi cần (tắt khẩn cấp): deploy một `sw.ts` mà `install` gọi `self.skipWaiting()`, `activate` xoá mọi cache `petgame-*` rồi gọi `self.registration.unregister()`, và không có listener `fetch`. Thiếu `skipWaiting()` thì bản gỡ chờ tới khi mọi tab cũ đóng mới chạy (điện thoại có thể giữ tab nhiều ngày)." Thêm một gạch sau đó: "Cache Storage của trình duyệt hỏng thì worker lấy từ mạng như không có worker (T82); nó không bao giờ là lý do game không mở khi có mạng."
-   - `docs/choi-tren-iphone.md` dòng 66 (Cách B), câu đầu đổi thành: "game lưu sẵn trang và script **sau lần đầu mở app có mạng**, nên từ đó khi mất mạng vẫn mở được tới sảnh; ...". Thêm nửa câu: "(app ở Màn hình chính có bộ nhớ riêng, không dùng bản Safari đã lưu, nên lần đầu mở app phải có mạng)". Phần sau giữ nguyên.
-   - `docs/architecture.md`, mục "PWA (T13)":
-     - dòng 118: danh sách hàm thêm `precacheAll`, `swVersion`;
-     - dòng 119: thêm "Cache Storage lỗi (mở, đọc, ghi) tính như không có trong bộ nhớ: trả lời từ mạng, chỉ lỗi mạng mới ném (T82)";
-     - dòng 120: phiên bản thành "12 ký tự sha256 của `index.html`, manifest, mã nguồn `sw.ts` + `swLogic.ts` và danh sách lưu sẵn"; install là "`precacheAll`: tải hết, chỉ cất khi mọi câu trả lời 200 và không chuyển hướng".
-   - `docs/design/multiplayer.md` dòng 19: game-designer đã sửa trong bước kế hoạch, coder không đụng.
+Có thể commit thành một commit (một vòng coder).
 
 ## Giao thức
 
-Không đổi `schema.ts`, `messages.ts`, `Profile`. Không đổi server. Client: chỉ worker và chỗ đăng ký.
-
-Tương thích: phiên bản đổi công thức, nên lần deploy đầu sau T82 ra tên cache mới. Worker mới cài cache mới, rồi khi kích hoạt xoá cache cũ (`staleCaches`). Đây là đúng đường cập nhật bình thường; không ảnh hưởng dữ liệu người chơi (localStorage và SQLite không liên quan).
+- Không đổi `schema.ts`, `messages.ts`, `Profile`, `store.ts`, server. Không thêm yêu cầu mạng nào.
+- Chỉ đổi dữ liệu `localStorage` `petgame:worlds` của client: thêm trường `seen`, đọc tương thích hai chiều (mục Thiết kế 1). Không làm hỏng dữ liệu đã lưu: mục cũ vẫn dùng được cho T65, chỉ không được mời quay lại.
 
 ## Test
 
-### Unit: `packages/client/src/pwa/swLogic.test.ts` (sửa và thêm)
+### Unit: `packages/client/src/ui/joinStatus.test.ts`
 
-**Sửa helper `fakes`** theo `openCache`:
-- thêm tham số thứ ba `broken?: "open" | "openThrows" | "match" | "put" | "putThrows"`;
-- `"open"`: `openCache` trả lời hứa bị từ chối. `"openThrows"`: `openCache` ném đồng bộ. `"match"`/`"put"`: hàm đó trả lời hứa bị từ chối. `"putThrows"`: `put` ném đồng bộ. Lỗi giả là `new Error("cache broken")` (đặt hằng `CACHE_BROKEN`);
-- đếm thêm `state.opens` và `state.puts`;
-- `settle` giữ là `Promise.all(pending)`, để test "lời hứa ghi nền không bị từ chối" dùng `await expect(f.settle()).resolves.toBeDefined()`.
+Sửa (hành vi đổi có chủ đích, không nới lỏng):
+- "keeps only room and friends" → "keeps room, friends and seen": `{ room: "A", friends: true, extra: 1 }` cho `{ room: "A", friends: true, seen: 0 }`; `{ room: "A", friends: true, seen: 5, extra: 1 }` cho `seen: 5`.
+- Các test `withRecentWorld` và `recentWorlds` đang có: thêm `seen` vào dữ liệu và kỳ vọng.
 
-**Mọi test cũ giữ nguyên nghĩa**, chỉ đổi cách dựng deps; không xoá hay nới test nào.
+Thêm:
+- `recentWorlds`: mục T65 không có `seen` được giữ với `seen: 0`; `seen` là `"5"`, `NaN`, `Infinity`, `-1`, `0`, `null` đều thành 0 và mục vẫn được giữ.
+- `withRecentWorld(list, room, friends, seen)`: ghi `seen` vào mục đầu; đưa thế giới có sẵn lên đầu với `seen` mới.
+- `withWorldClosed`: đặt `seen: 0` cho đúng mục, giữ vị trí và `friends`; room lạ cho danh sách y nguyên; không đổi list đầu vào.
+- `returnOffer` (với `now = 1_000_000_000_000`):
+  - có `invited` (kể cả danh sách hợp lệ): `null`; `invited` rỗng `""` coi như không có;
+  - danh sách rỗng: `null`;
+  - mục có bạn bè, `seen = now - 60_000`: trả `room`;
+  - đúng biên: `seen = now - RETURN_OFFER_MS` có; `now - RETURN_OFFER_MS - 1` không;
+  - mục một mình mới: `null`;
+  - mục cũ không có giờ (`seen: 0`) có bạn bè: `null`;
+  - chọn `seen` lớn nhất chứ không phải mục đầu: `[{Y, friends: true, seen: 0}, {X, friends: true, seen: now - 60_000}]` cho X; `[{A, friends: false, seen: now - 30_000}, {B, friends: true, seen: now - 60_000}]` cho `null`;
+  - giờ tương lai nhỏ (`now + 30_000`) vẫn mời; giờ tương lai quá `RETURN_OFFER_MS` bị bỏ qua, mục kế tiếp hợp lệ thì được mời;
+  - bằng nhau thì mục đứng trước.
+- Hằng số: `RETURN_OFFER_MS === EMPTY_WORLD_HOLD_MS + FRIENDS_STAY_MS` và bằng `10 * 60_000`; `SEEN_EVERY_MS` nhỏ hơn hay bằng `RETURN_OFFER_MS / 10`.
 
-**Thêm `describe("a broken Cache Storage never blocks the network")`.** Có thể dùng `it.each` theo `broken`, mỗi ca ghi rõ tên:
-- `cacheFirst`, `broken` = `open` / `openThrows` / `match`: trả câu trả lời mạng (đọc được `"body"`), `fetches === 1`, `settle()` không bị từ chối.
-- `cacheFirst`, `broken` = `put` / `putThrows`: trả câu trả lời mạng, `settle()` không bị từ chối. Ca `putThrows` chứng minh lỗi đồng bộ không thoát khỏi `cacheFirst`.
-- `networkFirst`, đủ 5 giá trị `broken`: trả câu trả lời mạng, `settle()` không bị từ chối, `matches === 0`.
-- `networkFirst` trả 503 với bộ nhớ hỏng (`open`): trả 503 nguyên.
-- **Lỗi mạng vẫn đi ra**, với `broken` = `open` / `openThrows` / `match`, dưới cả hai chiến lược: `fetch` bị từ chối với `offline`. Kiểm `rejects.toBe(offline)`, tức đúng lỗi mạng chứ không phải `CACHE_BROKEN`.
-- `cacheFirst` với bộ nhớ có sẵn bản lưu nhưng `match` hỏng: `fetch` một lần, trả câu trả lời mạng (không trả bản lưu, không treo).
+### E2E: `tests/e2e/rejoin.spec.ts` (file mới, không đụng `multiplayer.spec.ts`)
 
-**Thêm vào `describe("cacheFirst")`:** "does not store a redirected answer", dùng câu trả lời giả `{ status: 200, redirected: true, clone }` như test cũ của `networkFirst`.
+Đầu file: chép tối thiểu helper từ `multiplayer.spec.ts` như `pwa.spec.ts` đã làm, kèm chú thích "Copied from multiplayer.spec.ts because T63 holds that file; to be gathered into one module in T16". Gồm: mảng `contexts` và `observers` dọn trong `afterEach`, `SERVER = "http://localhost:2567"`, `enterLobby`, `waitForWorld`, `playerCount`, `observer` (SDK `Client.joinById`), `closedWorld`, hằng màn điện thoại dọc `{ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }`. Hàm `worlds(page)` đọc `JSON.parse(localStorage.getItem("petgame:worlds"))`. Mọi trang mở với `?quality=low`. Test có thế giới thật dùng `test.slow()`.
 
-**Thêm `describe("precacheAll")`.** Dùng `fetch` giả trả câu trả lời theo URL, và cache giả dạng `Map`:
-- Mọi URL trả 200: cất đủ, khoá đúng (`"/"`, `"/build/a.js"`, `"/manifest.webmanifest"`); mỗi URL `fetch` đúng một lần; `request.url === ORIGIN + url`. `request.cache` là `"reload"` cho `/` và manifest, là `"default"` cho `/build/*` (Node `Request` có trường `cache`; đã kiểm).
-- `/` trả câu trả lời giả `redirected: true` (status 200): hàm bị từ chối, lỗi chứa `"redirected"`; cache rỗng (`puts === 0`).
-- Một file `/build/*` trả 404: bị từ chối, cache rỗng.
-- Một URL `fetch` ném `offline`: bị từ chối với `offline`, cache rỗng.
-- `openCache` hỏng mà mọi câu trả lời tốt: bị từ chối (install phải hỏng, không nuốt).
+1. **"rejoin: opened at / soon after playing with a friend, a second button takes the player back to the same world"** (điện thoại dọc, cảm ứng):
+   - Mở `/?quality=low`, vào chơi "Host", `waitForWorld`, lấy `roomId`. `observer(roomId, "Friend")`, chờ `playerCount` = 2.
+   - `worlds(page)[0]` là `{ room: roomId, friends: true, seen }` với `seen` trong khoảng giờ test.
+   - Chứng minh ghi lúc rời trang: `page.evaluate` đặt `seen` của mọi mục thành `Date.now() - 60 * 60_000` (cũ 1 giờ), rồi `page.goto("about:blank")` (bắn `visibilitychange`/`pagehide`), rồi `page.close()`. Chỉ lần ghi lúc rời mới làm giờ mới lại. (Nhịp 60 s rơi đúng vào giữa hai lệnh chỉ làm test qua oan, không làm test hỏng oan.)
+   - Trang mới cùng context (`context.newPage()`, sessionStorage rỗng như app vừa mở) ở `/?quality=low`. Chờ `#join-btn:enabled`. Kỳ vọng:
+     - `#rejoin-btn` hiện, chữ đúng "Quay lại thế giới cùng bạn bè";
+     - `#room-hint` rỗng, `#join-btn` hiện và ghi "Vào chơi";
+     - `#rejoin-btn` không có focus.
+   - Ở 390×844, 844×390, 1280×720: hộp của `#rejoin-btn` ≥ 44×44 và `toBeInViewport({ ratio: 1 })`; rồi về 390×844.
+   - `tap()` nút phụ → `waitForWorld` → `roomId` trùng, `playerCount` = 2, `observer` thấy 2 người; địa chỉ có `room=roomId` và giữ `quality=low`.
+2. **"rejoin: a world that closed meanwhile shows the closed card, by keyboard, and is not offered again"** (desktop):
+   - Vào "Host", `observer` Friend, chờ 2 người.
+   - `page.goto("about:blank")`; chờ `friend.state.players.size` = 1; `friend.send("debug:emptyHold", { ms: 0 })`; `friend.leave()`; `closedWorld(roomId)`.
+   - Trang mới `/?quality=low`: `#rejoin-btn` hiện. `#join-btn.focus()`, nhấn Tab: `#rejoin-btn` có focus; nhấn Enter.
+   - Thẻ `#join-status` chứa "Thế giới này đã đóng" và "vẫn còn"; `#new-world-btn` có focus; địa chỉ không còn `room`; `#rejoin-btn` ẩn; mục `roomId` vẫn trong danh sách với `friends: true`, `seen: 0`.
+   - `reload()`: chờ `#join-btn:enabled`, `#rejoin-btn` ẩn.
+3. **"rejoin: no second button when the last world was solo, too old, undated, opened by a link, or the list is broken"** (desktop):
+   - Thật: vào "Solo" một mình, `waitForWorld`, `page.close()`; trang mới `/` cùng context: `#join-btn:enabled`, `#rejoin-btn` ẩn.
+   - Dựng sẵn (mỗi trường hợp một context mới, `addInitScript` ghi `petgame:worlds` theo `Date.now()` của trang; không cần thế giới thật), kỳ vọng sau `#join-btn:enabled`:
 
-**Thêm `describe("swVersion")`:**
-- Với `base = { indexHtml: "<html>", manifest: "{}", workerSources: ["sw", "logic"], precache: ["/", "/build/a.js"] }`:
-  - kết quả khớp `/^[0-9a-f]{12}$/`;
-  - gọi hai lần ra cùng giá trị.
-- Đổi riêng `manifest` → khác `base`.
-- Đổi riêng `workerSources[0]` (`sw.ts`) → khác. Đổi riêng `workerSources[1]` (`swLogic.ts`) → khác.
-- Đổi riêng `indexHtml` → khác. Đổi riêng `precache` → khác.
-- Ranh giới: `{ indexHtml: "ab", manifest: "c" }` khác `{ indexHtml: "a", manifest: "bc" }`.
+     | Danh sách / địa chỉ | `#rejoin-btn` |
+     |---|---|
+     | `[{room:"r1", friends:true}]` (T65, không giờ) | ẩn |
+     | `[{room:"r1", friends:false, seen: now-60s}]` | ẩn |
+     | `[{room:"r1", friends:true, seen: now-11min}]` | ẩn |
+     | `[{room:"a", friends:false, seen: now-30s}, {room:"b", friends:true, seen: now-60s}]` | ẩn |
+     | `[{room:"r1", friends:true, seen: now-60s}]` ở `/` (đối chứng: cách dựng có tác dụng) | hiện |
+     | cùng danh sách đó nhưng mở `/?room=r1` | ẩn, `#room-hint` = "Quay lại thế giới bạn đang chơi cùng bạn bè" (T65 không đổi) |
+     | `"{not json"` | ẩn |
+     | `Storage.prototype.getItem/setItem` ném lỗi | ẩn |
 
-### Unit mới: `packages/client/src/pwa/register.test.ts`
+### Không đổi, phải còn qua
 
-Dùng `vi.stubEnv("PROD", true)`, `vi.stubGlobal("navigator" | "document" | "window", ...)`, `vi.spyOn(console, "warn").mockImplementation(() => {})`. `afterEach` gọi `vi.unstubAllEnvs()`, `vi.unstubAllGlobals()`, `vi.restoreAllMocks()`.
-- `navigator` có getter `serviceWorker` ném `SecurityError`, `document.readyState = "loading"`, `window.addEventListener` giữ lại listener. Gọi `registerServiceWorker()` không ném; gọi listener đã giữ cũng không ném; `console.warn` được gọi một lần. Đây là ca chứng minh sửa đúng: với code cũ, listener ném.
-- `readyState = "complete"`, `register` trả lời hứa resolve: gọi ngay với `"/sw.js"`, không gắn listener.
-- `register` trả lời hứa bị từ chối: không ném, `console.warn` được gọi (sau `await` một vòng microtask).
-- `vi.stubEnv("PROD", false)`: không đọc `navigator` (getter không bị gọi), không gắn listener.
-
-Lưu ý: `"serviceWorker" in navigator` không gọi getter, nên đối tượng giả phải định nghĩa `serviceWorker` bằng `Object.defineProperty(..., { get() { throw ... } })`.
-
-### E2E
-
-`tests/e2e/pwa.spec.ts`: chỉ đổi import (bước 7). Hai test có sẵn phải qua. Test 1 (c) kiểm lại rằng `precacheAll` cất đủ `/`, manifest và mọi script/modulepreload; (d) kiểm reload vẫn được worker trả lời. Không cần chạy lại cả bộ `multiplayer.spec.ts` để chấm T82, nhưng CI vẫn chạy cả bộ: tester chạy `npm run test:e2e` đầy đủ như thường lệ.
+- `tests/e2e/multiplayer.spec.ts` (các test `lobby:` của T23/T49/T65, gồm danh sách hỏng), `tests/e2e/pwa.spec.ts`, toàn bộ `npm test`.
+- Không cần test server hay `GameRoom.test.ts` (không đổi server).
 
 ## Tiêu chí hoàn thành
 
-1. `npm run typecheck` sạch. `npm test` qua, gồm mọi ca mới ở mục Test, cộng các ca cũ của `swLogic.test.ts` không bị xoá hay nới.
-2. Trong `sw.ts` không còn `caches.open(...).then(` bọc quanh `respondWith`. Cache chỉ được mở qua `deps.openCache()` trong `swLogic.ts`, và không có `cache.addAll` nào.
-3. Với cache giả ném lỗi ở `openCache` (bị từ chối và ném đồng bộ), `match`, `put` (bị từ chối và ném đồng bộ): cả hai chiến lược trả câu trả lời mạng, `fetch` đúng một lần, lời hứa đưa cho `defer` không bị từ chối.
-4. Mạng lỗi kèm bộ nhớ lỗi: cả hai chiến lược ném **đúng** lỗi mạng (`toBe(offline)`).
-5. `precacheAll` không cất gì khi có câu trả lời `redirected`, khác 200, hoặc lỗi mạng, và khi đó bị từ chối. Mọi câu trả lời tốt thì cất đủ, đúng khoá, `/` và manifest tải với `cache: "reload"`.
-6. `swVersion` đổi khi manifest, `sw.ts` hoặc `swLogic.ts` đổi, và ổn định với cùng đầu vào. `vite.config.ts` truyền đúng 4 nguồn đó.
-7. `npm run build` hai lần liền không đổi gì: dòng log `service worker <phiên bản>: N files precached` ra cùng phiên bản. N bằng số của bản build `c97a472` (reviewer T13b đếm được 15): T82 không đổi danh sách lưu sẵn.
-8. `closeBundle` thoát sớm khi build chính lỗi (cờ `failed` từ `buildEnd`/`renderError`, hoặc tham số `error`). Không dùng `existsSync` để im lặng bỏ qua build thành công thiếu `index.html`. Reviewer kiểm bằng đọc code. Nếu tester muốn kiểm tay: sửa tạm một import trong `packages/client/src/main.ts` thành file không tồn tại, chạy `npm run build`, xác nhận lỗi in ra là lỗi resolve gốc chứ không phải `ENOENT ... index.html`. Rồi **sửa lại bằng tay**, và `git diff --stat packages/client/src/main.ts` phải rỗng. Không dùng `git stash` hay `git checkout` cho việc này.
-9. `dist/sw.js` là IIFE, không có `import`/`export`, không chứa `subtle` (tức `swVersion` đã bị loại khỏi worker). Có chứa chuỗi `redirected` (`precacheAll` và `storable`). Ghi cỡ file vào `PROGRESS.md` (trước T82: 2087 byte).
-10. `register.ts`: mọi lần đọc `navigator.serviceWorker` nằm trong `try/catch`, kể cả trong callback `load`. `register.test.ts` có ca getter ném trong listener; ca này hỏng với code cũ.
-11. `npm run test:e2e` qua, gồm hai test `pwa:`. `pwa.spec.ts` dùng `type Browser` ở dòng 1 và không còn `import(` trong chú thích kiểu.
-12. Tài liệu đã sửa đúng mục 8: `deploy.md` có `skipWaiting()` trong cách gỡ khẩn cấp; `choi-tren-iphone.md` có "sau lần đầu mở app có mạng"; `architecture.md` ghi phiên bản mới, `precacheAll` và luật lùi về mạng.
-13. `git diff c97a472 --stat` không có `tests/e2e/multiplayer.spec.ts` hay `packages/client/src/game/labelLayout.ts`. `git stash list` vẫn đúng 2 mục như lúc bắt đầu (`stash@{0}` T63, `stash@{1}` tester).
+- [ ] `RecentWorld` có `seen: number`; `recentWorlds` giữ mục không có hoặc sai `seen` với `seen: 0`, không bao giờ ném lỗi; `withRecentWorld` nhận `seen`; có `withWorldClosed`, `returnOffer`, `FRIENDS_STAY_MS`, `RETURN_OFFER_MS` (= `EMPTY_WORLD_HOLD_MS` + 9 phút = 10 phút), `SEEN_EVERY_MS` (60 s) trong `ui/joinStatus.ts`, có JSDoc tiếng Anh.
+- [ ] `returnOffer` chọn mục có `seen` lớn nhất (bỏ giờ tương lai quá `RETURN_OFFER_MS`), mời chỉ khi không có `?room=`, có bạn bè, `|now - seen| <= RETURN_OFFER_MS`.
+- [ ] Giờ được ghi: khi vào/bạn bè đổi, mỗi 60 s, khi `visibilitychange` ẩn, khi `pagehide` (trước `watch.leave()`), ba cách mới chỉ khi `watch.online`; timer dừng khi mất hẳn kết nối. Mở bằng `?room=` (T65) giữ giờ cũ.
+- [ ] Thẻ "closed" (cả nhánh `quietRetry`) và màn `shutdown` đặt `seen = 0` cho thế giới đó; nút Tạo thế giới mới thì không.
+- [ ] `#rejoin-btn` (class `lobby-action`, ẩn sẵn) nằm ngay sau `#join-btn`; chữ "Quay lại thế giới cùng bạn bè" lấy từ `LOBBY_TEXT.rejoinFriends`, không có chữ tiếng Việt mới viết thẳng trong `main.ts` hay `index.html`.
+- [ ] Nút hiện chỉ ở `/` khi `returnOffer` cho thế giới; không tự lấy focus; "Vào chơi" không đổi; bấm thì `?room=` vào địa chỉ (giữ tham số khác) rồi vào; nút ẩn khi bất kỳ lần vào nào bắt đầu.
+- [ ] Thế giới đã đóng: thẻ "Thế giới này đã đóng" với chữ "vẫn còn", Tạo thế giới mới có focus, địa chỉ bỏ `room`; tải lại `/` không còn nút.
+- [ ] Nút ≥ 44×44 và nằm trọn trong khung nhìn ở 390×844, 844×390, 1280×720; bấm được bằng chạm, Tab + Enter.
+- [ ] Không đổi server, schema, message, Profile; không thêm yêu cầu mạng trước khi sảnh sẵn sàng.
+- [ ] Unit test mục Test có và qua; `tests/e2e/rejoin.spec.ts` có 3 test và qua; `multiplayer.spec.ts` không bị sửa; `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` sạch.
+- [ ] `docs/architecture.md` có câu T79; `docs/design/multiplayer.md` khớp với code (đã viết sẵn; nếu code khác thì sửa một trong hai và ghi lý do).
+- [ ] Không có `git stash` nào mới; `stash@{0}` của T63 còn nguyên.
 
 ## Rủi ro, câu hỏi mở
 
-Không có CHẶN.
+Không có mục CHẶN.
 
-- **`vi.stubEnv("PROD", true)`:** Vitest 5 khai báo `stubEnv` nhận `boolean` cho `PROD`. Nếu `import.meta.env.PROD` trong `register.ts` vẫn không đổi theo, đừng tắt test. Khi đó tách phần sau dòng kiểm `PROD` thành hàm export `registerWhenLoaded(base: string): void` (vẫn trong `register.ts`), cho `registerServiceWorker` gọi nó, và test hàm đó. Ghi lệch vào `PROGRESS.md`.
-- **Rolldown không loại `swVersion` khỏi `sw.js`:** xem phương án ở bước 3 (tách sang `swVersion.ts`).
-- **Vite 8 có gọi `closeBundle` khi build lỗi không:** không chắc. Cờ `failed` cộng tham số `error` an toàn trong cả hai trường hợp; nếu Vite không gọi thì nhánh đó vô hại.
-- **Ghi nền sau `respondWith`:** `event.waitUntil` được gọi sau một `await` trong lúc lời hứa của `respondWith` còn chờ. Spec cho phép, và code hiện tại đã làm vậy; không đổi.
-- **Install nghiêm hơn:** một proxy luôn chuyển hướng `/` (ví dụ sang `/index.html`) giờ làm install hỏng mãi, tức không có worker. Đó là đúng ý: không có worker thì game chạy như trước T13. Lưu sẵn một trang mà Safari sẽ từ chối còn tệ hơn. Server hiện không chuyển hướng `/`.
-- **Phiên bản đổi khi chỉ sửa chú thích worker:** chấp nhận được (xem Thiết kế 3).
+- **Hành vi thật trên iOS chưa kiểm được ở đây:** việc iOS bắn `visibilitychange` khi chuyển app khỏi app web ở Màn hình chính là hành vi đã biết của Safari, nhưng cần kiểm trên máy thật cùng đợt kiểm tay của T13/T80. Nhịp 60 s là lưới an toàn nếu không có sự kiện. Đề xuất thêm một dòng vào ghi chú kiểm tay cuối `TASKS.md`: "T79: chơi cùng bạn bè trên app ở MH chính iPhone, chuyển app 2-5 phút cho iOS dỡ app, mở lại: có nút Quay lại thế giới cùng bạn bè và về đúng thế giới."
+- **Nút ở 844×390 có thể không vừa** nếu ước lượng chiều cao sai: cách sửa đã ghi ở mục Thiết kế 5 (thu nhỏ hình nhân vật), không đổi bố cục khác.
+- **Test 1 bước "ghi lúc rời trang"** dựa vào việc `page.goto("about:blank")` bắn `pagehide` (các test T23 đã dựa vào điều này). Nếu Chromium không bắn `visibilitychange` khi điều hướng thì `pagehide` vẫn ghi; test không phân biệt hai cách, chỉ kiểm có ghi lúc rời.
+- **Hai tab:** tab mới ở `/` thấy nút trong lúc tab cũ vẫn chơi; bấm thì tab cũ kết thúc ("Bạn đang chơi ở nơi khác"). Đã ghi trong tài liệu thiết kế, chấp nhận (giống bấm "Vào chơi").
+- **Ghi đồng thời giữa các tab** (đọc rồi ghi `localStorage`): có thể mất một lần ghi giờ của tab kia, lần ghi sau (≤ 60 s) sửa lại. Chấp nhận như T65.
 
-## Đề xuất tách nhiệm vụ
-
-Không cần: tất cả nhỏ và cùng chạm `src/pwa/`, làm được trong một vòng coder.
+Đề xuất cập nhật `TASKS.md` (agent chính):
+- Ghi chú vào **T16**: "Gom thêm helper chép trong `tests/e2e/rejoin.spec.ts` (T79) vào module chung."
+- Dòng kiểm tay iPhone cho T79 như trên, vào phần ghi chú chờ người chơi thử.
