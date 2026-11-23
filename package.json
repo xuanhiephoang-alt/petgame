@@ -21,7 +21,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "play": "npm run build && npm start --workspace=@petgame/server",
-    "shots": "node scripts/shots.mjs",
+    "shots": "node --import tsx scripts/shots.mjs",
     "photo3d": "node scripts/photo3d.mjs",
     "photo3d:web": "node scripts/photo3d.mjs --web",
     "photo3d:ai-setup": "node scripts/photo3d-ai-setup.mjs",

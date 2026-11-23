@@ -32,7 +32,7 @@ scripts/           dev, shots, sprite/photo3d        docs/   tài liệu        
 | Unit + tích hợp | `npm test` (một file: `npx vitest run <đường dẫn>`, lọc: `-t "<tên>"`) |
 | E2E | `npm run test:e2e` (tự bật server 2567 + Vite 5173; một test: `npx playwright test -g "<tên>"`) |
 | Công cụ photo3d | `cd tools/photo3d && python -m pytest -q` |
-| Ảnh chụp so sánh hình | `npm run shots -- --name <tên>` (ra `shots/<tên>/` + số sprite) |
+| Ảnh chụp so sánh hình | `npm run shots -- --name <tên>` (ra `shots/<tên>/` + số sprite; `--only world,labels,aim,skills,alpha,toasts`; `--compare <A> <B>` so hai bộ) |
 | Xem mọi hình | `npm run dev` rồi mở `/sprites.html` (`?show=pals\|players\|nature\|skills`) |
 | Ảnh AI thành sprite | `npm run sprite -- <ảnh> --pal <id>` (`--head`, `--outfit`, `--objects ... --sheet ...`; xem `docs/art-style.md`) |
 | Deploy | Một container chạy server + client đã build (`Dockerfile`, `render.yaml`, `fly.toml`; xem `docs/deploy.md`) |
