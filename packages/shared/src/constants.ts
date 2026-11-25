@@ -44,6 +44,12 @@ export const ROOM_NAME = "world";
  */
 export const RECONNECT_GRACE_MS = 20_000;
 /**
+ * A dropped connection counts as being away (the player is sheltered) only after this long, so dropping and coming
+ * back cannot call off an attack already under way (T25). Longer than the longest attack once started plus two ticks
+ * (see attackLandsWithinMs, locked by a test), and far shorter than the 6-9 s a silent drop takes to notice.
+ */
+export const DROP_SHELTER_DELAY_MS = 1500;
+/**
  * How long (ms) a client keeps trying to reconnect: the grace, plus the most the server may need to notice the
  * dead socket (9 s), plus 1 s to spare. By then the server has certainly let the seat go.
  */

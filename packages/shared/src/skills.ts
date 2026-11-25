@@ -141,6 +141,11 @@ export function skillTravelMs(skill: SkillDef, distance: number): number {
   return skill.durationMs ?? 0;
 }
 
+/** Time (ms) from the start of the wind-up until the skill lands at its full reach: castMs plus its flight or duration. */
+export function skillLandsWithinMs(skill: SkillDef): number {
+  return skill.castMs + skillTravelMs(skill, skillReach(skill));
+}
+
 /**
  * Whether a body at `p` (of radius `r`) is caught where the skill lands:
  * around `aim` for what is aimed at a spot, around its caster at `from` for

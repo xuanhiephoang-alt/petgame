@@ -27,6 +27,7 @@ import {
   OwnedPal,
   PLAYER_COLORS,
   Player,
+  DROP_SHELTER_DELAY_MS,
   RECONNECT_GRACE_MS,
   RESOURCES,
   ServerMessage,
@@ -114,6 +115,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   holds = new Map<string, Deferred<Client>>();
   /** How long (ms) a dropped player is waited for; tests shorten it. */
   reconnectGraceMs = RECONNECT_GRACE_MS;
+  /** How long (ms) a dropped player stays in the fight before being sheltered (T25); tests shorten it. */
+  shelterDelayMs = DROP_SHELTER_DELAY_MS;
   /**
    * Device token -> where a player stood when their held place was lost (the connection died while they were coming
    * back, T24). A fresh join of the same device within `resumeMs` takes the spot back. Memory only, never saved.
@@ -340,8 +343,10 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   /**
    * The connection dropped without a goodbye (bad signal, a Wi-Fi switch, a locked phone, a killed tab): the
-   * player stays where they stood, frozen and safe, for the grace, and the client's own retry brings them back
-   * (onReconnect). If it does not, Colyseus calls onLeave when the wait runs out.
+   * player stays where they stood, frozen, for the grace, and the client's own retry brings them back
+   * (onReconnect). If it does not, Colyseus calls onLeave when the wait runs out. The place is held and the player's
+   * own intent stops at once, but they are only sheltered after `shelterDelayMs` (T25): a quick drop and return must
+   * not call off a bite or a stomp already under way.
    */
   onDrop(client: Client) {
     const sessionId = client.sessionId;
@@ -365,20 +370,32 @@ export class GameRoom extends Room<{ state: GameState }> {
       return;
     }
     this.holds.set(sessionId, hold);
-    player.offline = true;
     // Whatever they were doing stops: no walking on, no dash, no skill order, no fight their pal would carry on.
     control.input = { x: 0, y: 0 };
     control.dashLeftMs = 0;
     control.skillOrder = undefined;
     control.aggroUntil = 0;
-    // Nobody keeps fighting them or their pals; a skill a pal was still winding up is dropped (ones already let go fly on).
+    this.clock.setTimeout(() => this.shelter(sessionId, hold), this.shelterDelayMs);
+  }
+
+  /**
+   * A drop has lasted `shelterDelayMs`: the player counts as away. They are marked offline (nothing can hurt or target
+   * them), nobody keeps fighting them or their pals, a skill a pal was still winding up is dropped (ones already let go
+   * fly on), and the profile is saved in case the server goes down while they are away. Does nothing when this drop is
+   * over: back already, gone, or dropped again since (a newer hold).
+   */
+  private shelter(sessionId: string, hold: Deferred<Client>) {
+    if (this.holds.get(sessionId) !== hold) return;
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    player.offline = true;
     this.combat.calmPalsTargeting("player", sessionId);
     this.state.companions.forEach((c, id) => {
       if (c.ownerId !== sessionId) return;
       this.skills.cancelCasts("companion", id);
       this.combat.calmPalsTargeting("companion", id);
     });
-    this.saves.saveNow(sessionId); // in case the server goes down while they are away
+    this.saves.saveNow(sessionId);
   }
 
   /** Whether this device has a lost place to take back in this world; the POST /resume route asks it (does not use it up). */
@@ -386,7 +403,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     return peekResume(this.resumes, token, this.clock.currentTime);
   }
 
-  /** The dropped player is back: the same session and the same player, nothing was created again. */
+  /** The dropped player is back: the same session and the same player, nothing was created again (and nothing to undo when it is before the shelter). */
   onReconnect(client: Client) {
     this.holds.delete(client.sessionId);
     const player = this.state.players.get(client.sessionId);

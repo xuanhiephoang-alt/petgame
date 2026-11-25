@@ -3,6 +3,8 @@ import type { CollisionGrid } from "./collision.ts";
 import { clamp, type Vec2 } from "./movement.ts";
 import { NAV_MAX_CLEARANCE, type NavGrid } from "./pathfind.ts";
 import type { Element, PalSpecies } from "./pals.ts";
+import { BOSS } from "./boss.ts";
+import { skillLandsWithinMs, type SkillDef } from "./skills.ts";
 import { scaledMaxHp } from "./progression.ts";
 import type { Reward } from "./rewards.ts";
 import type { Resource } from "./work.ts";
@@ -53,6 +55,15 @@ export const FAINT_REST_MS = 30_000;
 
 /** A wild pal crouches this long before it bites (ms): step back or dash to dodge. */
 export const WILD_WINDUP_MS = 450;
+
+/**
+ * The longest time (ms) any attack takes from the moment it starts (a bite or a stomp crouching, a skill casting) to
+ * the moment it lands: the longest of the wild bite, the boss's bite and stomp, and every skill in `skills`.
+ * DROP_SHELTER_DELAY_MS has to exceed it by at least two ticks, or dropping the connection could call off a blow.
+ */
+export function attackLandsWithinMs(skills: readonly SkillDef[]): number {
+  return Math.max(WILD_WINDUP_MS, BOSS.biteWindupMs, BOSS.stompWindupMs, ...skills.map(skillLandsWithinMs));
+}
 /** The bite still lands if its target is this close when the wind-up ends (pixels). */
 export const WILD_BITE_REACH = WILD_ATTACK_RANGE + 10;
 /** A bite pushes its target back this far (pixels); the boss's stomp much farther. */

@@ -39,6 +39,7 @@ import {
   BERRY_HEAL,
   EAT_COOLDOWN_MS,
   TICK_MS,
+  DROP_SHELTER_DELAY_MS,
   WildPal,
   OwnedPal,
   Chest,
@@ -155,6 +156,17 @@ async function capture(room: GameRoom, client: Awaited<ReturnType<typeof setup>>
 }
 
 const bossOf = (room: GameRoom) => [...room.state.pals.entries()].find(([, p]) => p.boss);
+
+/**
+ * Makes the room's clock advance exactly TICK_MS per tick, however late the real tick runs: Colyseus' Clock reads
+ * its own `now` (Date.now) once per tick, so a stall on a busy machine would otherwise jump the room's time by
+ * hundreds of ms and move the edges of tests that measure time. Ticks still come at the real 50 ms pace.
+ */
+function steadyClock(room: GameRoom) {
+  const clock = room.clock as any;
+  let time: number = clock.currentTime;
+  clock.now = () => (time += TICK_MS);
+}
 
 const ticks = async (room: GameRoom, n: number) => {
   for (let i = 0; i < n; i++) await room.waitForNextTimestep();
@@ -861,16 +873,6 @@ describe("boss movement", () => {
 describe("eating berries", () => {
   const nextEatAt = (room: GameRoom, sessionId: string): number => (room as any).controls.get(sessionId).nextEatAt;
   const now = (room: GameRoom): number => (room as any).clock.currentTime;
-  /**
-   * Makes the room's clock advance exactly TICK_MS per tick, however late the real tick runs: Colyseus' Clock reads
-   * its own `now` (Date.now) once per tick, so a stall on a busy machine would otherwise jump the room's time by
-   * hundreds of ms and move these tests' edges. Ticks still come at the real 50 ms pace.
-   */
-  function steadyClock(room: GameRoom) {
-    const clock = room.clock as any;
-    let time: number = clock.currentTime;
-    clock.now = () => (time += TICK_MS);
-  }
   /** Ticks until the room's clock reaches `time`. */
   async function until(room: GameRoom, time: number) {
     while (now(room) < time) await ticks(room, 1);
@@ -2623,8 +2625,13 @@ describe("releasing pals and a full party", () => {
 describe("reconnecting after a dropped connection", () => {
   type TestClient = Awaited<ReturnType<typeof setup>>["client"];
 
-  /** Kills a player's socket from the server's side: the server sees it close abnormally (1006), as when the network dies. */
-  function cutConnection(room: GameRoom, sessionId: string) {
+  /**
+   * Kills a player's socket from the server's side: the server sees it close abnormally (1006), as when the network dies.
+   * The shelter of a drop normally waits shelterDelayMs (T25); here it starts at the next tick, so the tests about the
+   * away state do not each wait 1.5 s. The tests of that delay itself pass `realDelay: true`.
+   */
+  function cutConnection(room: GameRoom, sessionId: string, { realDelay = false } = {}) {
+    if (!realDelay) room.shelterDelayMs = 0;
     (room.clients.find((c) => c.sessionId === sessionId) as any).ref.terminate();
   }
 
@@ -2780,7 +2787,7 @@ describe("reconnecting after a dropped connection", () => {
     const refused = new Promise<number>((resolve) => client.onLeave.once(resolve));
     cutConnection(room, sessionId);
     await vi.waitFor(() => expect(player.offline).toBe(true));
-    // Saved at the drop itself: the batched save (2 s after the catch) has not run, and the grace is not over yet.
+    // Saved as the drop counts (the shelter): the batched save (2 s after the catch) has not run, and the grace is not over yet.
     expect(db.load(token)?.pals).toHaveLength(1);
 
     await vi.waitFor(() => expect(room.state.players.has(sessionId)).toBe(false), { timeout: 4000 });
@@ -3108,6 +3115,212 @@ describe("reconnecting after a dropped connection", () => {
     expect(told.filter((m) => m.text.startsWith("★"))).toEqual([]);
   });
 
+  /** Ticks until the room's clock reaches `time` (use after steadyClock for exact marks). */
+  async function untilClock(room: GameRoom, time: number) {
+    while (room.clock.currentTime < time) await ticks(room, 1);
+  }
+
+  /** Cuts the player's socket with the real shelter delay and returns the room's time when the drop was seen. */
+  async function dropForReal(room: GameRoom, sessionId: string): Promise<number> {
+    cutConnection(room, sessionId, { realDelay: true });
+    await vi.waitFor(() => expect(holdsOf(room).has(sessionId)).toBe(true));
+    return room.clock.currentTime;
+  }
+
+  /** Notes (once a tick) whether the player was ever marked away. */
+  function watchOffline(room: GameRoom, player: { offline: boolean }) {
+    const seen = { offline: false };
+    room.clock.setInterval(() => {
+      if (player.offline) seen.offline = true;
+    }, TICK_MS);
+    return seen;
+  }
+
+  /** A wild scorchtail beside the player, tough enough not to fall, after them. */
+  function foeBeside(room: GameRoom, player: { x: number; y: number }, sessionId: string, dx = 30): string {
+    const foe = placeWild(room, "scorchtail", player, dx);
+    const pal = room.state.pals.get(foe)!;
+    pal.maxHp = pal.hp = 999;
+    (room as any).provoke(foe, { kind: "player", id: sessionId });
+    return foe;
+  }
+
+  it("a quick drop and return calls off nothing: the bite being wound up lands", async () => {
+    const { room, client, player } = await setup();
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    const foe = foeBeside(room, player, sid);
+    const aggro = () => (room as any).wildAggro.get(foe);
+    // A bite that lands 900 ms from now, longer than the reconnection takes.
+    (room as any).combat.windUp(room.state.pals.get(foe)!, aggro(), "bite", 900);
+    const landsAt: number = aggro().windupUntil;
+    const hpBefore = player.hp;
+    const sheltered = watchOffline(room, player);
+    holdReconnect(client)();
+    const back = reconnected(client);
+    cutConnection(room, sid, { realDelay: true });
+    await back;
+    await untilClock(room, landsAt + 2 * TICK_MS);
+    expect(player.hp).toBeLessThan(hpBefore);
+    expect(aggro()?.target.id).toBe(sid);
+    expect(sheltered.offline).toBe(false);
+    expect(holdsOf(room).size).toBe(0);
+  });
+
+  it("the boss's stomp under way when the player drops still lands; the shelter comes after", async () => {
+    const { room, client, player } = await setup();
+    steadyClock(room);
+    const sid = client.sessionId;
+    const [bossId, boss] = bossOf(room)!;
+    boss.maxHp = boss.hp = 99_999;
+    player.x = boss.x + 60;
+    player.y = boss.y;
+    (room as any).provoke(bossId, { kind: "player", id: sid });
+    const aggro = () => (room as any).wildAggro.get(bossId);
+    (room as any).combat.windUp(boss, aggro(), "stomp", BOSS.stompWindupMs);
+    const hpBefore = player.hp;
+    client.reconnection.enabled = false;
+    const dropAt = await dropForReal(room, sid);
+    await untilClock(room, dropAt + BOSS.stompWindupMs + 100);
+    expect(player.hp).toBeLessThan(hpBefore);
+    expect(player.offline).toBe(false);
+    await untilClock(room, dropAt + DROP_SHELTER_DELAY_MS + 100);
+    expect(player.offline).toBe(true);
+    expect(aggro()?.target.id).not.toBe(sid);
+  });
+
+  it("dropping again and again shelters nothing and saves nothing", async () => {
+    const { room, client, player } = await setup();
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    const foe = foeBeside(room, player, sid);
+    const saved = vi.spyOn((room as any).saves, "saveNow");
+    const bites = vi.spyOn((room as any).combat, "damage");
+    const sheltered = watchOffline(room, player);
+    const hpBefore = player.hp;
+    client.reconnection.minUptime = 0;
+    client.reconnection.minDelay = 10;
+    client.reconnection.maxDelay = 50;
+    for (let i = 0; i < 7; i++) { // long enough for a few bites (a wild pal bites about once a second and a half)
+      const back = reconnected(client);
+      cutConnection(room, sid, { realDelay: true });
+      await back;
+      await ticks(room, 6);
+    }
+    expect(sheltered.offline).toBe(false);
+    expect(saved.mock.calls.filter(([id]) => id === sid)).toEqual([]);
+    expect(bites.mock.calls.filter(([target]: any[]) => target.kind === "player").length).toBeGreaterThanOrEqual(2);
+    expect(player.hp).toBeLessThan(hpBefore);
+    expect((room as any).wildAggro.get(foe)?.target.id).toBe(sid);
+  });
+
+  it("the shelter of an old drop never lands on a newer one", async () => {
+    const { room, client, player } = await setup();
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    const open1 = holdReconnect(client);
+    const back1 = reconnected(client);
+    const dropAt1 = await dropForReal(room, sid);
+    open1();
+    await back1;
+    await untilClock(room, dropAt1 + 700);
+    const open2 = holdReconnect(client);
+    const dropAt2 = await dropForReal(room, sid);
+    expect(dropAt2, "the second drop came too late to test the first one's timer").toBeLessThan(dropAt1 + DROP_SHELTER_DELAY_MS);
+    await untilClock(room, dropAt1 + DROP_SHELTER_DELAY_MS + 100);
+    expect(player.offline).toBe(false); // the first drop's timer saw another hold
+    await untilClock(room, dropAt2 + DROP_SHELTER_DELAY_MS + 100);
+    expect(player.offline).toBe(true);
+    const back2 = reconnected(client);
+    open2();
+    await back2;
+  });
+
+  it("a real outage is sheltered after DROP_SHELTER_DELAY_MS, as before", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const { room, client, player } = await setup("shelter-t5-token-0123456789");
+    steadyClock(room);
+    await capture(room, client, player);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    const palId = player.activePalId;
+    const inner = room as any;
+    const control = inner.controls.get(sid);
+    client.send(ClientMessage.Input, { x: 1, y: 0 });
+    await ticks(room, 2);
+    inner.startCast("companion", palId, room.state.companions.get(palId)!, 1, getSkill("seed_shot"), undefined, sid);
+    for (const cast of inner.casts) cast.firesAt = cast.landsAt = Number.MAX_SAFE_INTEGER;
+    inner.castingUntil.set(`c:${palId}`, Number.MAX_SAFE_INTEGER);
+    control.skillOrder = { companionId: palId, skill: "seed_shot", until: Number.MAX_SAFE_INTEGER };
+    control.aggroUntil = Number.MAX_SAFE_INTEGER;
+    control.dashDir = { x: 1, y: 0 };
+    control.dashLeftMs = 100_000;
+    // Far enough not to reach them within the wait: only its aim is checked.
+    const foe = foeBeside(room, player, sid, 400);
+    const saved = vi.spyOn(inner.saves, "saveNow");
+    client.reconnection.enabled = false;
+    const dropAt = await dropForReal(room, sid);
+
+    expect(control.input).toEqual({ x: 0, y: 0 });
+    expect(control.dashLeftMs).toBe(0);
+    expect(control.skillOrder).toBeUndefined();
+    const at = { x: player.x, y: player.y };
+    await ticks(room, 10);
+    expect([player.x, player.y]).toEqual([at.x, at.y]);
+
+    await untilClock(room, dropAt + DROP_SHELTER_DELAY_MS - 100);
+    expect(player.offline).toBe(false);
+    expect(inner.casts.some((c: { casterId: string }) => c.casterId === palId)).toBe(true);
+    expect(saved.mock.calls.filter(([id]) => id === sid)).toEqual([]);
+
+    await untilClock(room, dropAt + DROP_SHELTER_DELAY_MS + 100);
+    expect(player.offline).toBe(true);
+    const aimed = inner.wildAggro.get(foe)?.target.id;
+    expect(aimed !== sid && aimed !== palId).toBe(true);
+    expect(inner.casts.some((c: { casterId: string }) => c.casterId === palId)).toBe(false);
+    expect(saved.mock.calls.filter(([id]) => id === sid)).toHaveLength(1);
+    const hp = player.hp;
+    inner.damage({ kind: "player", id: sid, pos: player }, 40, foe, 20);
+    expect(player.hp).toBe(hp);
+  });
+
+  it("a wait that ends before the shelter leaves nothing behind", async () => {
+    const fails = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { room, client, player } = await setup();
+    steadyClock(room);
+    room.reconnectGraceMs = 800;
+    client.reconnection.enabled = false;
+    const dropAt = await dropForReal(room, client.sessionId);
+    await vi.waitFor(() => expect(room.state.players.size).toBe(0), { timeout: 3000 });
+    await untilClock(room, dropAt + DROP_SHELTER_DELAY_MS + 200);
+    expect(player.offline).toBe(false); // never marked: the timer found no hold
+    expect(room.state.players.size).toBe(0);
+    expect((room as any).emptyHold).toBeDefined();
+    expect(fails).not.toHaveBeenCalled();
+
+    // The test hook that ends the wait, before the delay is up.
+    const was = process.env.PETGAME_DEBUG;
+    process.env.PETGAME_DEBUG = "1";
+    try {
+      const second = await setup();
+      steadyClock(second.room);
+      const watcher = await colyseus.connectTo(second.room, { name: "Watcher" });
+      second.client.reconnection.enabled = false;
+      const secondDrop = await dropForReal(second.room, second.client.sessionId);
+      watcher.send("debug:endGrace");
+      await vi.waitFor(() => expect(second.room.state.players.has(second.client.sessionId)).toBe(false), { timeout: 2000 });
+      await untilClock(second.room, secondDrop + DROP_SHELTER_DELAY_MS + 200);
+      expect(second.room.state.players.size).toBe(1); // only the watcher
+      expect(fails).not.toHaveBeenCalled();
+    } finally {
+      if (was === undefined) delete process.env.PETGAME_DEBUG;
+      else process.env.PETGAME_DEBUG = was;
+    }
+  });
+
   it("the test hook that ends the wait lets a dropped player go at once", async () => {
     process.env.PETGAME_DEBUG = "1"; // the hooks are registered when the room is created
     try {
@@ -3244,6 +3457,7 @@ describe("keeping an empty world open", () => {
     (room as any).reconnectGraceMs = 500;
     (room as any).emptyHoldMs = 400;
     client.reconnection.enabled = false;
+    room.shelterDelayMs = 0; // the shelter starts at once here
     (room.clients.find((c) => c.sessionId === client.sessionId) as any).ref.terminate();
     await vi.waitFor(() => expect(player.offline).toBe(true));
     expect(emptyHoldOf(room)).toBeUndefined();
@@ -3285,6 +3499,7 @@ describe("keeping an empty world open", () => {
     const note = (reason: unknown) => void stray.push(reason);
     process.on("unhandledRejection", note);
     try {
+      room.shelterDelayMs = 0; // the shelter starts at once here
       (room.clients.find((c) => c.sessionId === client.sessionId) as any).ref.terminate();
       await vi.waitFor(() => expect(player.offline).toBe(true));
       await vi.waitFor(() => {

@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15, T44; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13; nút quay lại thế giới cùng bạn bè khi mở ở `/` từ T79; vào lại chỗ vừa mất vì mạng giật và bỏ lần thử kết nối lại bị treo từ T24). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15, T44; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13; nút quay lại thế giới cùng bạn bè khi mở ở `/` từ T79; vào lại chỗ vừa mất vì mạng giật và bỏ lần thử kết nối lại bị treo từ T24; chỉ được bảo vệ khi rớt quá 1,5 giây từ T25). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -204,17 +204,19 @@ Vào phòng được, nhưng phần vẽ thế giới không dựng nổi: thi�
 |---|---|---|
 | Ví dụ | đóng tab, tải lại trang, bấm "Về sảnh" | 4G chập chờn, đổi Wi-Fi, khoá màn hình hoặc chuyển app lâu |
 | Server biết bằng | tin rời phòng trang gửi lúc đóng | socket đóng bất thường, hoặc hết ping (sau 6-9 giây) |
-| Nhân vật | lưu rồi xoá ngay, chỗ trong phòng trống ngay | ở lại **20 giây** (`RECONNECT_GRACE_MS`) chờ quay lại, vẫn giữ chỗ (kể cả khi phòng đủ 5 người) |
+| Nhân vật | lưu rồi xoá ngay, chỗ trong phòng trống ngay | ở lại **20 giây** (`RECONNECT_GRACE_MS`) chờ quay lại, vẫn giữ chỗ (kể cả khi phòng đủ 5 người). Được bảo vệ (mục dưới) chỉ khi rớt quá **1,5 giây** (`DROP_SHELTER_DELAY_MS`) |
 
 Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server coi như rớt mạng: chờ 20 giây rồi mới xoá.
 
 ## Trong 20 giây chờ
 
+Từ 1,5 giây sau khi rớt. Trong 1,5 giây đầu, nhân vật đứng yên trong thế giới như người bỏ tay khỏi máy: đòn đang gồng vẫn trúng, thú hoang vẫn đánh, máu về 0 thì ngất như thường; nối lại trong khoảng đó thì như chưa có gì.
+
 - Nhân vật và mọi thú của họ ở ngoài (đi theo, làm việc ở trại) **đứng yên** tại chỗ. Người khác thấy hình mờ đi và tên kèm "(mất kết nối)".
 - **Không gì nhắm tới hoặc gây sát thương**: thú hoang bỏ qua họ (đang đánh thì thôi), cắn, chiêu, dậm của trùm, lạnh và nóng đều không có tác dụng.
 - **Thời gian như dừng**: không tự hồi máu, không mở rương, không tiến nhiệm vụ đi thăm vùng, thú làm việc không sản xuất, thú đi theo không đánh và không tung chiêu (chiêu đang gồng bị huỷ).
 - Phần đã giành trước khi mất mạng vẫn được nhận: chiêu của thú đã bay ra vẫn rơi, cùng hạ trùm thì vẫn có thưởng.
-- Server lưu hồ sơ ngay lúc phát hiện mất mạng, và lưu lần nữa khi xoá.
+- Server lưu hồ sơ khi lần rớt được tính (sau 1,5 giây), và lưu lần nữa khi xoá.
 
 ## Quay lại
 
@@ -239,6 +241,7 @@ Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server
 - Hết 20 giây chờ thì không tự vào lại: server đã cố ý thả chỗ, và vào lại từ sảnh là phiên mới (T3, T23).
 - Vào lại chỗ vừa mất (T24) bằng một lần tải trang, không dựng lại game ngay trong trang.
 - `POST /resume` chỉ trả một bit, và người gọi phải biết cả id thế giới lẫn token thiết bị.
+- Từ T25, ngắt rồi nối lại nhanh không né được gì: bảo vệ chỉ bắt đầu sau 1,5 giây, dài hơn mọi đòn đã bắt đầu (đòn dài nhất 1,35 giây), nên đòn đang gồng luôn trúng. Muốn thoát trận phải đứng yên chịu đòn 1,5 giây rồi không làm được gì cho tới khi nối lại. Không chọn cách "rớt lại trong N giây sau khi nối lại thì không bảo vệ": nó vẫn cho né một lần mỗi N giây, và bỏ mặc người mạng xấu thật ở lần mất mạng thứ hai.
 - Cắt mạng để thoát một trận đánh: được tối đa 20 giây an toàn, nhưng không làm gì được và không được lợi gì về đồ (ngất vốn không mất đồ). Chấp nhận vì game hợp tác, không có PvP.
 - Phòng đủ 5 người mà một người đang được giữ chỗ: người khác (kể cả chính họ vào lại từ sảnh) phải chờ hết 20 giây. Họ quay lại tự động thì vẫn vào được.
 - Tải lại trang không dùng mã kết nối lại (T23): mã chỉ sống 20 giây và dùng một lần, mà muốn dùng thì phải bỏ luật "tải lại = rời chủ động" (chỗ bị giữ 20 giây mỗi lần đóng tab). Ghi thế giới lên địa chỉ thì sống đến khi thế giới đóng, đổi lại vị trí và máu không được giữ.

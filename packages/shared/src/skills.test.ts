@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PAL_SPECIES, getSpecies } from "./pals.ts";
+import { DROP_SHELTER_DELAY_MS, TICK_MS } from "./constants.ts";
+import { attackLandsWithinMs } from "./combat.ts";
 import {
   SKILL_DEFS,
   SKILL_LEVELS,
@@ -10,6 +12,7 @@ import {
   knownSkills,
   learnset,
   skillPower,
+  skillLandsWithinMs,
   skillReach,
   skillTravelMs,
   skillsLearnedBetween,
@@ -110,5 +113,23 @@ describe("skills", () => {
     expect(inSkillArea(wave, from, aim, { x: 130, y: 20 })).toBe(true); // rolls on past the aim
     expect(inSkillArea(wave, from, aim, { x: 60, y: 60 })).toBe(false);
     expect(inSkillArea(getSkill("pollen"), from, aim, from)).toBe(false);
+  });
+});
+
+describe("how long an attack takes to land (T25)", () => {
+  it("is the cast plus the flight or the duration", () => {
+    expect(skillLandsWithinMs(getSkill("blizzard"))).toBe(650 + 700);
+    expect(skillLandsWithinMs(getSkill("ember"))).toBe(350 + Math.round((150 / 360) * 1000));
+    const noDuration = SKILL_DEFS.find((s) => (s.shape === "melee" || s.shape === "nova") && s.durationMs === undefined)!;
+    expect(skillLandsWithinMs(noDuration)).toBe(noDuration.castMs);
+  });
+
+  it("is 1350 ms for the longest of all attacks today", () => {
+    expect(attackLandsWithinMs(SKILL_DEFS)).toBe(1350);
+  });
+
+  it("is shorter than DROP_SHELTER_DELAY_MS by at least two ticks, so a dropped connection never calls off a blow", () => {
+    // If this fails: a skill or a wind-up got longer. Raise DROP_SHELTER_DELAY_MS or shorten the attack, and say why.
+    expect(DROP_SHELTER_DELAY_MS).toBeGreaterThanOrEqual(attackLandsWithinMs(SKILL_DEFS) + 2 * TICK_MS);
   });
 });
