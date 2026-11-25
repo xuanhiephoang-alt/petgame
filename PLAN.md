@@ -1,317 +1,280 @@
-# PLAN: T43 Server nén script và tài nguyên tĩnh
+# PLAN: T44 Trình duyệt không chạy được module báo sai nguyên nhân
 
-Code đọc ở `a47dcbd` ("Mark T14 done, add T85 and T86, start T43"). Nguồn: dòng T43 trong `TASKS.md`; cách đo trong `PLAN.md` của commit kế hoạch T15 `478c8a7` (Thiết kế 3 và đề xuất "Server nén script" ở cuối file); `packages/server/src/index.ts`; `packages/client/vite.config.ts`; `packages/client/src/pwa/swLogic.ts`, `sw.ts`; `tests/e2e/pwa.spec.ts`; `playwright.config.ts`; `Dockerfile`; mã của `send` 1.2.1 và `express` 5.2.1 trong `node_modules` (cách `express.static`/`res.sendFile` đặt header). Số dòng có thể trôi: tìm theo tên.
+Code đọc ở `2072fd2` ("Mark T43 done, add T87, start T44"). Nguồn: dòng T44 trong `TASKS.md`; `REVIEW.md` và `PROGRESS.md` của commit T15 `449ae87` (mục "Góp ý không bắt buộc"); `packages/client/index.html` (CSS `#lobby`, `.lobby-alert`, markup `#load-status`, script canh tải inline); `packages/client/src/main.ts` (chỗ mở khoá sảnh và bắn `petgame:lobby-ready`); `packages/client/vite.config.ts`; `dist/index.html` của bản build có sẵn (Vite dời thẻ module lên `<head>`, giữ nguyên script inline); `node_modules/vite` 8.3.3 (không xử lý riêng `nomodule`); `tests/e2e/*.spec.ts`; `playwright.config.ts`; `docs/architecture.md`, `docs/design/multiplayer.md`, `docs/deploy.md`; `PLAN.md` T12 (`a23575d`, ngoại lệ chữ của `index.html`). Số dòng có thể trôi: tìm theo tên.
 
-**Người làm: coder.** Việc này là server, script build và test, không có hình ảnh.
+**Người làm: coder.** Không có việc hình ảnh.
+
+**Không được sửa** `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts` (đụng phần T63 đang cất trong `git stash`). Không chạy `git stash`.
 
 ## Mục tiêu
 
-Hiện Express phục vụ `packages/client/dist` bằng `express.static` không nén (`index.ts`, trong `express: (app) => { ... }`: `app.use("/build", express.static(..., { immutable: true, maxAge: "1y" }))` rồi `app.use(express.static(clientDist))`). Cả `npm run play` lẫn bản Docker (Fly, Render) đi qua đúng chỗ này.
+Trình duyệt không hỗ trợ `<script type="module">` (IE11, Safari ≤ 10.0 / iOS ≤ 10.2, Chrome và Android WebView ≤ 60, Firefox ≤ 59, Edge ≤ 15, Samsung Internet ≤ 8.0, trình duyệt cài sẵn trong app chat đời cũ) lặng lẽ bỏ qua thẻ module. Không có lỗi nào để bộ canh tải (T15) bắt, nên sau 15 giây người chơi đọc "Vẫn đang tải… Mạng có vẻ chậm" và đi kiểm tra mạng, trong khi chờ bao lâu cũng không vào được. Sau T44, trình duyệt đó hiện **ngay** thẻ "Hãy cập nhật trình duyệt" kèm địa chỉ trang để mở bằng trình duyệt khác.
 
-Sảnh tải 11 file trước khi ô tên và nút "Vào chơi" mở: `index.html`, chunk entry `build/index-*.js` và 9 chunk `modulepreload`. T15 đo được ở 3G chậm (400 kbps, 400 ms) sảnh sẵn sàng sau **20,7 s**, 3G 11,3 s, 4G chậm 5,3 s. Gần như toàn bộ là thời gian truyền: 985 kB / 50 kB/s ≈ 19,7 s.
-
-Tính lại trên `dist` hiện có trong cây làm việc (bản build cũ hơn HEAD một chút; coder build lại trước khi đo):
-
-| 11 file của sảnh | Byte | Thời gian truyền ở 3G chậm (50 kB/s) |
-|---|---|---|
-| không nén | 1 013 905 | 20,3 s |
-| gzip mức 9 | 316 322 | 6,3 s |
-| brotli mức 11 | 271 113 | 5,4 s |
-
-(File < 1 KiB tính như không nén, đúng luật Thiết kế 2.) Cộng khoảng 1 s cho các vòng trễ thì **ước 6,5 s (brotli) đến 7,5 s (gzip)**, nhanh gấp khoảng 3 lần. Người chơi điện thoại mạng yếu vào sảnh nhanh hơn hẳn; ở 3G thường dưới 5 s.
+Kèm theo là các chỗ dọn nhỏ T15 còn để lại trong `index.html` và tài liệu: trình đọc màn hình đọc thẻ lỗi đúng mức khẩn, focus không rơi về `body` sau một lần báo nhầm, chữ "lại" không còn nằm một mình trên dòng ở 390×844, và một câu trỏ nhầm trong `docs/architecture.md`.
 
 ## Phạm vi
 
-**Làm:**
-- Lúc build, tạo sẵn `<file>.br` và `<file>.gz` cạnh các file chữ trong `dist` (script Node, chỉ dùng `node:zlib`).
-- Middleware nhỏ ở server chọn `.br`, `.gz` hay file gốc theo `Accept-Encoding`, với header đúng (Content-Encoding, Vary, Content-Length, ETag, Cache-Control, Content-Type), HEAD, 304, Range.
-- Tách phần khai báo route HTTP của `index.ts` ra một module để test tích hợp được (`/healthz`, `/whoami`, client tĩnh).
-- `precacheUrls` của service worker bỏ qua `.br`/`.gz` (phòng hờ).
-- Test unit, tích hợp, thêm một kiểm tra nhỏ trong `tests/e2e/pwa.spec.ts`; đo lại theo cách T15; cập nhật tài liệu.
+**Làm (chỉ `packages/client/index.html`, một unit test, một spec e2e mới, tài liệu):**
+1. Thêm `<script nomodule>` báo cho bộ canh tải biết trình duyệt không chạy module; bộ canh tải hiện thẻ "Hãy cập nhật trình duyệt" (trạng thái mới `outdated`).
+2. Bộ canh tải bỏ `URLSearchParams`. Đây là điều kiện để mục 1 chạy được: IE11, iOS 10.0-10.2 và Edge ≤ 16 không có `URLSearchParams`, nên hiện nay bộ canh tải ném lỗi ngay ở dòng đó, trước khi đặt hẹn giờ hay listener.
+3. CSS của sảnh không dựa vào `inset` và `min()`. Mọi trình duyệt không chạy module cũng không hiểu hai thứ này. Nếu thiếu, `#lobby` (`position: fixed` mà không có toạ độ) rơi xuống dưới `#game` cao 100vh, bị `overflow: hidden` che, và thẻ mới không bao giờ hiện ra. Thay bằng khai báo tương đương, hình trên trình duyệt mới giữ nguyên từng pixel.
+4. Dọn T15: bỏ `aria-live="polite"` trên `#load-status`; chuyển focus về `#name` sau một lần báo nhầm; thêm dấu cách không ngắt trong "Tải lại" ở các câu của bộ canh tải; sửa câu "`join` (hai cái trước)" trong `docs/architecture.md`.
+5. Unit test tĩnh cho hai script inline (chỉ cú pháp ES5, không dùng API mới). Spec e2e mới `tests/e2e/lobby.spec.ts`.
+6. Tài liệu: `docs/design/multiplayer.md`, `docs/architecture.md`, `docs/deploy.md` (ghi chú CSP).
 
 **KHÔNG làm:**
-- Không thêm dependency (không `compression`, không `express-static-gzip`, không import trực tiếp `send`/`serve-static`; chỉ dùng API của Express: `res.sendFile`, `res.vary`, `res.type`).
-- Không nén câu trả lời động (`/whoami`, `/healthz`, `/matchmake/*`): đều vài chục byte.
-- Không zstd (Chrome có hỗ trợ, nhưng Node 22 chỉ có zstd thử nghiệm từ 22.15; brotli và gzip đủ cho mọi trình duyệt). Ghi vào rủi ro để làm sau nếu muốn.
-- Không đổi Cache-Control đang có: `/build/*` vẫn `public, max-age=31536000, immutable`; mọi thứ khác (gồm `index.html`, `sw.js`, `manifest.webmanifest`, `/assets/*`) vẫn `public, max-age=0` kèm ETag/Last-Modified (T15, T52 dựa vào việc trang luôn kiểm lại).
-- Không chặn ai tải thẳng `/build/x.js.br` (trả file như `express.static` vẫn làm; vô hại).
-- Không đổi `playwright.config.ts`, không chuyển e2e sang bản build (việc của T16).
-- **Không sửa** `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts` (đụng phần đang cất trong `git stash`). Không dùng `git stash`.
-- Không đổi `worldLimits.ts`.
+- Không sửa `tests/e2e/multiplayer.spec.ts`. Hai mục trong dòng T44 nằm hẳn trong file đó nên **bị loại khỏi kế hoạch này** (xem cuối file, đề xuất chuyển sang T20):
+  - `test.slow()` ngoài kế hoạch: test `lobby: a script that cannot load or breaks while starting says so at once, …` (khoảng dòng 1852).
+  - Siết bằng `#load-invite`: test `lobby: nothing is sent before the lobby script is ready, …` (trước dòng kiểm `#load-status` ẩn, khoảng 1641) và test `lobby: on a slow network …` (trước `fastForward` đầu, khoảng 2026).
+
+  Kế hoạch này giữ nguyên dấu hiệu mà hai bước siết đó dựa vào (Thiết kế 3, "Giữ").
+- Không sửa `main.ts`, `strings.ts` hay mã TypeScript nào của client. Chữ "Thử lại"/"Tải lại" trong `JOIN_TEXT` giữ nguyên: chưa ai thấy chúng xuống dòng mồ côi.
+- Không thêm `@vitejs/plugin-legacy` hay bản build cho trình duyệt cũ: game cần WebGL và JS mới, mục tiêu chỉ là báo đúng nguyên nhân.
+- Không thêm Content-Security-Policy. Không đổi server, schema, message, `Profile`.
+- Không nới mục tiêu build của Vite. Trình duyệt *có* module nhưng cũ hơn mục tiêu build (mặc định của Vite 8) sẽ gặp lỗi cú pháp trong module, và vẫn nhận thẻ "Trình duyệt gặp lỗi … hãy cập nhật trình duyệt" như từ T15.
 
 ## Thiết kế
 
-### 1. Chọn cách làm: (b) nén sẵn lúc build, không dependency mới
+### 1. Vì sao dùng `<script nomodule>` báo bằng sự kiện, không tự phát hiện trong bộ canh tải
 
-| | (a) middleware `compression` | (b) `.br`/`.gz` tạo lúc build | (c) lai |
-|---|---|---|---|
-| Dependency | thêm `compression` + 7 gói con | không | thêm |
-| Cỡ script sảnh | gzip mức 6 (mặc định) 224 kB cho chunk entry; brotli động thường để mức thấp (mức 11 mất 1,7 s cho 708 kB, không làm được mỗi request) | brotli mức 11: 188 kB cho chunk entry | như (b) |
-| CPU mỗi request | nén lại mỗi lần (không cache) | 0, chỉ đọc file | |
-| Content-Length | mất (chunked) | đúng, cỡ file nén | |
-| ETag | giữ nguyên ETag của file gốc cho cả bản nén (hai biểu diễn khác nhau chung một ETag) | mỗi biểu diễn một ETag riêng (Thiết kế 4) | |
-| Range | phải tự cẩn thận | rõ ràng: có Range thì trả file gốc | |
+- `nomodule` là phán quyết của chính trình duyệt: trình duyệt chạy module thì bỏ qua script có thuộc tính này. Trình duyệt cũ không biết thuộc tính `nomodule` nên chạy script như script thường, và cũng không biết `type="module"` nên bỏ qua thẻ module. Phép thử `'noModule' in HTMLScriptElement.prototype` cho cùng kết quả, nhưng `TASKS.md` đã chọn `nomodule`, và cách này không cần đoán.
+- Script `nomodule` **không tự sửa DOM**. Nó chỉ bắn sự kiện `petgame:no-modules` lên `document`, còn bộ canh tải tự đổi trạng thái. Như vậy:
+  - chỉ còn một bảng trạng thái: hẹn giờ 15 s bị huỷ nên không bao giờ đè "Vẫn đang tải…" lên thẻ;
+  - "sẵn sàng luôn thắng" vẫn đúng: `petgame:lobby-ready` ẩn thẻ (xem mục Safari 10.1 dưới);
+  - mọi chữ của bộ canh tải nằm ở một chỗ.
+- Tạo sự kiện bằng `document.createEvent("Event")` + `initEvent("petgame:no-modules", false, false)`, vì IE11 không có `new Event`/`new CustomEvent`.
+- **Thứ tự trong `<body>`:** script canh tải → script `nomodule` → thẻ module. Listener phải có trước khi sự kiện bắn. Ở bản build, thẻ module đã nằm ở `<head>`, thứ tự này không đổi gì.
+- **Safari 10.1 / iOS 10.3:** có module nhưng không biết `nomodule`, nên chạy **cả hai**. Thẻ "cập nhật" hiện lên trong lúc parse. Sau đó:
+  - module lỗi cú pháp (gần như chắc chắn, vì Vite 8 nhắm trình duyệt mới hơn nhiều): `fail()` bị bỏ qua khi đang `outdated`, thẻ "cập nhật" ở lại. Đúng nguyên nhân.
+  - nếu sảnh vẫn chạy được: `petgame:lobby-ready` ẩn thẻ, sảnh dùng bình thường.
 
-Nội dung cần nén đều là file tĩnh đã biết lúc build; câu trả lời động đều tí hon. Nên (b) vừa nhỏ hơn, vừa không tốn CPU (máy Fly 1 CPU dùng chung còn chạy mô phỏng 20 tick/giây), vừa không thêm gói. (c) chỉ có lợi nếu có nội dung động lớn: không có. **Chọn (b).**
+  Không bao giờ có chuyện sảnh chạy được mà vẫn bị khoá.
 
-Nhược điểm của (b), chấp nhận được:
-- Chỉ có tác dụng khi build bằng `npm run build` (gọi script nén). `vite build` trơn thì không có `.br`/`.gz`, server tự trả file gốc như hiện nay: không hỏng gì.
-- Danh sách file nén đọc một lần lúc server khởi động (Thiết kế 4). Build lại khi server đang chạy thì phải khởi động lại mới được nén file mới; xem Rủi ro.
+### 2. Thẻ "Hãy cập nhật trình duyệt" (trạng thái `outdated`)
 
-### 2. Luật nén lúc build (`scripts/precompressLib.mjs`)
+Dùng hình dạng thẻ `failed` của T15 (nền sáng, bo góc, bóng), đặt cùng chỗ: thay ô tên và nút "Đang tải...".
 
-| Hằng số | Giá trị | Lý do |
-|---|---|---|
-| `COMPRESSIBLE_EXTENSIONS` | `.js`, `.mjs`, `.css`, `.html`, `.json`, `.webmanifest`, `.svg`, `.txt`, `.wasm` | file chữ (và wasm) nén được 3 đến 9 lần. Không có `.png`, `.webp`, `.jpg`, `.woff2`: đã nén sẵn, đo được brotli/gzip chỉ đổi ±0,1% (749 kB png, 2,37 MB webp trong `dist`). Không có `.map` (bản build không sinh). So khớp không phân biệt hoa thường. |
-| `MIN_BYTES` | 1024 | dưới 1 KiB thì vừa một gói TCP (khoảng 1460 byte), nén không đổi số vòng truyền. Trong `dist` hiện tại: bỏ `manifest.webmanifest` 831 B, `getTextureBatchBindGroup-*.js` 344 B, `webworkerAll-*.js` 55 B (bản gzip còn to hơn gốc: 63 B). |
-| `MAX_RATIO` | 0,9 | chỉ giữ bản nén nếu ≤ 90% file gốc (làm tròn xuống). Bảo đảm bản nén luôn khác cỡ file gốc, nên ETag khác (Thiết kế 4). |
-| brotli | `BROTLI_PARAM_QUALITY` 11, `BROTLI_PARAM_MODE` = `BROTLI_MODE_TEXT`, `BROTLI_PARAM_SIZE_HINT` = cỡ file | nhỏ nhất; nén một lần lúc build. Đo: 708 kB → 188 kB trong 1,7 s. |
-| gzip | `level` 9 | mức 9 so với 6 chỉ nhỏ hơn chút ít nhưng miễn phí lúc build (27 ms). |
-
-Luật giữ bản nén (`keepVariants(rawSize, brSize, gzSize)`):
-- `.gz` giữ khi `gzSize <= floor(rawSize * 0.9)`.
-- `.br` giữ khi `brSize <= floor(rawSize * 0.9)` **và** `brSize < gzSize` (hoặc `.gz` không được giữ). Nhờ vậy ba bản (gốc, br, gz) của một file luôn khác cỡ, nên ba ETag khác nhau; và không bao giờ phục vụ bản br to hơn gz.
-
-Luật chọn file (`shouldCompress(relPath, size)`): đuôi trong danh sách; `size >= MIN_BYTES`; không đuôi `.br`/`.gz`; không có đoạn đường dẫn nào bắt đầu bằng `.` (Express không phục vụ dotfile).
-
-Chạy lại trên cùng `dist` phải ra đúng kết quả cũ (idempotent): với mỗi file nguồn được xét, xoá `<file>.br`/`<file>.gz` cũ nếu lần này không giữ, ghi đè nếu giữ; không bao giờ tạo `x.js.br.br`.
-
-Nén song song bằng bản bất đồng bộ (`promisify(brotliCompress)`, `promisify(gzip)`, `Promise.all`): libuv chạy 4 luồng. Build thêm khoảng 2-3 s.
-
-Log một dòng tiếng Anh, ví dụ: `precompressed 16 files: 1.13 MB -> br 300 kB, gzip 350 kB`.
-
-**Chạy ở đâu:** script build của client: `"build": "vite build && node ../../scripts/precompress.mjs dist"` (`packages/client/package.json`; npm chạy script workspace với cwd là `packages/client`).
-- Vì sao không làm plugin Vite: phải chạy **sau** plugin `petgame-service-worker` (nó sinh `dist/sw.js` và đọc danh sách file cho precache trong `closeBundle`). Trong Vite 8/Rolldown `closeBundle` là hook song song, thứ tự giữa hai plugin không chắc chắn. Chạy sau khi `vite build` thoát thì thứ tự rõ ràng: precache được tính trên `dist` chưa có `.br`/`.gz`, còn `sw.js` cũng được nén.
-- Mọi lối vào đều đi qua đây: `npm run build` (gốc) gọi script workspace; `npm run play`, `Dockerfile` (`RUN npm run build`), CI và `webServer` của Playwright (`npm run build && npm run start ...`) đều gọi `npm run build`. `.dockerignore` không loại `scripts/`.
-- Có tiền lệ: `scripts/shotsLib.mjs` + `shotsLib.test.mjs` (vitest đã gom `scripts/**/*.test.mjs`).
-
-### 3. Chọn bản nén theo `Accept-Encoding` (`packages/server/src/contentEncoding.ts`, hàm thuần)
-
-`type Encoding = "br" | "gzip"`. `ENCODINGS: readonly Encoding[] = ["br", "gzip"]` (thứ tự ưu tiên khi hoà). `ENCODING_SUFFIX: Record<Encoding, string> = { br: ".br", gzip: ".gz" }`.
-
-`parseAcceptEncoding(header: string | undefined): Map<string, number>` (coding viết thường → q):
-- Tách theo `,`, bỏ khoảng trắng, bỏ mục rỗng.
-- Mỗi mục: `coding *( ";" param )`. `coding` phải là token (`/^[!#$%&'*+.^_`|~0-9a-z-]+$/` sau khi viết thường), sai thì bỏ mục.
-- Tham số `q` (tên không phân biệt hoa thường) phải khớp `/^(0(\.\d{0,3})?|1(\.0{0,3})?)$/`, sai thì bỏ mục; không có `q` thì q = 1. Tham số khác bỏ qua.
-- `x-gzip` tính là `gzip` (RFC 9110 mục 8.4.1.3).
-- Một coding xuất hiện nhiều lần: lấy lần đầu.
-
-`pickEncoding(header: string | undefined, available: readonly Encoding[]): Encoding | null` (`null` = gửi file gốc):
-- Không có header, hoặc header rỗng sau khi bỏ khoảng trắng: `null`.
-- q của một coding trong `available`: mục của nó nếu có, không thì mục `*` nếu có, không thì 0.
-- Chọn coding có q > 0 lớn nhất; hoà thì theo thứ tự `ENCODINGS` (br trước).
-- **File gốc chỉ thắng khi `identity` được ghi rõ với q lớn hơn hẳn** q của coding vừa chọn. Không tính "identity mặc định q = 1" vì header thật như `br;q=1.0, gzip;q=0.8, *;q=0.1` hay `gzip;q=0.5` vẫn có nghĩa là muốn nén; nginx `gzip_static` cũng làm vậy.
-- Không coding nào có q > 0: `null` (kể cả khi `identity;q=0`: trả file gốc còn hơn 406, như `express.static` hiện nay).
-
-Các header phải test (kết quả với `available = ["br", "gzip"]` nếu không ghi khác):
-
-| Header | Kết quả |
+| Phần | Nội dung |
 |---|---|
-| `gzip, deflate, br, zstd` (Chrome HTTPS) | `br` |
-| `gzip, deflate` (Chrome trên `http://192.168...`, xem Rủi ro) | `gzip` |
-| `gzip, deflate, br` (Safari, Firefox) | `br` |
-| không có / `""` / `"  "` | `null` |
-| `identity` | `null` |
-| `br;q=0, gzip` | `gzip` |
-| `br;q=0.5, gzip;q=0.8` | `gzip` |
-| `GZIP;Q=1, BR;Q=1` | `br` (hoà, br trước) |
-| `*` | `br` |
-| `*;q=0, gzip` | `gzip` |
-| `gzip;q=0.5` | `gzip` |
-| `identity;q=1, br;q=0.5` | `null` |
-| `br;q=1, identity;q=1` | `br` (hoà với identity: nén) |
-| `x-gzip` | `gzip` |
-| `br;q=abc, gzip` / `br;q=1.5, gzip` / `br;q=0.1234, gzip` | `gzip` (mục br sai bị bỏ) |
-| `br;level=5;q=0.9` | `br` |
-| `deflate` | `null` |
-| `gzip, gzip;q=0` | `gzip` (lần đầu thắng) |
-| `gzip, deflate, br` với `available = ["gzip"]` | `gzip` |
-| `br` với `available = ["gzip"]` | `null` |
-| `gzip, br` với `available = []` | `null` |
+| Tiêu đề (`#load-title`) | `Hãy cập nhật trình duyệt` |
+| Dòng giữa (`#load-detail`) | `Trình duyệt này quá cũ nên không mở được PetGame. Cập nhật trình duyệt, hoặc mở link dưới đây bằng một trình duyệt khác.` |
+| Link (`#load-link`, mới) | địa chỉ đầy đủ của trang (`location.href`, gồm `?room=` của link mời): chữ thường, chọn được, không phải nút |
+| `#load-invite` ("Link mời vẫn được giữ.") | ẩn: link đã hiện đầy đủ ở trên |
+| Nút Tải lại | ẩn: tải lại trên cùng trình duyệt không giúp gì, có nút sẽ gây hiểu nhầm |
+| Ô tên, nút "Đang tải..." | ẩn (như `failed`) |
 
-### 4. Middleware phục vụ bản nén (`packages/server/src/webClient.ts`)
+Lý do có dòng link: người chơi mở link mời từ app chat (Zalo, Messenger…) trên điện thoại cũ thường đang ở trình duyệt cài sẵn trong app. Việc họ làm được ngay là chép link sang trình duyệt khác; thanh địa chỉ của trình duyệt trong app thường bị giấu.
 
-**Danh mục lúc khởi động:** `findPrecompressed(dir): Map<string, Encoding[]>` duyệt `dir` đệ quy một lần (`readdirSync` với `withFileTypes`), bỏ mục bắt đầu bằng `.`. Với mỗi file `F` không đuôi `.br`/`.gz`: nếu thư mục cùng chứa `F.br` và/hoặc `F.gz` thì thêm khoá `"/" + đường dẫn tương đối kiểu POSIX` → các encoding có, theo thứ tự `ENCODINGS`. Không stat theo request; dist không đổi khi server chạy (`npm run play` build trước rồi mới chạy).
+- **Không có chỗ chạm:** thẻ không có nút, nên luật 44×44 không áp dụng; test kiểm thẻ không có nút nào đang hiện. Link là chữ thường (`<p>`), không phải `<a>`: chạm vào `<a>` sẽ tải lại trang trong chính trình duyệt cũ. Chọn chữ bằng giữ ngón (điện thoại) hoặc kéo chuột vẫn được; `user-select: all` cho một lần chạm chọn hết.
+- **Bàn phím:** không có gì để bấm, không chuyển focus. Người dùng bàn phím trên máy tính chép từ thanh địa chỉ.
+- **Trình đọc màn hình:** `role="alert"` (bộ canh tải đặt khi hiện thẻ, như `failed`), mức khẩn `assertive` ngầm định, nên được đọc ngay.
+- **Khổ màn hình:**
+  - 390×844: thẻ rộng 340 px, dòng giữa khoảng 3 dòng, link 1-2 dòng.
+  - 844×390: thẻ tối đa 420 px; cả thẻ cộng tiêu đề game cao khoảng 200 px, vừa màn hình.
+  - 1280×720: như thẻ `failed`.
+  - Link dài thì ngắt ở bất cứ ký tự nào (`word-break: break-all`), không đẩy trang rộng ra.
 
-**`precompressed(dir, cache: StaticCacheOptions): RequestHandler`** (`StaticCacheOptions = { maxAge?: string | number; immutable?: boolean }`, cùng nghĩa với tuỳ chọn của `express.static`). Mỗi request:
-1. Không phải `GET` hay `HEAD`: `next()`.
-2. Đường dẫn: `decodeURIComponent(req.path)` trong `try` (lỗi thì `next()`); kết thúc bằng `/` thì thêm `index.html` (giống tuỳ chọn `index` mặc định của `express.static`, nên `/` và `/?room=abc` ra `/index.html`). Tra trong danh mục; không có: `next()` (không đụng header gì; ảnh, file < 1 KiB, `/whoami`... đi thẳng như cũ). Vì chỉ tra khoá có sẵn trong danh mục, không thể đi ra ngoài `dir` (`/../x` không bao giờ là khoá).
-3. Có trong danh mục: `res.vary("Accept-Encoding")` **trước mọi nhánh**, để cả câu trả lời file gốc (cho trình duyệt không nhận nén, hay request có Range) cũng mang `Vary`, nên cache trung gian không trả nhầm bản nén cho người không nhận được.
-4. Có header `Range`: `next()`. `express.static` trả 206 trên byte của file gốc như hiện nay. Không ai tải script bằng Range; làm vậy thì Range luôn tính trên nội dung thật, không phải trên byte nén.
-5. `pickEncoding(req.headers["accept-encoding"], encodings)`; `null` thì `next()`.
-6. Phục vụ bản nén:
-   - `res.setHeader("Content-Encoding", encoding)`;
-   - `res.type(extname(path))`: cùng `mime.contentType` mà `send` dùng cho file gốc, nên Content-Type y hệt (`send` không ghi đè Content-Type đã đặt);
-   - `res.sendFile(path + ENCODING_SUFFIX[encoding], { root: dir, maxAge: cache.maxAge ?? 0, immutable: cache.immutable ?? false, acceptRanges: false }, callback)`.
-   - `send` tự đặt: Content-Length = cỡ file nén; ETag yếu từ cỡ và mtime của file nén; Last-Modified; Cache-Control giống hệt `express.static` cùng tuỳ chọn; trả 304 khi `If-None-Match`/`If-Modified-Since` khớp (lúc đó `send` tự gỡ Content-Encoding, Content-Length; Vary vẫn còn); HEAD chỉ gửi header (Content-Length vẫn là cỡ bản nén).
-   - `acceptRanges: false`: không quảng cáo `Accept-Ranges: bytes` cho byte nén (Range đã rẽ sang file gốc ở bước 4).
-7. `callback(err)`: không lỗi hoặc `res.headersSent` thì thôi; lỗi `ECONNABORTED` (khách huỷ) thì thôi; lỗi khác (ví dụ `ENOENT`: file nén bị xoá sau khi khởi động) thì `res.removeHeader("Content-Encoding")`, `res.removeHeader("Content-Type")` rồi `next()`, để `express.static` trả file gốc hoặc 404. (Có listener lỗi nên `send` chuyển lỗi cho callback, không tự xoá header hay gửi trang lỗi.)
+### 3. Bộ canh tải sau T44 (trạng thái và quy tắc)
 
-**ETag khác nhau cho từng biểu diễn:** ETag của `send` là `W/"<cỡ hex>-<mtime hex>"`. Luật giữ bản nén (Thiết kế 2) bảo đảm gốc, br, gz luôn khác cỡ, nên ba ETag luôn khác nhau mà không cần tự tính ETag hay stat thêm. Cache có `If-None-Match` của bản gz mà xin br thì nhận 200 đầy đủ, không nhận 304 sai.
+| Trạng thái | Vào từ | Do | Hiện |
+|---|---|---|---|
+| `loading` | (đầu) | | không gì |
+| `slow` | `loading` | hẹn giờ 15 s | dòng "Vẫn đang tải…" + nút Tải lại phụ (như T15) |
+| `outdated` (mới) | `loading`, `slow` | sự kiện `petgame:no-modules` | thẻ mục 2; huỷ hẹn giờ |
+| `failed` | `loading`, `slow` | lỗi tải hoặc chạy cùng origin | thẻ "Không tải được game" (như T15) |
+| `ready` | mọi trạng thái | `petgame:lobby-ready` | ẩn thông báo; trả ô tên và nút |
 
-**Gắn vào app:** `serveClient(app, dir): number` (trả số file có bản nén, để log):
+- **`failed` không đè `outdated`:** trong trình duyệt cũ, mọi lỗi sau đó đều là hệ quả, và "cập nhật trình duyệt" là nguyên nhân thật.
+- **`outdated` không đè `failed`:** trên thực tế không xảy ra, vì script `nomodule` chạy trong lúc parse, trước mọi lỗi tải module.
+- **Không còn `URLSearchParams`:** thay bằng `/[?&]room(?:[=&]|$)/.test(location.search)`, cho cùng kết quả với `URLSearchParams#has("room")` ở cả `?room=x`, `?room=`, `?room`, `?a=1&room=x`, và đúng là không khớp `?roomy=1` hay `?xroom=1`. Khoá viết dạng mã hoá (`r%6Fom`) thì bỏ qua: link mời của game không bao giờ tạo ra dạng đó.
+- **Giữ:** dòng đặt `invite.hidden` lúc khởi động. Từ T15, với `?room=`, `#load-invite` mất thuộc tính `hidden` ngay khi bộ canh tải chạy, dù khung thông báo còn ẩn. Đây là dấu hiệu "bộ canh tải đã chạy" mà bước siết test chuyển sang T20 sẽ dùng, và `lobby.spec.ts` cũng dùng. `show()` chỉ thêm việc ẩn nó khi `outdated`.
+- **Focus sau báo nhầm:** khi `ready` đến, nếu `document.activeElement` đang là nút Tải lại (thẻ `failed` đã tự đặt focus ở đó) thì focus chuyển sang `#name`, *sau* khi bỏ `hidden` của ô tên (`main.ts` đã mở khoá ô tên trước khi bắn sự kiện). Không có báo nhầm, hoặc người chơi đã tự chuyển focus đi chỗ khác, thì không đụng tới focus. Chọn `#name` (theo góp ý của reviewer T15) vì đó là việc kế tiếp của người chơi, và Enter trong ô tên là vào chơi. Trên điện thoại, `focus()` không do người chơi chạm thì không bật bàn phím ảo.
+- **`aria-live`:** bỏ thuộc tính này khỏi markup `#load-status`. `role="status"` vốn ngầm là `polite`, còn khi bộ canh tải đổi sang `role="alert"` thì mức `assertive` ngầm định không còn bị đè.
+- **Không mồ côi chữ "lại":** cả ba câu có "Tải lại" trong bộ canh tải viết `Tải lại` (escape trong chuỗi JS; không dán ký tự NBSP vô hình vào mã nguồn). Chữ người chơi thấy không đổi. Các test cũ chỉ kiểm "Vẫn đang tải", "Kiểm tra mạng", "Trình duyệt gặp lỗi", "Không tải được game", nên vẫn qua.
+- **Cú pháp ES5 và API cũ:** bộ canh tải phải chạy trên IE11, nếu không nó không nhận được sự kiện `nomodule`. Hiện nó đã chỉ dùng cú pháp ES5. Các API còn lại (`location.origin`, `ErrorEvent`, `HTMLScriptElement`, thuộc tính `hidden`, `textContent`, `addEventListener`; tuỳ chọn `{ once: true }` mà IE11 hiểu thành capture, vô hại) đều có từ IE11, Safari 9, Chrome 49. Sửa chú thích "Plain ES2015 on purpose" thành ES5. Unit test giữ luật này (mục Test).
 
-```
-const BUILD_CACHE = { immutable: true, maxAge: "1y" }
-app.use("/build", precompressed(join(dir, "build"), BUILD_CACHE), express.static(join(dir, "build"), BUILD_CACHE))
-app.use(precompressed(dir, {}), express.static(dir))
-```
+### 4. Chữ người chơi thấy: đặt ở đâu (theo T12)
 
-Một hằng `BUILD_CACHE` dùng cho cả hai middleware của `/build`, nên bản nén và bản gốc không thể lệch Cache-Control. Middleware gốc `/` quét cả `build/`; vô hại (request `/build/*` gần như luôn được mount `/build` trả lời trước), không cần loại.
+Luật T12: chữ client nằm trong `ui/strings.ts`. **Ngoại lệ đã ghi trong PLAN T12** (`a23575d`): chữ tĩnh của `index.html` và chữ của script canh tải inline, vì chúng chạy trước mọi module, không import được bảng chữ. Trên trình duyệt không chạy module, `strings.ts` càng không bao giờ được nạp. Vì vậy chữ mới (tiêu đề, dòng giữa của thẻ `outdated`) nằm trong script canh tải, cạnh ba câu của T15; script `nomodule` không chứa chữ nào. Ghi ngoại lệ này vào dòng "Chữ người chơi thấy" của `docs/architecture.md` (hiện chưa nhắc). `scripts/viStrings.mjs` chỉ đếm `packages/*/src/**/*.ts`, nên không đổi số đếm.
 
-**Service worker (không phải sửa luật chạy, chỉ kiểm):**
-- Trình duyệt tự gắn `Accept-Encoding` và tự giải nén ở tầng mạng; `fetch()` trong worker nhận nội dung đã giải nén. `precacheAll` và `cacheFirst`/`networkFirst` cất `Response` đã giải nén vào Cache Storage, vẫn mang header Content-Encoding, Content-Length của bản nén. Đó là cách mọi trang chạy sau CDN nén vẫn làm; trình duyệt không dùng lại các header đó để giải nén lần nữa.
-- `Vary: Accept-Encoding` và Cache Storage: `cache.match(key)` so các header trong `Vary` giữa request đã cất và request tra. Cả hai đều là `Request` tạo từ chuỗi (`cache.put(urls[i], r)`, `cache.match(key)` với `key` là đường dẫn), không cái nào có header `Accept-Encoding` (trình duyệt thêm nó ở tầng mạng, không vào `Request`), nên vẫn khớp. Chỉ `Vary: *` mới làm hỏng; ta không bao giờ gửi `*`.
-- `storable()` chỉ cần 200 và không chuyển hướng: bản nén là 200 thường.
-- `/whoami`, `/healthz`, `/matchmake` không có file nên middleware `next()` ngay; worker vẫn bỏ qua chúng như cũ.
-- Phòng hờ: `precacheUrls` bỏ mọi đường dẫn kết thúc bằng `.br` hoặc `.gz`. Với thứ tự build ở Thiết kế 2 thì lúc tính precache chưa có file nén, nhưng nếu ai đổi thứ tự thì worker sẽ tải thêm khoảng 500 kB file nén vô ích ở lần cài. Đổi `swLogic.ts` làm phiên bản worker đổi một lần (cache mới một lần): chấp nhận.
+### 5. CSS cho trình duyệt cũ (thay tương đương, không đổi hình)
 
-### 5. Route HTTP tách khỏi `index.ts` (`packages/server/src/http.ts`)
+| Quy tắc | Hiện | Thành |
+|---|---|---|
+| `#lobby` | `inset: 0;` | `top: 0; right: 0; bottom: 0; left: 0;` |
+| `#lobby form` | `width: min(340px, 92vw);` | `width: 92vw; max-width: 340px;` |
+| `@media (min-width: 601px) #lobby form` | `width: min(420px, 92vw);` | `width: 92vw; max-width: 420px;` |
+| `@media (max-height: 560px) and (min-width: 560px) #lobby form` | `width: min(680px, 94vw);` | `width: 94vw; max-width: 680px;` |
 
-`installRoutes(app: Express, options: { clientDist: string; worldSettings: WorldGuardSettings }): number | null` chứa đúng thân hàm `express: (app) => { ... }` hiện nay, theo đúng thứ tự: `/healthz`, `/whoami` (đọc `options.worldSettings.trustProxy` mỗi request như cũ), rồi `serveClient` nếu `existsSync(clientDist)`. Trả số file có bản nén, hoặc `null` khi không có `dist` (chạy dev chưa build: không phục vụ client, như hiện nay).
+Vì `min(A, B)` = B chặn trên ở A, nên mỗi dòng thay cho kết quả y hệt. Trong media query, `max-width` mới đè `max-width` cũ vì cùng độ đặc hiệu và đứng sau. Thêm chú thích một dòng tiếng Anh trên `#lobby`: sảnh và thẻ T44 phải hiện được trên trình duyệt không hiểu `inset`/`min()`.
 
-`index.ts` chỉ còn: `express: (app) => { served = installRoutes(app, { clientDist, worldSettings }); }`, `guardWorldCreation` sau `listen()` như cũ, và log. Log khi phục vụ client (tiếng Anh như các dòng log khác):
-- có bản nén: `Serving web client from <dist> (16 files precompressed)`;
-- không có: `Serving web client from <dist> (no precompressed files: build with npm run build)`.
+Phần còn lại không sửa: `gap` của flex (thiếu thì các dòng chỉ sát nhau hơn), `system-ui` (đã có `sans-serif` dự phòng), `100dvh` (đã có `100vh` trước). Phần HUD và thế giới không bao giờ hiện trên trình duyệt cũ.
 
-Dòng "Mở game trên máy này" và địa chỉ LAN giữ nguyên.
+CSS thẻ:
+- `.lobby-alert.failed` và `.lobby-alert.failed strong` thêm selector `.lobby-alert.outdated` (cùng hình thẻ).
+- `#load-link` mới: `width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 8px; background: #e8efe0; color: #253020; font-size: 13px; word-wrap: break-word; word-break: break-all; -webkit-user-select: all; user-select: all;`.
 
-### 6. Điện thoại và bàn phím
+### 6. Content-Security-Policy
 
-Không có giao diện mới, không chữ mới cho người chơi. Người chơi chỉ thấy sảnh mở nhanh hơn; nút "Tải lại" và hẹn giờ `LOBBY_SLOW_MS` 15 s của T15 giữ nguyên (biên rộng hơn, như T15 đã dự kiến).
+Hiện server không đặt CSP. Đã kiểm `packages/server/src/webClient.ts` và `index.ts`: chỉ có `Content-Encoding`. `docs/deploy.md` ghi "Nếu thêm Content-Security-Policy (hiện chưa có)…". Vì vậy **không cần hash** cho script inline mới. Chỉ sửa ghi chú: nay có **hai** script inline (bộ canh tải và `nomodule`), mỗi cái cần một hash `sha256-…`, và hash đổi mỗi khi chữ trong script đổi. Service worker (T13) băm cả `index.html` vào phiên bản, nên bản build mới tự có cache mới; không phải làm gì.
 
 ## Kế hoạch triển khai
 
-1. **`scripts/precompressLib.mjs`** (mới; chú thích đầu file tiếng Anh: dùng làm gì, vì sao chạy sau `vite build`):
-   - export `COMPRESSIBLE_EXTENSIONS`, `MIN_BYTES`, `MAX_RATIO`, `shouldCompress(relPath, size)`, `keepVariants(rawSize, brSize, gzSize)` → `{ br: boolean, gzip: boolean }`, `async precompressDir(dir)` → `{ files, rawBytes, brBytes, gzBytes }` (`brBytes`/`gzBytes` cộng cỡ bản được giữ; file không có bản đó thì cộng cỡ gốc, để con số là "byte qua mạng nếu khách nhận br/gzip"), `formatSummary(summary)` → dòng log.
-   - Đúng luật Thiết kế 2. JSDoc cho mỗi export.
-2. **`scripts/precompress.mjs`** (mới): đọc `process.argv[2]` (thiếu hoặc không phải thư mục: in lỗi, `process.exit(1)`), gọi `precompressDir`, in `formatSummary`; lỗi thì in và thoát mã 1 (build hỏng thay vì ra `dist` nửa vời).
-3. **`packages/client/package.json`**: `"build": "vite build && node ../../scripts/precompress.mjs dist"`. Không đổi `package.json` gốc.
-4. **`packages/client/src/pwa/swLogic.ts`**: trong `precacheUrls`, bỏ đường dẫn kết thúc bằng `.br` hoặc `.gz` (cạnh điều kiện `.map`); cập nhật JSDoc ("compressed copies excluded").
-5. **`packages/server/src/contentEncoding.ts`** (mới): `Encoding`, `ENCODINGS`, `ENCODING_SUFFIX`, `parseAcceptEncoding`, `pickEncoding` đúng Thiết kế 3. Không import Express hay `node:fs`.
-6. **`packages/server/src/webClient.ts`** (mới): `StaticCacheOptions`, `BUILD_CACHE`, `findPrecompressed`, `precompressed`, `serveClient` đúng Thiết kế 4. Chú thích tiếng Anh nói rõ: vì sao Vary đặt trước mọi nhánh, vì sao Range rẽ sang file gốc, vì sao ETag luôn khác (luật build), vì sao danh mục chỉ đọc lúc khởi động.
-7. **`packages/server/src/http.ts`** (mới): `installRoutes` đúng Thiết kế 5.
-8. **`packages/server/src/index.ts`**: dùng `installRoutes`; bỏ import không còn dùng (`existsSync` vẫn cần nếu log dùng; `noUnusedLocals` phải sạch); log như Thiết kế 5. `guardWorldCreation(server, worldSettings)` giữ nguyên chỗ (sau `listen()`).
-9. **Test** (mục Test).
-10. **`tests/e2e/pwa.spec.ts`**: thêm bước kiểm nén (mục Test, E2E).
-11. **Đo** (mục Đo) và ghi bảng kết quả vào `PROGRESS.md`.
-12. **Tài liệu** (mục Tài liệu).
+1. **`packages/client/index.html`, CSS** (Thiết kế 5): thay `inset` của `#lobby` và ba `width: min(…)` của `#lobby form`; thêm `.lobby-alert.outdated` vào hai selector của thẻ `failed`; thêm quy tắc `#load-link`. Sửa chú thích CSS trên `.lobby-alert` (T15): thêm "Outdated (T44): the failed card's look, no button."
+2. **`index.html`, markup `#load-status`:**
+   - bỏ `aria-live="polite"`, giữ `role="status"`;
+   - thêm `<p id="load-link" hidden></p>` sau `#load-invite`, trước `#reload-btn`;
+   - trong chú thích đầu form, nối vào câu về `#load-status`: "…and the card for a browser that cannot run modules (T44, the nomodule script after the watchdog)".
+3. **`index.html`, script canh tải** (Thiết kế 3):
+   - `var invited = /[?&]room(?:[=&]|$)/.test(location.search);` thay cho dòng `URLSearchParams`; giữ `invite.hidden = !invited;` lúc khởi động.
+   - Thêm `var link = document.getElementById("load-link");`.
+   - `show(next, head, text)` đặt thêm: `reload.hidden = next === "outdated"`, `invite.hidden = !invited || next === "outdated"`, `link.hidden = next !== "outdated"`.
+   - `fail()`: điều kiện thoát thêm `state === "outdated"`.
+   - Hàm mới `outdated()`: thoát nếu `state` là `ready`, `failed` hoặc `outdated`; `clearTimeout(timer)`; `link.textContent = location.href`; `show("outdated", …)` với chữ ở Thiết kế 2; `box.setAttribute("role", "alert")`; ẩn `nameInput`, `joinBtn`; không gọi `focus()`.
+   - `document.addEventListener("petgame:no-modules", outdated);`. Đặt tên sự kiện vào một `var NO_MODULES_EVENT` có chú thích nói script `nomodule` bắn nó.
+   - Handler `petgame:lobby-ready`: đầu handler ghi `var refocus = document.activeElement === reload;`; cuối handler (sau khi bỏ `hidden` của ô tên và nút) `if (refocus) nameInput.focus();`.
+   - Ba câu có "Tải lại" viết `Tải lại`.
+   - Sửa chú thích khối: "Plain ES2015" → ES5 (cú pháp và API; IE11, Safari 9, Chrome 49 phải chạy được vì nó hiện cả thẻ T44); thêm tín hiệu thứ tư (sự kiện từ script `nomodule`).
+4. **`index.html`, script `nomodule` mới**, ngay sau script canh tải, trước thẻ module. IIFE ES5: tạo sự kiện bằng `createEvent`/`initEvent`, rồi `document.dispatchEvent`. Chú thích HTML ngay trên nó (tiếng Anh) nói ba điều:
+   - trình duyệt chạy module bỏ qua script này;
+   - trình duyệt cũ chạy nó, còn Safari 10.1 chạy cả nó lẫn module, và "ready" vẫn thắng;
+   - nó phải đứng sau bộ canh tải.
+5. **Unit test** `packages/client/src/indexHtml.test.ts` (mục Test).
+6. **E2E** `tests/e2e/lobby.spec.ts` (mục Test).
+7. **Tài liệu** (mục Tài liệu).
+8. Chạy `npm run typecheck`, `npm test`, `npm run build`, rồi xem `packages/client/dist/index.html`: script `nomodule` còn nguyên, đứng sau bộ canh tải. Rồi chạy `npx playwright test tests/e2e/lobby.spec.ts` và cả `npm run test:e2e`.
 
 ## Giao thức
 
-- Không đổi `schema.ts`, `messages.ts`, `Profile`: không đụng lưu game, hồ sơ cũ không ảnh hưởng.
-- HTTP: thêm header `Content-Encoding` và `Vary: Accept-Encoding` cho file chữ ≥ 1 KiB của client. Client không cần sửa gì: trình duyệt tự giải nén.
-- Service worker: phiên bản đổi một lần (do `swLogic.ts` đổi), người chơi tải cache mới một lần ở lần mở kế tiếp; không mất dữ liệu.
+Không đổi `schema.ts`, `messages.ts`, `Profile`, server. Sự kiện DOM mới `petgame:no-modules` chỉ đi trong trang (từ script `nomodule` sang bộ canh tải); `main.ts` không biết đến nó. Phiên bản service worker tự đổi vì `index.html` đổi.
 
 ## Test
 
-**Unit, `scripts/precompressLib.test.mjs`** (mới):
-- `shouldCompress`: `build/a.js` 2000 B có; `index.html`, `x.webmanifest`, `a.JSON` (hoa) có; `a.png`, `a.webp` không; `a.js` 1023 B không, 1024 B có; `a.js.br`, `a.js.gz` không; `.hidden/a.js`, `build/.a.js` không.
-- `keepVariants`: 1000/950/950 → không giữ gì (> 90%); 1000/200/300 → cả hai; 1000/300/300 → chỉ gz (br không nhỏ hơn hẳn); 1000/400/300 → chỉ gz; 1000/200/950 → chỉ br; biên đúng 900 → giữ.
-- `precompressDir` trên thư mục tạm (`mkdtempSync(join(tmpdir(), ...))`, xoá trong `afterEach` bằng `rmSync(..., { recursive: true, force: true })` chỉ trên thư mục tạm đó): file js lặp lại 5 KB, html 3 KB, png ngẫu nhiên 5 KB, js 500 B, `build/sub/c.json`, dotfile `.env.js`:
-  - có `.br`/`.gz` đúng cho js, html, json lồng; không có cho png, file nhỏ, dotfile;
-  - `brotliDecompressSync`/`gunzipSync` ra đúng byte gốc;
-  - chạy lần hai: cùng tập file, không có `.br.br`/`.gz.gz`, nội dung giống hệt;
-  - một `.br` cũ của file không còn đủ điều kiện (ví dụ file bị thu nhỏ còn 500 B) bị xoá;
-  - kết quả `{ files, rawBytes, brBytes, gzBytes }` khớp cỡ file thật; `formatSummary` ra một dòng.
+### Unit: `packages/client/src/indexHtml.test.ts` (mới; Vitest, Node, không DOM)
 
-**Unit, `packages/client/src/pwa/swLogic.test.ts`:** thêm `build/index-A.js.br`, `build/index-A.js.gz`, `index.html.br` vào danh sách của test "lists the page, the manifest and the hashed files, sorted"; kết quả không đổi.
+Đọc `packages/client/index.html` (`new URL("../index.html", import.meta.url)`). Bỏ chú thích HTML `<!-- … -->` trước khi tìm thẻ: chú thích của bộ canh tải có chữ `<script>`. Dùng `typescript` (devDependency gốc, `scripts/viStrings.mjs` đã dùng) để phân tích.
 
-**Unit, `packages/server/src/contentEncoding.test.ts`** (mới): mọi dòng của bảng ở Thiết kế 3; thêm vài ca trực tiếp cho `parseAcceptEncoding` (khoảng trắng, mục rỗng `gzip,,br`, `x-gzip`, q sai bị bỏ, lần đầu thắng).
+1. Có đúng 2 script inline cổ điển (không `src`, không `type="module"`). Cái đầu không có thuộc tính; cái thứ hai có đúng thuộc tính `nomodule`. Thứ tự: canh tải < `nomodule` < `<script type="module"`.
+2. Mỗi script không có lỗi cú pháp (`ts.transpileModule(code, { reportDiagnostics: true })`) và **chỉ dùng cú pháp ES5**. Duyệt AST và báo lỗi kèm dòng nếu gặp:
+   - `let`/`const`, hàm mũi tên, template literal;
+   - `class`, spread hoặc rest, destructuring, tham số mặc định;
+   - viết tắt thuộc tính hay phương thức trong object, thuộc tính tính toán;
+   - `for…of`, `async`/`await`, `?.`, `??`, `**`.
+3. Không dùng API thiếu trên IE11 / iOS 10.0: không có định danh `URLSearchParams`, `CustomEvent`, `Promise`, `fetch`, `Map`, `Set`, `Symbol`; không gọi thuộc tính tên `includes`, `startsWith`, `endsWith`, `closest`, `append`, `prepend`, `remove`, `replaceWith`, `forEach`, `assign`, `from`. Danh sách là hằng có JSDoc nói lý do (trình duyệt không chạy module vẫn phải chạy hai script này).
+4. Chuỗi `"petgame:no-modules"` có trong cả hai script, nghĩa là bên bắn và bên nghe cùng tên.
+5. Không chuỗi nào trong hai script chứa "Tải lại" với dấu cách thường. So trên `node.text` của string literal, tức sau khi giải escape.
+6. Thẻ `#load-status` trong markup không có `aria-live`.
 
-**Tích hợp, `packages/server/src/webClient.test.ts`** (mới): `express()` + `serveClient(app, tmp)` + `app.listen(0, "127.0.0.1")`, đóng trong `afterAll`. Thư mục tạm dựng sẵn trong `beforeAll`:
-- `index.html` (≥ 3 KB chữ), `build/app-abc123.js` (≥ 5 KB chữ lặp), `build/tiny.js` (300 B, không có bản nén), `assets/pic.png` (byte ngẫu nhiên);
-- bản `.br`/`.gz` cho `index.html` và `build/app-abc123.js` ghi **trực tiếp trong test** bằng `brotliCompressSync`/`gzipSync` (không gọi script build: test này kiểm server, độc lập với luật build).
+Chạy thử đỏ: trên HEAD, test hỏng ở mục 1 (chưa có `nomodule`), mục 3 (`URLSearchParams`), mục 5 và mục 6.
 
-Gửi request bằng `node:http` (`http.request`), **không** dùng `fetch`: `fetch` của Node tự gửi `Accept-Encoding` và tự giải nén, nên không thấy byte thật trên dây. Helper `rawGet(path, headers, method = "GET")` → `{ status, headers, body: Buffer }`.
+### E2E: `tests/e2e/lobby.spec.ts` (mới; không vào thế giới, không WebGL, không `test.slow()`)
 
-Các ca:
-1. `GET /build/app-abc123.js`, `accept-encoding: gzip, deflate, br, zstd` → 200; `content-encoding: br`; `vary` chứa `Accept-Encoding`; `content-length` = cỡ file `.br` = `body.length`; `brotliDecompressSync(body)` bằng byte gốc; `content-type` bằng Content-Type của câu trả lời file gốc (ca 3; so với nhau, không viết cứng); `cache-control: public, max-age=31536000, immutable`; không có `accept-ranges`.
-2. Cùng file, `accept-encoding: gzip` → `content-encoding: gzip`; `gunzipSync(body)` bằng byte gốc; Content-Length đúng.
-3. Cùng file, không có `accept-encoding` → không có `content-encoding`; `vary` vẫn chứa `Accept-Encoding`; `accept-ranges: bytes`; body bằng byte gốc; cùng Cache-Control như ca 1.
-4. ETag của ca 1, 2, 3 có đủ và đôi một khác nhau.
-5. `If-None-Match` = ETag br, cùng `accept-encoding: br` → 304, body rỗng, không `content-encoding`. `If-None-Match` = ETag br nhưng `accept-encoding: gzip` → 200 gzip.
-6. `HEAD` với `accept-encoding: br` → 200, `content-encoding: br`, `content-length` = cỡ `.br`, body rỗng.
-7. `Range: bytes=0-9` với `accept-encoding: br` → 206, không `content-encoding`, `content-range: bytes 0-9/<cỡ gốc>`, body = 10 byte đầu của file gốc, `vary` chứa `Accept-Encoding`.
-8. `GET /`, `GET /?room=abc`, `GET /index.html` với `accept-encoding: br` → br, giải nén bằng `index.html` gốc, `content-type` bắt đầu bằng `text/html`, `cache-control: public, max-age=0`.
-9. `GET /build/tiny.js` và `GET /assets/pic.png` với `accept-encoding: br` → không `content-encoding`, không có `Vary` (không có bản nén), body bằng gốc.
-10. `accept-encoding: identity;q=1, br;q=0.5` → file gốc.
-11. `POST /build/app-abc123.js` → không phải 200 và không có `content-encoding`.
-12. `GET /build/missing.js` → 404; `GET /build/..%2f..%2fetc%2fpasswd` → không phải 200.
-13. Xoá `build/app-abc123.js.br` sau khi server đã chạy, `accept-encoding: br` → 200, không `content-encoding` (đường `ENOENT` rẽ về file gốc), body bằng gốc. (Làm ca này cuối, hoặc dùng một file riêng chỉ cho ca này.)
-14. Một app thứ hai trên thư mục không có bản nén nào: `serveClient` trả 0; `GET /build/app-abc123.js` với `br` không có `content-encoding` và không có `Vary` (y như `express.static` trơn).
+**Cách giả lập trình duyệt không có module, và vì sao.** Playwright chỉ có Chromium (Firefox và WebKit của nó đều chạy module), và không có cờ tắt module. Ta chọn **viết lại HTML trước khi trang nhận** (`page.route` cho chính tài liệu `/`):
+- mọi `type="module"` thành `type="text/x-no-modules"`: kiểu lạ nên Chromium coi là khối dữ liệu, không tải, không chạy. Đó đúng là điều trình duyệt cũ làm với `type="module"`.
+- bỏ thuộc tính `nomodule`: trình duyệt cũ không biết thuộc tính này nên chạy script như script thường.
 
-**Tích hợp, `packages/server/src/http.test.ts`** (mới), dựng giống `worldLimits.test.ts` khối "creating worlds over HTTP": `defineServer({ rooms: { [ROOM_NAME]: defineRoom(GameRoom) }, greet: false, gracefullyShutdown: false, express: (app) => { installRoutes(app, { clientDist: tmp, worldSettings }) } })`, `listen(0, "127.0.0.1")`, rồi `guardWorldCreation(server, worldSettings)`; dọn bằng `ColyseusTestServer` như file kia. `tmp` là thư mục tạm có `index.html` + `.br`.
-- `GET /whoami` với `accept-encoding: gzip, deflate, br` → 200, `text/plain`, không `content-encoding`, body là `127.0.0.1` (trustProxy 0). Đổi `worldSettings.trustProxy = 1` và gửi `X-Forwarded-For: 203.0.113.7` → body `203.0.113.7`.
-- `GET /healthz` → `ok`, không `content-encoding`.
-- `GET /` với `br` → `content-encoding: br`.
-- `POST /matchmake/create/<ROOM_NAME>` (body `{}`, như helper `post` của `worldLimits.test.ts`) → 200 có `roomId`: Colyseus vẫn trả lời `/matchmake` khi có middleware tĩnh và guard. (Phòng đầu tiên sinh thế giới, tốn vài giây như `worldLimits.test.ts`; đặt timeout đủ.)
-- `installRoutes` với `clientDist` không tồn tại → trả `null`; `GET /` → 404; `/whoami` vẫn chạy (một app Express trơn là đủ cho ca này).
+Sau hai thay thế, Chromium đi đúng đường của trình duyệt cũ, và đi qua đúng HTML thật mà server gửi, ở cả Vite dev lẫn **bản build** (Vite dời thẻ module và thêm `modulepreload` khi build; ta phải chắc nó không làm hỏng script `nomodule`). Không chọn:
+- unit test markup thuần, vì nó không chứng minh được hẹn giờ 15 s bị huỷ hay thẻ thật sự nằm trong khung nhìn;
+- `addInitScript` bắn sự kiện giả, vì nó bỏ qua đúng phần cần kiểm: script `nomodule` có thật trong trang và bản build giữ nó.
 
-`worldLimits.test.ts` không đổi và phải còn xanh.
+Phần không giả lập được (cú pháp ES5 và API cũ) do unit test giữ. Để thẻ không rơi khỏi màn hình trên trình duyệt cũ, bản viết lại còn **bỏ mọi khai báo `inset: …` và `width: min(…)`** trong `<style>` (CSS bỏ qua khai báo nó không hiểu). Ví dụ regex: `/\binset:[^;}]*;?/g` và `/(^|[{;\s])width:\s*min\([^;}]*;?/g` → `"$1"`; regex sau không khớp `max-width`. Sau Thiết kế 5, sảnh không còn dùng hai thứ này. Ai thêm lại vào `#lobby` sẽ làm test hỏng.
 
-**E2E:**
-- Playwright chạy game trên **Vite dev** (`baseURL` 5173), không đi qua Express tĩnh, nên `multiplayer.spec.ts` và `rejoin.spec.ts` **không bị ảnh hưởng** (và không được sửa `multiplayer.spec.ts`). T16 sau này chuyển e2e sang bản build; khi đó các test đó tự đi qua bản nén.
-- **Ngoại lệ: `tests/e2e/pwa.spec.ts` chạy trên bản build ở 2567** (`webServer` chạy `npm run build && npm run start`), nên từ nay worker cài và tải lại bằng bản nén. Test 1 phải còn xanh nguyên vẹn: đó chính là kiểm tra e2e rằng nén không làm hỏng service worker (precache, cache-first khi tải lại, `/whoami` không qua worker, vào thế giới được).
-- Thêm vào test 1, ngay sau bước (b) (trang đã tải lần đầu từ mạng): bước `(g) the lobby's scripts come compressed`. Với chunk entry (đường dẫn lấy từ `script[type=module][src]` như bước (d)), đọc `performance.getEntriesByName(<url tuyệt đối>)[0]` trong trang và kiểm `encodedBodySize > 0` và `encodedBodySize * 2 < decodedBodySize`. Không kiểm tên encoding: Chrome có thể chỉ nhận gzip trên `http://localhost` (Rủi ro); cả gzip lẫn br đều nhỏ hơn một nửa. Ghi chú trong test: kiểm tra này để chắc `npm run build` thật sự tạo bản nén và server thật sự gửi nó.
-- Chạy cả `npm run test:e2e` như thường lệ.
+Cách viết lại:
+- `route.fetch()` → `await response.text()`, thay chuỗi, rồi `route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body })`. Không truyền header của response gốc: bản build gửi `Content-Encoding: br`, mà body đã được giải nén.
+- Test kiểm số lần thay (`type="module"` ≥ 1, `nomodule` đúng 1, `inset` ≥ 1, `width: min(` ≥ 1) để test không qua suông khi markup đổi.
 
-## Đo (cách của T15, Thiết kế 3)
+Hằng và helper, chép như `pwa.spec.ts`/`rejoin.spec.ts` (chú thích: "Copied because T63 holds multiplayer.spec.ts; to be gathered in T16"):
+- `contexts` + `afterEach` đóng context;
+- `VITE = "http://localhost:5173"`, `BUILT = "http://localhost:2567"`;
+- `LOBBY_SLOW_MS = 15_000`;
+- `ENTRY` theo origin: dev `/\/src\/main\.ts(\?.*)?$/`, build `/\/build\/index-[\w-]+\.js(\?.*)?$/`;
+- `PHONE` (390×844, `hasTouch`, `isMobile`);
+- `SIZES` = 844×390, 390×844, 1280×720;
+- helper `oldBrowserPage(origin, { keepModules })` trả trang đã gắn route viết lại.
 
-Script đo để trong scratchpad, không commit. Tester (hoặc coder) chạy:
+Các test (mọi context giữ `serviceWorkers: "block"` của cấu hình, nên route bắt được tài liệu):
 
-1. **Trước:** chạy `npx vite build` trong `packages/client` (build không có bước nén; `emptyOutDir` xoá sạch `dist` cũ). Server mới không thấy bản nén nên trả file gốc, y như trước T43. Chạy server: `PORT=4599 PETGAME_DB=:memory: npm start --workspace=@petgame/server`.
-2. **Sau:** `npm run build` (có bước nén), chạy lại server như trên.
-3. Mỗi lần: Playwright Chromium (`chromiumLaunchOptions()` từ `scripts/chromium.mjs`), context `serviceWorkers: "block"`, CDP: `Network.enable`, `Network.setCacheDisabled({ cacheDisabled: true })`, `Network.emulateNetworkConditions` với 5 mức của T15 (không giới hạn; 4G tốt 10 Mbps/50 ms; 4G chậm 1,6 Mbps/150 ms; 3G 750 kbps/300 ms; 3G chậm 400 kbps/400 ms; `downloadThroughput` tính bằng byte/giây = kbps × 1000 / 8, `uploadThroughput` cùng giá trị). `goto http://localhost:4599/?quality=low`, đo từ lúc bắt đầu điều hướng tới khi `#join-btn:enabled`.
-4. Ghi: tổng `encodedDataLength` của các sự kiện `Network.loadingFinished` trước lúc sảnh sẵn sàng, số file, và `content-encoding` của chunk entry (từ `Network.responseReceived`).
-5. Thêm một lượt "sau" chỉ nhận gzip: `Network.setAcceptedEncodings({ encodings: ["gzip"] })` (lệnh CDP thử nghiệm; nếu Chromium không có thì bỏ dòng này, ghi lại).
-6. Kiểm thêm bằng tay: `curl -s -o /dev/null -w '%{size_download} %{content_type}\n' -H 'Accept-Encoding: br' http://localhost:4599/build/index-*.js` và với `gzip`, không header.
-7. Tắt server cổng 4599 và mọi Chromium khi xong.
+1. **`lobby (dev|build): a browser without modules is told at once to update it, never that the network is slow`** (vòng lặp sinh 2 test, một cho `VITE`, một cho `BUILT`). Điện thoại dọc, chạm.
+   - Đếm request khớp `ENTRY`.
+   - `page.clock.install` + `pauseAt` trước `goto("/?room=abc123&quality=low")`.
+   - Trong 5 s mặc định của `expect` (thẻ phải hiện ngay, không chờ hẹn giờ):
+     - `#load-status` hiện, có class `outdated`;
+     - `#load-title` là "Hãy cập nhật trình duyệt"; `#load-detail` chứa "quá cũ" và "trình duyệt khác";
+     - `#load-link` có text bằng `page.url()` (gồm `room=abc123`);
+     - `#reload-btn`, `#load-invite`, `#name`, `#join-btn` ẩn;
+     - `#load-status` có `role="alert"` và không có `aria-live`;
+     - không có `button` nào đang hiện trong `#load-status`.
+   - `fastForward(LOBBY_SLOW_MS + 1000)`: vẫn class `outdated`, không chứa "Vẫn đang tải". Đây chính là lỗi của T44.
+   - Số request khớp `ENTRY` = 0, tức module không hề chạy.
+   - Ở 3 khổ `SIZES`:
+     - `#load-title` và `#load-link` `toBeInViewport()`;
+     - `document.documentElement.scrollWidth <= innerWidth` (trang không cuộn ngang);
+     - `#load-link` có `scrollWidth <= clientWidth` (link ngắt dòng, không tràn).
+2. **`lobby: a browser that runs both (modules but no nomodule, like Safari 10.1) ends on the working lobby`** (dev, máy tính).
+   - `oldBrowserPage(VITE, { keepModules: true })`: chỉ bỏ thuộc tính `nomodule`, giữ `type="module"`. Giữ request `ENTRY` lại.
+   - `goto("/?quality=low")`: thẻ `outdated` hiện.
+   - Thả request: `#join-btn:enabled` có chữ "Vào chơi"; `#load-status` ẩn với `role="status"`; `#name` hiện. Đây là "sẵn sàng luôn thắng".
+3. **`lobby: Tải lại stays whole on its line, the alert is assertive, and after a false alarm the focus goes to the name box`** (dev, máy tính, rồi khổ điện thoại; không viết lại HTML).
+   - Giữ request `ENTRY`. `clock.install` + `pauseAt`. `goto("/?room=no-such-room&quality=low", { waitUntil: "commit" })`.
+   - Chờ `#load-invite` **không có** thuộc tính `hidden`: dấu hiệu bộ canh tải đã chạy (Thiết kế 3, "Giữ").
+   - `fastForward(LOBBY_SLOW_MS)` → "Vẫn đang tải…". Ở 390×844 (lỗi T15 đã ghi), 844×390 và 1280×720, `page.evaluate` tìm `/Tải\slại/` trong text node của `#load-detail`. Phải tìm thấy. Dùng `Range` bao đúng đoạn đó; mọi rect của `range.getClientRects()` cùng `top` (sai số < 1 px).
+   - **Báo nhầm:** route `**/no-such-file.js` → `abort`. `page.evaluate` chèn `<script src="/no-such-file.js">` vào `body`. Kết quả: thẻ "Không tải được game", `role="alert"`, không `aria-live`, `#reload-btn` có focus. Kiểm lại "Tải lại" cùng dòng ở 390×844.
+   - Thả request `ENTRY`: `#join-btn:enabled` "Vào chơi", `#load-status` ẩn, `role="status"`, **`#name` có focus**.
+   - Đối chứng (trang mới, không báo nhầm): sau khi sảnh sẵn sàng, `#name` không có focus. Bộ canh tải không lấy focus khi không có lý do.
 
-Ghi vào `PROGRESS.md` bảng:
+Test e2e cũ của T15 trong `multiplayer.spec.ts` chạy lại không sửa và phải qua: chúng giữ hành vi `slow`/`failed`, nút Tải lại, `#load-invite`, `noscript`. Test 1 của chúng (`#load-status` ẩn khi script bị giữ) cũng chứng minh Chromium bỏ qua script `nomodule` thật.
 
-| Mạng | Trước: byte, giây | Sau (encoding Chrome chọn): byte, giây | Sau, chỉ gzip: byte, giây |
-|---|---|---|---|
+### Kiểm tay (tester)
 
-kèm thời gian `npm run build` trước và sau (bước nén ước thêm 2-3 s).
-
-Dự kiến: 3G chậm từ khoảng 20 s xuống ≤ 8 s; byte của 11 file sảnh từ khoảng 1 MB xuống ≤ 330 kB.
+Bản build trên 2567: tự viết lại HTML trong một script ở scratchpad (không commit), chụp thẻ `outdated` bằng CDP `Page.captureScreenshot` ở 3 khổ, xem chữ có gọn và link ngắt dòng gọn không. Ghi kết quả vào `PROGRESS.md`. Không có trình duyệt cũ thật trong container. Không bắt buộc kiểm trên IE11 hay iOS 10.
 
 ## Tài liệu
 
-- `docs/architecture.md`, mục `packages/server`: thay dòng `index.ts` (giờ gọi `installRoutes` của `http.ts`), thêm `http.ts` (`installRoutes`: `/healthz`, `/whoami`, client tĩnh), `webClient.ts` (`findPrecompressed`, `precompressed`, `serveClient`, `BUILD_CACHE`; luật Vary, Range, ETag, danh mục đọc lúc khởi động), `contentEncoding.ts` (`parseAcceptEncoding`, `pickEncoding`, ưu tiên br rồi gzip, identity chỉ thắng khi ghi rõ q lớn hơn).
-- `docs/architecture.md`, mục PWA: `precacheUrls` bỏ `.br`/`.gz`; một câu: build client chạy `scripts/precompress.mjs` sau `vite build` (sau khi `sw.js` đã sinh); worker cất nội dung đã giải nén, `Vary: Accept-Encoding` không cản `cache.match` theo chuỗi.
-- `docs/deploy.md`, mục "Ghi chú": server gửi bản nén sẵn (`.br`/`.gz` do `npm run build` tạo); kiểm sau deploy: `curl -sI -H 'Accept-Encoding: br' https://<app>/ | grep -i content-encoding` phải ra `br`; tách client lên CDN thì upload cả `.br`/`.gz` hoặc để CDN tự nén (CDN thường tự nén); build bằng `vite build` trơn vẫn chạy, chỉ không nén.
-- `docs/design/multiplayer.md` (dòng "Vì sao chờ 15 giây" và dòng "Tải lại trang rồi bấm Vào chơi" ở mục giữ chỗ): thay "khoảng 960 kB (server chưa nén)" và các số 5,3/11,3/20,7 s bằng số đo mới của mục Đo (ghi cả số cũ "trước T43" trong ngoặc). Lý do giữ 15 s và 60 s vẫn đúng (chỉ thêm biên), không đổi hằng số.
+- `docs/design/multiplayer.md`, mục "Mở game: sảnh tải chậm hoặc hỏng":
+  - thêm hàng "Trình duyệt quá cũ, không chạy được game" | thẻ "Hãy cập nhật trình duyệt", dòng giữa, địa chỉ trang để chép sang trình duyệt khác, không có nút | "ngay khi mở trang, không chờ 15 giây";
+  - gạch đầu dòng mới: sau một lần báo nhầm (thẻ lỗi rồi sảnh vẫn mở) focus về ô tên;
+  - dòng đầu file thêm "T44".
+- `docs/architecture.md`:
+  - dòng "Chữ người chơi thấy": thêm "trừ chữ tĩnh và bộ canh tải trong `index.html`, chạy trước mọi module (T12)";
+  - đoạn **Canh tải sảnh (T15)** thêm phần T44:
+    - script `nomodule` bắn `petgame:no-modules`, trạng thái `outdated`;
+    - bộ canh tải viết ES5, không dùng `URLSearchParams`; unit test `indexHtml.test.ts` giữ luật này;
+    - CSS sảnh không dùng `inset`/`min()`;
+    - focus về `#name` sau báo nhầm.
+  
+  Sửa "JS ES2015" thành "ES5".
+  - dòng e2e (`npm run test:e2e`): liệt kê đủ `multiplayer.spec.ts`, `pwa.spec.ts`, `rejoin.spec.ts`, `lobby.spec.ts`, kèm nửa câu: `lobby.spec.ts` giả lập trình duyệt không có module bằng cách viết lại HTML qua `page.route`, ở cả Vite dev và bản build.
+  - mục Helper: `` `join` (hai cái trước) `` → `` `join` (`openPage` + `enterLobby`) ``. Chỉ sửa tài liệu, không đụng spec.
+- `docs/deploy.md`, ghi chú CSP: "hai script inline trong `index.html` (bộ canh tải và script `nomodule`), mỗi cái một hash `sha256-…`; hash đổi khi chữ trong script đổi".
 
 ## Tiêu chí hoàn thành
 
-- [ ] `package.json` của mọi workspace không có dependency mới; `package-lock.json` không đổi.
-- [ ] `npm run build` tạo `.br` và `.gz` cạnh các file `.js`, `.html`, `.json` ≥ 1 KiB trong `dist` (kể cả `sw.js`, `assets/*/index.json`), không tạo cho `.png`/`.webp`/file < 1 KiB; in một dòng tóm tắt. Chạy lại script trên cùng `dist` không đổi gì.
-- [ ] `dist/sw.js` (danh sách precache) không chứa đường dẫn `.br`/`.gz`.
-- [ ] `parseAcceptEncoding`/`pickEncoding` đúng mọi dòng bảng Thiết kế 3, có test.
-- [ ] Server: bản nén có Content-Encoding đúng, `Vary: Accept-Encoding` (cả câu trả lời file gốc của file có bản nén), Content-Length = cỡ bản nén, Content-Type và Cache-Control y như file gốc, ETag khác nhau giữa gốc/br/gz, 304 đúng, HEAD đúng, Range trả 206 trên file gốc, file nén mất thì rẽ về file gốc; giải nén ra đúng byte gốc. Tất cả có trong `webClient.test.ts`.
-- [ ] `/whoami` (cả qua `X-Forwarded-For` với trustProxy 1), `/healthz` không nén và đúng; `/matchmake/create` vẫn 200 khi có guard và middleware (`http.test.ts`); `worldLimits.test.ts` xanh, không sửa.
-- [ ] Không có `dist`: server chạy, không phục vụ client, `/whoami` vẫn chạy.
-- [ ] `index.ts` chỉ gọi `installRoutes`; log nói số file có bản nén.
-- [ ] `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` xanh; `pwa.spec.ts` có bước (g) và xanh; `multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts` không bị đụng.
-- [ ] Bảng đo trước/sau trong `PROGRESS.md` theo mục Đo; sảnh ở 3G chậm ≤ 8,5 s với encoding Chrome chọn; byte của sảnh giảm ít nhất 2,5 lần.
-- [ ] Tài liệu cập nhật đúng mục Tài liệu.
-- [ ] Chú thích code tiếng Anh, JSDoc cho mọi export mới; không chữ mới cho người chơi.
+- [ ] `index.html` có `<script nomodule>` (ES5, chỉ bắn `petgame:no-modules`), đứng sau bộ canh tải, trước thẻ module; `dist/index.html` sau `npm run build` vẫn giữ nó đúng chỗ đó.
+- [ ] Bộ canh tải không còn `URLSearchParams`. Có trạng thái `outdated` đúng bảng Thiết kế 3: huỷ hẹn giờ, `failed` không đè được nó, `ready` thắng nó. Chữ đúng Thiết kế 2; `#load-link` là địa chỉ trang; nút Tải lại và `#load-invite` ẩn trong thẻ này.
+- [ ] `invite.hidden` vẫn được đặt lúc khởi động. Với `?room=`, `#load-invite` mất `hidden` dù khung thông báo còn ẩn.
+- [ ] `#load-status` không có `aria-live`; `role` là `alert` khi `failed`/`outdated`, là `status` lúc thường và sau `ready`.
+- [ ] Sau báo nhầm, focus ở `#name`; không báo nhầm thì focus không bị đụng.
+- [ ] Ba câu có "Tải lại" dùng ` `; ở 390×844 "Tải lại" nằm trên một dòng.
+- [ ] CSS `#lobby` và `#lobby form` không còn `inset`/`min()`, đổi tương đương theo bảng Thiết kế 5; sảnh trên Chromium trông như cũ: tester đo `boundingBox()` của `#lobby` và `#lobby form` ở 844×390, 390×844, 1280×720 trên HEAD và sau khi sửa, hai bên trùng nhau; ghi vào `PROGRESS.md`.
+- [ ] `packages/client/src/indexHtml.test.ts` có 6 mục ở trên; hỏng trên HEAD, qua sau khi sửa.
+- [ ] `tests/e2e/lobby.spec.ts` có 4 test (test 1 × dev/build, test 2, test 3), không `test.slow()`, không `waitForTimeout`, kiểm số lần viết lại HTML.
+- [ ] `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` đều qua, kể cả các test `lobby:` cũ trong `multiplayer.spec.ts` không sửa.
+- [ ] `git diff --stat` không có `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts`; không có file `.ts` nào của client ngoài test mới.
+- [ ] Tài liệu cập nhật như mục Tài liệu, kể cả câu `join` trong `docs/architecture.md`.
 
 ## Rủi ro, câu hỏi mở
 
-Không có mục CHẶN: không đổi giao thức game hay dữ liệu đã lưu, không thêm chi phí, không xoá tính năng.
+Không có mục CHẶN.
 
-- **Chrome có thể không gửi `br` trên HTTP thường.** Chrome trước đây chỉ quảng cáo brotli qua HTTPS. Trên `http://192.168...` (chơi qua Wi-Fi bằng `npm run play`) có thể chỉ nhận `gzip, deflate`, vì vậy phải có cả bản `.gz` (sảnh vẫn ~316 kB thay vì ~271 kB). Bản deploy chạy HTTPS nên nhận br. Lượt đo ghi lại encoding Chrome chọn trên `http://localhost`; bước e2e (g) cố ý không kiểm tên encoding.
-- **Build lại khi server đang chạy:** danh mục bản nén đọc lúc khởi động. File băm mới được gửi không nén tới khi khởi động lại; file cũ bị xoá thì đường `ENOENT` rẽ về `express.static` (404 như hiện nay); `index.html.br` ghi đè tại chỗ nên vẫn đúng nội dung mới. `npm run play` và Docker luôn build trước khi chạy, nên không gặp trong thực tế.
-- **Proxy trước server** (Fly, Render) chuyển nguyên Content-Encoding đã có, không nén lần hai. Kiểm sau deploy bằng `curl` (ghi trong `docs/deploy.md`).
-- **Cỡ trùng nhau làm ETag trùng:** đã loại bằng luật build (≤ 90% và br < gz). Nếu ai sửa luật build mà bỏ điều kiện đó, hai biểu diễn có thể chung ETag; test ca 4 của `webClient.test.ts` chỉ kiểm trên fixture, nên chú thích ở `keepVariants` phải nói rõ ràng buộc này.
-- **Thời gian build** thêm khoảng 2-3 s (brotli mức 11), tăng theo cỡ bundle. Nếu sau này bundle lớn nhiều lần, có thể hạ xuống mức 9 (708 kB → 205 kB trong 66 ms).
-- **Service worker:** đổi `swLogic.ts` làm phiên bản worker đổi một lần; người chơi tải lại cache một lần. Không có rủi ro nào khác đã biết; e2e `pwa.spec.ts` chạy trên bản nén kiểm điều này.
-- **Sau này (không thuộc T43):** zstd (Chrome) khi Node có zstd ổn định; `Cache-Control` cho `/assets/*` (tên cố định, hiện luôn kiểm lại) là việc riêng nếu muốn.
+- **Giả lập không phải trình duyệt cũ thật.** Viết lại HTML chứng minh được luồng (thẻ, hẹn giờ bị huỷ, bản build giữ script, thẻ nằm trong khung nhìn khi thiếu `inset`/`min()`). Nó không chứng minh được bộ canh tải *chạy được* trên IE11 hay iOS 10: phần đó dựa vào unit test cú pháp và API. Danh sách API cấm ở unit test là danh sách chặn có lý do, không đầy đủ tuyệt đối. Người sửa bộ canh tải sau này phải giữ ES5 (chú thích trong script nói rõ).
+- **Safari 10.1 / iOS 10.3** chạy cả hai script: thẻ "cập nhật" hiện trong chốc lát rồi bị `ready` gỡ nếu sảnh chạy được. Thực tế sảnh không chạy được trên đó (mục tiêu build của Vite 8), nên thẻ ở lại, và đúng nguyên nhân.
+- **`page.clock` và route tài liệu ở bản build:** `route.fetch()` qua server 2567 nhận bản `br`. Playwright trả body đã giải nén, nên phải `fulfill` với header mới (đã ghi ở mục Test). Nếu `toContainText` gặp NBSP: Playwright gộp khoảng trắng; test 3 dùng regex `\s`, không so chuỗi có dấu cách.
+- **Chèn `<script>` hỏng để báo nhầm (test 3):** đúng loại tín hiệu thật mà bộ canh tải bắt (thẻ `<script>` cùng origin tải lỗi). Reviewer T15 đã thử tay cách này.
 
 ## Đề xuất cho `TASKS.md`
 
-- Ghi chú cho **T16**: khi chuyển e2e sang bản build, mọi test đi qua bản nén; giữ bước (g) của `pwa.spec.ts` và có thể gom helper `rawGet` nếu cần kiểm header.
-- Không có việc mới bắt buộc. Tuỳ chọn (P3): "Cache dài cho `/assets/*`" (cần tên có băm hoặc phiên bản; ảnh nhân vật, thiên nhiên tải lại mỗi lần kiểm ETag).
+- **Chuyển sang T20** (vì nằm trong `tests/e2e/multiplayer.spec.ts`, file đang bị T63 giữ), bỏ khỏi dòng T44:
+  - bỏ (hoặc ghi lý do) `test.slow()` của test `lobby: a script that cannot load or breaks while starting …`;
+  - siết test `lobby: nothing is sent before the lobby script is ready …` (trước dòng kiểm `#load-status` ẩn) và test `lobby: on a slow network …` (trước `fastForward` đầu) bằng `await expect(page.locator("#load-invite")).not.toHaveAttribute("hidden")`. Dấu hiệu này được T44 giữ nguyên.
+- **Ghi chú cho T16:** `tests/e2e/lobby.spec.ts` có thêm bản chép `LOBBY_SLOW_MS`, `ENTRY` (đường script sảnh ở dev và ở build) và `PHONE`; gom cùng các helper chép khác.
+- (Thấp, không bắt buộc.) Nếu sau này thấy "Thử lại"/"Tải lại" trong `JOIN_TEXT` (`ui/strings.ts`) xuống dòng mồ côi, dùng cùng cách ` `.
