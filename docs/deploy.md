@@ -65,5 +65,5 @@ Giá trị sai (ngoài khoảng cho phép: ba trần là số nguyên ≥ 1, `PE
 - Sau deploy, tab cũ dùng nốt bản cũ (service worker mới chờ tới khi các tab cũ đóng); tải lại là ra HTML mới vì trang luôn lấy từ mạng trước.
 - Gỡ service worker khỏi máy người chơi khi cần (tắt khẩn cấp): deploy một `sw.ts` mà `install` gọi `self.skipWaiting()`, `activate` xoá mọi cache `petgame-*` rồi gọi `self.registration.unregister()`, và không có listener `fetch`. Thiếu `skipWaiting()` thì bản gỡ chờ tới khi mọi tab cũ đóng mới chạy (điện thoại có thể giữ tab nhiều ngày).
 - Cache Storage của trình duyệt hỏng thì worker lấy từ mạng như không có worker (T82); nó không bao giờ là lý do game không mở khi có mạng.
-- **Nếu thêm Content-Security-Policy** (hiện chưa có), phải cho phép script canh tải inline trong `index.html` bằng hash `sha256-...` của nó, kẻo bộ canh tải mất tác dụng mà không báo gì.
+- **Nếu thêm Content-Security-Policy** (hiện chưa có), phải cho phép hai script inline trong `index.html` (bộ canh tải và script `nomodule`, T44), mỗi cái một hash `sha256-...`, kẻo chúng mất tác dụng mà không báo gì; hash đổi khi chữ trong script đổi.
 - CI (`.github/workflows/ci.yml`) chạy typecheck, unit test, build và e2e mỗi lần push.

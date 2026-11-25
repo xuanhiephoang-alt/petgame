@@ -343,13 +343,16 @@
       .skill-bar.touch .skill-btn .value { font-size: 10px; }
       /* z-index: above the game's layers (labels 1, HUD 2 ... connection screen 6): the world is built under the lobby,
          which goes once it is drawn (T42). */
+      /* No inset and no min() in the lobby: browsers that cannot run modules do not know them, and without top/left the
+         fixed lobby drops below #game and the T44 card never shows. Top/left with width/height 100% on purpose: the
+         build's CSS minifier folds top/right/bottom/left of 0 back into a single inset declaration. */
       #lobby {
-        position: fixed; inset: 0; z-index: 10; display: flex; overflow-y: auto; touch-action: pan-y;
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; display: flex; overflow-y: auto; touch-action: pan-y;
         font-family: system-ui, sans-serif; color: #fff; background: #1b2a1b;
       }
-      #lobby form { display: flex; flex-direction: column; gap: 12px; width: min(340px, 92vw); margin: auto; padding: 16px 0; }
+      #lobby form { display: flex; flex-direction: column; gap: 12px; width: 92vw; max-width: 340px; margin: auto; padding: 16px 0; }
       /* Tablets and desktops: wide enough for the 8 hair colours (44 px each) in one row (T18). */
-      @media (min-width: 601px) { #lobby form { width: min(420px, 92vw); } }
+      @media (min-width: 601px) { #lobby form { width: 92vw; max-width: 420px; } }
       /* Short portrait phones: tighter form and a smaller explorer so the join button stays on screen (T18). */
       @media (max-width: 600px) and (max-height: 760px) { #lobby form { gap: 8px; padding: 8px 0; } .lobby-look .doll-preview { zoom: 0.8; } }
       #lobby h1 { margin: 0 0 4px; text-align: center; }
@@ -361,14 +364,17 @@
       #lobby .hint { font-size: 14px; opacity: 0.7; text-align: center; }
       #lobby .error { color: #ff8a80; text-align: center; min-height: 1em; }
       /* The lobby's load notice (T15; the watchdog script at the end of <body> fills it). Slow: a quiet line under the locked
-         button, which keeps waiting. Failed: a card like the connection screen's, in place of the name box and the button. */
+         button, which keeps waiting. Failed: a card like the connection screen's, in place of the name box and the button.
+         Outdated (T44): the failed card's look, no button. */
       .lobby-alert { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; font-size: 14px; line-height: 1.4; }
       .lobby-alert[hidden] { display: none; }
       .lobby-alert p { margin: 0; }
       .lobby-alert strong { font-size: 16px; }
-      .lobby-alert.failed { width: 100%; max-width: 420px; align-self: center; box-sizing: border-box; padding: 14px 16px; border-radius: 14px;
+      .lobby-alert.failed, .lobby-alert.outdated { width: 100%; max-width: 420px; align-self: center; box-sizing: border-box; padding: 14px 16px; border-radius: 14px;
         background: #fafcf6; color: #253020; box-shadow: 0 8px 28px rgba(0,0,0,0.4); }
-      .lobby-alert.failed strong { font-size: 18px; }
+      .lobby-alert.failed strong, .lobby-alert.outdated strong { font-size: 18px; }
+      #load-link { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 8px; background: #e8efe0; color: #253020; font-size: 13px;
+        word-wrap: break-word; word-break: break-all; -webkit-user-select: all; user-select: all; }
       .lobby-action { min-height: 44px; min-width: 140px; padding: 0 18px; box-sizing: border-box; border: 2px solid rgba(255,255,255,0.6); border-radius: 10px;
         background: transparent; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; }
       .lobby-alert.failed .lobby-action { border: none; background: #7cb342; color: #fff; }
@@ -382,7 +388,7 @@
       .lobby-look .style-btn { padding: 5px 7px; }
       /* Phones held sideways: the explorer beside the picker. */
       @media (max-height: 560px) and (min-width: 560px) {
-        #lobby form { width: min(680px, 94vw); gap: 8px; padding: 8px 0; display: grid; grid-template-columns: 1fr 200px; column-gap: 8px; }
+        #lobby form { width: 94vw; max-width: 680px; gap: 8px; padding: 8px 0; display: grid; grid-template-columns: 1fr 200px; column-gap: 8px; }
         #lobby form > * { grid-column: 1 / -1; }
         #lobby form > #name { grid-column: 1; }
         #lobby form > #join-btn { grid-column: 2; }
@@ -463,7 +469,7 @@
            #join-status is the card for a failed join (T23): world closed or full, server unreachable; it is also the card
            for a game that could not open after joining (T42), with only a reload button.
            #rejoin-btn is the second button at "/" after playing with friends (T79): src/main.ts sets its text and shows it.
-           #load-status is the notice of the load watchdog (the inline script after #lobby, T15): slow or broken loading. -->
+           #load-status is the notice of the load watchdog (the inline script after #lobby, T15): slow or broken loading, and the card for a browser that cannot run modules (T44, the nomodule script after the watchdog). -->
       <form id="join-form">
         <h1>🐾 PetGame</h1>
         <div id="look" class="lobby-look"></div>
@@ -479,10 +485,11 @@
             <button type="button" id="join-reload-btn" class="lobby-action" hidden>Tải lại</button>
           </div>
         </div>
-        <div id="load-status" class="lobby-alert" role="status" aria-live="polite" hidden>
+        <div id="load-status" class="lobby-alert" role="status" hidden>
           <strong id="load-title"></strong>
           <p id="load-detail"></p>
           <p id="load-invite" hidden>Link mời vẫn được giữ.</p>
+          <p id="load-link" hidden></p>
           <button type="button" id="reload-btn" class="lobby-action" aria-describedby="load-title load-detail">Tải lại</button>
         </div>
         <noscript><p class="error" id="load-noscript">Cần bật JavaScript để chơi PetGame.</p></noscript>
@@ -492,11 +499,13 @@
     <!-- Load watchdog (T15). A classic inline script on purpose: it must run when the lobby script (src/main.ts and every
          module it imports) fails, so it cannot live in that module tree, nor in a file that the same bad network may not
          deliver; and Vite keeps inline scripts as they are while it moves the module tag to <head> and drops its attributes.
-         Three signals: a capturing "error" listener on window sees a <script> of this origin that failed to load (an
+         Four signals: a capturing "error" listener on window sees a <script> of this origin that failed to load (an
          "error" event on the entry tag, even when a child module is the one missing) or a script of this origin that threw
-         (an ErrorEvent); a timer says "still loading" after LOBBY_SLOW_MS. src/main.ts dispatches the lobby-ready event when
-         the lobby is set up, and that always wins: the notice goes away whatever was reported before. Plain ES2015 on
-         purpose (Vite does not compile this and typecheck does not see it): it must run on browsers too old for the game. -->
+         (an ErrorEvent); a timer says "still loading" after LOBBY_SLOW_MS; the "petgame:no-modules" event of the nomodule script below says the browser
+         cannot run modules at all. src/main.ts dispatches the lobby-ready event when
+         the lobby is set up, and that always wins: the notice goes away whatever was reported before. Plain ES5 on
+         purpose, syntax and APIs (Vite does not compile this and typecheck does not see it): it must run on IE11, Safari 9
+         and Chrome 49, because those are the browsers that get the T44 card. src/indexHtml.test.ts keeps this rule. -->
     <script>
       (function () {
         var LOBBY_SLOW_MS = 15000; // the lobby is ready in 11 s on 3G (750 kbps) and 21 s on slow 3G (400 kbps): docs/design/multiplayer.md
@@ -504,22 +513,30 @@
         var title = document.getElementById("load-title");
         var detail = document.getElementById("load-detail");
         var invite = document.getElementById("load-invite");
+        var link = document.getElementById("load-link");
         var reload = document.getElementById("reload-btn");
         var nameInput = document.getElementById("name");
         var joinBtn = document.getElementById("join-btn");
         var state = "loading";
         var timer;
-        invite.hidden = !new URLSearchParams(location.search).has("room");
+        // The nomodule script below fires this on document; it is the only way a browser without modules gets heard.
+        var NO_MODULES_EVENT = "petgame:no-modules";
+        // Same answer as URLSearchParams#has("room"), which IE11 and iOS 10.0 lack.
+        var invited = /[?&]room(?:[=&]|$)/.test(location.search);
+        invite.hidden = !invited;
         function ours(url) { return typeof url === "string" && url.indexOf(location.origin + "/") === 0; }
         function show(next, head, text) {
           state = next;
           box.className = "lobby-alert " + next;
           title.textContent = head;
           detail.textContent = text;
+          reload.hidden = next === "outdated";
+          invite.hidden = !invited || next === "outdated";
+          link.hidden = next !== "outdated";
           box.hidden = false;
         }
         function fail(text) {
-          if (state === "ready" || state === "failed") return;
+          if (state === "ready" || state === "failed" || state === "outdated") return;
           clearTimeout(timer);
           show("failed", "Không tải được game", text);
           box.setAttribute("role", "alert");
@@ -527,21 +544,32 @@
           joinBtn.hidden = true;
           reload.focus();
         }
+        function outdated() {
+          if (state === "ready" || state === "failed" || state === "outdated") return;
+          clearTimeout(timer);
+          link.textContent = location.href;
+          show("outdated", "Hãy cập nhật trình duyệt", "Trình duyệt này quá cũ nên không mở được PetGame. Cập nhật trình duyệt, hoặc mở link dưới đây bằng một trình duyệt khác.");
+          box.setAttribute("role", "alert");
+          nameInput.hidden = true;
+          joinBtn.hidden = true;
+        }
         function onError(event) {
           var target = event.target;
           if (target instanceof HTMLScriptElement) {
-            if (ours(target.src)) fail("Kiểm tra mạng rồi bấm Tải lại.");
+            if (ours(target.src)) fail("Kiểm tra mạng rồi bấm Tải\u00a0lại.");
           } else if (event instanceof ErrorEvent && ours(event.filename)) {
-            fail("Trình duyệt gặp lỗi khi mở game. Bấm Tải lại; nếu vẫn lỗi, hãy cập nhật trình duyệt.");
+            fail("Trình duyệt gặp lỗi khi mở game. Bấm Tải\u00a0lại; nếu vẫn lỗi, hãy cập nhật trình duyệt.");
           }
         }
         timer = setTimeout(function () {
-          if (state === "loading") show("slow", "Vẫn đang tải…", "Mạng có vẻ chậm. Chờ thêm chút, hoặc bấm Tải lại.");
+          if (state === "loading") show("slow", "Vẫn đang tải…", "Mạng có vẻ chậm. Chờ thêm chút, hoặc bấm Tải\u00a0lại.");
         }, LOBBY_SLOW_MS);
         window.addEventListener("error", onError, true);
+        document.addEventListener(NO_MODULES_EVENT, outdated);
         // Reloading keeps the whole address (?room= of an invite and the rest).
         reload.addEventListener("click", function () { location.reload(); });
         document.addEventListener("petgame:lobby-ready", function () {
+          var refocus = document.activeElement === reload;
           state = "ready";
           clearTimeout(timer);
           window.removeEventListener("error", onError, true);
@@ -549,7 +577,20 @@
           box.setAttribute("role", "status");
           nameInput.hidden = false;
           joinBtn.hidden = false;
+          // After a false alarm the failed card had put the focus on the reload button, which is now hidden.
+          if (refocus) nameInput.focus();
         }, { once: true });
+      })();
+    </script>
+    <!-- Browsers that run modules skip this script (nomodule). Browsers that cannot run modules run it as a plain script
+         and the watchdog above shows the update card (T44). Safari 10.1 runs this and the module: the lobby-ready event
+         still wins and hides the card. It must stay after the watchdog (its listener has to exist first) and before the
+         module tag. ES5 only; it holds no text. -->
+    <script nomodule>
+      (function () {
+        var event = document.createEvent("Event");
+        event.initEvent("petgame:no-modules", false, false);
+        document.dispatchEvent(event);
       })();
     </script>
     <script type="module" src="/src/main.ts"></script>
