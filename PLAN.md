@@ -1,224 +1,263 @@
-# PLAN: T25 Né đòn bằng cách ngắt rồi nối lại mạng liên tục
+# PLAN: T25b Né đòn qua đường mất chỗ của T24
 
-Code đọc ở `843047c` ("Mark T24 done, add T90, start T25"; mã T24 ở `35e43ab`). Nguồn:
-- dòng T25 trong `TASKS.md`; góp ý 1 trong `REVIEW.md` của T3 (`80a70ea`);
-- `packages/server/src/rooms/GameRoom.ts` (`onDrop`, `onReconnect`, `onLeave`, `removePlayer`, `endSession`, `isEmpty`, các trường `holds`, `reconnectGraceMs`, `resumes`);
-- `systems/combat.ts` (`sheltered`, `targetPos`, `wildTarget`, `damage`, `calmPalsTargeting`, `windUp`, `cancelWindup`, `strike`, `tickRegen`), `systems/movement.ts` (AI thú hoang và trùm, thú đi theo), `systems/world.ts` (rương, khí hậu), `systems/leaders.ts` (`bossStomp`), `systems/saving.ts`;
-- `packages/shared/src/constants.ts`, `combat.ts` (`WILD_WINDUP_MS`), `boss.ts` (`BOSS`), `alphas.ts` (`ALPHA`), `skills.ts` (`skillTravelMs`, `skillReach`), `data/skills.json`;
-- `GameRoom.test.ts` (describe `reconnecting after a dropped connection`, helper `cutConnection`, `holdReconnect`, `reconnected`, `holdsOf`, `steadyClock` của T22, test A1-A4 của T24);
-- `tests/e2e/multiplayer.spec.ts` và `reconnect.spec.ts` (chỉ đọc, để chắc không test nào phụ thuộc vào việc được bảo vệ ngay lúc rớt);
-- mã nguồn `@colyseus/core` 0.18.18 (`Room.setTimestep`: `clock.tick()` chạy hẹn giờ trước callback mô phỏng trong cùng một nhịp).
+Code đọc ở `2db768c` ("Mark T25 done, add T25b and T92, start T25b"; mã T25 ở `29344e0`). Nguồn:
+- dòng T25b trong `TASKS.md`; `REVIEW.md` ở HEAD (review T25, góp ý 1);
+- `packages/server/src/rooms/GameRoom.ts`: `onJoin`, `onDrop` (nhánh hold không phải `Deferred` của T24), `shelter`, `onReconnect`, `onLeave`, `onDispose`, `removePlayer`, `endSession`, `isEmpty`, `holdEmptyWorld`, `canResume`, `pickColor`, các trường `holds`, `resumes`, `resumeMs`, `shelterDelayMs`, và `liveSessions` cấp module;
+- `systems/resume.ts`, `systems/combat.ts` (`faintPlayer`, `calmPalsTargeting`), `systems/leaders.ts` (`bossStomp`), `systems/movement.ts` (thú đi theo dừng khi chủ `offline`);
+- mã nguồn `@colyseus/core` 0.18.18 `Room.mjs`: `allowReconnection` trả Promise bị từ chối "not joined" khi `_enqueuedMessages !== undefined`; `_onLeave` → `onDrop` → `#_onAfterLeave` → `onLeave` ngay; `_onJoin` `await this.onJoin(...)`, rồi kiểm `client.state === LEAVING`;
+- `GameRoom.test.ts`: `cutConnection(..., { realDelay })`, `holdReconnect`, `reconnected`, `loseWhileComingBack`, `resumesOf`, `steadyClock`, `bossOf`, test A1-A3 của T24 và T1-T6 của T25;
+- `docs/design/multiplayer.md` (mục "Quay lại", "Trong 20 giây chờ", "Đã cân nhắc và chấp nhận").
 
 Số dòng có thể trôi: tìm theo tên.
 
-**Người làm: coder.** Chỉ đổi server, shared và test. Client không đổi, nên không có e2e mới.
+**Người làm: coder.** Chỉ đổi server, test và tài liệu. Client không đổi, nên không có e2e mới.
 
 **Không được sửa** `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts`. Không chạy `git stash`.
 
 ## Mục tiêu
 
-Hiện tại, ngay khi socket đóng, `onDrop` bảo vệ người chơi:
-- đặt `offline`, nên `sheltered` chặn mọi sát thương và mọi việc nhắm vào họ;
-- gọi `calmPalsTargeting`: xoá `wildAggro`, tức xoá luôn cú cắn hay cú dậm đang gồng (trạng thái gồng nằm trong `aggro.windupUntil`).
+T25 bắt một lần rớt phải kéo dài 1,5 s (`DROP_SHELTER_DELAY_MS`) mới được bảo vệ, nên đòn đang gồng luôn trúng. Nhưng còn một đường vòng qua nhánh "mất chỗ" của T24:
+1. Đóng socket. Đây là lần rớt thường: hold là `Deferred`, người chơi chưa được bảo vệ.
+2. SDK nối lại. Client đóng socket lần nữa trước khi đọc `JOIN_ROOM` (cùng cách test A1 làm).
+3. Colyseus từ chối giữ chỗ ("not joined"), nên `onDrop` vào nhánh T24: ghi điểm quay lại; `onLeave` → `removePlayer` xoá người chơi **ngay**; `calmPalsTargeting` huỷ cú cắn hoặc cú dậm đang gồng.
+4. Vào lại bằng token: đúng chỗ, đúng máu.
 
-SDK nối lại sau khoảng 200-400 ms. Gọi `__petgame.room.connection.close(4010)` lặp lại thì đòn của thú hoang, thú đầu đàn và trùm không bao giờ trúng: một nút "bất tử" không có hồi chiêu.
+Client T24 tự làm như vậy mỗi phút một lần; một script thì làm không giới hạn, và né được mọi cú dậm của trùm.
 
-Sau T25, **rớt mạng chỉ được bảo vệ khi kéo dài quá 1,5 giây.** Trong 1,5 giây đầu, người chơi vẫn ở trong thế giới như người bỏ tay khỏi máy: đứng yên, đòn đang gồng vẫn trúng, thú hoang vẫn đánh. Nối lại trong khoảng đó thì không có gì được xoá. Người chơi thật với mạng di động kém vẫn được bảo vệ y như T3 khi mất mạng thật: chậm hơn 1,5 giây, mà một lần mất mạng im lặng thì server vốn đã chỉ biết sau 6-9 giây qua ping.
+Sau T25b, **mọi lần rời thế giới do mất kết nối đều đứng phơi ra đủ 1,5 s**, kể cả lần mất chỗ:
+- người chơi mất chỗ ở lại trong thế giới, đứng yên, đến hết 1,5 s, rồi mới bị xoá;
+- điểm quay lại ghi máu và chỗ **sau** các đòn trong khoảng đó (kể cả khi ngất);
+- lần vào lại cùng thiết bị đến giữa chừng thì chờ hết khoảng đó rồi nhận đúng trạng thái sau đòn.
+
+Người chơi thật mất chỗ mà không bị ai đánh vẫn quay lại đúng chỗ và đúng máu như T24.
 
 ## Chọn cách
 
-| | (1) Chỉ bảo vệ khi rớt quá 1,5 s | (2) Rớt lại trong N s sau một lần nối lại thì không bảo vệ |
+| | (a) Giữ người mất chỗ trong thế giới tới hết 1,5 s, rồi mới xoá và ghi điểm quay lại | (b) Xoá ngay, nhưng tự tính các đòn đang chờ vào máu của điểm quay lại |
 |---|---|---|
-| Lần né đầu tiên | không né được: đòn đang gồng vẫn trúng | **vẫn né được** một lần mỗi N giây |
-| Người chơi thật mạng chập chờn | mất mạng thật (> 1,5 s) lúc nào cũng được bảo vệ | lần mất mạng thật **thứ hai** trong N giây bị bỏ mặc suốt 20 s chờ: đúng người cần bảo vệ nhất lại không được |
-| Trạng thái thêm | không: so `holds.get(sid) === hold` lúc hẹn giờ chạy | mốc nối lại cuối của mỗi phiên, xoá khi rời |
-| Hợp với T24 | không đụng nhánh mất chỗ (điểm quay lại) | như (1) |
+| Ai quyết sát thương | chính mô phỏng thường: `strike`, `bossStomp`, chiêu bay tới, đẩy lùi, `faintPlayer`, khiên, giáp, hệ | một bản tính thứ hai, phải chép lại mọi luật đó (giáp, khiên, hệ, đẩy lùi đổi chỗ, ngất đổi chỗ và máu, chiêu vùng chỉ trúng nếu đứng trong vùng) |
+| Đòn bắt đầu *trong* 1,5 s sau khi mất chỗ | trúng như với người đứng yên (đúng luật T25) | không tính được (thú chưa gồng lúc xoá) |
+| Lượng code | một trạng thái "đang rời" (2 Map) + một hẹn giờ + một lần chờ trong `onJoin` | nhỏ ở chỗ xoá, lớn ở bản tính sát thương, và phải giữ hai bản khớp nhau mãi về sau |
+| Lần vào lại giữa chừng | phải chờ (Thiết kế 3) | không cần chờ |
 
-**Chọn (1).** Cách (2) vẫn để lại một lần né miễn phí mỗi N giây, và phạt nhầm người mạng xấu thật. Cách (1) bịt hẳn cách né mà chỉ làm người chơi thật chịu thêm tối đa 1,5 giây đứng yên. Không ghép cả hai: (1) đã đủ (xem Thiết kế 4).
+**Chọn (a).** Server vẫn quyết theo đúng một đường mô phỏng, không có bản tính thứ hai để lệch. Luật thống nhất với T25: rớt kiểu gì cũng đứng phơi 1,5 s. Phần khó duy nhất (vào lại giữa chừng) giải bằng một lần `await` trong `onJoin`, mà Colyseus đã hỗ trợ (`await this.onJoin(...)`).
 
 ## Phạm vi
 
 **Làm:**
-- `onDrop` tách làm hai phần:
-  - **ngay khi rớt:** giữ chỗ, dừng ý định của chính người chơi;
-  - **sau `DROP_SHELTER_DELAY_MS`**, nếu vẫn đúng lần rớt đó: bảo vệ (`offline`, dừng các thú đang đánh họ, huỷ chiêu đang gồng của thú họ, lưu).
-- Hằng số và một hàm thuần trong shared, kèm test chốt rằng 1,5 s đủ dài so với mọi đòn.
-- Test tích hợp; sửa helper `cutConnection` cho các test cũ; tài liệu.
+- Server:
+  - trạng thái "mất chỗ, đang rời" cho nhánh T24 của `onDrop`;
+  - hẹn giờ `letGo` xoá người chơi và ghi điểm quay lại sau `shelterDelayMs`;
+  - `onLeave` bỏ qua người đang rời;
+  - `onJoin` chờ khoảng phơi của phiên cũ cùng thiết bị (cả phiên mất chỗ lẫn phiên đang giữ chỗ chưa được bảo vệ);
+  - `canResume` đúng trong lúc đang rời;
+  - `onDispose` lưu người đang rời.
+- Lớp nhỏ `Exposures` có unit test.
+- Test tích hợp tái hiện cách né trên code hiện tại, rồi chứng minh đã bịt.
+- Tài liệu.
 
 **KHÔNG làm:**
-- Không đổi client, schema, message, `Profile`, close code, `RECONNECT_GRACE_MS`, `RECONNECT_TRY_MS`, `resumeMs`.
-- Không đổi nhánh "không giữ được chỗ" của T24 (`noteResume`): nó không bảo vệ gì, chỉ ghi điểm quay lại rồi `onLeave` xoá người chơi ngay.
-- Không đổi luật đứng yên, an toàn và thời gian dừng của người đang được bảo vệ (`sheltered`, `tickRegen`, khí hậu, rương, thú đi theo). Chỉ đổi **lúc bắt đầu** bảo vệ.
-- Không thêm hồi chiêu nối lại, không giới hạn số lần rớt.
+- Không đổi client, schema, message, `JoinOptions`, `Profile`, close code, route `/resume`, `DROP_SHELTER_DELAY_MS`, `RECONNECT_GRACE_MS`, `resumeMs`.
+- Không đổi luật rời chủ động (4000: đóng tab, tải lại) và luật tab thứ hai khi phiên cũ đang online: hai trường hợp đó vẫn kết thúc phiên cũ ngay, vào lại ở giữa bản đồ với máu đầy, như thiết kế từ T3/T23. Đề xuất tách ở cuối file.
+- Không làm các góp ý 2-5 của review T25 (không nằm trong dòng T25b; góp ý 3 làm luôn vì đụng đúng helper test, xem bước 6).
 
 ## Thiết kế
 
 ### 1. Hằng số
 
-| Tên | Giá trị | Ở đâu | Lý do |
-|---|---|---|---|
-| `DROP_SHELTER_DELAY_MS` | **1500** | `packages/shared/src/constants.ts`, cạnh `RECONNECT_GRACE_MS` | Đòn dài nhất đã bắt đầu thì trúng trong ≤ 1350 ms: chiêu Bão tuyết, gồng 650 + kéo dài 700 (bảng dưới). Cộng 2 nhịp mô phỏng (100 ms) thành 1450, làm tròn 1500. Dài hơn rất xa lần nối lại tự động của SDK (200-400 ms), nên bật tắt nhanh không bao giờ được bảo vệ. Ngắn hơn rất xa 6-9 s server cần để biết một lần mất mạng im lặng, nên người chơi thật hầu như không thấy khác. |
-| `GameRoom.shelterDelayMs` | `DROP_SHELTER_DELAY_MS` | trường của `GameRoom`, cạnh `reconnectGraceMs` | Test rút ngắn được (như `reconnectGraceMs`, `resumeMs`). |
+Không có hằng số mới. Dùng lại:
 
-**Đòn đã bắt đầu thì mất bao lâu mới trúng** (số liệu hiện tại, tính bằng `node` trên `data/skills.json`):
+| Tên | Giá trị | Dùng cho |
+|---|---|---|
+| `DROP_SHELTER_DELAY_MS` / `GameRoom.shelterDelayMs` | 1500 | thời gian người mất chỗ còn đứng trong thế giới (cùng lý do T25: dài hơn đòn dài nhất 1350 ms + 2 nhịp) |
+| `RECONNECT_GRACE_MS` / `GameRoom.resumeMs` | 20 000 | thời gian điểm quay lại còn hạn, tính từ lúc `letGo` (lúc xoá thật) |
 
-| Đòn | Thời gian (ms) |
+### 2. Mất chỗ: đứng trong thế giới đến hết 1,5 s
+
+**Trong `onDrop`, nhánh hold không phải `Deferred`** (thay cho `noteResume` + `return` hiện nay):
+- dừng ý định như nhánh thường: `control.input = {0, 0}`, `dashLeftMs = 0`, `skillOrder = undefined`, `aggroUntil = 0`. Gom 4 dòng này vào phương thức riêng `stopIntents(control)`, dùng cho cả hai nhánh. Lý do: sau khi nối lại (bước 2 của cách né), client có thể đã gửi `Input`;
+- `this.lostPlaces.set(sessionId, control.token)`, và `this.exposures.open(sessionId)`;
+- `this.clock.setTimeout(() => this.letGo(sessionId), this.shelterDelayMs)`;
+- `player.offline` để nguyên `false`: họ chưa được bảo vệ, như 1,5 s đầu của lần rớt thường.
+
+**`onLeave`** (Colyseus gọi ngay sau `onDrop` cho phiên này): nếu `this.lostPlaces.has(sessionId)` thì `return` ngay, không `removePlayer`. Client của Colyseus đã đi, nhưng `Player` vẫn ở trong state, vì state là của ta, Colyseus không đụng.
+
+**`letGo(sessionId)`** (phương thức riêng mới):
+1. Nếu không còn trong `lostPlaces` thì thôi (đã bị xoá đường khác).
+2. Lấy `token`, xoá khỏi `lostPlaces`.
+3. Nếu còn `player`, `control` và `token`: `noteResume` với `x, y, hp, color, nextEatAt` **lúc này**, `until = now + resumeMs`.
+4. `removePlayer(sessionId)` trong `try/catch` ghi log, như `onLeave`. Hẹn giờ chạy ngoài mọi `try` của Colyseus; ném lỗi ở đây sẽ làm sập server.
+5. `if (this.isEmpty()) this.holdEmptyWorld()`.
+
+**Trong 1,5 s đó** (giống hệt 1,5 s đầu của lần rớt thường ở T25):
+- đòn đang gồng trúng; đẩy lùi đổi chỗ;
+- máu về 0 thì `faintPlayer` đưa về trại hoặc đống lửa với máu đầy. Điểm quay lại khi đó là chỗ ấy với máu đầy: đúng điều server đã quyết;
+- thú hoang vẫn nhắm và đánh; thú đi theo vẫn theo chủ và đánh (chủ chưa `offline`);
+- tự hồi máu và khí hậu vẫn chạy;
+- người khác thấy nhân vật đứng yên rồi biến mất.
+
+**Các trường hợp khác của nhánh này:**
+- Phòng đang đóng ("disposing"): cũng đi đường trên. Hẹn giờ chết cùng đồng hồ, và `onDispose` lưu (xem dưới).
+- Kết nối chết trước khi xác nhận lần vào *đầu tiên*: người chơi mới xuất hiện đứng 1,5 s rồi biến mất. Vô hại.
+
+**`removePlayer`:** thêm `this.lostPlaces.delete(sessionId)` và `this.exposures.close(sessionId)`, nên mọi đường xoá đều kết thúc trạng thái đang rời và đánh thức người đang chờ.
+
+**`onDispose`:** với mỗi `sessionId` còn trong `lostPlaces`, gọi `removePlayer` (lưu hồ sơ) trong `try/catch`; rồi `this.exposures.closeAll()`, để không lần vào nào chờ mãi một phòng đã đóng.
+
+### 3. Vào lại cùng thiết bị giữa lúc phiên cũ còn phơi
+
+**Vấn đề nếu không làm gì:** `onJoin` thấy phiên cũ trong `liveSessions` và gọi `endSession`, tức `removePlayer` ngay. Đòn đang gồng bị huỷ, và điểm quay lại chưa được ghi (lấy chỗ xuất hiện, máu đầy): lại né được, còn hồi máu thêm. Đòn không thể "chuyển" sang phiên mới, vì nó nhắm theo `sessionId` cũ.
+
+**Luật:** một phiên vừa rớt mà chưa hết khoảng phơi thì lần vào mới cùng thiết bị **chờ** đến khi khoảng phơi kết thúc, rồi mới xử lý như hiện nay. Có hai loại phiên như vậy:
+- *Phiên mất chỗ* (Thiết kế 2): chờ `letGo`. Sau đó `liveSessions` không còn phiên cũ, và `takeResume` lấy đúng điểm quay lại **sau đòn**.
+- *Phiên đang giữ chỗ trong 1,5 s đầu* (rớt thường của T25, chưa `shelter`): chờ `shelter` (hoặc nối lại). Sau đó `endSession` như hiện nay: vào lại là phiên mới ở chỗ xuất hiện, máu đầy (luật T3 không đổi). Lần chờ chỉ đảm bảo đòn đang gồng trúng phiên cũ trước, nên "rớt rồi vào lại ngay bằng token" không còn là cách huỷ một cú dậm.
+
+**Cài đặt** (`onJoin` thành `async`):
+```ts
+const token = isValidToken(options?.token) ? options.token : undefined;
+// An older session of this device still standing in a world after a drop (less than shelterDelayMs ago) is waited
+// for: a blow under way lands first, and a lost place's spot is the one after it.
+const exposed = token ? liveSessions.get(token) : undefined;
+if (exposed) await exposed.room.exposures.settled(exposed.sessionId);
+const older = token ? liveSessions.get(token) : undefined; // read again: the wait may have removed it
+if (older) older.room.endSession(older.sessionId);
+```
+- `keepWorldOpen()` vẫn ở dòng đầu, trước lần chờ.
+- Đọc lại `liveSessions` sau khi chờ là bắt buộc.
+- Lần chờ dài tối đa `shelterDelayMs`. Client vẫn chỉ thấy "đang vào", nên không đổi gì ở client.
+- Nếu client rời trong lúc chờ, Colyseus tự kiểm `client.state === LEAVING` sau `onJoin` và xử lý như mọi lần rời sớm.
+
+**Không bao giờ có hai bản cùng token:** phiên mới chỉ tạo `Player` sau khi phiên cũ đã bị xoá (do chờ). Phiên online không có khoảng phơi, nên `endSession` ngay như cũ.
+
+### 4. `Exposures` (`packages/server/src/systems/exposure.ts`, mới)
+
+Lớp nhỏ, không phụ thuộc Colyseus, có unit test. Ghi các phiên đang "đứng phơi" sau một lần rớt và cho phép chờ tới khi hết:
+- `open(sessionId)`: mở khoảng phơi nếu chưa có (đã có thì giữ nguyên).
+- `close(sessionId)`: kết thúc và đánh thức người chờ; gọi nhiều lần vô hại.
+- `isOpen(sessionId): boolean`.
+- `settled(sessionId): Promise<void>`: xong ngay nếu không mở. Nếu đang mở thì chờ, và **lặp lại** nếu lúc tỉnh dậy phiên đó lại đang mở (một lần rớt mới ngay sau): `for (let e = map.get(id); e; e = map.get(id)) await e.done;`.
+- `closeAll()`.
+
+**Ai mở, ai đóng:**
+
+| Lúc | Gọi |
 |---|---|
-| Cắn của thú hoang và thú đầu đàn (`WILD_WINDUP_MS`) | 450 |
-| Cắn của trùm (`BOSS.biteWindupMs`) | 600 |
-| Dậm của trùm (`BOSS.stompWindupMs`) | 1000 |
-| Chiêu dài nhất: `blizzard` (`castMs` 650 + `durationMs` 700) | 1350 |
-| Chiêu kế tiếp: `meteor`, `leaf_storm`, `tidal_wave` | 1150 |
+| `onDrop`, nhánh `Deferred` (rớt thường) | `open` |
+| `onDrop`, nhánh mất chỗ | `open` |
+| `shelter` khi hold khớp | `close` (đã được bảo vệ: không còn đòn nào huỷ được bằng cách xoá) |
+| `onReconnect` | `close` (đã quay lại) |
+| `removePlayer` | `close` (mọi đường xoá: `letGo`, hết giờ chờ, `endSession`, rời chủ động) |
+| `onDispose` | `closeAll` |
 
-Thời gian một chiêu = `castMs + skillTravelMs(skill, skillReach(skill))`. Hàm `skillTravelMs` trả thời gian bay với chiêu có `speed`, và `durationMs` với chiêu khác.
+### 5. `/resume` và client tự vào lại
 
-**Vì sao cộng 2 nhịp:** Colyseus chạy hẹn giờ của `this.clock` *trước* phần mô phỏng trong cùng một nhịp. Hẹn giờ bảo vệ chạy ở nhịp đầu tiên từ `DROP_SHELTER_DELAY_MS` trở đi; một đòn xong đúng nhịp đó sẽ bị bảo vệ chặn trước. Chừa 2 nhịp (20 nhịp/giây) thì đòn dài nhất luôn trúng trước. Hàm thuần `attackLandsWithinMs()` cùng test chốt trong shared (Kế hoạch triển khai, bước 1) giữ luật này khi ai đó thêm chiêu dài hơn hay đổi thời gian gồng: test hỏng thay vì lặng lẽ mở lại đường né.
+- `canResume(token)` = `peekResume(this.resumes, token, now)` **hoặc** có một mục trong `lostPlaces` mang `token` đó.
+- Client T24 hỏi `/resume` ngay sau mã 4003, tức thường còn trong 1,5 s đang rời, khi điểm quay lại chưa được ghi. Vẫn phải trả `true`, nếu không người chơi thật bị đẩy ra "Không kết nối lại được".
+- Client tải lại và vào: đến sau 1,5 s thì lấy điểm quay lại như T24; đến sớm thì chờ (Thiết kế 3). Client không đổi.
 
-### 2. Rớt mạng: hai giai đoạn
+### 6. Các phần khác
 
-**Ngay khi rớt** (trong `onDrop`, như hiện nay):
-- `allowReconnection`, `holds.set(sid, hold)`: chỗ được giữ ngay. Thế giới không đóng vì tưởng trống (`isEmpty` nhìn `holds`), phòng đủ 5 người vẫn giữ chỗ.
-- Nhánh "không giữ được chỗ" của T24 giữ nguyên (`noteResume`, rồi `onLeave` ngay).
-- Dừng ý định của chính người chơi: `control.input = {0, 0}`, `dashLeftMs = 0`, `skillOrder = undefined`, `aggroUntil = 0`. Đây là ý định của họ, client không gửi được gì nữa, và để lại thì nhân vật đi tiếp 1,5 giây.
-- Hẹn `this.clock.setTimeout(() => this.shelter(sid, hold), this.shelterDelayMs)`.
-
-**Sau `shelterDelayMs`** (phương thức riêng mới `shelter(sessionId, hold)`):
-- Chỉ làm khi `this.holds.get(sessionId) === hold`, tức vẫn đúng lần rớt này. Không làm khi:
-  - đã nối lại (`onReconnect` xoá `holds`);
-  - đã rời: hết giờ chờ, `debug:endGrace`, `endSession` (`removePlayer` xoá `holds`);
-  - đã rớt **lần khác**: hold mới là một `Deferred` khác.
-- Rồi làm đúng phần bảo vệ của T3, chuyển nguyên từ `onDrop`:
-  - `player.offline = true`;
-  - `calmPalsTargeting("player", sid)`;
-  - với mỗi thú đi theo của họ: `skills.cancelCasts("companion", id)` và `calmPalsTargeting("companion", id)`;
-  - `saves.saveNow(sid)`.
-- Không cần huỷ hẹn giờ: kiểm tra định danh làm nó vô hại, và hẹn giờ chết cùng đồng hồ khi phòng đóng.
-
-**Vì sao chuyển `saveNow` sang lúc bảo vệ:**
-- bật tắt mạng liên tục không còn làm server ghi SQLite mỗi lần rớt;
-- một lần rớt ngắn chưa phải lúc "vắng mặt";
-- lần lưu theo lô (`scheduleSave`) và lần lưu khi xoá (`removePlayer`) vẫn còn.
-
-Lời hứa "lưu ngay khi phát hiện mất mạng" của T3 thành "lưu ngay khi lần rớt được tính", tức sau 1,5 s.
-
-**Nối lại trước 1,5 s:** `onReconnect` xoá `holds` (`offline` vốn chưa bật). Không có gì phải hoàn lại: không thú nào bị gỡ khỏi họ, không đòn nào bị huỷ.
-
-### 3. Trong 1,5 giây đầu (đã rớt, chưa được bảo vệ)
-
-Server vẫn mô phỏng người chơi như một người **đứng yên** trong thế giới, và quyết định mọi thứ như với người đang chơi:
-- **Đòn đang gồng trúng như thường:** cắn, cắn và dậm của trùm, chiêu của thú hoang, thú đầu đàn và trùm. Đẩy lùi cũng tác động. Máu về 0 thì ngất như thường (`faintPlayer`: về trại hoặc đống lửa, đầy máu); thông báo ngất không tới vì không có client, nhưng vị trí mới đến khi nối lại.
-- **Thú hoang vẫn nhắm và đuổi họ** (`wildTarget`, `targetPos` chỉ bỏ qua người `offline`). Thú đầu đàn và trùm đi cùng đường đó, không có ngoại lệ.
-- **Thú đi theo của họ vẫn theo chủ, đánh và tung chiêu** (`movement.ts` chỉ dừng khi chủ `offline`). Chấp nhận: đó là việc nó vẫn làm khi chủ đứng yên, và không cho chủ thêm gì so với ở lại kết nối.
-- **Thời gian vẫn trôi:** tự hồi máu, lạnh và nóng, như người đứng yên. Mở rương và tiến nhiệm vụ không xảy ra vì họ không đi được.
-- **Người khác thấy:** họ đứng yên, chưa mờ. "(mất kết nối)" hiện sau 1,5 s, khi `offline` bật.
-- **Chính người chơi thấy:** client không đổi. Màn "Đang kết nối lại…" hiện ngay khi rớt như T3. Client không gửi được gì, nên không có gì để lợi dụng trong 1,5 s đó.
-
-### 4. Còn né được không, và vì sao chấp nhận phần còn lại
-
-- **Bật tắt nhanh (< 1,5 s):** không né được gì. Đòn đang gồng trúng, thú vẫn bám, không lưu, không đổi gì.
-- **Rớt giữa lúc gồng rồi giữ quá 1,5 s:** đòn đang gồng lúc rớt vẫn trúng (≤ 1,35 s < 1,5 s). Sau đó người chơi được bảo vệ và thú thôi đánh. Muốn "thoát trận" kiểu này phải chịu 1,5 s đứng yên bị đánh, rồi không làm được gì cho tới khi nối lại. Đúng mức T3 đã chấp nhận ("cắt mạng để thoát một trận đánh"), chỉ đắt hơn. Không cần cách (2) chồng lên.
-- **Chiêu bắt đầu *trong* 1,5 s đó mà trúng sau mốc đó** (ví dụ thú bắt đầu Bão tuyết ở giây thứ 1,0): bị chặn vì người chơi đã được bảo vệ. Chấp nhận, như mọi đòn rơi lúc người chơi vắng mặt từ T3.
-- **Quyền của server:** mốc thời gian, kiểm định danh và mọi sát thương đều ở server. Client chỉ có một đòn bẩy là đóng socket, và nó không còn lợi gì.
-
-### 5. Hợp với T24 và các phần khác
-
-| Phần | Sau T25 |
+| Phần | Sau T25b |
 |---|---|
-| Nhánh mất chỗ của T24 (`noteResume` khi hold không phải `Deferred`) | không đổi; không hẹn bảo vệ, `onLeave` xoá ngay; điểm quay lại ghi đúng máu và chỗ tại lúc đó |
-| `debug:endGrace` / hết giờ chờ trước 1,5 s | `onLeave` → `removePlayer` xoá `holds`; hẹn giờ bảo vệ chạy sau đó, thấy không khớp, không làm gì |
-| `endSession` (cùng thiết bị vào lại) trước 1,5 s | như trên |
-| Giữ thế giới trống (`isEmpty`, `holdEmptyWorld`) | không đổi: `holds` được đặt ngay khi rớt |
-| Phòng đủ 5 người | không đổi: chỗ giữ ngay khi rớt |
-| Hồi chiêu Ăn | không đổi (không bị xoá khi rớt) |
-| Lần thử treo của T24 (client đóng 4010 rồi thử lại) | mỗi lần đóng là một lần rớt mới; nếu người chơi đang được bảo vệ thì vẫn được (xem rủi ro 2) |
+| Thú đi theo và danh sách thú | thuộc phiên cũ (`ownerId`) đến `letGo`; `removePlayer` cất theo chủ như hiện nay; phiên mới gọi thú ra từ hồ sơ sau khi phiên cũ đã đi, nên không có hai thú cùng id |
+| Giữ thế giới trống | `isEmpty()` không nhìn `players`; người đang rời không giữ thế giới mở. `letGo` gọi `holdEmptyWorld` nếu trống. 60 s ≫ 1,5 s nên không có chuyện thế giới đóng giữa lúc đang rời |
+| Lưu | `letGo` → `removePlayer` → `saveNow` (sau đòn); phòng đóng: `onDispose` lưu; mất chỗ không còn lưu ngay (giống T25: lưu khi lần rời được tính) |
+| `debug:endGrace` | chỉ từ chối các `holds`; người đang rời không có hold, nên đi hết 1,5 s. Test không cần gì thêm |
+| Phòng đủ 5 người | Colyseus trả chỗ ngay lúc mất chỗ; một người lạ vào trong 1,5 s đó thì có lúc 6 nhân vật, và `pickColor` có thể trùng màu. Chấp nhận: cần phòng đủ người *và* đúng khe đó, kéo dài tối đa 1,5 s. Chính thiết bị đó vào lại thì phải chờ, nên không bị mất chỗ vì chính mình |
+| T25 `shelter` | thêm `this.exposures.close(sessionId)` khi hold khớp |
 
 ## Kế hoạch triển khai
 
-1. **`packages/shared/src/constants.ts`:** `export const DROP_SHELTER_DELAY_MS = 1500;` kèm JSDoc tiếng Anh: a drop counts as being away (sheltered) only after this long, so dropping and coming back cannot call off an attack already under way; longer than the longest attack once started plus two ticks (see `attackLandsWithinMs`), far shorter than the 6-9 s a silent drop takes to notice.
-2. **`packages/shared/src/skills.ts`:** `export function skillLandsWithinMs(skill: SkillDef): number` = `skill.castMs + skillTravelMs(skill, skillReach(skill))`, kèm JSDoc. Nếu `castMs` có thể thiếu trong `SkillDef` thì coder dùng đúng kiểu hiện có.
-3. **`packages/shared/src/combat.ts`** (hoặc `skills.ts` nếu import vòng): `export function attackLandsWithinMs(skills: readonly SkillDef[]): number`, trả số lớn nhất giữa `WILD_WINDUP_MS`, `BOSS.biteWindupMs`, `BOSS.stompWindupMs` và `skillLandsWithinMs` của mọi chiêu. JSDoc nói nó là gì và rằng `DROP_SHELTER_DELAY_MS` phải lớn hơn nó ít nhất 2 nhịp. Xuất qua `index.ts` nếu shared dùng barrel.
-4. **Test shared** (`packages/shared/src/skills.test.ts`, đã có):
-   - `skillLandsWithinMs`: `blizzard` là 1350, `ember` là `castMs` + `round(150 / 360 · 1000)`, một chiêu `melee`/`nova` không có `durationMs` thì bằng `castMs`;
-   - với mọi chiêu trong dữ liệu, `attackLandsWithinMs(...)` là 1350 hôm nay;
-   - **test chốt:** `DROP_SHELTER_DELAY_MS >= attackLandsWithinMs(all) + 2 * TICK_MS`.
-5. **`packages/server/src/rooms/GameRoom.ts`:**
-   - Trường `shelterDelayMs = DROP_SHELTER_DELAY_MS`, JSDoc ("tests shorten it").
-   - `onDrop`:
-     - giữ phần `allowReconnection`, `.catch`, nhánh không phải `Deferred` (T24), `holds.set`, và bốn dòng dừng ý định;
-     - **bỏ** `player.offline = true`, hai `calmPalsTargeting`, `cancelCasts`, `saveNow` (chuyển sang `shelter`);
-     - thêm `this.clock.setTimeout(() => this.shelter(sessionId, hold), this.shelterDelayMs);`;
-     - sửa JSDoc: rớt mạng giữ chỗ ngay, nhưng chỉ được bảo vệ sau `shelterDelayMs` (T25: né đòn bằng bật tắt mạng).
-   - Phương thức riêng mới `shelter(sessionId: string, hold: Deferred<Client>)`, JSDoc tiếng Anh: thoát nếu `this.holds.get(sessionId) !== hold` hoặc không còn `player`, rồi làm phần bảo vệ ở Thiết kế 2.
-   - `onReconnect` không đổi (chỉ sửa câu JSDoc nếu cần: "nothing to undo when it is back before the shelter").
-6. **`GameRoom.test.ts`, các test cũ:**
-   - Đưa `steadyClock` (T22) từ `describe("eating berries")` lên cấp file (không đổi thân hàm) để test mới dùng chung.
-   - `cutConnection(room, sessionId, { realDelay = false } = {})`: nếu không `realDelay` thì `(room as any).shelterDelayMs = 0` trước khi `terminate()`. JSDoc nói rõ: các test về trạng thái "đang vắng" bắt đầu nó ngay; test T25 dùng `realDelay: true`.
-   - Lý do: 16 lời gọi `cutConnection` và 17 chỗ `vi.waitFor(() => expect(...offline).toBe(true))` dùng hạn mặc định 1000 ms của `vi.waitFor`, ngắn hơn 1500. Đặt 0 thì hẹn giờ chạy ở nhịp kế tiếp (≤ 50 ms), test giữ đúng nghĩa và không chậm thêm 25 s.
-   - Coder kiểm từng chỗ `offline).toBe(true)`: chỗ nào rớt mà không qua `cutConnection` thì đặt `shelterDelayMs = 0` tại chỗ.
-   - Sửa chú thích "Saved at the drop itself" trong test `saves at the drop…` thành "saved as the drop counts".
-7. **`GameRoom.test.ts`, test mới** trong describe `reconnecting after a dropped connection` (xem mục Test).
-8. **Tài liệu** (mục Tài liệu).
-9. `npm run typecheck`, `npm test`; rồi `npx playwright test -g "connection:" --workers=1` và `npx playwright test tests/e2e/reconnect.spec.ts --workers=1`, để chắc e2e cũ (không sửa) vẫn qua.
+1. **Viết test tái hiện trước** (B1 và B2 ở mục Test) và chạy trên code hiện tại (HEAD `2db768c`). Ghi vào `PROGRESS.md` rằng chúng hỏng, ở đúng chỗ mong đợi: người chơi biến mất ngay, cú dậm không trúng, vào lại còn nguyên máu. Rồi mới sửa code.
+2. **`packages/server/src/systems/exposure.ts`** + **`exposure.test.ts`** (mới): lớp `Exposures` theo Thiết kế 4, JSDoc tiếng Anh.
+3. **`GameRoom.ts`:**
+   - Trường `lostPlaces = new Map<string, string | undefined>()` (JSDoc: session id → device token of a player whose place was lost and who still stands in the world until `letGo`) và `exposures = new Exposures()` (JSDoc: sessions that dropped less than `shelterDelayMs` ago; a fresh join of the same device waits on them).
+   - `stopIntents(control)` riêng; dùng ở cả hai nhánh của `onDrop`.
+   - `onDrop`, nhánh không phải `Deferred`: theo Thiết kế 2, bỏ `noteResume` khỏi đây. Sửa chú thích nhánh.
+   - `onDrop`, nhánh `Deferred`: thêm `this.exposures.open(sessionId)`.
+   - `shelter`: thêm `this.exposures.close(sessionId)` khi hold khớp.
+   - `onReconnect`: thêm `this.exposures.close(client.sessionId)`.
+   - `letGo(sessionId)` riêng mới (Thiết kế 2), JSDoc.
+   - `onLeave`: `if (this.lostPlaces.has(sessionId)) return;` ở đầu, kèm chú thích.
+   - `onJoin`: `async`, chờ theo Thiết kế 3.
+   - `removePlayer`: thêm `lostPlaces.delete`, `exposures.close`.
+   - `onDispose`: lưu người đang rời, `exposures.closeAll()`.
+   - `canResume`: Thiết kế 5.
+   - Sửa JSDoc của `onDrop`, `onLeave`, `onJoin` cho khớp.
+4. **`GameRoom.test.ts`, helper:**
+   - `cutConnection(..., { realDelay: true })` đặt lại `room.shelterDelayMs = DROP_SHELTER_DELAY_MS` (góp ý 3 của review T25), để thứ tự gọi không lặng lẽ làm mất độ trễ.
+   - Helper mới `loseQuickly(room, client)`: như `loseWhileComingBack` nhưng `cutConnection(..., { realDelay: true })`, **không** chờ `offline` (mở cổng ngay), rồi thay `events.onmessage` để đóng socket trước khi đọc `JOIN_ROOM`. Trả mã `onLeave` của client (4003). JSDoc nói đây chính là cách né của T25b.
+   - Helper `lostAt(room, sid)`: chờ `(room as any).lostPlaces.has(sid)` rồi trả `room.clock.currentTime`.
+5. **`GameRoom.test.ts`, test mới** trong describe `reconnecting after a dropped connection` (mục Test).
+6. **Tài liệu** (mục Tài liệu).
+7. `npm run typecheck`, `npm test`. Rồi `npx playwright test -g "connection:" --workers=1` và `npx playwright test tests/e2e/reconnect.spec.ts --workers=1`. Test 1 của `reconnect.spec.ts` (tự vào lại sau mất chỗ) nay chờ thêm tối đa 1,5 s; e2e cũ phải qua mà không sửa `multiplayer.spec.ts`.
 
 ## Giao thức
 
-Không đổi schema, message, `JoinOptions`, `Profile`, close code hay route HTTP. Client không đổi. `Player.offline` giữ nghĩa "đang được bảo vệ, đang vắng", chỉ bật muộn hơn 1,5 s. Hồ sơ đã lưu không bị ảnh hưởng.
+Không đổi schema, message, `JoinOptions`, `Profile`, close code hay route. `/resume` giữ nguyên dạng; chỉ trả `true` thêm trong lúc đang rời. `onJoin` thành async: Colyseus đã `await` nó. Client không đổi; hồ sơ đã lưu không bị ảnh hưởng.
 
 ## Test
 
-### Unit (shared)
+### Unit: `packages/server/src/systems/exposure.test.ts`
 
-Xem bước 4.
+- `settled` của phiên chưa mở: xong ngay.
+- `open` rồi `settled`: chưa xong; sau `close` thì xong.
+- `close` hai lần, và `close` phiên chưa mở: vô hại.
+- `open` khi đang mở: giữ nguyên lần mở đầu (một `close` là đủ).
+- Mở lại ngay sau `close` (trước khi người chờ tỉnh): `settled` chờ tiếp lần mở mới.
+- `closeAll` đánh thức mọi người chờ.
+- `isOpen` đúng theo từng bước.
 
 ### Tích hợp (`GameRoom.test.ts`)
 
-Dùng `cutConnection(..., { realDelay: true })`, `holdReconnect`, `reconnected`, `placeWild`, `bossOf`, `(room as any).provoke`, `steadyClock`. Mốc rớt `dropAt` = `room.clock.currentTime` ngay khi `holdsOf(room).has(sid)` (chờ bằng `vi.waitFor`; sai số ≤ 1 nhịp). Mọi phép đo thời gian theo đồng hồ phòng, có `steadyClock`, nên không phụ thuộc đồng hồ thật. Thú đánh cho `maxHp = hp = 999`; `room.state.pals.clear()` trước khi đặt thú.
+Mọi test mới dùng `useStore(new SqliteStore(":memory:"))`, token riêng, `steadyClock`, `room.state.pals.clear()` (trừ trùm khi cần), thú đánh có `maxHp = hp = 999`, và đo theo đồng hồ phòng. Gồng ép bằng `(room as any).combat.windUp(pal, aggro, kind, ms)` sau `provoke`, cho tất định.
 
-- **T1** `a quick drop and return calls off nothing: the bite being wound up lands`:
-  - đặt `scorchtail` cạnh người chơi (30 px), `provoke`;
-  - tick đến khi `wildAggro.get(foe).windupUntil` có giá trị; ghi `hp`;
-  - `holdReconnect`, cắt (`realDelay`), chờ `holds` có sid, mở cổng, `reconnected`;
-  - tick qua `windupUntil` + 2 nhịp.
-
-  Mong đợi: `player.hp < hp` (cú cắn trúng); `wildAggro.get(foe)?.target.id === sid`; `player.offline` chưa lúc nào `true` (lấy mẫu mỗi nhịp từ lúc cắt đến hết test); `holds` rỗng.
-- **T2** `the boss's stomp under way when the player drops still lands; the shelter comes after`:
-  - đặt trùm (`bossOf`) trong `BOSS.stompRadius`, `provoke`, rồi `(room as any).combat.windUp(boss, aggro, "stomp", BOSS.stompWindupMs)` cho tất định;
-  - cắt (`realDelay`, không nối lại).
-
-  Mong đợi: tại `dropAt + BOSS.stompWindupMs + 100`, máu giảm và `offline` vẫn `false`; tại `dropAt + DROP_SHELTER_DELAY_MS + 100`, `offline` là `true` và trùm không còn nhắm người chơi.
-- **T3** `dropping again and again shelters nothing and saves nothing`:
-  - một `scorchtail` cứ cắn;
-  - spy `(room as any).saves.saveNow`;
-  - lặp 4 lần: cắt (`realDelay`), mở cổng ngay, `reconnected`, tick 6 nhịp (300 ms). Mỗi vòng ngắn hơn 1,5 s.
-
-  Mong đợi: `offline` chưa lúc nào `true`; máu giảm ít nhất 2 cú cắn so với đầu; `saveNow` không được gọi cho sid này; thú vẫn nhắm người chơi.
-- **T4** `the shelter of an old drop never lands on a newer one`:
-  - rớt 1 (cổng đóng) → `dropAt1`; mở cổng, `reconnected`;
-  - tick đến `dropAt1 + 700`; rớt 2 (cổng mới đóng) → `dropAt2`;
-  - tick đến `dropAt1 + DROP_SHELTER_DELAY_MS + 100`.
-
-  Mong đợi: `offline` là `false` (hẹn giờ của lần 1 thấy hold khác); tick đến `dropAt2 + DROP_SHELTER_DELAY_MS + 100` thì `offline` là `true`.
-- **T5** `a real outage is sheltered after DROP_SHELTER_DELAY_MS, as before`:
-  - dùng thú đi theo (`capture`), thú `scorchtail` đang đánh người chơi, một chiêu của thú đi theo đang gồng (như test `a drop wipes…`);
-  - `useStore(db)` với token;
-  - cắt (`realDelay`, không nối lại).
+- **B1** `a place lost while coming back does not call off the boss's stomp: the player stands until DROP_SHELTER_DELAY_MS, the stomp lands, and the spot taken back is the one after it` (**tái hiện cách né**):
+  - trùm (`bossOf`) cách người chơi < `BOSS.stompRadius`, `provoke`, ép gồng dậm `BOSS.stompWindupMs`; ghi `hp0`;
+  - `loseQuickly` (nhận 4003), `t = lostAt(...)`.
 
   Mong đợi:
-  - ngay sau khi rớt: `control.input` là `{0, 0}`, `dashLeftMs` 0, `skillOrder` không còn; tick 10 nhịp thì người chơi không dịch chuyển (trừ khi bị cắn đẩy lùi: đặt thú cắn ở xa hơn `WILD_ATTACK_RANGE` cho phần kiểm vị trí, hoặc kiểm vị trí trước khi đặt thú);
-  - tại `dropAt + DROP_SHELTER_DELAY_MS - 100`: `offline` là `false`, chiêu của thú đi theo vẫn trong `casts`, hồ sơ chưa ghi lần này;
-  - tại `dropAt + DROP_SHELTER_DELAY_MS + 100`: `offline` là `true`, `wildAggro` không còn nhắm người chơi hay thú của họ, chiêu đang gồng của thú đi theo bị huỷ, hồ sơ đã được ghi;
-  - sau đó `damage(...)` gọi thẳng không làm giảm máu (`sheltered`).
-- **T6** `a wait that ends before the shelter leaves nothing behind`:
-  - `reconnectGraceMs = 800`, `reconnection.enabled = false`, cắt (`realDelay`);
-  - tick đến `dropAt + DROP_SHELTER_DELAY_MS + 200`.
+  - ngay sau đó người chơi còn trong `state.players`, `offline` là `false`, `canResume(token)` là `true`;
+  - tại `t + BOSS.stompWindupMs + 100`: `hp < hp0` và vị trí đã bị đẩy;
+  - tại `t + DROP_SHELTER_DELAY_MS + 100`: người chơi đã bị xoá, `resumesOf(room).get(token).hp` bằng máu sau dậm, vị trí bằng chỗ sau khi bị đẩy;
+  - vào lại bằng token: đúng máu và chỗ đó.
 
-  Mong đợi: người chơi bị xoá ở khoảng 800 ms; không lỗi khi hẹn giờ chạy (spy `console.error`, không được gọi); `room.state.players.size` là 0; `(room as any).emptyHold` có giá trị (thế giới trống đang được giữ). Cùng test, phòng thứ hai: `debug:endGrace` trước 1,5 s cũng như vậy (bật `PETGAME_DEBUG` như test hook hiện có, trả lại giá trị cũ sau đó).
+  **Trên HEAD:** hỏng ở "còn trong `state.players`" (bị xoá ngay) và ở máu.
+- **B2** `a rejoin of the same device inside the window waits for it, and gets the health after the blow` (**tái hiện cách né bằng script**):
+  - như B1 nhưng gồng cắn (`scorchtail`, ép 900 ms);
+  - ngay sau 4003, gọi `colyseus.connectTo(room, { name, token })` mà chưa `await`;
+  - mỗi nhịp lấy mẫu số người chơi có `controls.get(sid).token === token`.
 
-Các test T3 và T24 hiện có (A1-A4, `holds a dropped player…`, `time stands still…`, `saves at the drop…`, `keeps the place … full world`, `one device, one player…`, hook `endGrace`) phải qua không đổi nghĩa, nhờ `cutConnection` đặt `shelterDelayMs = 0`.
+  Mong đợi:
+  - lời hứa join chỉ xong khi `room.clock.currentTime >= t + DROP_SHELTER_DELAY_MS - 50`;
+  - số mẫu luôn ≤ 1 (không bao giờ hai bản);
+  - phiên mới có máu bằng máu cũ sau cú cắn, đúng chỗ.
+
+  **Trên HEAD:** join xong ngay, máu nguyên.
+- **B3** `a faint in the window: the spot taken back is the campfire, with full health`: `player.hp = 1`, ép gồng cắn, `loseQuickly`. Mong đợi: ngất (`Fainted` thấy ở watcher), sau `letGo` thì điểm quay lại ở đống lửa với `PLAYER_MAX_HP`; vào lại đúng như vậy.
+- **B4** `an honest lost place with nothing under way: same spot, same health, standing still`:
+  - không có thú; `player.hp = 37`;
+  - bọc `room.onReconnect` (spy gọi bản gốc rồi đặt `control.input = { x: 1, y: 0 }`: giả `Input` client gửi khi vừa nối lại);
+  - `loseQuickly`.
+
+  Mong đợi:
+  - trong 1,5 s người chơi không dịch chuyển (`stopIntents` ở nhánh mất chỗ);
+  - sau `letGo`, điểm quay lại có đúng `x, y` và `hp` bằng `player.hp` ngay trước khi xoá (≥ 37, vì tự hồi máu vẫn chạy khi chưa được bảo vệ);
+  - vào lại đúng như vậy;
+  - `canResume` là `false` sau khi đã dùng.
+- **B5** `a fresh join of the same device while its held place is in the first 1.5 s waits for the shelter, so a blow under way lands on the old session first`:
+  - trùm ép gồng dậm; `cutConnection(..., { realDelay: true })` mà không nối lại (`reconnection.enabled = false`);
+  - ngay sau đó `connectTo(..., { token })`; một watcher thu tin `Damage`.
+
+  Mong đợi: watcher thấy `Damage` của cú dậm nhắm `sessionId` cũ; join xong ở `>= dropAt + DROP_SHELTER_DELAY_MS - 50`; phiên cũ đã bị xoá; phiên mới ở chỗ xuất hiện, máu đầy (luật T3 không đổi).
+- **B6** `/resume says yes while a lost place still stands, and only for that device`: sau `loseQuickly` và trước `letGo`, `canResume(token)` là `true`, token khác là `false`; sau `letGo` vẫn `true`; sau khi vào lại là `false`.
+- **B7** `a world closing while a lost place still stands saves the player`: `player.wood = 77`; `loseQuickly`; trong 1,5 s gọi `await room.disconnect()`. Mong đợi: `db.load(token).resources.wood === 77`; một `connectTo` cùng token đang chờ (bắt đầu trước khi đóng) không treo: trong 3 s nó xong (rồi bị ngắt vì phòng đóng) hoặc bị từ chối. Test chỉ đòi kết thúc, không đòi kết quả nào.
+- **B8** `the last player's lost place ends with the empty world held`: một người chơi, `loseQuickly`. Mong đợi: trong lúc đang rời, `room.state.players.size === 1`; sau `letGo` là 0 và `(room as any).emptyHold` có giá trị.
+- **Test cũ:** A1-A3 (T24), T1-T6 (T25) và các test kết nối lại khác phải qua không đổi nghĩa. Chúng dùng `cutConnection` mặc định (`shelterDelayMs = 0`), nên `letGo` chạy ở nhịp kế tiếp, và `vi.waitFor(() => expect(room.state.players.size).toBe(0))` của A1 vẫn kịp.
 
 ### E2E
 
-Không viết mới (client không đổi). Chạy lại `-g "connection:"` (`multiplayer.spec.ts`, không sửa) và `tests/e2e/reconnect.spec.ts`. Đã đọc: các test đó chờ `offline` bằng `expect.poll` (hạn 5 s, dài hơn 1,5 s), và nhân vật dừng ngay khi rớt vì ý định vẫn bị xoá ngay. Nếu một test e2e cũ hỏng vì thời gian, tester báo lại; **không** sửa `multiplayer.spec.ts`.
+Không viết mới. Chạy lại như bước 7.
 
 ### Đột biến cho tester
 
@@ -226,56 +265,63 @@ Tất cả tạm thời: hoàn tác, kiểm bằng `sha256sum` hoặc `git diff 
 
 | # | Đột biến | Phải hỏng |
 |---|---|---|
-| M1 | gọi `shelter` ngay trong `onDrop` (không hẹn) | T1, T2, T3, T5 (mốc −100 ms) |
-| M2 | `shelter` kiểm `this.holds.has(sessionId)` thay vì `=== hold` | T4 |
-| M3 | bỏ hẳn kiểm hold trong `shelter` | T1 (`offline` bật sau khi đã nối lại), T4 |
-| M4 | để `calmPalsTargeting("player", …)` lại trong `onDrop` (chỉ `offline` chờ) | T1, T3 |
-| M5 | chuyển bốn dòng dừng ý định sang `shelter` | T5 (người chơi đi tiếp trước 1,5 s), test cũ `a drop wipes…` |
-| M6 | để `saveNow` lại trong `onDrop` | T3 (spy), T5 (hồ sơ ghi trước mốc) |
-| M7 | `DROP_SHELTER_DELAY_MS = 1000` | test chốt shared (luôn bắt). T2 có thể hỏng hay không tuỳ nhịp mà cú dậm 1000 ms rơi vào, nên không dựa vào T2 |
-| M8 | `skillLandsWithinMs` bỏ phần bay hay kéo dài | unit `blizzard` 1350 |
-| M9 | `shelter` bỏ `cancelCasts` của thú đi theo | T5 |
-| M10 | `cutConnection` không đặt `shelterDelayMs = 0` | nhiều test cũ hết hạn `vi.waitFor` (chứng minh helper cần thiết; ghi số test hỏng) |
+| M1 | bỏ dòng `lostPlaces.has` → `return` trong `onLeave` (xoá ngay như trước) | B1, B2, B3, B6 |
+| M2 | ghi `noteResume` ngay trong `onDrop` (máu lúc mất chỗ) và `letGo` không ghi lại | B1, B3 |
+| M3 | `onJoin` bỏ `await ... settled(...)` | B2, B5 |
+| M4 | `onJoin` không đọc lại `liveSessions` sau khi chờ | B2 (phiên mới không lấy được điểm quay lại, hoặc `endSession` nhầm). Nếu sống sót thì ghi rõ và giải thích |
+| M5 | `canResume` bỏ phần `lostPlaces` | B6 |
+| M6 | `onDispose` không lưu người đang rời | B7 |
+| M7 | `onDispose` không `closeAll` | B7 (join treo đến hết hạn) |
+| M8 | nhánh mất chỗ không gọi `stopIntents` | B4 |
+| M9 | `removePlayer` không `exposures.close` | B2 hoặc B5 treo, hoặc unit (ghi test nào bắt) |
+| M10 | nhánh `Deferred` không `exposures.open` | B5 |
+| M11 | `letGo` không `holdEmptyWorld` | B8 |
+| M12 | `Exposures.settled` không lặp lại khi bị mở lại | unit "mở lại ngay sau close" |
 
 ### Chạy lặp
 
-- describe `reconnecting after a dropped connection`: 10 lần, và 5 lần dưới tải 4 vòng lặp CPU (đồng hồ đều của `steadyClock` giữ các mốc);
-- `npm test` 2 lần;
-- e2e như trên, 1 lần.
+- describe `reconnecting after a dropped connection`: 10 lần, và 5 lần dưới tải 4 vòng lặp CPU;
+- `exposure.test.ts`: 3 lần;
+- `npm test`: 2 lần.
 
 ## Tài liệu
 
 - **`docs/design/multiplayer.md`:**
-  - dòng đầu thêm "T25";
-  - bảng **Rời chủ động và rớt mạng**, cột "Rớt mạng", hàng "Nhân vật": "ở lại **20 giây** chờ quay lại, vẫn giữ chỗ (kể cả khi phòng đủ 5 người). Được bảo vệ (mục dưới) chỉ khi rớt quá **1,5 giây** (`DROP_SHELTER_DELAY_MS`)";
-  - mục **Trong 20 giây chờ**, câu mở đầu thêm: "Từ 1,5 giây sau khi rớt. Trong 1,5 giây đầu, nhân vật đứng yên trong thế giới như người bỏ tay khỏi máy: đòn đang gồng vẫn trúng, thú hoang vẫn đánh, máu về 0 thì ngất như thường; nối lại trong khoảng đó thì như chưa có gì";
-  - câu "Server lưu hồ sơ ngay lúc phát hiện mất mạng" đổi thành "Server lưu hồ sơ khi lần rớt được tính (sau 1,5 giây), và lưu lần nữa khi xoá";
-  - mục **Đã cân nhắc và chấp nhận**, gạch "Cắt mạng để thoát một trận đánh": thêm "Từ T25, ngắt rồi nối lại nhanh không né được gì: bảo vệ chỉ bắt đầu sau 1,5 giây, dài hơn mọi đòn đã bắt đầu (đòn dài nhất 1,35 giây), nên đòn đang gồng luôn trúng. Muốn thoát trận phải đứng yên chịu đòn 1,5 giây rồi không làm được gì cho tới khi nối lại. Không chọn cách 'rớt lại trong N giây sau khi nối lại thì không bảo vệ': nó vẫn cho né một lần mỗi N giây, và bỏ mặc người mạng xấu thật ở lần mất mạng thứ hai".
+  - dòng đầu thêm "T25b";
+  - mục **Quay lại**, gạch về mất chỗ (T24): thêm "Lúc mất chỗ, nhân vật vẫn đứng trong thế giới 1,5 giây như mọi lần rớt (T25b): đòn đang gồng vẫn trúng, ngất thì về trại hoặc đống lửa. Chỗ và máu được nhớ là chỗ và máu sau khoảng đó. Vào lại sớm hơn thì chờ hết 1,5 giây đó." Và: "chỗ cũ được nhớ 20 giây kể từ lúc nhân vật rời thế giới";
+  - mục **Đã cân nhắc và chấp nhận**, gạch "Cắt mạng để thoát một trận đánh": sửa câu T25 "ngắt rồi nối lại nhanh không né được gì" thành đúng cho mọi đường, kể cả mất chỗ giữa lúc nối lại và vào lại bằng token (T25b: lần vào lại chờ hết 1,5 giây của phiên cũ). Thêm: "Còn hở có chủ ý: rời chủ động (đóng tab, tải lại) hay mở tab thứ hai lúc đang online vẫn kết thúc phiên ngay; vào lại thì ở giữa bản đồ với máu đầy (từ T3, T23). Đổi lại mất chỗ đứng và vài giây tải trang";
+  - mục **Phòng đủ 5 người**: một người lạ vào đúng 1,5 giây người khác đang rời sau khi mất chỗ thì có lúc 6 nhân vật, màu có thể trùng. Chấp nhận.
 - **`docs/architecture.md`**, server, mục kết nối lại:
-  - `onDrop` giữ chỗ và dừng ý định ngay, hẹn `shelter` sau `shelterDelayMs` (`DROP_SHELTER_DELAY_MS`) với kiểm `holds.get(sid) === hold`;
-  - `shelter` đặt `offline`, gỡ thú đang đánh, huỷ chiêu của thú đi theo, lưu;
-  - test shared chốt `DROP_SHELTER_DELAY_MS ≥ attackLandsWithinMs + 2 nhịp`;
-  - ở mục kiểm thử: `cutConnection` đặt `shelterDelayMs = 0` trừ khi `realDelay`; `steadyClock` ở cấp file.
+  - `lostPlaces` và `letGo` (nhánh mất chỗ đứng `shelterDelayMs` rồi mới xoá và ghi điểm quay lại);
+  - `exposures` (`systems/exposure.ts`): ai mở, ai đóng; `onJoin` async chờ `settled` rồi đọc lại `liveSessions`;
+  - `canResume` tính cả `lostPlaces`;
+  - `onDispose` lưu người đang rời;
+  - ở mục kiểm thử: helper `loseQuickly`, `lostAt`; `cutConnection(..., { realDelay: true })` đặt lại `DROP_SHELTER_DELAY_MS`.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `DROP_SHELTER_DELAY_MS = 1500` trong `constants.ts` có JSDoc. `skillLandsWithinMs`, `attackLandsWithinMs` có JSDoc và unit test. Test chốt `DROP_SHELTER_DELAY_MS >= attackLandsWithinMs + 2 * TICK_MS` qua.
-- [ ] `onDrop` chỉ còn giữ chỗ, nhánh T24, dừng ý định và hẹn `shelter`. `shelter` làm phần bảo vệ của T3 chỉ khi `holds.get(sid) === hold` và người chơi còn.
-- [ ] T1-T6 qua. Các test kết nối lại của T3 và T24 qua không đổi nghĩa. `steadyClock` lên cấp file. `cutConnection` có tuỳ chọn `realDelay` và JSDoc.
-- [ ] Bảng đột biến M1-M10 cho đúng kết quả, ghi trong `PROGRESS.md`. Với M7, test chốt shared hỏng.
-- [ ] Không đổi client, schema, message, `Profile`, close code. `git diff --stat` không có `tests/e2e/multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts`.
-- [ ] `npm run typecheck`, `npm test` qua; e2e `-g "connection:"` và `reconnect.spec.ts` qua.
-- [ ] Tài liệu cập nhật như mục Tài liệu.
+- [ ] `PROGRESS.md` ghi B1 và B2 hỏng trên HEAD `2db768c` (tái hiện cách né) và qua sau khi sửa.
+- [ ] Nhánh mất chỗ của `onDrop`: dừng ý định, giữ `Player` trong thế giới (chưa `offline`) đến `letGo` sau `shelterDelayMs`; `letGo` ghi điểm quay lại theo trạng thái lúc đó rồi `removePlayer` (có `try/catch`) và `holdEmptyWorld` nếu trống. `onLeave` bỏ qua người đang rời.
+- [ ] `onJoin` async: chờ `exposures.settled` của phiên cũ cùng token (ở bất kỳ phòng nào), đọc lại `liveSessions`, rồi `endSession`. Không bao giờ có hai bản cùng token trong state.
+- [ ] `Exposures` có JSDoc và unit test; được mở/đóng đúng bảng ở Thiết kế 4. `onDispose` lưu người đang rời và `closeAll`.
+- [ ] `canResume` trả `true` trong lúc đang rời.
+- [ ] B1-B8 qua; A1-A3 (T24), T1-T6 (T25) và các test kết nối lại khác qua không đổi nghĩa; e2e `connection:` và `reconnect.spec.ts` qua.
+- [ ] Bảng đột biến M1-M12 cho đúng kết quả (ghi rõ nếu M4 sống sót và vì sao).
+- [ ] Không đổi client, schema, message, `Profile`, close code, route. `git diff --stat` không có `tests/e2e/multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts`.
+- [ ] `npm run typecheck`, `npm test` qua. Tài liệu cập nhật như mục Tài liệu.
 
 ## Rủi ro, câu hỏi mở
 
-Không có mục CHẶN: không đổi giao thức hay dữ liệu đã lưu, không xoá tính năng. Quyết định đảo ngược được bằng một hằng số.
+Không có mục CHẶN: không đổi giao thức hay dữ liệu đã lưu, không xoá tính năng.
 
-1. **Người chơi thật chịu thêm 1,5 s đứng yên khi rớt rõ ràng** (đổi Wi-Fi, mạng báo đóng ngay). Trong một trận đánh, 1,5 s có thể mất 1-3 cú cắn. Chấp nhận: mất mạng im lặng (trường hợp phổ biến nhất trên di động) vốn đã để họ đứng đó 6-9 s trước khi server biết, nên T25 không làm gì tệ hơn rõ rệt.
-2. **Lần thử treo của T24:** client đóng lần thử bằng 4010 khi `retryCount` đứng yên quá 8 s. Phía server đó là lần nối lại chưa xong, thường chưa từng tới server, nên không sinh lần rớt mới. Nếu nó đã tới server rồi chết lúc `JOINING`, đó là nhánh mất chỗ của T24 (không bảo vệ, có điểm quay lại). Không đổi gì.
-3. **Thú đi theo vẫn đánh trong 1,5 s đầu.** Chấp nhận (Thiết kế 3). Nếu reviewer thấy cần dừng nó ngay thì cũng làm được, nhưng sẽ làm lệch luật "chưa vắng" thành hai mức.
-4. **Chiêu dài hơn 1,4 s sau này:** test chốt shared hỏng. Người thêm chiêu phải tăng `DROP_SHELTER_DELAY_MS` hoặc rút chiêu lại, và ghi lý do.
+1. **`onJoin` async:** trong lúc chờ (≤ 1,5 s), lần vào đang giữ một chỗ của Colyseus. Một phòng đủ 5 người có thể từ chối người khác thêm tối đa 1,5 s. Chấp nhận.
+2. **Cách giả mất chỗ phụ thuộc Colyseus 0.18** (tin đầu tiên của lần nối lại là `JOIN_ROOM`; socket đóng lúc `JOINING` thì gọi `onDrop`). Như T24: nếu Colyseus đổi, B1 hỏng ở chỗ nhận 4003, nghĩa là test báo chứ không im lặng.
+3. **Người lạ vào đúng 1,5 s đó ở phòng đủ người** (6 nhân vật, màu trùng): chấp nhận (Thiết kế 6). Nếu reviewer muốn chặn, cách rẻ là để lần vào của người lạ cũng chờ `exposures` của mọi phiên đang rời khi `players.size >= MAX_PLAYERS`.
 
 ## Đề xuất cho `TASKS.md`
 
-- Không có việc mới. Ghi vào T24b (c): nếu làm tin "đang vắng" khi trang ẩn, dùng cùng `DROP_SHELTER_DELAY_MS` và cùng kiểu kiểm định danh, để trang ẩn không thành đường né đòn.
+- **Mới, P3: "Tải lại hay mở tab thứ hai giữa trận thì hồi đầy máu"** (có từ T3, T23):
+  - rời chủ động hoặc bị thay (tab thứ hai) đều xoá người chơi ngay: huỷ đòn đang gồng, và vào lại thì đầy máu ở giữa bản đồ;
+  - đổi lại mất chỗ đứng và vài giây tải trang, nên kém hơn hẳn cách né T25/T25b;
+  - hướng làm nếu muốn bịt: cho rời chủ động cũng đứng phơi `DROP_SHELTER_DELAY_MS` (cùng `lostPlaces`/`Exposures`), và ghi điểm quay lại cho mọi lần rời trong cùng thế giới. Đây là đổi luật T3/T23 (vào lại từ sảnh là phiên mới) nên cần game-designer xem lại.
+- Góp ý 2, 4, 5 của review T25 vẫn để ngỏ; nên gộp vào một việc dọn nhỏ cho `combat.ts` và test T25.
