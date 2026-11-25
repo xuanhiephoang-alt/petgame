@@ -1,12 +1,11 @@
-import { existsSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import express from "express";
 import { defineRoom, defineServer } from "colyseus";
 import { ROOM_NAME } from "@petgame/shared";
 import { GameRoom } from "./rooms/GameRoom.ts";
-import { clientAddress, guardWorldCreation, trustProxyFromEnv, worldLimitsFromEnv } from "./worldLimits.ts";
+import { installRoutes } from "./http.ts";
+import { guardWorldCreation, trustProxyFromEnv, worldLimitsFromEnv } from "./worldLimits.ts";
 
 const port = Number(process.env.PORT ?? 2567);
 /** Built web client (npm run build). Served from the same origin when present. */
@@ -15,23 +14,15 @@ const clientDist = process.env.CLIENT_DIST ?? join(dirname(fileURLToPath(import.
 /** World caps and the number of proxies in front of this server (see worldLimits.ts, docs/deploy.md). */
 const worldSettings = { limits: worldLimitsFromEnv(process.env), trustProxy: trustProxyFromEnv(process.env) };
 
+/** Set by installRoutes: files with a precompressed copy, or null when no client is served. */
+let precompressedFiles: number | null = null;
+
 const server = defineServer({
   rooms: {
     [ROOM_NAME]: defineRoom(GameRoom),
   },
   express: (app) => {
-    app.get("/healthz", (_req, res) => {
-      res.send("ok");
-    });
-    // The address this server sees for the caller (checks the proxy setting after a deploy).
-    app.get("/whoami", (req, res) => {
-      res.type("text/plain").send(clientAddress(req.socket.remoteAddress, req.headers["x-forwarded-for"], worldSettings.trustProxy) ?? "?");
-    });
-    if (existsSync(clientDist)) {
-      // Hashed bundles (Vite assetsDir "build") never change; everything else revalidates.
-      app.use("/build", express.static(join(clientDist, "build"), { immutable: true, maxAge: "1y" }));
-      app.use(express.static(clientDist));
-    }
+    precompressedFiles = installRoutes(app, { clientDist, worldSettings });
   },
 });
 
@@ -42,8 +33,10 @@ console.log(`PetGame server listening on port ${port}`);
 console.log(
   `World limits: ${worldSettings.limits.maxWorlds} worlds, ${worldSettings.limits.perAddress} per address, ${worldSettings.limits.perNetwork} per IPv6 /48; trusting ${worldSettings.trustProxy} prox${worldSettings.trustProxy === 1 ? "y" : "ies"}`,
 );
-if (existsSync(clientDist)) {
-  console.log(`Serving web client from ${clientDist}`);
+if (precompressedFiles !== null) {
+  console.log(
+    `Serving web client from ${clientDist} (${precompressedFiles > 0 ? `${precompressedFiles} files precompressed` : "no precompressed files: build with npm run build"})`,
+  );
   // Addresses other devices on the same Wi-Fi (e.g. an iPhone) can open.
   const lan = Object.values(networkInterfaces())
     .flat()

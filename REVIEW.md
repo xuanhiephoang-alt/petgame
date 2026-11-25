@@ -1,66 +1,65 @@
 PASS
-# REVIEW: T14 Bộ ảnh `npm run shots` chắc chắn, thêm nhóm skills/alpha/toasts, vòng 3
+# REVIEW: T43 Server nén script và tài nguyên tĩnh (bản `.br`/`.gz` dựng sẵn, Express chọn theo `Accept-Encoding`), vòng 1
 
 ## Kết luận
-Lỗi chặn của vòng 2 đã sửa đúng gốc: lời cảnh báo lãnh địa nay đi qua giá trị `setup` trả về, nên truyền bản sao của cảnh cũng không còn làm mất nó. Ba ảnh `labels-*-alpha` đã có lời cảnh báo. Gộp hàm không đổi hành vi, và không có vấn đề mới. "Stood elsewhere" 7/53 có lý do rõ (thử lại dời chỗ, chọn chỗ theo thú) và không che lỗi dựng cảnh: là việc sau, không chặn. Không còn lỗi phải sửa.
-
-## Đã kiểm
-1. **Lỗi chặn vòng 2 đã hết:**
-   - `capture` (`shotsPage.mjs:257`) dùng `const toasts = made.toasts ?? scene.toasts` cho cả `settle` lẫn `judgeScene`.
-   - `alphaScene.setup` trả `{ target, toasts: [warning] }` và không còn tự ghi `scene.toasts`.
-   - `labelShots` gắn `measure` vào chính `lair` rồi `capture(page, file, lair)`.
-   - Tôi tự xem `shots/t14-t3a/labels-landscape-alpha.png` và `shots/t14-t3b/labels-portrait-alpha.png`:
-     - cả hai có "★ Lãnh địa của Voltmouse đầu đàn (Lv 15)…";
-     - nhãn thú đầu đàn không bị thông báo che;
-     - ở điện thoại dọc, nhãn nằm ngay trên nút "Thường", đúng ngoại lệ đã ghi.
-   - `ready` của cảnh dùng `TAG_CLEAR_SELECTOR`, gồm cả `.hud-toasts > .toast`, nên kiểm cuối tính đúng lời cảnh báo thật đang hiện.
-   - Nếu lần thử hỏng sau khi lời cảnh báo đã hiện, `setup` lần sau gọi `waitNoToasts` trước.
-   - Hai ca canh mới trong `shotsCapture.test.mjs` khoá cả hai chỗ; tester đã thử đột biến.
-2. **Gộp hàm không đổi hành vi:**
-   - `calmSpot` gọi `firstCalm(candidates, readPals, radius)`: cùng phép `hypot < radius`, cùng thứ tự ứng viên, chỉ đọc thêm trường thừa.
-   - `findLeader` trả `{ x, y, level }`: chỗ dùng trong `setup` cần `level`, chỗ `hopAt` chỉ dùng `x`, `y`.
-   - `labels-*-wild` dùng `readPals` chung, cùng dạng `{ id, speciesId, x, y, alpha, boss }` với hàm cục bộ cũ.
-   - `labelUpdateMs` có hạn 20 s, hết hạn thì lấy trung bình số lần đã gọi; nhánh thường không đổi.
-3. **Không có vấn đề mới:**
-   - Chạy lại `npx vitest run scripts/`: 59 ca qua.
-   - `git diff HEAD -- packages tests .claude` rỗng; `git stash list` vẫn 2 mục.
-   - Chú thích đầu `shots.mjs` và `docs/architecture.md` giờ mô tả đúng `PETGAME_SHOTS_FAULT`: tâm hang bị vật cản, cảnh không ổn định, hỏng sau 3 lần, không ghi `.png`, thoát mã 1.
-   - Hai lần chạy đầy đủ của tester: 53 ảnh, 0 cảnh hỏng, mã 0. `--compare` ra 0 mục cần xem; lệch `steady` lớn nhất ở cảnh đứng cùng chỗ là 3 (≤ 4).
-
-## Đánh giá "stood elsewhere" 7/53: việc sau, không chặn
-Tôi tính từ `report.json` của `t14-t3a` và `t14-t3b`:
-
-| Cảnh | Cách nhau | `tries` a/b | `steady` a/b | Vì sao |
-|---|---|---|---|---|
-| `aim-phone` | 260 px | 2/1 | 237/186 | lần thử 1 hỏng, `AIM_RETRY` dời 260 px lên bắc |
-| `aim-desert` | 260 px | 2/1 | 121/104 | như trên |
-| `skills-desktop-cast` | 903 px | 3/1 | 199/226 | lần thử sau sang chỗ `CALM` khác |
-| `skills-portrait-cast` | 240 px | 1/2 | 301/325 | như trên |
-| `labels-desktop-alpha` | 31 px | 2/1 | 244/247 | thử lại, chỗ đứng gần như cũ |
-| `labels-landscape-alpha` | 66 px | 2/1 | 287/302 | thử lại theo thú đầu đàn |
-| `alpha-portrait-meadow` | 68 px | 2/2 | 362/385 | chọn chỗ theo thú đầu đàn |
-
-- Cả 7 cảnh đều có thử lại ở ít nhất một lần chạy. Không cảnh nào lệch chỗ khi cả hai lần đều thành công ngay lần đầu, tức không có chỗ đứng ngẫu nhiên "lén".
-- Hai ảnh cách nhau 260-900 px là hai ảnh khác nhau. So `steady` của chúng chỉ sinh cờ giả, nên bỏ so là đúng. Các cờ còn lại (`over budget`, nhãn chồng, vòng ngắm, thông báo đè HUD) vẫn được xét, và dòng vẫn in ghi chú để người so nhìn.
-- Số cảnh này dao động theo số lần thử lại (4 rồi 7). Nguyên nhân gốc là thú hoang ngẫu nhiên, đúng việc T46 (`debug:clearPals`) sẽ gỡ. Sửa thật trong T14 thì cần hook mới, trái PLAN.
-- Kết luận: chấp nhận cho T14, kèm việc sau (dưới). Đồng ý với hướng của agent chính.
+Thay đổi làm đủ các bước và tiêu chí của PLAN.md, không thêm dependency, không đụng file bị cấm. Middleware chỉ tra khoá có sẵn trong danh mục lúc khởi động, nên không có đường thoát khỏi `dist`. `Vary`, ETag riêng cho từng bản, 304, HEAD, Range và đường rẽ về file gốc đều đúng và có test tích hợp đọc byte thật trên dây. Đã tự chạy lại: `npm run typecheck` sạch, 5 file test mới hoặc đã sửa xanh (112 test).
 
 ## Lỗi phải sửa
 Không có.
 
-## Góp ý không bắt buộc (việc sau, để đưa vào TASKS.md)
-1. **Giảm "stood elsewhere" sau T46** (P2): khi có `debug:clearPals`, dọn thú hoang quanh chỗ chụp, cho `aim`, `skills`, cảnh thú đầu đàn ít phải thử lại hay dời chỗ.
-   - Trong `--compare`, in thêm số cảnh "stood elsewhere" ở dòng tổng.
-   - Gắn cờ (không chỉ ghi chú) cho cảnh đứng khác chỗ dù cả hai lần đều `tries: 1`: đó mới là dấu hiệu chọn chỗ không tất định.
-   - Cân nhắc lần thử lại của `aim` giữ nguyên chỗ trước khi dời 260 px.
-2. **Thời gian nhóm `labels` và `alpha`** (P3): `labels` từng 4m04s (vượt mốc 4 phút/nhóm của PLAN 4 giây), `alpha` 3m25s-3m42s; cả bộ 11-13 phút. Cách giảm: hạ `deadline` 60 s / `hopAt` 30 s của cảnh thú đầu đàn, dùng chung context `skills` + `toasts` như PLAN cho phép, và giảm số lần thử lại nhờ T46.
-3. **Dọn trùng lặp phần chạy trong trang** (P3): đoạn tìm thú đầu đàn theo loài còn lặp trong `tagCheck` (`shotsPage.mjs`) và `alphaScene.measure` (`shotGroups.mjs`); đoạn đọc thú đi theo của mình lặp ở `settleStatus`, `sceneState`, `alphaScene.measure`. Có thể đưa vào một hàm gắn lên `window` một lần (ví dụ trong `watchHurt` hay `inWorld`) rồi các `evaluate` gọi lại.
-4. **Ảnh cũ sót lại** (P3): khi một nhóm chết giữa chừng (lỗi không phải `SceneError`), hoặc `--only` ghi vào thư mục `--name` đã có, ảnh của cảnh chưa chụp lần này vẫn nằm đó trông như mới. Lúc ghi `report.json`, xoá mọi `*.png` không có dòng `ok: true` (hoặc ghi danh sách đó vào `run.json`).
-5. **`PETGAME_SHOTS_FAULT` kiểm cả mối đe doạ** (P3): hiện chỉ chứng minh "cảnh không ổn định thì không ghi ảnh", và làm cảnh sau hỏng theo. Đặt `target = serverSpot(lair + khoảng 60 px)` để đường `threat` thật sự chạy, và về `RETREAT` sau lần thử cuối.
-6. **Thay test đọc mã nguồn bằng test hành vi** (P3): `shotsCapture.test.mjs` nay có 9 ca regex trên mã nguồn. Tách các quyết định thành hàm thuần trong `shotsLib.mjs` có unit test:
-   - vòng chờ thú đầu đàn ("đứng tốt 1,5 s, không nguy hiểm");
-   - bảng `minClear`/`lead` theo khung;
-   - cách chọn `toasts` của `capture`.
+## Đã kiểm, không thấy lỗi
+- **Chọn encoding** (`packages/server/src/contentEncoding.ts`):
+  - Bảng của Thiết kế 3 được test đủ, thêm hai ca `br;q=1.0, gzip;q=0.8, *;q=0.1` và `identity;q=0`.
+  - Regex token và qvalue chạy tuyến tính, không có backtracking nặng.
+  - Header lỗi chỉ làm bỏ mục đó, không ném lỗi.
+  - Node gộp các header `accept-encoding` lặp lại thành một chuỗi.
+- **Vary, ETag, 304, HEAD, Range** (`packages/server/src/webClient.ts`):
+  - `res.vary` được đặt trước mọi nhánh, kể cả nhánh Range và nhánh trả file gốc.
+  - Khi trả 304, `send` gỡ các header `Content-*` nhưng giữ `Vary`.
+  - ETag yếu tính từ cỡ và mtime. Luật `keepVariants` (≤ 90% và br < gz) bảo đảm ba bản có cỡ khác nhau. Ràng buộc này được ghi rõ trong JSDoc ở cả hai phía.
+  - `acceptRanges: false` cho bản nén.
+  - Có test cho trường hợp `If-None-Match` của bản br gửi kèm yêu cầu gzip: kết quả là 200.
+- **An toàn:**
+  - `decodeURIComponent` được bọc `try`, kèm test `%E0%A4%A`.
+  - `..%2f`, ký tự null và đường lạ không có trong danh mục nên đi thẳng `express.static` như trước. Dotfile bị loại ở cả lúc build lẫn lúc quét danh mục.
+  - Giá trị `Content-Encoding` chỉ lấy từ tập cố định `br`/`gzip`, và `Content-Type` lấy từ đuôi của khoá trong danh mục, nên không chèn được header.
+  - Mỗi request không tốn thêm CPU nén hay lời gọi `stat`.
+  - Tải thẳng `x.js.br` vẫn nhận `application/gzip` hoặc octet-stream, không có Content-Encoding. Đúng như phạm vi kế hoạch.
+- **Lỗi khi gửi file:**
+  - Khi `ENOENT` hoặc `EISDIR`, `send` chưa đặt header nào. Callback gỡ `Content-Encoding` và `Content-Type` rồi `next()`, có test ca file nén bị xoá sau khi khởi động.
+  - Khi `ECONNABORTED` hoặc header đã gửi, callback dừng luôn.
+- **Service worker:**
+  - `precacheUrls` loại `.br`/`.gz`, có test.
+  - Script nén chạy sau khi `vite build` thoát, nên `closeBundle` của plugin service worker đã xong. Tester đã kiểm `dist/sw.js` không chứa `.br`/`.gz`.
+  - `cache.match` theo chuỗi không bị `Vary: Accept-Encoding` cản.
+  - `pwa.spec.ts` chạy trên bản build có nén và xanh, kèm bước (g).
+- **Tách `index.ts` sang `http.ts`:**
+  - `/healthz` và `/whoami` giữ nguyên code. `/whoami` vẫn đọc `worldSettings.trustProxy` theo tham chiếu mỗi request.
+  - `guardWorldCreation` vẫn chạy sau `listen()` trong `index.ts`.
+  - `http.test.ts` kiểm `/matchmake/create` trả 200 khi có cả guard lẫn middleware tĩnh, và kiểm `/whoami` qua `X-Forwarded-For`.
+  - Hook `debug:*` vẫn chỉ đăng ký trong `GameRoom` khi `PETGAME_DEBUG === "1"`, không liên quan thay đổi này.
+  - Callback `express` chạy trước khi `listen()` resolve: `http.test.ts` có kiểm `installed === 1`. Vì vậy log trong `index.ts` đọc được số file nén.
+- **Build:**
+  - Thứ tự `vite build && node ../../scripts/precompress.mjs dist` đúng, và lệnh chạy được với `cmd` trên Windows.
+  - Script chạy lại cho kết quả idempotent: tester so md5 toàn bộ `dist` qua hai lần chạy.
+  - Bản Docker được nén: `.dockerignore` không loại `scripts/`, script chỉ dùng module có sẵn của Node, và stage runtime chép cả `dist` gồm `.br`/`.gz`.
+- **Ràng buộc:**
+  - `package-lock.json`, `.claude/`, `tests/e2e/multiplayer.spec.ts`, `labelLayout.ts` và `labelLayout.test.ts` không đổi.
+  - Không có dependency mới. `git stash list` còn 2 mục.
+- **Tài liệu:** `docs/architecture.md` (phần server và PWA), `docs/deploy.md` và `docs/design/multiplayer.md` khớp với code và số đo trong PROGRESS.md. Số đo cũ được ghi trong ngoặc.
 
-   Rồi bỏ dần các regex.
-7. **Dọn `shots/`** (agent chính, không phải code): hơn 30 thư mục thử (`dbg*`, `mut*`, `r2-alpha*`, `t14-*`...). Thư mục đã gitignore nên không hại; xoá cho gọn ổ đĩa nếu muốn.
+## Góp ý không bắt buộc (có thể đưa vào TASKS.md)
+- `packages/server/src/webClient.ts` `serveClient`: hàm quét `dist` ba lần. Mỗi `precompressed(...)` quét một lần, rồi `findPrecompressed(dir).size` quét lại để đếm. Có thể cho `precompressed` nhận danh mục dựng sẵn, hoặc lấy số đếm từ danh mục gốc. Chỉ tốn lúc khởi động, không ảnh hưởng request.
+- `scripts/precompressLib.mjs` `precompressDir`: hàm `readFileSync` mọi file trong `dist`, kể cả ảnh (khoảng 3 MB png và webp), chỉ để lấy cỡ file. Nên dùng `statSync` trước và chỉ đọc file đủ điều kiện nén.
+- `scripts/precompressLib.mjs`: chất lượng brotli 11 và mức gzip 9 đang viết thẳng trong lời gọi. Nên đặt thành hằng `BROTLI_QUALITY`, `GZIP_LEVEL` cạnh `MIN_BYTES`/`MAX_RATIO`, đúng quy ước bảng hằng số. Rủi ro của kế hoạch có nhắc khả năng hạ brotli xuống mức 9.
+- Regex `/\.(br|gz)$/` lặp lại ở `webClient.ts`, `precompressLib.mjs` (bản này không phân biệt hoa thường) và `swLogic.ts`. Trong server có thể suy ra regex từ `ENCODING_SUFFIX`. Cách so hoa thường giữa build và server đang lệch nhau, hiện vô hại.
+- Phòng hờ ETag trùng: hiện tại ETag khác nhau chỉ nhờ luật build. Có thể cho `findPrecompressed` bỏ bản nén có cỡ bằng file gốc hoặc bằng bản kia ngay lúc khởi động, vì `stat` một lần lúc đó gần như không tốn gì. Khi đó server tự bảo vệ cả khi ai đó sửa luật build.
+- Danh mục gốc `/` cũng chứa khoá `/build/*` với `max-age=0`. Nó chỉ được dùng khi mount `/build` đã rơi qua, tức file gốc mất mà bản nén còn. Khi đó bản nén vẫn được gửi, nhưng không có `immutable`. Đây là ca hiếm và vô hại, có thể ghi một dòng chú thích.
+- Test còn thiếu nhưng không bắt buộc:
+  - `findPrecompressed` bỏ qua dotfile và thư mục dot.
+  - Request thẳng `/build/x.js.br` trả file thô, không có `Content-Encoding`.
+  - `http.test.ts` kiểm thêm `vary` cho `/`.
+- `packages/client/src/pwa/swLogic.ts`: dòng JSDoc mới của `precacheUrls` dài hơn hẳn các dòng xung quanh. Nên ngắt dòng.
+- `docs/architecture.md`: mục công cụ và script chưa có dòng cho `scripts/precompress.mjs` và `precompressLib.test.mjs`. Hiện chúng chỉ được nhắc trong mục PWA.
+- Ghi chú cho T16: khi chuyển e2e sang bản build, mọi test sẽ đi qua bản nén. Nên giữ bước (g) của `pwa.spec.ts`.
+- Sau này: zstd khi Node có bản ổn định; cache dài cho `/assets/*` (cần tên có băm), như PLAN.md đã đề xuất.

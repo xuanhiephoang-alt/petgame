@@ -49,13 +49,13 @@ export function routeFor(req: SwRequest, origin: string): SwRoute {
 
 /**
  * URLs to store when the worker installs, from the files of dist/ (paths relative to it): the lobby page, the
- * manifest and every hashed file in build/ (source maps excluded). Sorted, so the version hash is stable.
+ * manifest and every hashed file in build/ (source maps and .br/.gz compressed copies excluded). Sorted, so the version hash is stable.
  */
 export function precacheUrls(distFiles: readonly string[]): string[] {
   const urls = ["/", "/manifest.webmanifest"];
   for (const file of distFiles) {
     const path = file.replace(/\\/g, "/");
-    if (path.startsWith("build/") && !path.endsWith(".map")) urls.push("/" + path);
+    if (path.startsWith("build/") && !/\.(map|br|gz)$/.test(path)) urls.push("/" + path);
   }
   return urls.sort();
 }

@@ -18,7 +18,7 @@ Sảnh (ngoại hình, tên, nút "Vào chơi") chỉ dùng được khi script 
 - **Tải lại** mở lại đúng địa chỉ đang có, giữ `?room=` của link mời và mọi tham số khác. Có link mời thì thông báo ghi thêm "Link mời vẫn được giữ."
 - **Luôn lấy bản mới khi có mạng (T13).** Trang game (sảnh) luôn được lấy từ server trước; bộ nhớ của máy chỉ dùng khi không có mạng. Vì vậy **Tải lại** sau khi server vừa đổi bản luôn ra bản mới, không bao giờ ra trang cũ trỏ tới file đã bị xoá. Các file script đã đánh số phiên bản (`/build/…`) lấy từ bộ nhớ nếu có. Không lưu gì của việc vào thế giới (`/matchmake`, kết nối WebSocket) hay `/whoami`. Chỉ có khi địa chỉ là HTTPS hoặc `localhost`: chơi qua Wi-Fi bằng `http://192.168.…` (Cách A của `docs/choi-tren-iphone.md`) thì trình duyệt không cho lưu, game chạy như trước T13. Bộ nhớ đó không bao giờ là lý do game không mở (T82): nếu bộ nhớ của trình duyệt hỏng, game lấy mọi thứ từ mạng như khi chưa lưu gì. Mở được lúc mất mạng chỉ khi trước đó đã mở game (hoặc app ở Màn hình chính) có mạng ít nhất một lần.
 - Thông báo "mạng chậm" không chặn gì, không đổi nút "Đang tải..." và không lấy focus. Chỉ khi trình duyệt báo lỗi thật mới hiện thẻ "Không tải được game".
-- Vì sao chờ 15 giây: script sảnh của bản build khoảng 960 kB (server chưa nén). Đo được sảnh sẵn sàng sau 5,3 giây ở 4G chậm (1,6 Mbps), 11,3 giây ở 3G (750 kbps), 20,7 giây ở 3G chậm (400 kbps). Với 15 giây, mạng từ 3G trở lên không bị làm phiền, còn người bị treo mạng không phải chờ quá lâu mới có nút Tải lại.
+- Vì sao chờ 15 giây: 11 file của sảnh khoảng 1 MB, server gửi bản nén sẵn (brotli, còn khoảng 280 kB; T43). Đo được sảnh sẵn sàng sau 2,0 giây ở 4G chậm (1,6 Mbps), 4,2 giây ở 3G (750 kbps), 6,8 giây ở 3G chậm (400 kbps) (trước T43, chưa nén: 5,3, 11,3 và 20,7 giây). Với 15 giây, mạng từ 3G trở lên không bị làm phiền, còn người bị treo mạng không phải chờ quá lâu mới có nút Tải lại.
 - Phạm vi: chỉ lúc tải trang, trước khi sảnh dùng được. Lỗi khi bấm "Vào chơi" là mục "Vào thế giới: lỗi và cách đi tiếp" (T23) và "Vào được nhưng game không mở được" (T42). Mất mạng khi đang chơi là màn che kết nối ở mục "Quay lại".
 
 ## Thế giới không còn ai: giữ thêm 60 giây (T49)
@@ -39,7 +39,7 @@ Người cuối cùng rời đi thì thế giới **chưa đóng ngay** mà còn
 - Thế giới trống vẫn vào được bằng link mời (`?room=`) như lúc có người. Không ai bị ghép ngẫu nhiên vào đó: game chỉ tạo thế giới mới hoặc vào theo link.
 
 Vì sao 60 giây:
-- Tải lại trang rồi bấm "Vào chơi": sảnh sẵn sàng sau 5,3 giây ở 4G chậm, 11,3 giây ở 3G, 20,7 giây ở 3G chậm (số đo của mục "Mở game"), cộng vài giây để bấm. 60 giây đủ cho 3G chậm và người chơi còn kịp đọc sảnh.
+- Tải lại trang rồi bấm "Vào chơi": sảnh sẵn sàng sau 2,0 giây ở 4G chậm, 4,2 giây ở 3G, 6,8 giây ở 3G chậm (số đo của mục "Mở game"; trước T43: 5,3, 11,3, 20,7 giây), cộng vài giây để bấm. 60 giây đủ cho 3G chậm và người chơi còn kịp đọc sảnh.
 - Mất mạng: màn "Không kết nối lại được" hiện sau 30 giây (`RECONNECT_TRY_MS`). Trường hợp xấu nhất (server biết mất mạng ngay, trang biết trễ 8 giây), thế giới còn mở ít nhất 20 + 60 − 30 − 8 = 42 giây sau khi nút **Về sảnh** hiện, đủ cho 3G chậm.
 - Giá phải trả nhỏ: một thế giới trống tốn khoảng 0,07 ms mỗi nhịp (0,13% một nhân CPU) và khoảng 0,35 MB bộ nhớ.
 

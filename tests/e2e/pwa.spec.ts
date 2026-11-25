@@ -78,6 +78,16 @@ test("pwa: the built game lists its icons, and a service worker caches the game 
   expect(workers).toHaveLength(1);
   expect(workers[0].url()).toMatch(/\/sw\.js$/);
 
+  // (g) the lobby's scripts come compressed: makes sure `npm run build` really made the .br/.gz copies and the
+  // server really sends them. The encoding name is not checked (Chrome may take only gzip on plain http).
+  const sizes = await page.evaluate((src) => {
+    const e = performance.getEntriesByName(new URL(src, location.href).href)[0] as PerformanceResourceTiming | undefined;
+    return e ? { encoded: e.encodedBodySize, decoded: e.decodedBodySize } : null;
+  }, await page.locator("script[type=module][src]").first().getAttribute("src"));
+  expect(sizes).not.toBeNull();
+  expect(sizes!.encoded).toBeGreaterThan(0);
+  expect(sizes!.encoded * 2).toBeLessThan(sizes!.decoded);
+
   // (c) what is cached
   const { names, paths } = await cachedPaths(page);
   expect(names).toHaveLength(1);

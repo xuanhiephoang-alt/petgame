@@ -60,6 +60,7 @@ Giá trị sai (ngoài khoảng cho phép: ba trần là số nguyên ≥ 1, `PE
 
 - Không bao giờ đặt `PETGAME_DEBUG=1` trên server thật (biến này chỉ để chạy test).
 - Muốn tách client lên CDN riêng (Cloudflare Pages...), build với `VITE_SERVER_URL=https://<server>` rồi upload `packages/client/dist`.
+- Server gửi bản nén sẵn (T43): `npm run build` tạo `.br` và `.gz` cạnh file chữ ≥ 1 KiB trong `dist`, Express chọn theo `Accept-Encoding` (sảnh từ khoảng 1 MB còn khoảng 280 kB). Kiểm sau deploy: `curl -sI -H 'Accept-Encoding: br' https://<app>/ | grep -i content-encoding` phải ra `br`. Tách client lên CDN thì upload cả `.br`/`.gz` hoặc để CDN tự nén (CDN thường tự nén). Build bằng `vite build` trơn vẫn chạy, chỉ không nén.
 - Service worker (`dist/sw.js`, T13) chỉ chạy qua HTTPS (và `localhost`); trên `http://192.168...` trình duyệt không cho đăng ký. Nó lưu sẵn trang, manifest và file `/build/*`; không lưu `/assets`, icon hay thứ gì của server.
 - Sau deploy, tab cũ dùng nốt bản cũ (service worker mới chờ tới khi các tab cũ đóng); tải lại là ra HTML mới vì trang luôn lấy từ mạng trước.
 - Gỡ service worker khỏi máy người chơi khi cần (tắt khẩn cấp): deploy một `sw.ts` mà `install` gọi `self.skipWaiting()`, `activate` xoá mọi cache `petgame-*` rồi gọi `self.registration.unregister()`, và không có listener `fetch`. Thiếu `skipWaiting()` thì bản gỡ chờ tới khi mọi tab cũ đóng mới chạy (điện thoại có thể giữ tab nhiều ngày).
