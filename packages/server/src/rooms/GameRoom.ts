@@ -55,6 +55,7 @@ import { emptyProfile, isValidToken } from "../persistence/store.ts";
 import { worldCensus } from "../worldLimits.ts";
 import { Saves, store } from "../systems/saving.ts";
 import { noteResume, peekResume, takeResume, type ResumePoint } from "../systems/resume.ts";
+import { Exposures } from "../systems/exposure.ts";
 export { useStore } from "../systems/saving.ts";
 import { Skills, type Cast } from "../systems/skills.ts";
 import { Combat } from "../systems/combat.ts";
@@ -124,6 +125,15 @@ export class GameRoom extends Room<{ state: GameState }> {
   resumes = new Map<string, ResumePoint>();
   /** How long (ms) a lost place can be taken back; tests shorten it. */
   resumeMs = RECONNECT_GRACE_MS;
+  /**
+   * Session id -> device token of a player whose place was lost (T24) and who still stands in the world, exposed, until
+   * `letGo` removes them `shelterDelayMs` after the loss (T25b).
+   */
+  lostPlaces = new Map<string, string | undefined>();
+  /** Set when the room closes; a join that was waiting then stops. */
+  private disposed = false;
+  /** Sessions that dropped less than `shelterDelayMs` ago; a fresh join of the same device waits on them (T25b). */
+  exposures = new Exposures();
   /** How long (ms) a world with nobody in it stays open; tests and debug:emptyHold shorten it. */
   emptyHoldMs = EMPTY_WORLD_HOLD_MS;
   /** Counts down the hold of an empty world; undefined while someone is in. */
@@ -259,11 +269,24 @@ export class GameRoom extends Room<{ state: GameState }> {
     worldCensus.opened(this.roomId);
   }
 
-  onJoin(client: Client, options?: JoinOptions) {
+  /**
+   * Async: an older session of this device that dropped less than `shelterDelayMs` ago is waited for (T25b), so a blow
+   * under way lands on it first and a lost place is read after it. Colyseus awaits onJoin.
+   */
+  async onJoin(client: Client, options?: JoinOptions) {
     this.keepWorldOpen();
     const token = isValidToken(options?.token) ? options.token : undefined;
+    // An older session of this device still standing in a world after a drop (less than shelterDelayMs ago) is waited
+    // for: a blow under way lands first, and a lost place's spot is the one after it.
+    const exposed = token ? liveSessions.get(token) : undefined;
+    if (exposed) {
+      // Capped, so a session that never settles cannot hold a join for ever (Colyseus has no timeout on onJoin).
+      const cap = new Promise<void>((resolve) => this.clock.setTimeout(resolve, 2 * this.shelterDelayMs + TICK_MS));
+      await Promise.race([exposed.room.exposures.settled(exposed.sessionId), cap]);
+    }
+    if (this.disposed) throw new Error("the world closed while joining"); // no live session may point at a closed room
     // One live session per device: an older one (here or in another world) is saved and ended before the
-    // profile is read, so it cannot be doubled or overwrite what this one is about to do.
+    // profile is read, so it cannot be doubled or overwrite what this one is about to do. Read again: the wait may have removed it.
     const older = token ? liveSessions.get(token) : undefined;
     if (older) older.room.endSession(older.sessionId);
     const profile = (token && store().load(token)) || emptyProfile("");
@@ -357,25 +380,59 @@ export class GameRoom extends Room<{ state: GameState }> {
     hold.catch(() => {}); // the wait ending (run out, or let go by us) rejects it and onLeave follows: nothing to handle
     if (!(hold instanceof Deferred)) {
       // The place could not be held (the connection died while the player was still coming back, or the room is
-      // closing): onLeave follows at once; a fresh join by the same device in time takes this spot back.
-      if (control.token) {
-        const now = this.clock.currentTime;
-        noteResume(
-          this.resumes,
-          control.token,
-          { x: player.x, y: player.y, hp: player.hp, color: player.color, nextEatAt: control.nextEatAt, until: now + this.resumeMs },
-          now,
-        );
-      }
+      // closing). They are not removed at once, which would call off a blow under way (T25b): they stay in the world,
+      // exposed, for `shelterDelayMs`, and letGo then removes them and notes where they stand for a fresh join of the
+      // same device. onLeave follows at once and ignores them.
+      this.stopIntents(control);
+      this.lostPlaces.set(sessionId, control.token);
+      this.exposures.open(sessionId);
+      this.clock.setTimeout(() => this.letGo(sessionId), this.shelterDelayMs);
       return;
     }
     this.holds.set(sessionId, hold);
-    // Whatever they were doing stops: no walking on, no dash, no skill order, no fight their pal would carry on.
+    this.exposures.open(sessionId);
+    this.stopIntents(control);
+    this.clock.setTimeout(() => this.shelter(sessionId, hold), this.shelterDelayMs);
+  }
+
+  /** Whatever they were doing stops: no walking on, no dash, no skill order, no fight their pal would carry on. */
+  private stopIntents(control: PlayerControl) {
     control.input = { x: 0, y: 0 };
     control.dashLeftMs = 0;
     control.skillOrder = undefined;
     control.aggroUntil = 0;
-    this.clock.setTimeout(() => this.shelter(sessionId, hold), this.shelterDelayMs);
+  }
+
+  /**
+   * A lost place has stood in the world `shelterDelayMs`: note where they stand now, with the health they have after
+   * whatever hit them (a faint included), as the spot a fresh join of the device takes back (T24), and remove them.
+   * Runs from a timer, outside every try of Colyseus: a failure is logged, never thrown.
+   */
+  private letGo(sessionId: string) {
+    if (!this.lostPlaces.has(sessionId)) return;
+    const token = this.lostPlaces.get(sessionId);
+    this.lostPlaces.delete(sessionId);
+    const player = this.state.players.get(sessionId);
+    const control = this.controls.get(sessionId);
+    if (player && control && token) {
+      const now = this.clock.currentTime;
+      noteResume(
+        this.resumes,
+        token,
+        { x: player.x, y: player.y, hp: player.hp, color: player.color, nextEatAt: control.nextEatAt, until: now + this.resumeMs },
+        now,
+      );
+    }
+    try {
+      this.removePlayer(sessionId);
+    } catch (err) {
+      console.error(`GameRoom ${this.roomId}: removing player ${sessionId} failed; the world is still held and will close`, err);
+    } finally {
+      // However removePlayer ended, nobody may wait on this session any more.
+      this.lostPlaces.delete(sessionId);
+      this.exposures.close(sessionId);
+    }
+    if (this.isEmpty()) this.holdEmptyWorld();
   }
 
   /**
@@ -386,6 +443,7 @@ export class GameRoom extends Room<{ state: GameState }> {
    */
   private shelter(sessionId: string, hold: Deferred<Client>) {
     if (this.holds.get(sessionId) !== hold) return;
+    this.exposures.close(sessionId);
     const player = this.state.players.get(sessionId);
     if (!player) return;
     player.offline = true;
@@ -400,12 +458,15 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   /** Whether this device has a lost place to take back in this world; the POST /resume route asks it (does not use it up). */
   canResume(token: string): boolean {
+    // A lost place still standing in the world has no point yet (letGo notes it), but it can be taken back all the same.
+    for (const lost of this.lostPlaces.values()) if (lost === token) return true;
     return peekResume(this.resumes, token, this.clock.currentTime);
   }
 
   /** The dropped player is back: the same session and the same player, nothing was created again (and nothing to undo when it is before the shelter). */
   onReconnect(client: Client) {
     this.holds.delete(client.sessionId);
+    this.exposures.close(client.sessionId);
     const player = this.state.players.get(client.sessionId);
     if (player) player.offline = false;
   }
@@ -419,18 +480,32 @@ export class GameRoom extends Room<{ state: GameState }> {
    */
   onLeave(client: Client) {
     const sessionId = client.sessionId;
+    if (this.lostPlaces.has(sessionId)) return; // a lost place stands in the world until letGo (T25b)
     try {
       this.removePlayer(sessionId);
     } catch (err) {
       console.error(`GameRoom ${this.roomId}: removing player ${sessionId} failed; the world is still held and will close`, err);
     }
     this.holds.delete(sessionId); // the session is out for good, even if removePlayer threw before clearing it
+    this.lostPlaces.delete(sessionId);
+    this.exposures.close(sessionId);
     if (this.isEmpty()) this.holdEmptyWorld();
   }
 
   /** The room is closing: none of its sessions is anyone's live session any more. */
   onDispose() {
+    this.disposed = true;
     worldCensus.closed(this.roomId);
+    // A lost place still standing is saved now: its timer dies with the room's clock.
+    for (const sessionId of [...this.lostPlaces.keys()]) {
+      try {
+        this.removePlayer(sessionId);
+      } catch (err) {
+        console.error(`GameRoom ${this.roomId}: saving player ${sessionId} while closing failed`, err);
+      }
+    }
+    this.lostPlaces.clear();
+    this.exposures.closeAll(); // nobody may wait for ever on a room that is gone
     for (const [token, live] of liveSessions) if (live.room === this) liveSessions.delete(token);
   }
 
@@ -439,21 +514,28 @@ export class GameRoom extends Room<{ state: GameState }> {
    * them. Calling it again for a session already gone does nothing (onLeave follows a session ended by endSession).
    */
   private removePlayer(sessionId: string) {
-    this.saves.saveNow(sessionId);
-    // By owner, never by pal id: a newer session of the same device uses the same pal ids.
-    this.state.companions.forEach((c, id) => {
-      if (c.ownerId === sessionId) this.party.despawnCompanion(id);
-    });
     const token = this.controls.get(sessionId)?.token;
-    const live = token ? liveSessions.get(token) : undefined;
-    if (token && live?.room === this && live.sessionId === sessionId) liveSessions.delete(token);
-    this.state.players.delete(sessionId);
-    this.controls.delete(sessionId);
-    this.holds.delete(sessionId);
-    this.lastDamagedAt.delete(`p:${sessionId}`);
-    this.hazardWarned.delete(sessionId);
-    this.shieldUntil.delete(sessionId);
-    this.combat.calmPalsTargeting("player", sessionId);
+    try {
+      this.saves.saveNow(sessionId);
+      // By owner, never by pal id: a newer session of the same device uses the same pal ids.
+      this.state.companions.forEach((c, id) => {
+        if (c.ownerId === sessionId) this.party.despawnCompanion(id);
+      });
+    } finally {
+      // Whatever went wrong above, the session ends: the bookkeeping that others wait on or read goes first, so a join of
+      // the same device never waits on, or finds, a session that is half removed.
+      const live = token ? liveSessions.get(token) : undefined;
+      if (token && live?.room === this && live.sessionId === sessionId) liveSessions.delete(token);
+      this.holds.delete(sessionId);
+      this.lostPlaces.delete(sessionId);
+      this.exposures.close(sessionId);
+      this.state.players.delete(sessionId);
+      this.controls.delete(sessionId);
+      this.lastDamagedAt.delete(`p:${sessionId}`);
+      this.hazardWarned.delete(sessionId);
+      this.shieldUntil.delete(sessionId);
+      this.combat.calmPalsTargeting("player", sessionId);
+    }
   }
 
   /**

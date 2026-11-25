@@ -2631,7 +2631,8 @@ describe("reconnecting after a dropped connection", () => {
    * away state do not each wait 1.5 s. The tests of that delay itself pass `realDelay: true`.
    */
   function cutConnection(room: GameRoom, sessionId: string, { realDelay = false } = {}) {
-    if (!realDelay) room.shelterDelayMs = 0;
+    // Both ways, so the order of calls cannot silently drop the real delay (T25b).
+    room.shelterDelayMs = realDelay ? DROP_SHELTER_DELAY_MS : 0;
     (room.clients.find((c) => c.sessionId === sessionId) as any).ref.terminate();
   }
 
@@ -2990,7 +2991,32 @@ describe("reconnecting after a dropped connection", () => {
     return left;
   }
 
-  const resumesOf = (room: GameRoom) => (room as any).resumes as Map<string, unknown>;
+  const resumesOf = (room: GameRoom) => (room as any).resumes as Map<string, any>;
+
+  /**
+   * The way to dodge that T25b closes: a drop with the real shelter delay, then the new connection dies before the
+   * client reads JOIN_ROOM, so the server loses the place (T24) at once and, without T25b, removed the player and
+   * called off any blow under way. Does not wait for the player to go offline. Resolves with the client's close code (4003).
+   */
+  async function loseQuickly(room: GameRoom, client: TestClient): Promise<number> {
+    const open = holdReconnect(client);
+    const left = new Promise<number>((resolve) => client.onLeave.once(resolve));
+    cutConnection(room, client.sessionId, { realDelay: true });
+    await vi.waitFor(() => expect(holdsOf(room).has(client.sessionId)).toBe(true));
+    const original = client.connection.events.onmessage;
+    client.connection.events.onmessage = () => {
+      client.connection.events.onmessage = original;
+      (client.connection.transport as any).ws.close();
+    };
+    open();
+    return left;
+  }
+
+  /** Waits until the server has marked the place as lost and returns the room's time then. */
+  async function lostAt(room: GameRoom, sessionId: string): Promise<number> {
+    await vi.waitFor(() => expect((room as any).lostPlaces.has(sessionId)).toBe(true));
+    return room.clock.currentTime;
+  }
 
   it("a place lost while coming back (the line died before the client heard JOIN_ROOM) is refused with the old code, and the device token takes the same spot back with the same health", async () => {
     useStore(new SqliteStore(":memory:"));
@@ -3319,6 +3345,315 @@ describe("reconnecting after a dropped connection", () => {
       if (was === undefined) delete process.env.PETGAME_DEBUG;
       else process.env.PETGAME_DEBUG = was;
     }
+  });
+
+  it("a place lost while coming back does not call off the boss's stomp: the player stands until DROP_SHELTER_DELAY_MS, the stomp lands, and the spot taken back is the one after it", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-b1-token-0123456789";
+    const { room, client, player } = await setup(token);
+    steadyClock(room);
+    const sid = client.sessionId;
+    const [bossId, boss] = bossOf(room)!;
+    boss.maxHp = boss.hp = 99_999;
+    player.x = boss.x + 60;
+    player.y = boss.y;
+    (room as any).provoke(bossId, { kind: "player", id: sid });
+    (room as any).combat.windUp(boss, (room as any).wildAggro.get(bossId), "stomp", BOSS.stompWindupMs);
+    const hp0 = player.hp;
+    const spot0 = { x: player.x, y: player.y };
+
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    const t = await lostAt(room, sid);
+    expect(room.state.players.has(sid)).toBe(true);
+    expect(player.offline).toBe(false);
+    expect(room.canResume(token)).toBe(true);
+
+    await untilClock(room, t + BOSS.stompWindupMs + 100);
+    expect(player.hp).toBeLessThan(hp0);
+    expect(Math.hypot(player.x - spot0.x, player.y - spot0.y)).toBeGreaterThan(5); // shoved
+    const after = { x: player.x, y: player.y };
+    await untilClock(room, t + DROP_SHELTER_DELAY_MS + 100);
+    expect(room.state.players.has(sid)).toBe(false);
+    const point = resumesOf(room).get(token)!;
+    expect(point.hp).toBeLessThan(hp0);
+    expect(Math.hypot(point.x - after.x, point.y - after.y)).toBeLessThan(80);
+
+    const again = await colyseus.connectTo(room, { name: "Tester", token });
+    await room.waitForNextTimestep();
+    const back = room.state.players.get(again.sessionId)!;
+    expect(back.hp).toBeCloseTo(point.hp, 0); // it regenerates a little by the next tick
+    expect([back.x, back.y]).toEqual([point.x, point.y]);
+  });
+
+  it("a rejoin of the same device inside the window waits for it, and gets the health after the blow", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-b2-token-0123456789";
+    const { room, client, player } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    const foe = foeBeside(room, player, sid);
+    (room as any).combat.windUp(room.state.pals.get(foe)!, (room as any).wildAggro.get(foe), "bite", 900);
+    const hp0 = player.hp;
+    let most = 0;
+    room.clock.setInterval(() => {
+      let n = 0;
+      room.state.players.forEach((_p, id) => {
+        if ((room as any).controls.get(id)?.token === token) n++;
+      });
+      most = Math.max(most, n);
+    }, TICK_MS);
+
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    const t = await lostAt(room, sid);
+    const joined = colyseus.connectTo(room, { name: "Tester", token });
+    const again = await joined;
+    const joinedAt = room.clock.currentTime;
+    expect(joinedAt).toBeGreaterThanOrEqual(t + DROP_SHELTER_DELAY_MS - 50);
+    expect(most).toBeLessThanOrEqual(1);
+    await room.waitForNextTimestep();
+    expect(room.state.players.get(again.sessionId)!.hp).toBeLessThan(hp0);
+  });
+
+  it("two joins of the same device that both wait for the window end with one player: the later one replaces the earlier", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-twin-token-0123456789";
+    const { room, client } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    await lostAt(room, client.sessionId);
+    // Both start inside the window, so both wait; each must read who is live again after the wait (a stale answer would leave two).
+    const joins = await Promise.allSettled([
+      colyseus.connectTo(room, { name: "First", token }),
+      colyseus.connectTo(room, { name: "Second", token }),
+    ]);
+    await ticks(room, 4);
+    const withToken = [...room.state.players.keys()].filter((id) => (room as any).controls.get(id)?.token === token);
+    expect(withToken, `joins: ${joins.map((j) => j.status).join(", ")}`).toHaveLength(1);
+  });
+
+  it("a faint in the window: the spot taken back is the campfire, with full health", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-b3-token-0123456789";
+    const { room, client, player } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    const watcher = await colyseus.connectTo(room, { name: "Watcher" });
+    const fainted = collect<{ targetId: string }>(watcher, ServerMessage.Fainted);
+    // Far from the campfire, so the foe does not follow them there within the window.
+    const far = (room as any).obstacles.resolve({ x: WORLD_WIDTH / 2 + 500, y: WORLD_HEIGHT / 2 }, 14);
+    player.x = far.x;
+    player.y = far.y;
+    const foe = foeBeside(room, player, sid);
+    (room as any).combat.windUp(room.state.pals.get(foe)!, (room as any).wildAggro.get(foe), "bite", 900);
+    player.hp = 1;
+
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    const t = await lostAt(room, sid);
+    await untilClock(room, t + DROP_SHELTER_DELAY_MS + 100);
+    expect(fainted.some((m) => m.targetId === sid)).toBe(true);
+    const home = (room as any).obstacles.resolve({ x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }, 14);
+    const point = resumesOf(room).get(token)!;
+    expect([point.x, point.y, point.hp]).toEqual([home.x, home.y, PLAYER_MAX_HP]);
+    const again = await colyseus.connectTo(room, { name: "Tester", token });
+    await room.waitForNextTimestep();
+    const back = room.state.players.get(again.sessionId)!;
+    expect([back.x, back.y]).toEqual([home.x, home.y]);
+    expect(back.hp).toBeCloseTo(PLAYER_MAX_HP, 0);
+  });
+
+  it("an honest lost place with nothing under way: same spot, same health, standing still", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-b4-token-0123456789";
+    const { room, client, player } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    player.hp = 37;
+    // The client sends a walk the moment it is back (the room hears it before the line dies again).
+    const control = (room as any).controls.get(sid);
+    const reconnectedOnce = room.onReconnect.bind(room);
+    room.onReconnect = (c) => {
+      reconnectedOnce(c);
+      control.input = { x: 1, y: 0 };
+    };
+
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    const t = await lostAt(room, sid);
+    const spot = { x: player.x, y: player.y };
+    await untilClock(room, t + DROP_SHELTER_DELAY_MS - 100);
+    expect([player.x, player.y]).toEqual([spot.x, spot.y]);
+    const last = { x: player.x, y: player.y, hp: player.hp };
+    await untilClock(room, t + DROP_SHELTER_DELAY_MS + 100);
+    expect(room.state.players.has(sid)).toBe(false);
+    const point = resumesOf(room).get(token)!;
+    expect([point.x, point.y]).toEqual([last.x, last.y]);
+    expect(point.hp).toBeGreaterThanOrEqual(37); // it still regenerates while not sheltered
+    expect(point.hp).toBeLessThan(45);
+
+    const again = await colyseus.connectTo(room, { name: "Tester", token });
+    await room.waitForNextTimestep();
+    const back = room.state.players.get(again.sessionId)!;
+    expect([back.x, back.y]).toEqual([point.x, point.y]);
+    expect(back.hp).toBeCloseTo(point.hp, 0);
+    expect(room.canResume(token)).toBe(false);
+  });
+
+  it("a fresh join of the same device while its held place is in the first 1.5 s waits for the shelter, so a blow under way lands on the old session first", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-b5-token-0123456789";
+    const { room, client, player } = await setup(token);
+    steadyClock(room);
+    const sid = client.sessionId;
+    const watcher = await colyseus.connectTo(room, { name: "Watcher" });
+    const damage = collect<DamageMessage>(watcher, ServerMessage.Damage);
+    const [bossId, boss] = bossOf(room)!;
+    boss.maxHp = boss.hp = 99_999;
+    player.x = boss.x + 60;
+    player.y = boss.y;
+    (room as any).provoke(bossId, { kind: "player", id: sid });
+    (room as any).combat.windUp(boss, (room as any).wildAggro.get(bossId), "stomp", BOSS.stompWindupMs);
+    client.reconnection.enabled = false;
+    cutConnection(room, sid, { realDelay: true });
+    await vi.waitFor(() => expect(holdsOf(room).has(sid)).toBe(true));
+    const dropAt = room.clock.currentTime;
+    const again = await colyseus.connectTo(room, { name: "Tester", token });
+    const joinedAt = room.clock.currentTime;
+    expect(joinedAt).toBeGreaterThanOrEqual(dropAt + DROP_SHELTER_DELAY_MS - 50);
+    expect(damage.some((m) => m.targetId === sid && m.attackerId === bossId)).toBe(true);
+    expect(room.state.players.has(sid)).toBe(false);
+    await room.waitForNextTimestep();
+    const fresh = room.state.players.get(again.sessionId)!;
+    expect(fresh.hp).toBeCloseTo(PLAYER_MAX_HP, 0);
+    expect(fresh.y).toBe(WORLD_HEIGHT / 2);
+  });
+
+  it("/resume says yes while a lost place still stands, and only for that device", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-b6-token-0123456789";
+    const { room, client } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    const t = await lostAt(room, sid);
+    expect(room.canResume(token)).toBe(true);
+    expect(room.canResume("exposed-other-token-0123456789")).toBe(false);
+    await untilClock(room, t + DROP_SHELTER_DELAY_MS + 100);
+    expect(room.state.players.has(sid)).toBe(false);
+    expect(room.canResume(token)).toBe(true);
+    await colyseus.connectTo(room, { name: "Tester", token });
+    expect(room.canResume(token)).toBe(false);
+  });
+
+  it("a world closing while a lost place still stands saves the player", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "exposed-b7-token-0123456789";
+    const { room, client, player } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    player.wood = 77;
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    await lostAt(room, client.sessionId);
+    // A join of the same device waits on the lost place; it must not hang when the world goes. Close only once it waits.
+    const waiting = vi.spyOn(room.exposures, "settled");
+    const joining = colyseus.connectTo(room, { name: "Tester", token }).then(
+      () => "joined",
+      () => "refused",
+    );
+    await vi.waitFor(() => expect(waiting).toHaveBeenCalled());
+    await room.disconnect();
+    expect(db.load(token)?.resources.wood).toBe(77);
+    const outcome = await Promise.race([joining, new Promise((resolve) => setTimeout(() => resolve("hung"), 3000))]);
+    // Refused, not joined: a join that wakes in a closed world must not make a session that points at it.
+    expect(outcome).toBe("refused");
+    expect(room.state.players.size, "no player may be added to a world that has closed").toBe(0);
+  });
+
+  it("a world closing while an ordinary drop still stands (held place, not yet sheltered) does not leave a waiting join hanging", async () => {
+    const db = new SqliteStore(":memory:");
+    useStore(db);
+    const token = "exposed-close-token-0123456789";
+    const { room, client } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    client.reconnection.enabled = false;
+    await dropForReal(room, client.sessionId);
+    expect(room.exposures.isOpen(client.sessionId)).toBe(true);
+    // Close only once the join really waits in onJoin (otherwise this proves nothing).
+    const waiting = vi.spyOn(room.exposures, "settled");
+    const joining = colyseus.connectTo(room, { name: "Tester", token }).then(
+      () => "joined",
+      () => "refused",
+    );
+    await vi.waitFor(() => expect(waiting).toHaveBeenCalled());
+    expect(room.exposures.isOpen(client.sessionId), "the exposure ended before the room closed: inconclusive").toBe(true);
+    await room.disconnect();
+    const outcome = await Promise.race([joining, new Promise((resolve) => setTimeout(() => resolve("hung"), 3000))]);
+    expect(outcome).not.toBe("hung");
+    expect(room.exposures.isOpen(client.sessionId)).toBe(false);
+  });
+
+  it("a removal that throws still ends the session: a join of the same device is not left waiting for ever", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-b9-token-0123456789";
+    const { room, client, player } = await setup(token);
+    steadyClock(room);
+    await capture(room, client, player);
+    const sid = client.sessionId;
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn((room as any).party, "despawnCompanion").mockImplementationOnce(() => {
+      throw new Error("test: despawn failed");
+    });
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    const t = await lostAt(room, sid);
+    const again = await Promise.race([
+      colyseus.connectTo(room, { name: "Tester", token }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("the join hung")), 4000)),
+    ]);
+    // Done as soon as the lost place was let go, not only after the cap on the wait.
+    expect(room.clock.currentTime).toBeLessThan(t + DROP_SHELTER_DELAY_MS + 600);
+    expect(quiet).toHaveBeenCalled();
+    expect(room.state.players.has(sid)).toBe(false);
+    expect(room.exposures.isOpen(sid)).toBe(false);
+    expect(room.state.players.has(again.sessionId)).toBe(true);
+  });
+
+  it("a join waiting on a session that never settles is let in at the cap, not left waiting for ever", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-cap-token-0123456789";
+    const { room, client } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    const t = await lostAt(room, client.sessionId);
+    vi.spyOn(room.exposures, "settled").mockReturnValue(new Promise<void>(() => {})); // never ends
+    const again = await Promise.race([
+      colyseus.connectTo(room, { name: "Tester", token }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("the join hung")), 6000)),
+    ]);
+    // Let in only after the cap (2 x the delay and a tick), and as the one player of the device.
+    expect(room.clock.currentTime).toBeGreaterThanOrEqual(t + 2 * DROP_SHELTER_DELAY_MS);
+    const withToken = [...room.state.players.keys()].filter((id) => (room as any).controls.get(id)?.token === token);
+    expect(withToken).toEqual([again.sessionId]);
+  });
+
+  it("the last player's lost place ends with the empty world held", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "exposed-b8-token-0123456789";
+    const { room, client } = await setup(token);
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    expect(await loseQuickly(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    const t = await lostAt(room, sid);
+    expect(room.state.players.size).toBe(1);
+    await untilClock(room, t + DROP_SHELTER_DELAY_MS + 100);
+    expect(room.state.players.size).toBe(0);
+    expect((room as any).emptyHold).toBeDefined();
   });
 
   it("the test hook that ends the wait lets a dropped player go at once", async () => {
