@@ -60,6 +60,10 @@ export const CONNECTION_TEXT = {
     title: "Không kết nối lại được",
     detail: "Thú, đồ và trại của bạn đã được lưu. Về sảnh để vào chơi lại.",
   },
+  refused: {
+    title: "Đang vào lại thế giới…",
+    detail: "Mạng chập chờn nên game phải vào lại thế giới. Nhân vật của bạn vẫn đứng chỗ cũ.",
+  },
   replaced: {
     title: "Bạn đang chơi ở nơi khác",
     detail: "Thiết bị này vừa vào game từ một tab khác. Mỗi thiết bị chỉ điều khiển một nhân vật.",

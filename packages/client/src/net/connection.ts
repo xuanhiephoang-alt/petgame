@@ -25,6 +25,30 @@ export async function connect(options: JoinOptions): Promise<GameRoom> {
   return client.create(ROOM_NAME, options, GameState);
 }
 
+/** How long (ms) the check "can this device take its lost place back" may take before it counts as no. */
+const RESUME_CHECK_MS = 3000;
+
+/**
+ * Asks the server whether this device has a lost place to take back in world `roomId` (POST /resume, T24). It does
+ * not use the place up. The body goes as text/plain, which the browser sends without a preflight (the dev client is on
+ * another port than the server). Any failure (no network, timeout, a non-200, odd JSON) is a plain no.
+ */
+export async function canResume(roomId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${serverUrl()}/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ room: roomId, token: deviceToken() }),
+      signal: AbortSignal.timeout(RESUME_CHECK_MS),
+    });
+    if (response.status !== 200) return false;
+    const answer = (await response.json()) as { resume?: unknown };
+    return answer.resume === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Why joining a world failed, as the lobby explains it. */
 export type JoinFailure = "closed" | "full" | "unreachable" | "busy" | "tooMany" | "failed";
 

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode } from "@colyseus/sdk";
 import { CLOSE_REPLACED, RECONNECT_TRY_MS } from "@petgame/shared";
-import { ConnectionWatch, PING_EVERY_MS, STALL_MS, lostReason, type NetStatus, type WatchedRoom } from "./reconnect.ts";
+import {
+  AUTO_REJOIN_GAP_MS, ConnectionWatch, HUNG_TRY_MS, PING_EVERY_MS, STALL_MS, isTryHung, lostReason, mayRejoinAgain, type NetStatus, type WatchedRoom,
+} from "./reconnect.ts";
 
 /** The code the SDK takes as "may try to reconnect": closing with it reports the drop at once, as the real transport does. */
 const MAY_TRY_RECONNECT = CloseCode.MAY_TRY_RECONNECT;
@@ -15,6 +17,8 @@ function fakeRoom() {
     state: [] as (() => void)[],
   };
   const unanswered: (() => void)[] = [];
+  // What the SDK keeps: the count of reconnection tries and the socket of the current one (readyState: 0 connecting, 1 open, 2 closing, 3 closed).
+  const sdk = { retryCount: 0, readyState: 3 };
   const calls = { pings: 0, leave: [] as (boolean | undefined)[], close: [] as (number | undefined)[] };
   const room: WatchedRoom = {
     onDrop: (callback) => handlers.drop.push(callback),
@@ -27,16 +31,24 @@ function fakeRoom() {
     },
     leave: (consented) => calls.leave.push(consented),
     connection: {
+      get transport() {
+        return { ws: { readyState: sdk.readyState } };
+      },
       close: (code) => {
         calls.close.push(code);
         if (code === MAY_TRY_RECONNECT) handlers.drop.forEach((h) => h(code));
       },
     },
-    reconnection: { enabled: true, maxRetries: 15, maxDelay: 5000, minUptime: 5000, maxEnqueuedMessages: 10 },
+    reconnection: {
+      get retryCount() {
+        return sdk.retryCount;
+      },
+      enabled: true, maxRetries: 15, maxDelay: 5000, minUptime: 5000, maxEnqueuedMessages: 10 },
   };
   return {
     room,
     calls,
+    sdk,
     /** The server answers every ping sent so far. */
     answer: () => unanswered.splice(0).forEach((reply) => reply()),
     /** What the SDK does to the room's signals. */
@@ -60,7 +72,7 @@ describe("ConnectionWatch", () => {
   it("applies the reconnect policy to the SDK", () => {
     const { room } = fakeRoom();
     new ConnectionWatch(room);
-    expect(room.reconnection).toEqual({ enabled: true, minUptime: 0, maxDelay: 2000, maxRetries: 30, maxEnqueuedMessages: 0 });
+    expect(room.reconnection).toMatchObject({ enabled: true, minUptime: 0, maxDelay: 2000, maxRetries: 30, maxEnqueuedMessages: 0 });
   });
 
   it("goes reconnecting on a drop, once, and back online on reconnect", () => {
@@ -116,7 +128,8 @@ describe("ConnectionWatch", () => {
   });
 
   it("names why the world was lost from the close code", () => {
-    expect([CLOSE_REPLACED, 4001, 4000, 4003, 1006].map(lostReason)).toEqual(["replaced", "shutdown", "left", "failed", "failed"]);
+    expect([CLOSE_REPLACED, 4001, 4000, 4003, 1006].map((code) => lostReason(code))).toEqual(["replaced", "shutdown", "left", "failed", "failed"]);
+    expect([CLOSE_REPLACED, 4001, 4000, 4003, 1006].map((code) => lostReason(code, true))).toEqual(["replaced", "shutdown", "left", "refused", "failed"]);
 
     const { room, fire } = fakeRoom();
     const watch = new ConnectionWatch(room);
@@ -231,5 +244,114 @@ describe("ConnectionWatch", () => {
     expect(heard).toEqual(["reconnecting"]);
     expect(quiet).toHaveBeenCalledOnce();
     quiet.mockRestore();
+  });
+
+  describe("a reconnection try that hangs (T24)", () => {
+    it("is closed once, after HUNG_TRY_MS, when its socket is open and the count has not moved", () => {
+      const { room, calls, sdk, fire } = fakeRoom();
+      new ConnectionWatch(room);
+      sdk.retryCount = 1;
+      sdk.readyState = 0;
+      fire.drop(1006);
+      vi.advanceTimersByTime(HUNG_TRY_MS - PING_EVERY_MS);
+      expect(calls.close).toEqual([]);
+      vi.advanceTimersByTime(PING_EVERY_MS * 2);
+      expect(calls.close).toEqual([CloseCode.MAY_TRY_RECONNECT]);
+      vi.advanceTimersByTime(PING_EVERY_MS * 2); // the clock restarted: not again at once
+      expect(calls.close).toHaveLength(1);
+      // The SDK started try 2; it hangs too, and is closed 8 s later, not before.
+      sdk.retryCount = 2;
+      vi.advanceTimersByTime(6000);
+      expect(calls.close).toHaveLength(1);
+      vi.advanceTimersByTime(4000);
+      expect(calls.close).toHaveLength(2);
+    });
+
+    it("is never closed while the SDK waits between two tries (the old socket is closing or closed)", () => {
+      const { room, calls, sdk, fire } = fakeRoom();
+      new ConnectionWatch(room);
+      sdk.retryCount = 1;
+      for (const state of [2, 3]) {
+        sdk.readyState = state;
+        fire.drop(1006);
+        vi.advanceTimersByTime(25_000);
+        expect(calls.close).toEqual([]);
+      }
+    });
+
+    it("is left alone while tries keep failing and counting", () => {
+      const { room, calls, sdk, fire } = fakeRoom();
+      new ConnectionWatch(room);
+      fire.drop(1006);
+      sdk.readyState = 1;
+      for (let t = 0; t < RECONNECT_TRY_MS - PING_EVERY_MS; t += PING_EVERY_MS) {
+        sdk.retryCount++;
+        vi.advanceTimersByTime(PING_EVERY_MS);
+      }
+      expect(calls.close).toEqual([]);
+    });
+
+    it("does not count the time a page slept", () => {
+      const { room, calls, sdk, fire } = fakeRoom();
+      new ConnectionWatch(room);
+      sdk.readyState = 1;
+      fire.drop(1006);
+      vi.advanceTimersByTime(PING_EVERY_MS);
+      // The page sleeps: timers do not run, then the clock jumps and one check runs.
+      vi.setSystemTime(Date.now() + 20_000);
+      vi.advanceTimersByTime(PING_EVERY_MS);
+      expect(calls.close).toEqual([]);
+      vi.advanceTimersByTime(HUNG_TRY_MS - PING_EVERY_MS * 2);
+      expect(calls.close).toEqual([]);
+    });
+
+    it("reports 4003 while reconnecting as refused, otherwise as before", () => {
+      const refused = fakeRoom();
+      const a = new ConnectionWatch(refused.room);
+      refused.fire.drop(1006);
+      refused.fire.leave(4003);
+      expect(a.status).toEqual({ state: "lost", reason: "refused" });
+      expect(vi.getTimerCount()).toBe(0);
+
+      const late = fakeRoom();
+      const b = new ConnectionWatch(late.room);
+      late.fire.drop(1006);
+      vi.advanceTimersByTime(RECONNECT_TRY_MS);
+      late.fire.leave(4003);
+      expect(b.status).toEqual({ state: "lost", reason: "failed" });
+
+      const online = fakeRoom();
+      const c = new ConnectionWatch(online.room);
+      online.fire.leave(4003);
+      expect(c.status).toEqual({ state: "lost", reason: "failed" });
+
+      const replaced = fakeRoom();
+      const d = new ConnectionWatch(replaced.room);
+      replaced.fire.drop(1006);
+      replaced.fire.leave(CLOSE_REPLACED);
+      expect(d.status).toEqual({ state: "lost", reason: "replaced" });
+    });
+  });
+});
+
+describe("isTryHung", () => {
+  it("needs HUNG_TRY_MS of stillness and a connecting or open socket", () => {
+    expect(HUNG_TRY_MS).toBe(2000 + STALL_MS);
+    expect(isTryHung(HUNG_TRY_MS - 1, 1)).toBe(false);
+    expect(isTryHung(HUNG_TRY_MS, 1)).toBe(true);
+    expect(isTryHung(HUNG_TRY_MS, 0)).toBe(true);
+    expect(isTryHung(HUNG_TRY_MS, 2)).toBe(false);
+    expect(isTryHung(HUNG_TRY_MS, 3)).toBe(false);
+    expect(isTryHung(HUNG_TRY_MS, undefined)).toBe(false);
+  });
+});
+
+describe("mayRejoinAgain", () => {
+  it("allows the first time and then one a minute", () => {
+    expect(mayRejoinAgain(null, 1000)).toBe(true);
+    expect(mayRejoinAgain(Number.NaN, 1000)).toBe(true);
+    expect(mayRejoinAgain(1000, 1000 + AUTO_REJOIN_GAP_MS - 1)).toBe(false);
+    expect(mayRejoinAgain(1000, 1000 + AUTO_REJOIN_GAP_MS)).toBe(true);
+    expect(AUTO_REJOIN_GAP_MS).toBe(60_000);
   });
 });

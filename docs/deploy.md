@@ -45,6 +45,8 @@ Giá trị sai (ngoài khoảng cho phép: ba trần là số nguyên ≥ 1, `PE
 
 - `npm run dev` và `npm run shots` tự nâng `PETGAME_MAX_WORLDS_PER_ADDRESS` và `PETGAME_MAX_WORLDS_PER_NETWORK` lên 1000 cho server chúng chạy (dev giữ giá trị nếu bạn đã đặt, để thử thẻ bị chặn: `PETGAME_MAX_WORLDS_PER_ADDRESS=2 npm run dev`). `npm run play` dùng trần thật; `npm run dev:server` (gọi thẳng workspace) cũng giữ trần thật.
 
+- `POST /resume` (T24) trả `Access-Control-Allow-Origin: *` để client trên CDN riêng (`VITE_SERVER_URL`) gọi được.
+
 **Kiểm sau khi deploy:** tắt Wi-Fi trên điện thoại (dùng 4G), mở `https://<app>/whoami`, rồi so với địa chỉ một trang "what is my IP" báo.
 - Khớp: đúng.
 - Ra địa chỉ nội bộ (`10.*`, `172.16-31.*`, `192.168.*`, `fdaa:*`, `fd*`): có thêm một proxy nữa, tăng `PETGAME_TRUST_PROXY` thêm 1 rồi kiểm lại.

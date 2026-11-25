@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15, T44; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13; nút quay lại thế giới cùng bạn bè khi mở ở `/` từ T79). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15, T44; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13; nút quay lại thế giới cùng bạn bè khi mở ở `/` từ T79; vào lại chỗ vừa mất vì mạng giật và bỏ lần thử kết nối lại bị treo từ T24). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -220,19 +220,25 @@ Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server
 
 - Trong khoảng chờ: game **tự kết nối lại**, đúng nhân vật, đúng chỗ, cùng thú đi theo. Màn hình hiện "Đang kết nối lại…" (không bấm, không đi được trong lúc này) rồi báo "Đã kết nối lại".
 - Game thử tối đa 30 giây (`RECONNECT_TRY_MS`: 20 giây chờ cộng thời gian server có thể cần để phát hiện mất mạng). Quá hạn, hoặc server đã thôi giữ chỗ: "Không kết nối lại được" kèm nút **Về sảnh**. Nút này đưa về sảnh của đúng thế giới cũ (từ T49, cả khi chơi một mình): thế giới còn mở ít nhất 60 giây sau khi server thôi giữ chỗ (mục "Thế giới không còn ai"). Đã đóng thì như mục "Tải lại trang": một mình là vào thế giới mới ngay, có bạn bè thì thẻ "Thế giới này đã đóng". Thú, đồ và trại luôn còn.
+- Mạng giật đúng lúc đang kết nối lại (server đã nhận lại nhưng kết nối đứt trước khi game biết) làm mất chỗ đang giữ. Game tự hỏi server rồi tải lại vào thẳng thế giới đó bằng token của thiết bị: người chơi đứng đúng chỗ cũ với đúng lượng máu cũ, thú và đồ còn nguyên. Màn hình hiện "Đang vào lại thế giới…". Tự vào lại tối đa một lần mỗi phút; lần thứ hai trong một phút thì "Không kết nối lại được" như thường. Chỗ cũ được nhớ 20 giây; thế giới đủ 5 người mà có người vào trước thì sảnh báo đủ người.
+- Một lần thử kết nối lại bị treo (mạng nhận kết nối mà không trả lời, ví dụ Wi-Fi có trang đăng nhập) bị bỏ sau khoảng 8 giây để thử lần mới, nên không phải chờ hết 30 giây.
 - Server khởi động lại: "Server đang khởi động lại", cũng có nút Về sảnh; nút này về sảnh thường (thế giới mới cùng bản đồ), vì mọi thế giới đã đóng.
 - Trang bị ẩn (chuyển app): nhân vật dừng đi ngay. Nếu trình duyệt vẫn giữ kết nối khi ẩn trang (có trên Android), nhân vật vẫn ở trong thế giới như người đứng yên, chưa được bảo vệ.
 - Hồi chiêu của nút 🫐 Ăn (4 giây, từ T32) vẫn đếm trong lúc chờ và không bị xoá khi nối lại: nối lại sớm thì chờ nốt phần còn lại.
   - Vào lại từ sảnh là một phiên mới, nên không còn hồi chiêu.
-  - Điều này không thành mẹo được, vì máu không được lưu: vào lại vốn đã đầy máu, và lại bắt đầu ở giữa bản đồ.
+  - Điều này không thành mẹo được, vì máu không được lưu: vào lại từ sảnh vẫn đầy máu, và lại bắt đầu ở giữa bản đồ; trừ khi vào lại để lấy lại chỗ vừa mất kiểu trên (khi đó giữ đúng máu và chỗ, nên cũng không thành mẹo).
 
 ## Mã kết nối lại
 
 - Do server cấp cho từng lần kết nối, chỉ dùng được cho đúng phiên đó, **một lần** (nối lại xong thì cấp mã mới), và hết hạn cùng khoảng chờ.
 - Chỉ nằm trong bộ nhớ của trang, không lưu xuống máy. Nối lại không đổi được tên, token hay ngoại hình.
+- Mã bị mất giữa chừng (mạng giật) thì dùng token thiết bị như trên.
 
 ## Đã cân nhắc và chấp nhận
 
+- Hết 20 giây chờ thì không tự vào lại: server đã cố ý thả chỗ, và vào lại từ sảnh là phiên mới (T3, T23).
+- Vào lại chỗ vừa mất (T24) bằng một lần tải trang, không dựng lại game ngay trong trang.
+- `POST /resume` chỉ trả một bit, và người gọi phải biết cả id thế giới lẫn token thiết bị.
 - Cắt mạng để thoát một trận đánh: được tối đa 20 giây an toàn, nhưng không làm gì được và không được lợi gì về đồ (ngất vốn không mất đồ). Chấp nhận vì game hợp tác, không có PvP.
 - Phòng đủ 5 người mà một người đang được giữ chỗ: người khác (kể cả chính họ vào lại từ sảnh) phải chờ hết 20 giây. Họ quay lại tự động thì vẫn vào được.
 - Tải lại trang không dùng mã kết nối lại (T23): mã chỉ sống 20 giây và dùng một lần, mà muốn dùng thì phải bỏ luật "tải lại = rời chủ động" (chỗ bị giữ 20 giây mỗi lần đóng tab). Ghi thế giới lên địa chỉ thì sống đến khi thế giới đóng, đổi lại vị trí và máu không được giữ.

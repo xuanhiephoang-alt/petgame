@@ -1,7 +1,7 @@
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineRoom, defineServer } from "colyseus";
+import { defineRoom, defineServer, matchMaker } from "colyseus";
 import { ROOM_NAME } from "@petgame/shared";
 import { GameRoom } from "./rooms/GameRoom.ts";
 import { installRoutes } from "./http.ts";
@@ -22,7 +22,19 @@ const server = defineServer({
     [ROOM_NAME]: defineRoom(GameRoom),
   },
   express: (app) => {
-    precompressedFiles = installRoutes(app, { clientDist, worldSettings });
+    precompressedFiles = installRoutes(app, {
+      clientDist,
+      worldSettings,
+      // Looks in this process only (one server process, local presence); with several processes /resume would only see its own worlds.
+      canResume: (roomId, token) => {
+        try {
+          const room = matchMaker.getLocalRoomById(roomId);
+          return room instanceof GameRoom && room.canResume(token);
+        } catch {
+          return false;
+        }
+      },
+    });
   },
 });
 

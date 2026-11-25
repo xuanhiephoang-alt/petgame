@@ -53,6 +53,7 @@ import type { CombatTarget, WildAggro } from "../ai/wildCombat.ts";
 import { emptyProfile, isValidToken } from "../persistence/store.ts";
 import { worldCensus } from "../worldLimits.ts";
 import { Saves, store } from "../systems/saving.ts";
+import { noteResume, peekResume, takeResume, type ResumePoint } from "../systems/resume.ts";
 export { useStore } from "../systems/saving.ts";
 import { Skills, type Cast } from "../systems/skills.ts";
 import { Combat } from "../systems/combat.ts";
@@ -113,6 +114,13 @@ export class GameRoom extends Room<{ state: GameState }> {
   holds = new Map<string, Deferred<Client>>();
   /** How long (ms) a dropped player is waited for; tests shorten it. */
   reconnectGraceMs = RECONNECT_GRACE_MS;
+  /**
+   * Device token -> where a player stood when their held place was lost (the connection died while they were coming
+   * back, T24). A fresh join of the same device within `resumeMs` takes the spot back. Memory only, never saved.
+   */
+  resumes = new Map<string, ResumePoint>();
+  /** How long (ms) a lost place can be taken back; tests shorten it. */
+  resumeMs = RECONNECT_GRACE_MS;
   /** How long (ms) a world with nobody in it stays open; tests and debug:emptyHold shorten it. */
   emptyHoldMs = EMPTY_WORLD_HOLD_MS;
   /** Counts down the hold of an empty world; undefined while someone is in. */
@@ -256,13 +264,19 @@ export class GameRoom extends Room<{ state: GameState }> {
     const older = token ? liveSessions.get(token) : undefined;
     if (older) older.room.endSession(older.sessionId);
     const profile = (token && store().load(token)) || emptyProfile("");
+    const resume = token ? takeResume(this.resumes, token, this.clock.currentTime) : undefined;
 
     const player = new Player();
     const index = this.state.players.size;
     player.name = sanitizeName(options?.name) || profile.name || `Player ${index + 1}`;
     player.x = WORLD_WIDTH / 2 + (index - 2) * 40;
     player.y = WORLD_HEIGHT / 2;
-    player.color = this.pickColor();
+    const colorTaken = resume && [...this.state.players.values()].some((other) => other.color === resume.color);
+    player.color = resume && !colorTaken ? resume.color : this.pickColor();
+    if (resume) {
+      player.x = resume.x;
+      player.y = resume.y;
+    }
     const slot = Math.max(0, (PLAYER_COLORS as readonly number[]).indexOf(player.color));
     const look = sanitizeLook(options?.look, profile.look ?? DEFAULT_LOOKS[slot]);
     player.hair = look.hair;
@@ -273,7 +287,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.hat = profile.worn.hat;
     player.weapon = profile.worn.weapon;
     player.maxHp = PLAYER_MAX_HP;
-    player.hp = PLAYER_MAX_HP;
+    player.hp = resume ? resume.hp : PLAYER_MAX_HP;
     player.activePalId = "";
     player.offline = false;
     player.hasBase = !!profile.base;
@@ -298,7 +312,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.players.set(client.sessionId, player);
     this.controls.set(client.sessionId, {
       input: { x: 0, y: 0 }, lastAttackAt: 0, lastThrowAt: 0, aggroUntil: 0, token, saveScheduled: false,
-      dashDir: { x: 0, y: 0 }, dashLeftMs: 0, nextDashAt: 0, invulnerableUntil: 0, nextEatAt: 0,
+      dashDir: { x: 0, y: 0 }, dashLeftMs: 0, nextDashAt: 0, invulnerableUntil: 0, nextEatAt: resume ? resume.nextEatAt : 0,
     });
     if (token) liveSessions.set(token, { room: this, sessionId: client.sessionId });
     if (options?.look) this.saves.scheduleSave(client.sessionId); // a look picked before joining
@@ -336,7 +350,20 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player || !control) return; // the session was already ended (replaced by a newer one): onLeave follows
     const hold = this.allowReconnection(client, this.reconnectGraceMs / 1000);
     hold.catch(() => {}); // the wait ending (run out, or let go by us) rejects it and onLeave follows: nothing to handle
-    if (!(hold instanceof Deferred)) return; // never fully joined, or the room is closing: onLeave follows at once
+    if (!(hold instanceof Deferred)) {
+      // The place could not be held (the connection died while the player was still coming back, or the room is
+      // closing): onLeave follows at once; a fresh join by the same device in time takes this spot back.
+      if (control.token) {
+        const now = this.clock.currentTime;
+        noteResume(
+          this.resumes,
+          control.token,
+          { x: player.x, y: player.y, hp: player.hp, color: player.color, nextEatAt: control.nextEatAt, until: now + this.resumeMs },
+          now,
+        );
+      }
+      return;
+    }
     this.holds.set(sessionId, hold);
     player.offline = true;
     // Whatever they were doing stops: no walking on, no dash, no skill order, no fight their pal would carry on.
@@ -352,6 +379,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.combat.calmPalsTargeting("companion", id);
     });
     this.saves.saveNow(sessionId); // in case the server goes down while they are away
+  }
+
+  /** Whether this device has a lost place to take back in this world; the POST /resume route asks it (does not use it up). */
+  canResume(token: string): boolean {
+    return peekResume(this.resumes, token, this.clock.currentTime);
   }
 
   /** The dropped player is back: the same session and the same player, nothing was created again. */

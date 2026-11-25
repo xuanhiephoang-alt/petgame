@@ -18,6 +18,7 @@ describe("installRoutes", () => {
   let url = "";
   let unguard: () => void;
   let installed: number | null = null;
+  const asked: [string, string][] = [];
   const settings: WorldGuardSettings = { limits: { maxWorlds: 4, perAddress: 2, perNetwork: 3 }, trustProxy: 0 };
   const html = "<p>sảnh</p>\n".repeat(300);
 
@@ -30,7 +31,14 @@ describe("installRoutes", () => {
       greet: false,
       gracefullyShutdown: false,
       express: (app) => {
-        installed = installRoutes(app, { clientDist: tmp, worldSettings: settings });
+        installed = installRoutes(app, {
+          clientDist: tmp,
+          worldSettings: settings,
+          canResume: (room, token) => {
+            asked.push([room, token]);
+            return token.startsWith("yes");
+          },
+        });
       },
     });
     await server.listen(0, "127.0.0.1");
@@ -62,6 +70,49 @@ describe("installRoutes", () => {
     const proxied = await fetch(`${url}/whoami`, { headers: { "x-forwarded-for": "203.0.113.7" } });
     expect(await proxied.text()).toBe("203.0.113.7");
     settings.trustProxy = 0;
+  });
+
+  describe("POST /resume", () => {
+    const post = (body: string, type = "text/plain") => fetch(`${url}/resume`, { method: "POST", headers: { "content-type": type }, body });
+    const good = (token: string) => JSON.stringify({ room: "abc_DEF-123", token });
+
+    it("gives the answer of canResume as one bit, uncached and open to other origins", async () => {
+      asked.length = 0;
+      const yes = await post(good("yes-token-0123456789abcdef"));
+      expect(yes.status).toBe(200);
+      expect(await yes.json()).toEqual({ resume: true });
+      expect(yes.headers.get("cache-control")).toBe("no-store");
+      expect(yes.headers.get("access-control-allow-origin")).toBe("*");
+      expect(await (await post(good("no-token-0123456789abcdef"))).json()).toEqual({ resume: false });
+      expect(asked[0]).toEqual(["abc_DEF-123", "yes-token-0123456789abcdef"]);
+    });
+
+    it("refuses a bad body, token or world id with 400, and does not ask", async () => {
+      asked.length = 0;
+      expect((await post("not json")).status).toBe(400);
+      expect((await post("[]")).status).toBe(400);
+      expect((await post(JSON.stringify({ room: "abc", token: "short" }))).status).toBe(400);
+      expect((await post(JSON.stringify({ room: "a/b", token: "yes-token-0123456789abcdef" }))).status).toBe(400);
+      expect((await post(JSON.stringify({ room: "", token: "yes-token-0123456789abcdef" }))).status).toBe(400);
+      expect((await post(JSON.stringify({ room: 5, token: "yes-token-0123456789abcdef" }))).status).toBe(400);
+      expect((await post(good("yes-token-0123456789abcdef"), "application/json")).status).toBe(400);
+      expect(asked).toEqual([]);
+    });
+
+    it("says false when nothing can be resumed", async () => {
+      const app = express();
+      installRoutes(app, { clientDist: join(tmp, "missing"), worldSettings: settings });
+      const s = await new Promise<import("node:http").Server>((resolve) => {
+        const l = app.listen(0, "127.0.0.1", () => resolve(l));
+      });
+      try {
+        const base = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+        const r = await fetch(`${base}/resume`, { method: "POST", headers: { "content-type": "text/plain" }, body: good("yes-token-0123456789abcdef") });
+        expect(await r.json()).toEqual({ resume: false });
+      } finally {
+        await new Promise<void>((resolve) => s.close(() => resolve()));
+      }
+    });
   });
 
   it("answers /healthz", async () => {

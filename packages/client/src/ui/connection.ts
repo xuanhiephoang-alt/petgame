@@ -4,7 +4,8 @@ import { CONNECTION_TEXT } from "./strings.ts";
 /**
  * The screen over the whole game while the connection is down: a dimmed layer that takes every touch (the joystick and
  * buttons under it cannot be reached), with what is happening and a "Về sảnh" button. While the game is trying to
- * reconnect the button is grey and keeps out of the way; once the world is lost it is the main action and has the focus.
+ * reconnect (or take the lost place back, T24) the button is grey and keeps out of the way; once the world is lost it is
+ * the main action and has the focus.
  */
 export class ConnectionOverlay {
   private root: HTMLDivElement;
@@ -51,7 +52,8 @@ export class ConnectionOverlay {
   show(status: NetStatus) {
     this.root.hidden = status.state === "online";
     if (status.state === "online") return;
-    const lost = status.state === "lost";
+    // A "refused" world is on its way back (the page reloads into it): shown like reconnecting, with no focus grab.
+    const lost = status.state === "lost" && status.reason !== "refused";
     const text = status.state === "lost" ? CONNECTION_TEXT[status.reason] : CONNECTION_TEXT.reconnecting;
     this.title.textContent = text.title;
     this.detail.textContent = text.detail;

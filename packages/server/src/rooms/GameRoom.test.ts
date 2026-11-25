@@ -2963,10 +2963,157 @@ describe("reconnecting after a dropped connection", () => {
     expect(db.load(token)!.resources.wood).toBe(77);
   });
 
+  /**
+   * Loses a held place the way a flapping network does: the new connection's first message is JOIN_ROOM, and the
+   * line dies before the client reads it, so the server sees the socket close while the session is still joining.
+   * Resolves with the close code the client is left with (the server's refusal of the old reconnection token).
+   */
+  async function loseWhileComingBack(room: GameRoom, client: TestClient): Promise<number> {
+    const letGo = holdReconnect(client);
+    const left = new Promise<number>((resolve) => client.onLeave.once(resolve));
+    const player = room.state.players.get(client.sessionId)!;
+    cutConnection(room, client.sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    const original = client.connection.events.onmessage;
+    client.connection.events.onmessage = () => {
+      client.connection.events.onmessage = original;
+      (client.connection.transport as any).ws.close(); // the SDK socket is undici: no terminate()
+    };
+    letGo();
+    return left;
+  }
+
+  const resumesOf = (room: GameRoom) => (room as any).resumes as Map<string, unknown>;
+
+  it("a place lost while coming back (the line died before the client heard JOIN_ROOM) is refused with the old code, and the device token takes the same spot back with the same health", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "resume-a1-token-0123456789";
+    const { room, client, player } = await setup(token);
+    await capture(room, client, player);
+    const spawn = { x: player.x, y: player.y };
+    player.x = spawn.x + 300;
+    player.y = spawn.y + 200;
+    player.hp = 37;
+    const control = (room as any).controls.get(client.sessionId);
+    control.nextEatAt = room.clock.currentTime + 60_000;
+    const where = { x: player.x, y: player.y, color: player.color, eatAt: control.nextEatAt };
+    const palSpecies = player.pals[0].speciesId;
+
+    expect(await loseWhileComingBack(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    await vi.waitFor(() => expect(room.state.players.size).toBe(0));
+    expect(room.state.companions.size).toBe(0);
+    expect(room.canResume(token)).toBe(true);
+    expect(room.canResume("some-other-token-0123456789")).toBe(false);
+
+    const again = await colyseus.connectTo(room, { name: "Tester", token });
+    await room.waitForNextTimestep();
+    const back = room.state.players.get(again.sessionId)!;
+    expect([back.x, back.y, back.color]).toEqual([where.x, where.y, where.color]);
+    expect(back.hp).toBeCloseTo(37, 0); // the health it had (it regenerates a little before the drop)
+    expect(back.pals.length).toBe(1);
+    expect(back.pals[0].speciesId).toBe(palSpecies);
+    expect([...room.state.companions.values()].filter((c) => c.ownerId === again.sessionId)).toHaveLength(1);
+    expect((room as any).controls.get(again.sessionId).nextEatAt).toBe(where.eatAt);
+    expect(room.canResume(token)).toBe(false); // one use
+
+    // Another session of the device (a second tab) is a fresh start: where players appear, full health.
+    const tab = await colyseus.connectTo(room, { name: "Tester", token });
+    await room.waitForNextTimestep();
+    const fresh = room.state.players.get(tab.sessionId)!;
+    expect(fresh.hp).toBe(PLAYER_MAX_HP);
+    expect(fresh.y).toBe(WORLD_HEIGHT / 2);
+    expect(resumesOf(room).size).toBe(0);
+  });
+
+  it("a drop whose grace runs out (or is ended by the test hook) leaves nothing to take back: the device starts afresh", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "resume-a2-token-0123456789";
+    const { room, client, player } = await setup(token);
+    room.reconnectGraceMs = 1000;
+    client.reconnection.enabled = false;
+    player.x += 300;
+    player.hp = 50;
+    cutConnection(room, client.sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    await vi.waitFor(() => expect(room.state.players.size).toBe(0), { timeout: 4000 });
+    expect(room.canResume(token)).toBe(false);
+    const again = await colyseus.connectTo(room, { name: "Tester", token });
+    await room.waitForNextTimestep();
+    const fresh = room.state.players.get(again.sessionId)!;
+    expect([fresh.hp, fresh.y]).toEqual([PLAYER_MAX_HP, WORLD_HEIGHT / 2]);
+    // A goodbye leaves nothing either.
+    fresh.hp = 40;
+    await again.leave();
+    await vi.waitFor(() => expect(room.state.players.size).toBe(0));
+    expect(room.canResume(token)).toBe(false);
+  });
+
+  it("a spot to take back lasts resumeMs", async () => {
+    useStore(new SqliteStore(":memory:"));
+    const token = "resume-a3-token-0123456789";
+    const { room, client, player } = await setup(token);
+    room.resumeMs = 300;
+    player.x += 300;
+    player.hp = 37;
+    expect(await loseWhileComingBack(room, client)).toBe(CloseCode.FAILED_TO_RECONNECT);
+    await vi.waitFor(() => expect(room.state.players.size).toBe(0));
+    expect(room.canResume(token)).toBe(true);
+    await ticks(room, 10); // 500 ms of the room's clock
+    expect(room.canResume(token)).toBe(false);
+    const again = await colyseus.connectTo(room, { name: "Tester", token });
+    await room.waitForNextTimestep();
+    const fresh = room.state.players.get(again.sessionId)!;
+    expect([fresh.hp, fresh.y]).toEqual([PLAYER_MAX_HP, WORLD_HEIGHT / 2]);
+  });
+
+  it("a pack leader caught while the thrower drops and comes back before the ball clicks shut: no second ★ for the thrower, one for the others, the XP paid once", async () => {
+    const { room, client, player } = await setup();
+    const { owned } = await giveCompanion(room, client, player, "emberpup", 6);
+    owned.xp = 0;
+    player.palAuto = false; // no hits of its own to count
+    const watcher = await colyseus.connectTo(room, { name: "Watcher" });
+    const [id, pal] = [...room.state.pals.entries()].find(([, p]) => p.alpha && p.speciesId === "cactoad")!;
+    const level = pal.level;
+    for (const other of [...room.state.pals.keys()]) if (other !== id) room.state.pals.delete(other);
+    await ticks(room, 20); // wait out the throw cooldown of the first catch
+    player.x = pal.x + 40;
+    player.y = pal.y;
+    // Registered before the cut: the SDK reconnects on the same Room, so these listeners stay.
+    const told = collect<NoticeMessage>(client, ServerMessage.Notice);
+    const heard = collect<NoticeMessage>(watcher, ServerMessage.Notice);
+    vi.spyOn(Math, "random").mockReturnValue(0); // always below the capture chance
+    const threwAt = room.clock.currentTime; // the click timer was set at or after this
+    client.send(ClientMessage.Throw, { palId: id });
+    const result: CaptureResultMessage = await client.waitForMessage(ServerMessage.CaptureResult, 2000);
+    vi.restoreAllMocks();
+    expect(result.success).toBe(true);
+    expect(result.alpha).toBe(true);
+    const revealAt = threwAt + captureRevealMs(result.shakes) + CAPTURE_NEWS_DELAY_MS;
+
+    const letGo = holdReconnect(client);
+    cutConnection(room, client.sessionId);
+    await vi.waitFor(() => expect(player.offline).toBe(true));
+    const back = reconnected(client);
+    letGo();
+    await back;
+    // The ball must still be shaking, or this proves nothing.
+    expect(room.clock.currentTime, "the thrower was back after the ball clicked shut: inconclusive").toBeLessThan(revealAt);
+    while (room.clock.currentTime < revealAt) await ticks(room, 1);
+    await ticks(room, 4);
+
+    const expected = addXp({ level: 6, xp: 0 }, finishXp(XP_PER_CAPTURE, level) + ALPHA.xp);
+    expect([owned.level, owned.xp]).toEqual([expected.level, expected.xp]);
+    await vi.waitFor(() => expect(heard.map((m) => m.text)).toContain(`★ ${player.name} đã bắt được Cactoad đầu đàn!`));
+    expect(heard.filter((m) => m.text.startsWith("★"))).toHaveLength(1);
+    expect(told.filter((m) => m.text.startsWith("★"))).toEqual([]);
+  });
+
   it("the test hook that ends the wait lets a dropped player go at once", async () => {
     process.env.PETGAME_DEBUG = "1"; // the hooks are registered when the room is created
     try {
-      const { room, client, player } = await setup();
+      useStore(new SqliteStore(":memory:"));
+      const token = "resume-hook-token-0123456789";
+      const { room, client, player } = await setup(token);
       const watcher = await colyseus.connectTo(room, { name: "Watcher" });
       const sessionId = client.sessionId;
       client.reconnection.enabled = false;
@@ -2976,6 +3123,7 @@ describe("reconnecting after a dropped connection", () => {
       // Far short of the 20 s grace.
       await vi.waitFor(() => expect(room.state.players.has(sessionId)).toBe(false), { timeout: 2000 });
       expect(holdsOf(room).size).toBe(0);
+      expect(room.canResume(token)).toBe(false); // the server let go on purpose: nothing to take back
     } finally {
       delete process.env.PETGAME_DEBUG;
     }

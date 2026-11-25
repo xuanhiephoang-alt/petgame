@@ -7,9 +7,9 @@ import { loadPictures } from "./game/art/pictures.ts";
 import { loadDollArt } from "./game/art/doll.ts";
 import { DollPreview, LookPicker } from "./ui/wardrobe.ts";
 import { ConnectionOverlay } from "./ui/connection.ts";
-import { connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
+import { canResume, connect, joinFailure, lobbyUrl, type GameRoom } from "./net/connection.ts";
 import { arrival, arrivalHint, joinCard, recentWorlds, returnOffer, startCard, startFailure, withRecentWorld, withWorldClosed, type JoinCard } from "./ui/joinStatus.ts";
-import { ConnectionWatch, type NetStatus } from "./net/reconnect.ts";
+import { ConnectionWatch, mayRejoinAgain, type NetStatus } from "./net/reconnect.ts";
 import { SeenNotes } from "./net/seen.ts";
 import { LOBBY_TEXT } from "./ui/strings.ts";
 import { registerServiceWorker } from "./pwa/register.ts";
@@ -34,6 +34,13 @@ const LOBBY_READY_EVENT = "petgame:lobby-ready";
 
 /** sessionStorage key of the world this tab joined last: picks the lobby's words and how a closed world is reported (coming back or invited). */
 const ROOM_KEY = "petgame:room";
+/**
+ * sessionStorage key set just before the page reloads to take back a place lost to a bad moment (T24): holds the world
+ * id. The lobby reads and removes it at once, and when it equals ?room= it enters by itself once it is ready.
+ */
+const AUTO_ENTER_KEY = "petgame:autoEnter";
+/** sessionStorage key of when (ms since 1970) the page last reloaded this way: at most one automatic return a minute. */
+const AUTO_REJOIN_AT_KEY = "petgame:autoRejoinAt";
 /** sessionStorage key of whether that world had other players when last seen ("1") or only this tab ("0"). */
 const FRIENDS_KEY = "petgame:friends";
 /**
@@ -74,6 +81,12 @@ const assets: Promise<GameAssets> = Promise.all([loadPalSprites(), loadPictures(
 
 // Opened at ?room=X: coming back (this tab or this device joined X, alone or with friends) or invited (anything else). Runs before the lobby unlocks and must not throw.
 const invited = new URLSearchParams(location.search).get("room");
+// Read once and removed at once: a reload after this one never enters by itself again.
+const autoEnter = safeStorage(() => {
+  const world = sessionStorage.getItem(AUTO_ENTER_KEY);
+  sessionStorage.removeItem(AUTO_ENTER_KEY);
+  return world;
+});
 const recent = recentWorlds(readJson(RECENT_WORLDS_KEY));
 const arrived = arrival(
   invited,
@@ -256,6 +269,8 @@ if (offered) {
   rejoinBtn.hidden = false;
 }
 document.dispatchEvent(new Event(LOBBY_READY_EVENT));
+// Back from a reload that takes a lost place back (T24): in without a press, with the name and look saved.
+if (autoEnter && autoEnter === invited) void enter();
 // After the lobby is ready: the production build registers its service worker (never delays the lobby).
 registerServiceWorker();
 
@@ -302,7 +317,26 @@ async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets
     }
     if (status.state === "lost") seen.stop();
     if (status.state === "lost") setAddress(lobbyUrl(room.roomId, keepWorld));
+    if (status.state === "lost" && status.reason === "refused") {
+      overlay.show({ state: "reconnecting" }); // nothing changes on screen while the server is asked
+      void comeBack();
+      return;
+    }
     overlay.show(status);
+  };
+  // The server refused the reconnection code: if it kept this device's place (the connection died while coming back),
+  // reload into the same world and enter by itself; at most once a minute, and only when the server says yes.
+  const comeBack = async () => {
+    const lastAt = Number(safeStorage(() => sessionStorage.getItem(AUTO_REJOIN_AT_KEY)));
+    const last = Number.isFinite(lastAt) && lastAt > 0 ? lastAt : null;
+    if (mayRejoinAgain(last, Date.now()) && (await canResume(room.roomId))) {
+      safeStorage(() => sessionStorage.setItem(AUTO_ENTER_KEY, room.roomId));
+      safeStorage(() => sessionStorage.setItem(AUTO_REJOIN_AT_KEY, String(Date.now())));
+      overlay.show({ state: "lost", reason: "refused" });
+      location.assign(lobbyUrl(room.roomId, true));
+    } else {
+      overlay.show({ state: "lost", reason: "failed" });
+    }
   };
   watch.onChange(react);
   // It may have dropped while the pictures were still loading.
