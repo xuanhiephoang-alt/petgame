@@ -1,36 +1,60 @@
 PASS
-# REVIEW: T44 Trình duyệt không chạy được module báo sai nguyên nhân (thẻ "Hãy cập nhật trình duyệt"), vòng 2
+# REVIEW: T22 Dọn `GameRoom.test.ts` sau T17 (`steadyClock`, `spawnWith`, `rollFor`, chiêu thú hoang, bỏ cast), vòng 1
 
 ## Kết luận
-Lỗi duy nhất của vòng 1 đã được sửa đúng cách. Ngoài phần sửa đó, vòng 2 chỉ đổi đúng hai file test và `PROGRESS.md`, không thấy lỗi mới. Phần code sản phẩm (`packages/client/index.html`) và tài liệu giữ nguyên như vòng 1 (đã PASS phần đó).
+Thay đổi chỉ chạm file test, một câu trong `docs/architecture.md` và `PROGRESS.md`. Làm đủ các bước và tiêu chí của PLAN.md, không test nào bị nới hay bỏ. `steadyClock` đúng với mã của `@colyseus/clock`/`@colyseus/core` hiện có, chỉ ảnh hưởng đúng phòng của test, và bịt tận gốc nguyên nhân chập chờn của nhóm "eating berries". Tôi đã chạy lại: typecheck server sạch; 9 test liên quan (`eating`, `wild pals cast too`, `syncs the time of day`) đều qua.
 
 ## Lỗi phải sửa
 Không có.
 
-## Đã kiểm ở vòng 2
-- **Lỗi vòng 1, đã sửa:** `tests/e2e/lobby.spec.ts` không còn `waitForTimeout`. Test "a later load error never replaces the update card…" giờ chờ sự kiện `error` của chính thẻ `<script>` được chèn vào.
-  - Listener của bộ canh tải ở pha capture trên `window`, nên chạy trước listener gắn trên thẻ. Khi lời hứa xong, `fail()` chắc chắn đã chạy.
-  - `ErrorEvent` được bắn đồng bộ.
-  - Nếu sự kiện `error` không bao giờ tới, `evaluate` treo tới hết thời gian chờ và test hỏng rõ ràng, không qua suông.
-  - Tester xác nhận đột biến bỏ `|| state === "outdated"` làm test hỏng cả 3 lần chạy.
-- **`packages/client/src/indexHtml.test.ts`:** test CSS giờ khẳng định `from >= 0` và `to > from` trước khi cắt đoạn CSS, nên không còn qua suông khi đổi cách viết `#lobby {`. Tôi chạy lại: 7/7 xanh. Typecheck của client sạch.
-- **`PROGRESS.md`:** câu sai "không `waitForTimeout`" của vòng 1 đã được sửa, kèm ghi chú. Có mục "Vòng 2" và "Kiểm thử vòng 2 (T44): PASS".
-- **Không đổi thứ khác:**
-  - `git diff --stat` của `index.html` và ba file tài liệu giống vòng 1.
-  - Kiểm điểm lại các chỗ then chốt trong `index.html`, đều còn nguyên: điều kiện thoát của `fail()` và `outdated()`, `clearTimeout`, `refocus`, ` `, `top/left/width/height`, regex `invited`, script `nomodule`.
+## Đã kiểm
+- **`steadyClock(room)`, có đúng không:**
+  - `Clock` (`@colyseus/clock`) gán `this.now` trong constructor, cho từng đối tượng.
+  - Chỉ hai chỗ gọi `now()`: `start()` (lúc phòng khởi tạo, trước khi test gọi helper) và `tick()`.
+  - GameRoom dùng `setSimulationInterval` → `setTimestep`, mỗi interval gọi `clock.tick()` đúng một lần. Nhánh `broadcastPatch` chỉ tự `tick()` khi không có simulation interval.
+  - Vì vậy sau helper, mỗi tick `currentTime` tăng đúng `TICK_MS`. `deltaTime` (truyền vào `GameRoom.tick(dtMs)`) cũng đều 50, và các hẹn giờ `clock.setTimeout` đếm theo tick: còn tất định hơn, không hại gì cho hai test này.
+- **`steadyClock`, phạm vi và rò rỉ:**
+  - Hàm chỉ thay trường của `room.clock` của phòng vừa `setup()`, nên không đụng prototype, `Date.now` hay phòng khác.
+  - Phòng bị huỷ ở `afterEach` (`colyseus.cleanup()`), và phòng mới có `Clock` mới. Không cần gỡ.
+- **Câu kiểm đồng hồ** (`(now - clockStart) % TICK_MS === 0`):
+  - Tester thử đột biến `TICK_MS + 7` thì câu kiểm hỏng, nên câu kiểm có tác dụng.
+  - Nếu sau này Colyseus không gọi `this.now` nữa, đồng hồ quay về `Date.now`. Khi đó hiệu thời gian sau 2 tick chỉ chia hết cho 50 với xác suất khoảng 2%, nên câu kiểm gần như luôn báo. Xem góp ý để làm nó chắc chắn 100%.
+- **Có bịt được lỗi chập chờn gốc không:**
+  - Nhận xét của tester đúng. Đoạn khựng ngay sau `client.send` chặn cả vòng sự kiện, nên tick quá hạn (pha timers) chạy trước tin nhắn (pha poll). Đồng hồ nhảy *trước* khi ăn, nên `readyAt` dời theo, và vị trí khựng của kế hoạch không tái hiện được lỗi.
+  - Hai vị trí tester dùng thì có tái hiện. (A') là khựng sau khi tin đã xử lý. (B') là khựng giữa `until(readyAt-500)` và `send`. Không có `steadyClock` thì hỏng đúng chỗ (`3249 > 3500`, `1 to be 2`); có thì qua.
+  - Với `steadyClock`, thời gian của phòng chỉ còn là số tick nhân 50, nên khựng ở đâu cũng không dời mốc. Chạy lặp 20/20, và 10/10 khi có 4 vòng lặp CPU chạy song song.
+- **`spawnWith`:** dùng `const spy = ...` và `spy.mockRestore()` trong `finally`. Có `expect(vi.isMockFunction(Math.random)).toBe(false)` sau lần gọi đầu. Tester thử cả hai đột biến (bỏ `mockRestore`; spy `console.warn` ở ngoài bị gỡ nhầm khi quay về `restoreAllMocks`): đều bắt được.
+- **`rollFor`:** JSDoc nói rõ hàm ném lỗi, và khớp chuỗi lỗi thật (`no roll picks ${speciesId} in the …`). Dòng `toThrow(/no roll picks mothlume/)` đúng với dữ liệu: mothlume chỉ ra ban đêm.
+- **Chiêu thú hoang:**
+  - `CAST_WITHIN_TICKS = 20`, chú thích ghi số đo (2 tick).
+  - `expect(casts.length, "…").toBeGreaterThan(0)` đứng trước `casts[0]`.
+  - Đột biến "không bao giờ tung chiêu" giờ hỏng ở `expect` có lời sau khoảng 1 s, thay vì "Test timed out" như trên HEAD.
+- **Bỏ `as AddressInfo`:**
+  - Sau `if (!address || typeof address !== "object") throw`, kiểu `string | AddressInfo | null` thu hẹp còn `AddressInfo`. Typecheck sạch.
+  - Không còn import thừa ở `GameRoom.test.ts` và `worldLimits.test.ts`.
+  - `http.test.ts` giữ import, vì còn dùng ở `(s.address() as AddressInfo)`, một `net.Server` chưa thu hẹp.
+- **Không nới test:**
+  - Ngưỡng 500 ms, `EAT_COOLDOWN_MS` và mọi assertion của nhóm ăn giữ nguyên. Chỉ thêm `expect`, không bớt.
+  - Hạn `15_000` của worldgen và `20_000` của test ăn không đổi.
+  - Không có `skip`/`only`. Không file sản phẩm nào đổi: `git diff --name-only` chỉ có `*.test.ts`, `docs/architecture.md`, `PROGRESS.md`.
+- **Tài liệu và chú thích:**
+  - Câu về `steadyClock` trong `docs/architecture.md` đúng.
+  - Chú thích `worldgen.test.ts` đúng: test sinh 3 thế giới (7, 7, 8); 1,4 s là số đo của reviewer T53; 6,5 s × 3/4 ≈ 4,9 s.
 - **Ràng buộc:**
   - Không đụng `tests/e2e/multiplayer.spec.ts`, `labelLayout*`, `.claude/`, `package-lock.json`.
-  - Không thêm dependency.
   - `git stash list` còn 2 mục.
 
 ## Góp ý không bắt buộc (có thể đưa vào TASKS.md)
-- **CSS bản build dùng cú pháp mà trình duyệt cũ bỏ qua:**
-  - Bộ nén viết media query thành dạng khoảng, ví dụ `@media (width>=601px)`, và màu bóng thành `#0006` (hex 8 chữ số).
-  - Trên trình duyệt không chạy module, thẻ T44 vẫn hiện nhờ các quy tắc gốc, chỉ mất bóng và bố cục rộng hoặc ngang. E2E không giả lập được phần này, vì Chromium hiểu cả hai.
-  - Nếu muốn thẻ trông giống hệt: đặt `build.cssTarget` cũ hơn (ảnh hưởng toàn bộ CSS), hoặc để CSS của sảnh ra ngoài bộ nén. Mức ưu tiên thấp.
-- **`indexHtml.test.ts`, danh sách cấm:** có thể thêm generator (`function*`, `yield`), `new Event(` (IE11 không có hàm dựng `Event`), cờ regex `u`/`y`/`s` và escape `\u{…}`. Danh sách là danh sách chặn có lý do, không cần đầy đủ.
-- **`packages/client/index.html`:** chú thích khối của bộ canh tải xuống dòng lệch. Có một dòng rất dài ("…the nomodule script below says the browser") rồi một dòng rất ngắn ("cannot run modules at all. src/main.ts dispatches the lobby-ready event when"). Nên ngắt lại cho đều.
-- **Chuyển sang T20** (theo PLAN.md, vì `multiplayer.spec.ts` đang bị T63 giữ):
-  - bỏ hoặc ghi lý do cho `test.slow()` của test "lobby: a script that cannot load or breaks while starting …";
-  - siết hai test "nothing is sent before…" và "on a slow network…" bằng `#load-invite` không còn `hidden`.
-- **Ghi chú cho T16:** `lobby.spec.ts` có thêm bản chép của `LOBBY_SLOW_MS`, `ENTRY`, `PHONE` và `contexts`. Cần gom chung khi làm T16.
+- **Câu kiểm đồng hồ chắc chắn 100%:**
+  - Trong test 1, `clockStart` được đọc đồng bộ ngay sau `steadyClock`, rồi đến đúng `ticks(room, 2)`. Vì vậy có thể khẳng định bằng nhau: `expect(now(room) - clockStart).toBe(2 * TICK_MS)`, thay cho phép chia lấy dư.
+  - Phép chia lấy dư vẫn lọt khoảng 2% khi helper hết tác dụng mà hiệu thời gian thật tình cờ chia hết cho 50.
+  - Có thể thêm một câu kiểm như vậy vào test 2, vì test 2 cũng dựa vào helper.
+- **Vị trí khựng trong ghi chép** (tester đề nghị): PLAN.md bị ghi đè ở nhiệm vụ sau, nên nơi đáng ghi là JSDoc của `steadyClock` hoặc `docs/architecture.md`.
+  - Ghi vị trí khựng làm lộ lỗi: sau khi tin ăn đã được xử lý (`send; ticks 1; khựng; ticks 1`), hoặc giữa `until(...)` và `send`.
+  - Ghi thêm vì sao khựng ngay sau `send` không làm lộ: tick quá hạn chạy trước tin nhắn trong vòng sự kiện.
+  - Để người sau kiểm lại helper không bị đánh lừa như bước 8 của kế hoạch.
+- **Chú thích `spawnWith`:** "only this spy: other mocks of the test stay" đúng với spy trên đối tượng khác. Nếu chính test đã spy `Math.random` từ trước, `vi.spyOn` dùng lại spy đó, và `mockRestore()` gỡ luôn nó. Hiện không test nào như vậy; có thể nói rõ trong chú thích.
+- **Khẳng định "bị từ chối, im lặng"** của test 1 (`berries` vẫn 2, `notices` rỗng, `nextEatAt` không đổi):
+  - Nếu tin ăn tới server chậm hơn 2 tick, ba câu này vẫn qua mà chưa chứng minh gì, vì không có tin trả lời để chờ.
+  - Đột biến "cho qua sớm" của tester cho thấy hiện tin vẫn tới kịp. Đây là điểm yếu có từ trước T22, ưu tiên thấp.
+  - Muốn chắc hơn: trước khi kiểm, chờ dấu hiệu server đã xử lý một tin khác gửi sau nó. Ví dụ một tin vô hại có phản hồi.

@@ -1,7 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ColyseusTestServer } from "@colyseus/testing";
 import { CloseCode, ErrorCode, defineRoom, defineServer } from "colyseus";
-import type { AddressInfo } from "node:net";
 import {
   CLOSE_REPLACED,
   EMPTY_WORLD_HOLD_MS,
@@ -115,7 +114,7 @@ async function bootTestServer(): Promise<ColyseusTestServer> {
   await server.listen(0, "127.0.0.1");
   const address = server.transport.server?.address();
   if (!address || typeof address !== "object") throw new Error("the test server is not listening on a TCP port");
-  server["port"] = (address as AddressInfo).port; // ColyseusTestServer points its SDK at server["port"], which listen() set to 0
+  server["port"] = address.port; // ColyseusTestServer points its SDK at server["port"], which listen() set to 0
   return new ColyseusTestServer(server);
 }
 
@@ -862,6 +861,16 @@ describe("boss movement", () => {
 describe("eating berries", () => {
   const nextEatAt = (room: GameRoom, sessionId: string): number => (room as any).controls.get(sessionId).nextEatAt;
   const now = (room: GameRoom): number => (room as any).clock.currentTime;
+  /**
+   * Makes the room's clock advance exactly TICK_MS per tick, however late the real tick runs: Colyseus' Clock reads
+   * its own `now` (Date.now) once per tick, so a stall on a busy machine would otherwise jump the room's time by
+   * hundreds of ms and move these tests' edges. Ticks still come at the real 50 ms pace.
+   */
+  function steadyClock(room: GameRoom) {
+    const clock = room.clock as any;
+    let time: number = clock.currentTime;
+    clock.now = () => (time += TICK_MS);
+  }
   /** Ticks until the room's clock reaches `time`. */
   async function until(room: GameRoom, time: number) {
     while (now(room) < time) await ticks(room, 1);
@@ -869,6 +878,8 @@ describe("eating berries", () => {
 
   it("eating: a second berry right away is refused quietly and kept, and goes down once the wait is over", async () => {
     const { room, client, player } = await setup();
+    steadyClock(room);
+    const clockStart = now(room);
     room.state.pals.clear();
     player.hp = 20;
     player.berries = 3;
@@ -878,6 +889,8 @@ describe("eating berries", () => {
 
     client.send(ClientMessage.Eat);
     await ticks(room, 2);
+    // Guard: fails at once if the clock no longer steps exactly TICK_MS per tick (steadyClock would be doing nothing).
+    expect((now(room) - clockStart) % TICK_MS).toBe(0);
     expect(player.berries).toBe(2);
     expect(healed.filter((m) => m.targetType === "player")).toEqual([{ targetType: "player", targetId: sid, amount: BERRY_HEAL, berry: true }]);
     const readyAt = nextEatAt(room, sid);
@@ -905,6 +918,7 @@ describe("eating berries", () => {
 
   it("eating: only a berry eaten starts the wait; no berries and full health are said first, even while it runs", async () => {
     const { room, client, player } = await setup();
+    steadyClock(room);
     room.state.pals.clear();
     const healed = collect<HealedMessage>(client, ServerMessage.Healed);
     const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
@@ -990,6 +1004,8 @@ describe("day and night", () => {
   /**
    * A roll for `pickSpecies` that gives `speciesId` in this biome at this hour: the one in the middle of the
    * rolls that do. Lets a test choose which pal a spawn draws without leaving the room's own way of picking.
+   * Throws when none of the 1000 rolls picks `speciesId` there (it does not live in that biome at that hour), so a
+   * changed spawn table fails here with that message rather than later as the wrong pal.
    */
   function rollFor(speciesId: string, where: { biome: Biome; night: boolean }): number {
     const rolls = Array.from({ length: 1000 }, (_, k) => (k + 0.5) / 1000).filter((roll) => pickSpecies(roll, where)?.id === speciesId);
@@ -1005,17 +1021,19 @@ describe("day and night", () => {
     const { layout } = defaultWorld();
     const at = layout.regions.meadow;
     const roll = rollFor("mothlume", { biome: biomeAt(layout, at.x, at.y), night: true });
+    expect(() => rollFor("mothlume", { biome: biomeAt(layout, at.x, at.y), night: false })).toThrow(/no roll picks mothlume/);
     const spawnWith = (draw: number): string => {
-      vi.spyOn(Math, "random").mockReturnValue(draw);
+      const spy = vi.spyOn(Math, "random").mockReturnValue(draw);
       try {
         return (room as any).spawnPal({ ...at });
       } finally {
-        vi.restoreAllMocks();
+        spy.mockRestore(); // only this spy: other mocks of the test stay
       }
     };
 
     // The same draw by day gives a day pal: Mothlume only comes out at night.
     expect(room.state.pals.get(spawnWith(roll))!.speciesId).not.toBe("mothlume");
+    expect(vi.isMockFunction(Math.random)).toBe(false); // the spawn's own spy is gone: later rolls in the room are real
 
     (room as any).dayTime = 0.8; // night
     await ticks(room, 30);
@@ -1169,8 +1187,12 @@ describe("elements and skills", () => {
     const damage = collect<DamageMessage>(client, ServerMessage.Damage);
     // A fighting wild pal tries a skill on only about 6% of its ticks (wildSkill); with every draw below that, it casts at once.
     vi.spyOn(Math, "random").mockReturnValue(0);
-    for (let i = 0; i < 160 && casts.length === 0; i++) await ticks(room, 1);
+    // With every draw at 0 it casts on its first fighting tick (measured: 2 ticks); 20 ticks is 1 s, well
+    // inside the 5 s test limit, so a pal that never casts fails at the expect below, not as a timeout.
+    const CAST_WITHIN_TICKS = 20;
+    for (let i = 0; i < CAST_WITHIN_TICKS && casts.length === 0; i++) await ticks(room, 1);
     vi.restoreAllMocks();
+    expect(casts.length, "a provoked wild pal with every draw at 0 casts within CAST_WITHIN_TICKS ticks").toBeGreaterThan(0);
     const cast = casts[0];
     expect(cast).toMatchObject({ caster: "wild", casterId: id, homing: false, targetId: client.sessionId });
     expect(cast.at).toEqual({ x: player.x, y: player.y });

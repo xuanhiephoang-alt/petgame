@@ -8,7 +8,7 @@ import { climateHazard, protectedFrom } from "./climate.ts";
 import { pickSpecies } from "./pals.ts";
 
 describe("generateWorld", () => {
-  // Pure CPU: ~0.35 s per generated world, ~2 s in `npm test`, 6.5 s on a busy machine (4 worlds), hence the explicit limit.
+  // Pure CPU, 3 worlds: 1.4 s in `npm test`; on a busy machine 6.5 s was measured for 4 worlds (~4.9 s for 3), too close to the 5 s default, hence the explicit limit.
   it("is deterministic for a seed", () => {
     const seven = generateWorld(7);
     expect(generateWorld(7)).toEqual(seven);

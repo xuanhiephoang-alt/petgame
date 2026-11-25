@@ -36,7 +36,7 @@ describe("installRoutes", () => {
     await server.listen(0, "127.0.0.1");
     const address = server.transport.server?.address();
     if (!address || typeof address !== "object") throw new Error("the test server is not listening on a TCP port");
-    server["port"] = (address as AddressInfo).port;
+    server["port"] = address.port;
     url = `http://127.0.0.1:${server["port"]}`;
     colyseus = new ColyseusTestServer(server);
     unguard = guardWorldCreation(server, settings);

@@ -2,7 +2,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { ColyseusTestServer } from "@colyseus/testing";
 import { defineRoom, defineServer, matchMaker } from "colyseus";
 import { Client } from "@colyseus/sdk";
-import type { AddressInfo } from "node:net";
 import type { IncomingMessage } from "node:http";
 import { ROOM_NAME, WORLD_LIMITS, WORLD_LIMIT_ERROR } from "@petgame/shared";
 import { GameRoom } from "./rooms/GameRoom.ts";
@@ -385,7 +384,7 @@ describe("creating worlds over HTTP", () => {
     await server.listen(0, "127.0.0.1");
     const address = server.transport.server?.address();
     if (!address || typeof address !== "object") throw new Error("the test server is not listening on a TCP port");
-    server["port"] = (address as AddressInfo).port;
+    server["port"] = address.port;
     url = `http://127.0.0.1:${server["port"]}`;
     colyseus = new ColyseusTestServer(server);
     // The first room generates the world and nav grid: pay it here.
