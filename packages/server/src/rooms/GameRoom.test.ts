@@ -36,6 +36,8 @@ import {
   SNACK_XP,
   workerCap,
   PLAYER_MAX_HP,
+  WEARABLES,
+  getWearable,
   BERRY_HEAL,
   EAT_COOLDOWN_MS,
   TICK_MS,
@@ -1806,6 +1808,37 @@ describe("boss", () => {
     expect(other.stone).toBe(stoneBefore + BOSS.reward.stone);
     expect(friendNotices.find((n) => n.text.startsWith("Hạ được trùm"))?.text).not.toContain("XP");
     expect(friendLevelUps.filter((m) => m.playerId === friend.sessionId)).toHaveLength(0);
+  });
+
+  it("the boss reward notice says the reward item by item, each icon held to its number by a no-break space", async () => {
+    const bossItems = WEARABLES.filter((w) => w.from === "boss");
+    const sums = "🪵\xa015  🪨\xa025  🫐\xa010  🔵\xa02";
+    const defeat = async (owned: string[]) => {
+      const { room, client, player } = await setup();
+      player.hat = "nonla"; // the volcano is hot
+      for (const id of owned) player.wardrobe.push(id);
+      const [bossId, boss] = bossOf(room)!;
+      for (const id of [...room.state.pals.keys()]) if (id !== bossId) room.state.pals.delete(id);
+      player.x = boss.x - 50;
+      player.y = boss.y;
+      boss.hp = 5;
+      const notices = collect<NoticeMessage>(client, ServerMessage.Notice);
+      client.send(ClientMessage.Attack);
+      await client.waitForMessage(ServerMessage.BossDefeated);
+      await ticks(room, 2);
+      const won = notices.find((n) => n.text.startsWith("Hạ được trùm"))!;
+      expect(won).toBeDefined();
+      expect(won.kind).toBe("reward");
+      expect(won.text).not.toMatch(/(🪵|🪨|🫐|🔵) \d/u); // no plain space between an icon and its number
+      return won.text;
+    };
+
+    // Nothing left to win: only the resources.
+    expect(await defeat(bossItems.map((w) => w.id))).toBe(`Hạ được trùm! 🏆 ${sums}`);
+    await colyseus.cleanup();
+    // One item left: it is named after the resources.
+    const wear = getWearable(bossItems[0].id)!;
+    expect(await defeat(bossItems.slice(1).map((w) => w.id))).toBe(`Hạ được trùm! 🏆 ${sums}  ${wear.icon}\xa0${wear.name}`);
   });
 });
 

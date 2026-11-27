@@ -226,3 +226,121 @@ describe("ToastQueue", () => {
     expect(q.visible[1].until).toBe(400 + 1800);
   });
 });
+
+describe("shrink", () => {
+  /** A queue whose number of places the test changes. */
+  function queueWith(places: { room: number }) {
+    return new ToastQueue(() => places.room);
+  }
+
+  it("sends the weakest shown toast back to wait when the places drop", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("normal", "normal", 0);
+    q.push("high", "high", 10);
+    places.room = 1;
+    expect(q.shrink(100)).toBe(true);
+    expect(texts(q)).toEqual(["high"]);
+    expect(q.waiting).toEqual([{ text: "normal", level: "normal", at: 100 }]);
+  });
+
+  it("sends the older of two high toasts, and keeps the newer", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("old", "high", 0);
+    q.push("new", "high", 10);
+    places.room = 1;
+    q.shrink(100);
+    expect(texts(q)).toEqual(["new"]);
+    expect(q.waiting.map((w) => w.text)).toEqual(["old"]);
+  });
+
+  it("does nothing, and returns false, when the places do not drop", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("a", "normal", 0);
+    q.push("b", "high", 0);
+    const visible = q.visible;
+    const waiting = q.waiting;
+    const first = q.visible[0];
+    expect(q.shrink(50)).toBe(false);
+    expect(q.visible).toBe(visible);
+    expect(q.waiting).toBe(waiting);
+    expect(q.visible[0]).toBe(first);
+    expect(q.waiting).toEqual([]);
+  });
+
+  it("shows a high toast that went back in full, when the other one runs out", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("old", "high", 0);
+    q.push("new", "high", 10);
+    places.room = 1;
+    q.shrink(100);
+    const until = q.visible[0].until;
+    expect(q.update(until)).toBe(true);
+    expect(texts(q)).toEqual(["old"]);
+    expect(q.visible[0].until).toBe(until + toastDuration("old", "high"));
+  });
+
+  it("drops a low toast that went back once it has waited too long", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("keep", "high", 0);
+    q.push("low", "low", 10);
+    places.room = 1;
+    q.shrink(100);
+    expect(q.waiting.map((w) => w.text)).toEqual(["low"]);
+    q.update(100 + TOAST.maxWaitMs.low + 1);
+    expect(q.waiting).toEqual([]);
+  });
+
+  it("drops the weakest waiting toast when the waiting line is full", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("a", "high", 0);
+    q.push("b", "high", 1);
+    for (let i = 0; i < TOAST.maxWaiting; i++) q.push(`w${i}`, "high", 2 + i);
+    expect(q.waiting).toHaveLength(TOAST.maxWaiting);
+    places.room = 1;
+    q.shrink(50);
+    expect(q.waiting).toHaveLength(TOAST.maxWaiting);
+    // The one that came back is the newest in the line; the oldest high one waiting went, as push would drop it.
+    expect(q.waiting.map((w) => w.text)).not.toContain("w0");
+    expect(q.waiting.map((w) => w.text)).toContain("a");
+  });
+
+  it("sends both back when there is no place at all", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("a", "high", 0);
+    q.push("b", "normal", 0);
+    places.room = 0;
+    expect(q.shrink(10)).toBe(true);
+    expect(q.visible).toEqual([]);
+    expect(q.waiting.map((w) => w.text).sort()).toEqual(["a", "b"]);
+  });
+
+  it("is the only thing that takes a shown toast off: update never does", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("a", "normal", 0);
+    q.push("b", "normal", 0);
+    places.room = 1;
+    q.update(10);
+    expect(q.visible).toHaveLength(2);
+  });
+
+  it("lets update fill the places again when they grow back", () => {
+    const places = { room: 2 };
+    const q = queueWith(places);
+    q.push("a", "high", 0);
+    q.push("b", "high", 10);
+    places.room = 1;
+    q.shrink(100);
+    places.room = 2;
+    expect(q.update(110)).toBe(true);
+    expect(q.visible).toHaveLength(2);
+    expect(q.waiting).toEqual([]);
+  });
+});

@@ -81,7 +81,8 @@ export function toastRoom(width: number, height: number, fit?: () => ToastFit | 
 
 /**
  * Pure toast queue (no DOM, time passed in). High toasts are never replaced or cut short; low ones replace each other,
- * so the latest feedback to a button press wins.
+ * so the latest feedback to a button press wins. `update` only ever adds; `shrink` (the screen was resized) is the only
+ * thing that takes a shown toast off, back to the waiting line.
  */
 export class ToastQueue {
   /** Toasts being shown, oldest first. */
@@ -124,7 +125,13 @@ export class ToastQueue {
       this.show(text, level, now);
       return true;
     }
-    this.waiting.push({ text, level, at: now });
+    this.enqueue(text, level, now);
+    return changed;
+  }
+
+  /** Puts a toast in the waiting line; beyond `maxWaiting` the weakest waiting toast (possibly this one) is dropped. */
+  private enqueue(text: string, level: ToastLevel, at: number) {
+    this.waiting.push({ text, level, at });
     if (this.waiting.length > TOAST.maxWaiting) {
       let drop = 0;
       for (let i = 1; i < this.waiting.length; i++) {
@@ -133,6 +140,27 @@ export class ToastQueue {
         if (RANK[a.level] < RANK[b.level] || (a.level === b.level && a.at < b.at)) drop = i;
       }
       this.waiting.splice(drop, 1);
+    }
+  }
+
+  /**
+   * The screen got smaller: while more toasts are shown than fit, the weakest shown one (lowest level, then oldest, as
+   * in `push`) leaves the screen and goes back to the waiting line as of `now`, to be shown in full when there is room
+   * (a normal or low one waits only as long as any waiting toast does). True when `visible` changed. Allocates nothing
+   * when everything fits.
+   */
+  shrink(now: number): boolean {
+    let changed = false;
+    while (this.visible.length > this.maxVisible()) {
+      let weakest = 0;
+      for (let i = 1; i < this.visible.length; i++) {
+        const a = this.visible[i];
+        const b = this.visible[weakest];
+        if (RANK[a.level] < RANK[b.level] || (a.level === b.level && a.shownAt < b.shownAt)) weakest = i;
+      }
+      const [gone] = this.visible.splice(weakest, 1);
+      this.enqueue(gone.text, gone.level, now);
+      changed = true;
     }
     return changed;
   }

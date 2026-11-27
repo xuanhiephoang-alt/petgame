@@ -147,6 +147,8 @@
         font-size: 15px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; animation: toast-in 0.15s ease-out; transition: opacity 0.2s; }
       .toast.high { border-left: 4px solid #ffca28; padding-left: 10px; }
       .toast.out { opacity: 0; }
+      /* A fading toast keeps its place and size but no longer takes room: the new one is at once where it stays (T31). */
+      .toast.out { position: absolute; left: 0; max-width: none; pointer-events: none; }
       @keyframes toast-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
       @media (prefers-reduced-motion: reduce) { .toast { animation: none; transition: none; } }
       /* The joystick's half of the screen (touch only): the HUD's bottom layer (T39), so it gets only the touches nothing

@@ -206,12 +206,14 @@ Bảng đóng (bằng bất kỳ cách nào) thì focus rời bảng, phím th�
 
 ## Thông báo (toast)
 
-**Chỗ hiện.** Ngay dưới ô nhiệm vụ (hoặc dưới thanh máu trùm khi nó thế chỗ ô nhiệm vụ), trong cột trái. Cột cao bao nhiêu thì thông báo tự xuống theo, nên không bao giờ đè lên các ô của cột, các nút bên phải hay bản đồ. Rộng theo cột, desktop tối đa 420 px. Chữ đậm 15 px (điện thoại 13 px) trên nền đen mờ. Thông báo quan trọng có viền vàng bên trái.
+**Chỗ hiện.** Thông báo hết giờ hay bị thay thì mờ đi tại chỗ trong 0,2 giây nhưng không giữ chỗ: cái mới hiện ngay ở ô của nó, cái còn lại lên ngay (T31). Ngay dưới ô nhiệm vụ (hoặc dưới thanh máu trùm khi nó thế chỗ ô nhiệm vụ), trong cột trái. Cột cao bao nhiêu thì thông báo tự xuống theo, nên không bao giờ đè lên các ô của cột, các nút bên phải hay bản đồ. Rộng theo cột, desktop tối đa 420 px. Chữ đậm 15 px (điện thoại 13 px) trên nền đen mờ. Thông báo quan trọng có viền vàng bên trái.
 
 **Bao nhiêu cái cùng lúc.** Tối đa 2, xếp theo thứ tự hiện, cái mới ở dưới. Chỉ 1 cái khi:
 - điện thoại ngang (màn hình cao ≤ 520 px): để góc ngón cái trái trống cho cần điều khiển. Thông báo phải kết thúc trên mốc cao − 140 px (T18), cả trên màn chỉ cao 375 px (T61);
 - màn dọc thấp hơn 790 px (ví dụ Safari trên iPhone khi có thanh địa chỉ): cột trái nằm ngay trên đầu nhân vật, 2 thông báo sẽ đè lên tên mình (trước T62 mốc là 760);
 - màn dọc từ 790 px trở lên mà 2 thông báo dài nhất không vừa giữa cột trái và tên mình (mục "Thông báo và tên mình khi cầm dọc").
+
+Màn hình đổi cỡ (xoay máy, thanh địa chỉ hiện hay ẩn, đổi cỡ cửa sổ) thì số chỗ được tính lại ngay. Số chỗ giảm thì cái yếu nhất đang hiện (mức thấp nhất, cùng mức thì cũ nhất) tạm rời màn hình, về hàng chờ, rồi hiện lại đủ thời gian khi có chỗ (mức thường, thấp chờ như thường, quá thì bỏ). Bố cục đổi mà màn hình không đổi cỡ (ô nhiệm vụ dài ra, thanh trùm hiện) thì thông báo đang hiện không bị cắt.
 
 ### Thông báo và tên mình khi cầm dọc
 
@@ -230,7 +232,7 @@ Lý do: số chỗ chỉ tính theo chiều cao màn hình. Nó không tính tai
 - mép trên tên mình: tính lúc đứng yên, theo chiều cao màn hình, độ phóng của camera và chiều cao nhân vật lúc này (tóc, mũ). **Luôn coi như đang bị thương** (có thanh máu dưới tên), vì lúc đánh nhau thanh máu hiện, ẩn liên tục, và lúc đó lại nhiều thông báo nhất. Từ T63, nhãn khác không bao giờ đẩy tên mình lên (`docs/design/pals.md`, mục "Nhãn tên và thanh máu"), nên lúc đứng yên tên mình nằm đúng chỗ đã tính;
 - mỗi thông báo coi như cao 61 px (3 dòng chữ 13 px, cái dài nhất), cách nhau 4 px.
 
-Không vừa thì chỉ 1 cái; cái thứ hai chờ, như khi cầm ngang. Thông báo đang hiện không bị cắt. Số chỗ được tính lại mỗi khi có thông báo mới, và trong lúc có thông báo đang chờ thì tính lại mỗi 250 ms. Màn ngang và desktop không cần đo gì.
+Không vừa thì chỉ 1 cái; cái thứ hai chờ, như khi cầm ngang. Thông báo đang hiện không bị cắt. Số chỗ được tính lại mỗi khi có thông báo mới, và trong lúc có thông báo đang chờ thì tính lại mỗi 250 ms, và khi màn hình đổi cỡ (T31). Màn ngang và desktop không cần đo gì.
 
 **Kết quả** (hai thông báo dài nhất, đã bị thương; số là khoảng cách từ đáy thông báo cuối đến mép trên tên mình, âm là đè):
 
@@ -261,7 +263,7 @@ Không vừa thì chỉ 1 cái; cái thứ hai chờ, như khi cầm ngang. Thô
 
 **Khi đã hết chỗ.**
 - Thông báo mới thay cái yếu nhất đang hiện (mức thấp nhất, cùng mức thì cái cũ nhất) nếu cái đó thấp mức hơn. Cùng mức thì cũng thay, trừ mức cao: với phản hồi, cái mới nhất mới là cái cần đọc.
-- Thông báo mức cao không bao giờ bị thay hay cắt ngắn.
+- Thông báo mức cao không bao giờ bị thay hay cắt ngắn (trừ khi màn hình đổi cỡ làm mất chỗ: xem trên).
 - Không thay được thì chờ: mức cao chờ đến lượt, mức thường chờ tối đa 4 giây, mức thấp 1 giây; quá thì bỏ. Hàng chờ giữ tối đa 4 cái (thừa thì bỏ cái yếu nhất, cũ nhất).
 - Có chỗ trống thì cái đang chờ mạnh nhất (mức cao nhất, rồi cũ nhất) hiện, đủ thời gian của nó.
 

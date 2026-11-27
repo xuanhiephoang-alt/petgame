@@ -130,6 +130,8 @@ export class Hud {
       this.root.append(button("btn-attack", HUD_TEXT.attack, actions.attack), button("btn-capture", HUD_TEXT.capture, actions.capture), button("btn-dash", "💨", actions.dash));
     }
     parent.append(this.root);
+    // One listener for the page's life, like the HUD itself: a resize counts the toast places again (T31).
+    window.addEventListener("resize", () => this.resized());
   }
 
   /**
@@ -276,7 +278,10 @@ export class Hud {
     this.nameTop = top;
   }
 
-  /** Measures how many toasts fit now (reads layout only on upright screens 790 px or taller, see `toastRoom`). */
+  /**
+   * Measures how many toasts fit now (reads layout only on upright screens 790 px or taller, see `toastRoom`). Done when a
+   * toast is shown, every `roomCheckMs` while toasts wait, and when the screen is resized (T31).
+   */
   private measureSlots(now: number) {
     this.slotsCheckedAt = now;
     this.toastSlots = toastRoom(window.innerWidth, window.innerHeight, () => this.toastFit());
@@ -293,6 +298,14 @@ export class Hud {
     return { toastsTop, nameTop };
   }
 
+  /** The screen changed size (a turned phone, the address bar, a window): count the places again; extra toasts go back to wait. */
+  private resized() {
+    const now = performance.now();
+    this.measureSlots(now);
+    const changed = this.toastQueue.shrink(now);
+    if (this.toastQueue.update(now) || changed) this.renderToasts();
+  }
+
   /** Call every frame: expires toasts and shows waiting ones (does nothing when idle). */
   tickToasts(now: number) {
     if (this.toastQueue.waiting.length > 0 && now - this.slotsCheckedAt >= TOAST.roomCheckMs) this.measureSlots(now);
@@ -302,8 +315,15 @@ export class Hud {
   /** Brings the toast elements in line with the queue: fade out the gone ones, add the new ones last (DOM order = show order). */
   private renderToasts() {
     const shown = this.toastQueue.visible;
+    // A fading toast leaves the flow (CSS `.toast.out`) but keeps its place and width: all are read first, then written, so
+    // the layout is computed once.
+    const leaving: { id: number; el: HTMLDivElement; top: number; width: number }[] = [];
     for (const [id, el] of this.toastElements) {
-      if (shown.some((t) => t.id === id)) continue;
+      if (!shown.some((t) => t.id === id)) leaving.push({ id, el, top: el.offsetTop, width: el.getBoundingClientRect().width });
+    }
+    for (const { id, el, top, width } of leaving) {
+      el.style.top = `${top}px`;
+      el.style.width = `${width}px`;
       el.classList.add("out");
       this.toastElements.delete(id);
       window.setTimeout(() => el.remove(), TOAST_FADE_MS);
