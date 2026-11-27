@@ -1,310 +1,181 @@
-# PLAN: T26 Dọn nhỏ sau T3
+# PLAN: T29 Dọn nhỏ sau T5 (phần làm được khi chưa có Q1)
 
-Code đọc ở `15500f7` ("Mark T25b done, extend T92 and T93, start T26"; mã T25b ở `7ef8b01`). Nguồn:
-- dòng T26 trong `TASKS.md`; `REVIEW.md` của T3 (`80a70ea`, góp ý 3 và 5);
-- server: `packages/server/src/systems/combat.ts` (`calmPalsTargeting`, `windUp`, `cancelWindup`, `strike`), `systems/movement.ts` (AI thú hoang: chỗ đặt `pal.windup = ""`), `systems/skills.ts` (`startCast`, `pal.windup = "skill"`), `rooms/GameRoom.ts` (`onDrop`, `shelter`, `onReconnect`, `onLeave`, `letGo`, `removePlayer`, `endSession`);
-- client: `packages/client/src/main.ts` (`enter`, `startGame`, `react`, `comeBack`, `rememberWorld`), `net/connection.ts` (`inviteLink`, `lobbyUrl`), `net/reconnect.ts`, `net/seen.ts`, `game/Game.ts` (`init`, `watchConnection`, `frame`), `game/hudBridge.ts` (`build`), `ui/hud.ts` (`Hud.root`), `ui/connection.ts`, `game/stateSync.ts` (cách client vẽ `pal.windup`);
-- `docs/design/multiplayer.md`, `docs/design/hud.md`, `docs/architecture.md`;
-- `GameRoom.test.ts` (describe `reconnecting after a dropped connection`), `tests/e2e/reconnect.spec.ts`, `rejoin.spec.ts`, và `multiplayer.spec.ts` (chỉ đọc).
+Code đọc ở `f255108` ("Mark T26 done, add T94, start T29"). Nguồn:
+- dòng T29 và T28 trong `TASKS.md`;
+- `REVIEW.md` của commit T59 `aa6e778` (mục "Góp ý không bắt buộc");
+- `packages/client/src/game/scenery.ts` (`hitProp`, `debugProp`, `setFelled`, `update`), `game/propMotion.ts`, `propMotion.test.ts`;
+- `scripts/shotGroups.mjs` (`aimShots`), `scripts/shotsLib.mjs` (`AIM_RETRY`, `aimRetrySpots`);
+- `docs/architecture.md` (dòng về `propMotion.ts`).
 
 Số dòng có thể trôi: tìm theo tên.
 
-**Người làm: coder.**
+**Người làm: coder.** Chỉ đổi code client thuần và unit test. Không có việc hình ảnh.
 
-**Không được sửa** `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts`. Test e2e mới nằm trong `tests/e2e/reconnect.spec.ts`. Không chạy `git stash`.
+**Không được sửa** `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts` (phần T63 đang cất trong `git stash` đổi ba file này). Không chạy `git stash`.
 
-## Kiểm lại từng mục với code hiện tại
+## Kiểm lại từng mục của dòng T29
 
-| # | Mục trong TASKS | Còn đúng? | Làm |
+| # | Mục | Ở đâu | Quyết định |
 |---|---|---|---|
-| 1 | `calmPalsTargeting` không xoá `pal.windup` | **Còn.** Hàm chỉ xoá `wildAggro`. Trạng thái gồng thật (`aggro.windupUntil`) mất theo nên đòn không bao giờ ra, nhưng `pal.windup` ("bite"/"stomp") ở lại. AI chỉ đặt lại nó khi thú không còn mục tiêu (`movement.ts`, nhánh không có target). Thú nhắm ngay người khác, hoặc đang choáng, bị trói, ở trong bóng, thì giữ tư thế gồng (và client vẽ cảnh báo dậm) cho tới lần gồng sau. | Có (Thiết kế 1) |
-| 2 | `onReconnect` phòng thủ | **Còn.** `onReconnect` chỉ `if (player) player.offline = false`. Gần như không xảy ra được (giữa `resolve` của hold và `onReconnect` chỉ có microtask; `endSession` luôn từ chối hold trước), nhưng T25b đã làm `onJoin` thành async. Một lỗi sau này để lọt thì client nằm trong phòng mà không có nhân vật. Rẻ, nên làm. | Có (Thiết kế 2) |
-| 3 | Bảng "Rời chủ động" trong `multiplayer.md`; ghi rõ 6-9 s | **Một nửa.** "6-9 giây" đã có trong bảng (hàng "Server biết bằng"). Còn sai: cột "Rời chủ động" vẫn ghi ví dụ "bấm 'Về sảnh'", trong khi nút đó chỉ hiện khi đã mất kết nối (không gửi được gì). Cũng chưa nói rõ trong 6-9 s đó nhân vật làm gì, và nó ghép với 1,5 s của T25 thế nào. | Sửa phần còn lại (Thiết kế 3) |
-| 4 | Đăng ký `pagehide` ngay sau khi tạo `ConnectionWatch` | **Còn.** `ConnectionWatch` được tạo ngay khi vào phòng (`enter` → `attempt`), nhưng listener `pagehide` nằm trong `startGame`, chạy sau khi *cả* hình đã tải. Đóng trang trong lúc hình còn tải thì không gửi tin rời: server giữ chỗ 20 s, và phòng đủ 5 người bị chặn. | Có (Thiết kế 4) |
-| 5 | Dừng ticker PixiJS khi mất hẳn kết nối | **Còn.** Không chỗ nào dừng ticker. `ConnectionWatch` và `SeenNotes` đã tự dừng khi `lost`. | Có (Thiết kế 5) |
-| 6 | Dùng lại `inviteLink` thay cho `lobbyUrl(roomId, true)` | **Còn.** Hai hàm cho cùng kết quả: đặt `room` trên địa chỉ hiện tại, giữ tham số khác. `lobbyUrl(…, true)` được gọi 3 chỗ trong `main.ts` (`rememberWorld`, nút `rejoinBtn`, `comeBack`), `inviteLink` 1 chỗ (`hudBridge.ts`). | Có, theo cách gộp ngược (Thiết kế 6) |
-| 7 | `inert` cho HUD khi chưa online | **Còn.** Màn che kết nối chặn chạm và chuột, nhưng Tab vẫn đưa focus vào nút HUD và bảng ở phía sau (màn che `aria-modal` không giữ focus). | Có (Thiết kế 7) |
+| 1 | Test ngẫu nhiên nhiều khung, có seed, cho `layoutTags` | `labelLayout.test.ts`, hoặc một file mới import `layoutTags` | **Hoãn (T29b).** File mới thì không đụng file của stash, nhưng T63 đổi luật thứ tự `comesFirst`. Một test khẳng định các bất biến *hôm nay* (không chồng, nhãn ghim không ẩn, không hiện lại trước 250 ms) có thể hỏng, hoặc phải viết lại, khi T63 vào: chồng sai về nghĩa, dù git không báo xung đột. Không chắc thì hoãn, đúng như yêu cầu. |
+| 2 | Sửa chú thích sai trong `labelLayout.ts` | `labelLayout.ts` | **Hoãn (T29b):** file bị chặn. |
+| 3 | Lần thử lại cảnh của nhóm ảnh `aim` cách nhau 260 px; đổi tên `d` | `scripts/shotsLib.mjs`, `shotGroups.mjs` | **Đã xong, bỏ.** `AIM_RETRY` (`shotsLib.mjs`) đã là các bước 260 px, và `aimShots` thử lại theo `aimRetrySpots` (T14 viết lại `shots`). Chính dòng T29 ghi việc đổi tên `d` đã làm trong T28. |
+| 4 | Bộ đếm số lần bị đánh trong `debugProp`, để bước "đứng thẳng lại" của e2e chặt cây chứng minh cây đã rung | `scenery.ts` (bộ đếm), và bước e2e trong test chặt cây của `multiplayer.spec.ts` (khoảng dòng 739-742, theo review T59) | **Hoãn (T29b).** Bộ đếm chỉ có ích khi bước e2e đó đọc nó, mà bước đó nằm trong file bị chặn. Viết lại cả màn chặt cây trong một spec mới (đứng cạnh cây, chờ không thú hoang nào trong 100 px…) chỉ để kiểm bộ đếm là chép trùng nhiều, thêm việc cho T16. Unit test không chứng minh được dây `Gathered` → `hitProp`, vốn là lý do có bộ đếm. |
+| 5 | Tách hàm thuần cho mỗi bước của vòng `Scenery.update`, để unit test bắt được lỗi khung cuối của mọc lại | `scenery.ts`, `propMotion.ts` | **Làm** (Thiết kế 1). |
+| 6 | (Tuỳ chọn) hook `debug:regrow` ở server, để e2e đi qua đường mọc lại thật; cập nhật danh sách hook trong `CLAUDE.md` | `systems/debug.ts`, và test chặt cây của `multiplayer.spec.ts` (thay đường tắt `setFelled(i, false)`) | **Hoãn (T29b).** Hook chỉ có nghĩa khi bước e2e đó dùng nó, và bước đó nằm trong file bị chặn. Thêm hook mà không ai gọi là mở thêm đường debug không có test. |
 
-Không mục nào đã xong hẳn. Mục 3 chỉ còn một nửa.
+**Kết luận về phạm vi:** sau khi bỏ các mục bị chặn, chỉ còn mục 5. Nó nhỏ nhưng đáng làm ngay:
+- nó không đụng file nào của T63;
+- hôm nay ba chuyển trạng thái của vòng (khung cuối của mọc lại, gốc cây bị đánh không đổi cỡ, cây ngừng rung đúng 0) chỉ có e2e chậm kiểm, và lỗi `growing` → `grow > 0` không unit test nào bắt (review T59);
+- làm xong mục 5 thì T29b chỉ còn những việc thật sự phải chờ Q1.
+
+Nếu agent chính muốn gom cả T29 vào T29b để làm một lần, việc đó cũng hợp lý; mục 5 không phụ thuộc gì.
 
 ## Mục tiêu
 
-Không có tính năng mới:
-- thú thôi đánh thì thôi cả tư thế gồng trên màn hình;
-- server không bao giờ giữ một client không có nhân vật;
-- đóng trang sớm vẫn trả chỗ ngay;
-- máy đỡ tốn pin khi đã mất hẳn kết nối;
-- bàn phím không lọt vào giao diện bị che;
-- bớt một hàm trùng; tài liệu đúng.
+Người chơi không thấy gì khác: cây rung và mọc lại y như bây giờ, cùng số liệu `PROP_MOTION`. Đổi lại, logic một khung của vật đang rung hoặc đang mọc lại nằm trong một hàm thuần có unit test. Ai sửa sai thứ tự "đọc `grow` trước khi đếm lùi" sẽ bị unit test bắt ngay, không phải chờ e2e.
 
 ## Phạm vi
 
-**Làm:** 7 mục ở bảng trên, theo Thiết kế 1-7.
+**Làm:** hàm thuần `stepPropMotion` trong `propMotion.ts`; `Scenery.update` gọi nó; unit test; một dòng tài liệu.
 
 **KHÔNG làm:**
-- không đổi schema, message, `Profile`, close code, route;
-- không đổi các mốc thời gian (`DROP_SHELTER_DELAY_MS`, `RECONNECT_*`, `STALL_MS`, `HUNG_TRY_MS`);
-- không đổi luật bảo vệ của T25/T25b;
-- không đổi chữ người chơi thấy.
+- các mục 1, 2, 4, 6 (sang T29b);
+- không đổi số trong `PROP_MOTION`, không đổi hình, không đổi phần lay gió, mờ tán, khói, lửa của `update`;
+- không đổi `debugProp`, `hitProp`, `setFelled`;
+- không đổi server, schema, message.
 
 ## Thiết kế
 
-### 1. `calmPalsTargeting` xoá luôn tư thế gồng cắn và dậm
+### 1. `stepPropMotion`: một khung của vật đang rung hoặc đang mọc lại
 
-`Combat.calmPalsTargeting(kind, id)`: với mỗi aggro nhắm đúng mục tiêu đó, **trước khi** xoá khỏi `wildAggro`:
-- nếu `aggro.windupUntil !== undefined` (đang gồng cắn hoặc dậm) và thú còn trong `state.pals`, thì `this.cancelWindup(palId, pal)`. Hàm này đặt `pal.windup = ""` và xoá trường gồng của aggro.
-- **không** đụng tới thú đang gồng *chiêu* (`pal.windup === "skill"`, đi theo `castingUntil`/`casts`, không theo aggro). Chiêu đã bắt đầu vẫn bay và rơi như hiện nay (`land` → `damage` → `sheltered`). `calmPalsTargeting` hôm nay không huỷ chiêu thú hoang; T26 giữ nguyên điều đó.
+Hiện tại, trong vòng `for (const p of this.props)` của `Scenery.update`, khối `if (p.shake > 0 || p.grow > 0) { … }` làm 5 việc:
+1. đọc `growing = p.grow > 0` **trước** khi đếm lùi;
+2. đếm lùi `shake` và `grow`;
+3. cây đứng (không phải gốc): `skew = shakeLean(shake)`;
+4. `x` = vị trí gốc cộng `shakeJolt(shake)`, chỉ với đá hoặc vật đã đổ;
+5. nếu `growing`: cỡ = cỡ đủ × `growSize(grow)`. Khung cuối (`grow` về 0) cho đúng cỡ đủ.
 
-**Có mở lại cách né của T25 không? Không.** Lý do:
-- Đòn cắn hay dậm đã bị huỷ ngay khi aggro bị xoá: `strike` chỉ chạy khi `aggro.windupUntil` còn. T26 chỉ làm hình ảnh khớp với điều đó.
-- `calmPalsTargeting` vẫn chỉ được gọi ở cùng các chỗ như trước:
-  - `shelter`, sau 1,5 s. Mọi đòn đã bắt đầu lúc rớt đều trúng trong ≤ 1350 ms;
-  - `removePlayer`: `letGo` sau 1,5 s, `endSession` sau khi chờ `exposures` (T25b), rời chủ động, hết giờ chờ;
-  - `faintPlayer`, `faintCompanion`.
-- Không thêm chỗ gọi nào, không gọi sớm hơn. Test T1-T6 (T25) và B1-B8 (T25b) phải qua không đổi.
+Còn rung thì bỏ qua phần lay gió.
 
-Client (`stateSync.ts`) đã tự vẽ lại khi `pal.windup` đổi về `""`, nên không cần sửa client.
-
-### 2. `onReconnect` phòng thủ
+Chuyển phần quyết định sang `propMotion.ts` (thuần, không PixiJS, không tạo object mỗi khung):
 
 ```ts
-onReconnect(client: Client) {
-  this.holds.delete(client.sessionId);
-  this.exposures.close(client.sessionId);
-  const player = this.state.players.get(client.sessionId);
-  // Back to a player who is no longer there (ended while the reconnection was resolving): never keep a client without
-  // a character; it is told it plays elsewhere, the one way a held player is removed (endSession).
-  if (!player) return client.leave(CLOSE_REPLACED);
-  player.offline = false;
+/** The pose one frame gives a prop that shakes or grows back (written into a reused object: no allocation per frame). */
+export interface PropPose {
+  /** Lean (rad) to set, or undefined to leave it (only a standing tree leans). */
+  lean: number | undefined;
+  /** Sideways offset (px) from the prop's own x: a rock, stump or rubble jolts; a standing tree does not. */
+  dx: number;
+  /** Size relative to the full size, or undefined to leave it (only while growing back; exactly 1 on the last frame). */
+  size: number | undefined;
+  /** Still shaking after this frame: the caller skips the wind sway and canopy fade. */
+  busy: boolean;
 }
-```
 
-**Vì sao `CLOSE_REPLACED` (4201):** người đang được giữ chỗ chỉ bị xoá bằng `endSession`, tức cùng thiết bị vừa vào ở nơi khác. Client đã hiểu mã này ("Bạn đang chơi ở nơi khác") và không tự nối lại với nó.
-
-**Đường đi trong Colyseus 0.18** (đã đối chiếu `_onJoin`):
-1. Sau `onReconnect`, Colyseus kiểm `client.readyState !== OPEN` và ném "reconnection denied".
-2. Rồi gọi `_onLeave(client, FAILED_TO_RECONNECT)`. Client lúc đó đang `RECONNECTING`, nên Colyseus gọi `onLeave`, không gọi `onDrop`: không hold mới, không vào nhánh mất chỗ.
-3. `onLeave` → `removePlayer`: không làm gì vì người chơi đã đi; `holds.delete` vô hại.
-
-Không có lỗi nào lọt ra ngoài.
-
-### 3. Tài liệu: bảng "Rời chủ động và rớt mạng"
-
-`docs/design/multiplayer.md`:
-- **Hàng "Ví dụ", cột "Rời chủ động":** "đóng tab, tải lại trang, bấm 'Về sảnh'" → "đóng tab, tải lại trang, chuyển trang". Thêm một dòng dưới bảng: "Nút **Về sảnh** chỉ hiện khi đã mất kết nối, nên bấm nó không gửi gì: server đã coi đó là rớt mạng từ trước."
-- **Hàng "Server biết bằng", cột "Rớt mạng":** giữ "6-9 giây" và nói rõ: "socket đóng bất thường (biết ngay), hoặc đường truyền chết im lặng: biết khi hết ping, sau 6-9 giây (trang cũng tự đóng kết nối sau 6 giây không nghe gì). Trong lúc server chưa biết, nhân vật vẫn ở trong thế giới như người đứng yên, chưa được bảo vệ."
-- **Hàng "Nhân vật", cột "Rớt mạng":** nói 1,5 s tính *từ lúc server biết*: "Được bảo vệ chỉ khi rớt quá 1,5 giây kể từ lúc server biết (`DROP_SHELTER_DELAY_MS`)."
-- **Dòng "Nếu tin rời phòng không kịp đi…":** thêm "(từ T26 trang gửi tin rời ngay từ khi vào được thế giới, cả lúc hình còn đang tải)".
-
-### 4. `pagehide` ngay khi vào được phòng
-
-**Vấn đề thứ tự:** hiện listener gọi `seen.note()` *rồi* `watch.leave()`. `SeenNotes` chỉ ghi khi `watch.online`, nên ghi trước khi rời là bắt buộc (T79/T83). Nếu chỉ chuyển dòng `watch.leave()` lên sớm bằng một listener thứ hai, thứ tự hai listener sẽ đảo (listener đăng ký trước chạy trước), và mốc "lần cuối thấy" không được ghi.
-
-**Cách làm** (`main.ts`): một hàm cấp module thay cho biểu thức trong `attempt`:
-```ts
 /**
- * Watches a room just joined and frees its place if the page closes from now on (pictures may still be loading). What
- * must run first as the page closes (startGame's last-seen note) goes in `beforeLeave`.
+ * Moves a hit or regrowing prop on by `dt` seconds: counts `motion.shake` and `motion.grow` down in place and writes the
+ * pose into `out`. Whether it was growing is read before the countdown, so the frame that ends the growth still sets the
+ * full size. `standingTree`: a tree that is not felled (it leans); `jolts`: a rock, or anything felled (it jolts).
  */
-function watchJoined(room: GameRoom): Joined {
-  const joined: Joined = { room, watch: new ConnectionWatch(room), beforeLeave: () => {} };
-  window.addEventListener("pagehide", () => {
-    joined.beforeLeave();
-    joined.watch.leave();
-  });
-  return joined;
-}
+export function stepPropMotion(motion: { shake: number; grow: number }, dt: number, standingTree: boolean, jolts: boolean, out: PropPose): PropPose
 ```
-- `type Joined = { room: GameRoom; watch: ConnectionWatch; beforeLeave: () => void }`.
-- `attempt` dùng `connect(...).then(watchJoined)`. `startGame(joined, art)` nhận `Joined` và đặt `joined.beforeLeave = () => seen.note()`, rồi **bỏ** listener `pagehide` cũ của nó.
-- `failToStart` không đổi (vẫn `watch.leave()`; gọi hai lần vô hại vì `leave` bỏ qua khi đã `lost`).
-- Listener `visibilitychange` của `seen` giữ nguyên trong `startGame`.
 
-### 5. Dừng vẽ khi mất hẳn kết nối
+**`Scenery.update`:**
+- Một trường riêng `pose: PropPose = { lean: undefined, dx: 0, size: undefined, busy: false }`, tạo một lần.
+- Khối cũ thành:
+  ```ts
+  if (p.shake > 0 || p.grow > 0) {
+    const pose = stepPropMotion(p, dt, prop.kind === "tree" && !p.felled, prop.kind === "rock" || p.felled, this.pose);
+    if (pose.lean !== undefined) sprite.skew.x = pose.lean;
+    sprite.x = prop.x + pose.dx;
+    if (pose.size !== undefined) {
+      const size = prop.scale * (art.fit ?? 1) * pose.size;
+      sprite.scale.set(Math.sign(sprite.scale.x) * size, size);
+    }
+    if (pose.busy) continue;
+  }
+  ```
+- Khối vẫn đứng **trước** `if (!visible) continue`, như hiện nay: vật ở ngoài camera vẫn đếm lùi. Chú thích "Count down even off screen…" giữ nguyên.
+- Kết quả từng khung y hệt mã hiện tại: cùng biểu thức, cùng thứ tự.
 
-**Định nghĩa "mất hẳn":** `watch.status.state === "lost"`, với mọi lý do: `failed`, `replaced`, `shutdown`, `left`, `refused`. Từ đó không còn gì từ server tới trang này nữa: `ConnectionWatch` đã dừng, và SDK đã `teardown` phòng.
-- `refused` (T24) có hai ngả, đều không cần vẽ:
-  - **tự vào lại:** trang sắp tải lại (`location.assign`);
-  - **không:** thẻ "Không kết nối lại được".
-
-  Màn che lúc hỏi `/resume` là DOM với vòng quay CSS, không cần PixiJS.
-- `reconnecting` **không** phải mất hẳn: vẫn vẽ, để thấy người khác đi lại khi quay về.
-
-**Cách làm** (`Game.ts`):
-- Trường riêng `halting = false`.
-- Trong `watchConnection`: `if (status.state === "lost") this.halting = true;`.
-- Cuối `init` (sau `ticker.add`): nếu lúc đó `this.watch.status.state === "lost"` thì `halting = true`. Trường hợp này là rớt hẳn trong lúc hình còn tải: listener đăng ký sau, nên lỡ mất lần đổi trạng thái.
-- Cuối `frame()`, sau `this.frames++`: `if (this.halting) this.stage.app.ticker.stop();`.
-- Vẽ thêm **một** khung rồi mới dừng: render của PixiJS là một listener cùng ticker, chạy nốt trong nhịp này. Nhờ vậy thế giới sau lớp màn che không bao giờ trống, kể cả khi mất hẳn trước khung đầu tiên.
-
-**Những gì không bị ảnh hưởng:**
-- Màn che (`ConnectionOverlay`), nút **Về sảnh**, thẻ và vòng quay: DOM và CSS, không phụ thuộc ticker.
-- Đổi cỡ cửa sổ: `renderer.on("resize")` vẫn chạy; khung đứng yên được giãn theo CSS.
-
-**E2E:**
-- `window.__petgame.game.frames` ngừng tăng sau khi mất hẳn. Đã đọc mọi chỗ chờ `frames` trong `multiplayer.spec.ts`, `reconnect.spec.ts`, `rejoin.spec.ts`, `pwa.spec.ts` và `scripts/shots.mjs`: không chỗ nào chờ `frames` *sau* khi đã `lost`. Các test bấm "Về sảnh" đều chờ `load` của trang mới, rồi đếm `frames` của game mới.
-- Hai test `connection: when the world has let the player go…` (`multiplayer.spec.ts`, không sửa) bấm Về sảnh bằng chạm và bằng Enter khi đã `lost`. Chúng chạy lại không đổi và là bằng chứng nút còn dùng được.
-
-### 6. Một hàm cho "địa chỉ có thế giới"
-
-Gộp theo hướng ngược với dòng TASKS:
-- `lobbyUrl(roomId, keepWorld)` giữ nguyên, là hàm thật;
-- `inviteLink(roomId)` thành `return lobbyUrl(roomId, true);`, kèm JSDoc: the link given to friends is the address of this world, the same one a reload comes back to.
-
-**Lý do:**
-- Ba chỗ trong `main.ts` nói về *địa chỉ của trang*, không phải *link mời*. Đổi chúng thành `inviteLink` làm sai nghĩa khi đọc.
-- `lobbyUrl` đã có JSDoc giải thích `keepWorld`.
-
-Cách này bỏ được phần code trùng mà mỗi chỗ gọi vẫn đọc đúng nghĩa. Không đổi chỗ gọi nào.
-
-### 7. HUD `inert` khi không online
-
-- `Hud.setInert(on: boolean)`: `this.root.inert = on`, kèm JSDoc.
-- `Game.watchConnection` gọi `this.hud.setInert(status.state !== "online")` mỗi lần đổi trạng thái; cuối `init` gọi một lần theo trạng thái hiện tại.
-
-**Phạm vi `inert`:** `hud.root` chứa cột trái, các nút cảm ứng, vùng joystick, thanh chiêu, bảng Thú, Tủ đồ, Chế tạo, bản đồ nhỏ và hộp xác nhận thả thú (đều nhận `this.game.hud.root` làm cha trong `hudBridge.build`). Coder kiểm lại từng `new …(` trong `hudBridge.build`; cái nào gắn vào `container` thì chuyển vào `hud.root` hoặc cũng đặt `inert`.
-
-**Không đụng:** `ConnectionOverlay` gắn vào `container` (anh em của HUD, không nằm trong HUD), nên nút **Về sảnh** vẫn nhận focus, chạm và bàn phím. Lớp `.labels` vốn không tương tác.
-
-**Bàn phím game:** `keyboard.ts` nghe trên `window`, `inert` không chặn. Không sao: `Game.send` đã không gửi gì khi không online (T3).
-
-**Focus:** nếu focus đang ở trong HUD lúc rớt, trình duyệt bỏ focus (về `body`). Khi `lost`, màn che tự đặt focus vào Về sảnh (như T3). Khi quay lại online, `inert` được gỡ ngay trong listener, trước khi test hay người chơi bấm gì.
+**Hiệu năng:**
+- không tạo object mới (một `pose` dùng lại);
+- khối này chỉ chạy cho vài vật đang rung hoặc đang mọc;
+- thêm một lời gọi hàm cho mỗi vật đó, không thêm gì cho khoảng 2 000 vật còn lại;
+- không đổi số sprite.
 
 ## Kế hoạch triển khai
 
-1. **`packages/server/src/systems/combat.ts`:** `calmPalsTargeting` theo Thiết kế 1; sửa JSDoc: "Every wild pal after this target lets go, and a bite or stomp it was winding up is called off (its pose too); a skill already being cast flies on."
-2. **`packages/server/src/rooms/GameRoom.ts`:** `onReconnect` theo Thiết kế 2.
-3. **`GameRoom.test.ts`:** test S1-S3 (mục Test).
-4. **`packages/client/src/main.ts`:**
-   - `type Joined`, `watchJoined`; `attempt` dùng nó;
-   - `startGame(joined, art)` đặt `beforeLeave` và bỏ listener `pagehide` cũ;
-   - `failToStart` nhận `Joined` hoặc giữ `(room, watch)` (coder chọn, ít sửa nhất).
-5. **`packages/client/src/net/connection.ts`:** `inviteLink` gọi `lobbyUrl(roomId, true)`; JSDoc.
-6. **`packages/client/src/net/connection.test.ts`** (mới, Node): `vi.stubGlobal("location", new URL("http://h/?quality=low&room=old"))` (`connection.ts` chỉ dùng `location.href`).
-   - `inviteLink("abc") === lobbyUrl("abc", true)`;
-   - giữ `quality=low`, thay `room`;
-   - `lobbyUrl("abc", false)` bỏ `room`, giữ `quality`;
-   - `vi.unstubAllGlobals()` sau mỗi test.
-7. **`packages/client/src/ui/hud.ts`:** `setInert`. **`packages/client/src/game/Game.ts`:** `halting`, `watchConnection`, cuối `init`, cuối `frame()` theo Thiết kế 5 và 7.
-8. **`tests/e2e/reconnect.spec.ts`:** test và phép kiểm thêm (mục Test). Dùng lại các helper đã chép ở đó (`openWithSwitch`, `enterLobby`, `waitForWorld`, `observer`).
-9. **Tài liệu** (mục Tài liệu).
-10. `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`.
+1. **`packages/client/src/game/propMotion.ts`:** `PropPose`, `stepPropMotion` như Thiết kế 1, kèm JSDoc tiếng Anh. Dùng `countDown`, `shakeLean`, `shakeJolt`, `growSize` có sẵn; không số cứng mới.
+2. **`packages/client/src/game/scenery.ts`:** trường `pose`; thay khối trong `update` như Thiết kế 1; import `stepPropMotion`, `PropPose`. Bỏ import nào không còn dùng (`noUnusedLocals`).
+3. **`packages/client/src/game/propMotion.test.ts`:** thêm `describe("stepPropMotion")` (mục Test).
+4. **`docs/architecture.md`:** dòng `game/propMotion.ts`: thêm `stepPropMotion` (một khung của vật đang rung hoặc mọc lại, ghi vào `PropPose` dùng lại); `Scenery.update` gọi nó trước phép kiểm tầm nhìn.
+5. `npm run typecheck`, `npm test`, `npm run build`; rồi chạy riêng test chặt cây đang có trong `multiplayer.spec.ts` (không sửa; tìm theo tên có "chop"/"gameplay:" và chạy bằng `npx playwright test -g "<tên>"`), để chắc hình vẫn như cũ.
 
 ## Giao thức
 
-Không đổi schema, message, `JoinOptions`, `Profile`, close code, route. `CLOSE_REPLACED` đã có. `pal.windup` được đặt `""` sớm hơn (cùng trường, cùng giá trị). Client tự vẽ lại theo trường đó như trước.
+Không đổi gì: chỉ client, chỉ phần vẽ.
 
 ## Test
 
-### Tích hợp (`GameRoom.test.ts`)
+### Unit (`propMotion.test.ts`, `describe("stepPropMotion")`)
 
-- **S1** `calming the pals after a player clears a bite's or a stomp's wind-up pose, and leaves a skill being cast alone` (describe `combat`, hoặc cạnh các test aggro):
-  - Cắn: `scorchtail` cạnh người chơi A, `provoke`, ép `combat.windUp(pal, aggro, "bite", 900)`; có thêm người chơi B gần đó. Gọi `(room as any).combat.calmPalsTargeting("player", A)`. Mong đợi: `pal.windup === ""` ngay; aggro không còn; sau 25 nhịp A không mất máu; nếu thú nhắm B thì `pal.windup` vẫn `""` cho tới khi `wildAggro.get(id).windupUntil` có giá trị mới.
-  - Dậm: trùm (`bossOf`), ép gồng `"stomp"`, gọi calm. Mong đợi: `boss.windup === ""`, không ai trúng dậm.
-  - Chiêu: một thú hoang bắt đầu chiêu bằng `(room as any).skills.startCast("wild", id, pal, 1, getSkill("ember"), target)` (`pal.windup === "skill"`), gọi calm. Mong đợi: vẫn `"skill"`, cast còn trong `casts`.
-- **S2** `a pal that starts winding up during the 1.5 s after a drop is called off by the shelter, pose and all, while the bite under way at the drop still lands` (describe `reconnecting…`):
-  - `cutConnection(..., { realDelay: true })`, `steadyClock`;
-  - thú 1 ép gồng cắn 900 ms ngay trước khi rớt; thú 2 ép gồng cắn 900 ms ở `dropAt + 1200`.
+Mỗi test tạo `motion` và `out` riêng.
 
-  Mong đợi:
-  - cú của thú 1 trúng (máu giảm trước `dropAt + DROP_SHELTER_DELAY_MS`);
-  - tại `dropAt + DROP_SHELTER_DELAY_MS + 100`: `offline`, `pal2.windup === ""`, không còn aggro của thú 2;
-  - sau 25 nhịp máu không giảm thêm.
+| Test | Đầu vào | Mong đợi |
+|---|---|---|
+| khung cuối của mọc lại cho đúng cỡ đủ | `{ shake: 0, grow: 0.05 }`, `dt` 0.1, cây đứng | `motion.grow === 0`; `out.size === 1` (đúng tuyệt đối); `out.busy === false` |
+| đang mọc | `{ shake: 0, grow: PROP_MOTION.growSec }`, `dt` 0.1 | `out.size` bằng `growSize(PROP_MOTION.growSec - 0.1)`, nằm giữa `growFrom` và 1 |
+| không mọc thì không đổi cỡ (gốc cây, đá vụn bị đánh) | `{ shake: 0.35, grow: 0 }`, `jolts` true | `out.size === undefined` |
+| cây đứng rung | `{ shake: 0.35, grow: 0 }`, `dt` 0.016, cây đứng | `out.lean` bằng `shakeLean(0.334)` (`toBeCloseTo`); `out.dx === 0`; `out.busy === true` |
+| khung cuối của rung | `{ shake: 0.01, grow: 0 }`, `dt` 0.1, cây đứng | `out.lean === 0`; `out.dx === 0`; `out.busy === false`; `motion.shake === 0` |
+| đá rung | `{ shake: 0.35, grow: 0 }`, `dt` 0.016, không phải cây đứng, `jolts` | `out.lean === undefined`; `out.dx` bằng `shakeJolt(0.334)`, khác 0 |
+| gốc cây bị đánh | như đá (cây đã đổ: `standingTree` false, `jolts` true) | không nghiêng (`lean` undefined), giật ngang |
+| `dt` âm hoặc 0 | `{ shake: 0.2, grow: 0.2 }`, `dt` -1 rồi 0 | `motion` không đổi; `out.busy === true`; `out.size` bằng `growSize(0.2)` |
+| không tạo object | gọi 2 lần với cùng `out` | trả đúng `out` (`toBe`) |
+| rung và mọc cùng lúc (cây vừa mọc lại bị chặt ngay) | `{ shake: 0.35, grow: 0.45 }`, `dt` 0.1, cây đứng | `out.lean`, `out.size` đều có giá trị; `busy === true` |
 
-  Đây là bằng chứng T26 không mở lại đường né của T25.
-- **S3** `a reconnection that finds no player is sent away as replaced, and leaves no client behind`:
-  - `holdReconnect`, `cutConnection` (mặc định), chờ `offline`;
-  - bọc `room.onReconnect` bằng `vi.spyOn(room, "onReconnect")` với hàm: `(room as any).removePlayer(c.sessionId)` rồi gọi bản gốc (giả trường hợp nhân vật bị xoá giữa lúc hold đang `resolve`);
-  - mở cổng.
+### E2E
 
-  Mong đợi:
-  - `client.onLeave` nhận `CLOSE_REPLACED`;
-  - `vi.waitFor` thấy `room.clients` không còn sessionId đó, `room.state.players.size === 0`, `holdsOf(room).size === 0`;
-  - spy `console.error` không được gọi với lỗi ngoài "reconnection denied" của Colyseus. Nếu Colyseus tự log dòng này thì chấp nhận và ghi chú thích.
-- Các test T3, T24 (A1-A4), T25 (T1-T6), T25b (B1-B8) qua không đổi nghĩa.
-
-### Unit (client)
-
-- `net/connection.test.ts` (bước 6).
-- `reconnect.test.ts` không đổi.
-
-### E2E (`tests/e2e/reconnect.spec.ts`)
-
-- **Test mới E1** `connection: closing the page while the pictures still load frees the place at once`:
-  - host bằng SDK (`new Client(SERVER).create("world", …)`), observer cùng phòng;
-  - context mới, `page.route("**/assets/**", () => {})` (treo mọi ảnh: lời hứa `assets` không xong, nên `startGame` chưa chạy);
-  - `goto("/?room=<id>&quality=low")`, `enterLobby`, chờ observer thấy 3 người (host, observer, trang);
-  - `await page.close()`.
-
-  Mong đợi: observer thấy người của trang biến mất trong ≤ 3 s (`expect.poll`, hạn 3 000), không phải bị giữ 20 s. **Trên HEAD test này hỏng** (người đó `offline` rồi ở lại); ghi vào `PROGRESS.md`.
-- **Thêm vào test có sẵn** `connection: a try that opens and never answers…` (máy tính hoặc điện thoại):
-  - trong lúc `reconnecting`: `.hud` có thuộc tính `inert`; bấm `Tab` 5 lần, `document.activeElement` không bao giờ nằm trong `.hud`; `frames` vẫn tăng (đang thử lại, vẫn vẽ);
-  - sau khi online lại: `.hud` không còn `inert`; nút Thú (`.party-btn`) bấm được và bảng mở.
-- **Thêm vào test có sẵn** `connection: a place lost while coming back…`, phần 2 (lần mất chỗ thứ hai trong một phút, kết thúc ở "Không kết nối lại được"):
-  - `.hud` có `inert`; `.net-lobby` có focus;
-  - đọc `frames` hai lần cách nhau 1 s (bằng `expect.poll` trên một giá trị ổn định, không `waitForTimeout` để chờ trạng thái; một `waitForTimeout(1000)` có chú thích cho phép đo "không đổi" là chấp nhận được): chênh tối đa 1;
-  - `game.stage.app.ticker.started === false`;
-  - Enter trên `.net-lobby` vẫn đưa về sảnh (`load` mới).
-
-  Mục đích: chắc ticker dừng và `inert` không làm hỏng nút.
-- Chạy lại toàn bộ e2e. Hai test `connection: when the world has let the player go…` trong `multiplayer.spec.ts` (không sửa) phải qua: chúng bấm Về sảnh bằng chạm và Enter khi đã mất hẳn, và đổi cỡ màn hình khi ticker đã dừng.
+Không viết mới. Chạy lại test chặt cây có sẵn (bước 5): nó kiểm cây đứng thẳng lại, gốc cây không đổi cỡ, cây mọc lại đủ cỡ, giờ đi qua `stepPropMotion`.
 
 ### Đột biến cho tester
 
 Tất cả tạm thời: hoàn tác, kiểm bằng `sha256sum` hoặc `git diff --stat`, ghi lệnh và kết quả vào `PROGRESS.md`.
 
-| # | Đột biến | Phải hỏng |
+| # | Đột biến (trong `stepPropMotion`) | Phải hỏng |
 |---|---|---|
-| M1 | `calmPalsTargeting` không gọi `cancelWindup` | S1 (cắn, dậm), S2 |
-| M2 | `calmPalsTargeting` luôn đặt `pal.windup = ""` (cả khi đang gồng chiêu) | S1 (chiêu) |
-| M3 | `calmPalsTargeting` gọi `cancelWindup` cho mọi thú, kể cả thú không nhắm mục tiêu đó | thêm vào S1 một thú thứ ba gồng cắn người B: nó phải vẫn `"bite"` |
-| M4 | `onReconnect` bỏ nhánh `!player` | S3 (client không nhận 4201, vẫn ở trong `room.clients`) |
-| M5 | `onReconnect` gửi mã khác (4003) | S3 |
-| M6 | trả `pagehide` về trong `startGame` | E1 |
-| M7 | trong `watchJoined`, gọi `watch.leave()` trước `beforeLeave()` | test ghi mốc "lần cuối thấy" khi đóng trang trong `rejoin.spec.ts` (tester ghi tên test bắt được; nếu không test nào bắt thì ghi rõ) |
-| M8 | bỏ `ticker.stop()` | phần 2 của test `a place lost…` (`ticker.started`, `frames`) |
-| M9 | dừng ticker cả khi `reconnecting` | test `a try that opens…` (`frames` không tăng lúc thử lại) |
-| M10 | không gọi `setInert(false)` khi online lại | test `a try that opens…` (nút Thú không bấm được) |
-| M11 | không đặt `inert` | test `a try that opens…` (Tab vào HUD) |
-| M12 | `inviteLink` bỏ các tham số khác | `connection.test.ts` |
+| M1 | đọc `growing` **sau** khi đếm lùi (`motion.grow > 0`), đúng lỗi review T59 nêu | unit "khung cuối của mọc lại" (`size` undefined) |
+| M2 | `lean` cho cả vật đã đổ (`standingTree` bị bỏ qua) | unit "gốc cây bị đánh" |
+| M3 | `dx` cho cả cây đứng | unit "cây đứng rung" (`dx` khác 0) |
+| M4 | `busy` tính từ `shake` trước khi đếm lùi | unit "khung cuối của rung" (`busy` true) |
+| M5 | `size` luôn có giá trị (`growSize` cả khi không mọc) | unit "không mọc thì không đổi cỡ" |
+| M6 | (trong `scenery.ts`) chuyển khối gọi `stepPropMotion` xuống sau `if (!visible) continue` | unit không bắt được (đây là quyết định của `Scenery`). Ghi lại kết quả chạy test chặt cây của e2e; nếu e2e cũng không bắt thì ghi rõ: đó là phần T29b làm chặt hơn |
 
 ## Tài liệu
 
-- **`docs/design/multiplayer.md`:**
-  - bảng "Rời chủ động và rớt mạng" và dòng dưới nó, theo Thiết kế 3;
-  - mục **Trong 20 giây chờ**: "Thú đang gồng cắn hay dậm thì thôi luôn tư thế gồng (T26)";
-  - mục **Quay lại**: "Mất hẳn kết nối thì game ngừng vẽ để đỡ tốn pin; màn hình và nút Về sảnh vẫn dùng được";
-  - dòng đầu thêm "T26".
-- **`docs/design/hud.md`:** một dòng trong mục về màn che kết nối (hoặc mục bàn phím): "Khi không online, HUD đặt `inert`: Tab và chạm không vào được nút nào phía sau màn che; nút Về sảnh của màn che nằm ngoài HUD nên vẫn dùng được."
-- **`docs/architecture.md`:**
-  - client: `watchJoined` đăng ký `pagehide` ngay khi vào phòng; `beforeLeave` để `startGame` ghi mốc trước khi rời;
-  - `Game` dừng ticker ở khung kế tiếp khi `lost` (`halting`);
-  - `Hud.setInert`;
-  - `inviteLink` = `lobbyUrl(…, true)`;
-  - server: `calmPalsTargeting` huỷ cả tư thế gồng; `onReconnect` phòng thủ (4201).
+`docs/architecture.md`: như bước 4. Không đổi tài liệu thiết kế (hình và luật không đổi).
 
 ## Tiêu chí hoàn thành
 
-- [ ] Bảng "Kiểm lại" ở đầu file khớp với code (mục 3 chỉ sửa phần còn thiếu).
-- [ ] `calmPalsTargeting` gọi `cancelWindup` cho đúng thú đang gồng cắn hoặc dậm vào mục tiêu đó, không đụng thú đang gồng chiêu.
-- [ ] `onReconnect` gửi `CLOSE_REPLACED` khi không còn nhân vật.
-- [ ] `pagehide` được đăng ký trong `watchJoined` ngay khi vào phòng; `seen.note()` vẫn chạy trước `watch.leave()`.
-- [ ] `Game` dừng ticker sau một khung khi `lost` (mọi lý do), kể cả khi đã `lost` trước lúc dựng xong; vẫn vẽ khi `reconnecting`.
-- [ ] HUD `inert` khi không online, gỡ ngay khi online; màn che và nút Về sảnh không bị `inert`.
-- [ ] `inviteLink` gọi `lobbyUrl(roomId, true)`; `connection.test.ts` qua.
-- [ ] S1-S3, E1 và các phép kiểm thêm trong `reconnect.spec.ts` qua. E1 hỏng trên HEAD `15500f7` (ghi trong `PROGRESS.md`). Mọi test kết nối lại cũ (T3, T24, T25, T25b) và `multiplayer.spec.ts` (không sửa) qua.
-- [ ] Bảng đột biến M1-M12 cho đúng kết quả, ghi trong `PROGRESS.md` (M7 ghi rõ test nào bắt).
-- [ ] Không đổi schema, message, `Profile`, close code, route, chữ người chơi thấy. `git diff --stat` không có `tests/e2e/multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts`.
-- [ ] `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` qua. Tài liệu cập nhật như mục Tài liệu.
+- [ ] `stepPropMotion` và `PropPose` trong `propMotion.ts`, có JSDoc, không số cứng mới, không tạo object.
+- [ ] `Scenery.update` gọi `stepPropMotion` trước phép kiểm tầm nhìn, dùng một `pose` dùng lại; kết quả từng khung như cũ.
+- [ ] 10 unit test ở bảng trên qua; M1-M5 bị bắt; M6 có ghi kết quả.
+- [ ] `npm run typecheck`, `npm test`, `npm run build` qua; test chặt cây của e2e (không sửa) qua.
+- [ ] `git diff --stat` chỉ có `propMotion.ts`, `propMotion.test.ts`, `scenery.ts`, `docs/architecture.md` (cộng `PLAN.md`, `PROGRESS.md`). Không có `tests/e2e/multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts`.
 
 ## Rủi ro, câu hỏi mở
 
-Không có mục CHẶN: không có quyết định lớn, không đổi giao thức hay dữ liệu đã lưu.
+Không có mục CHẶN.
 
-1. **`inert` và Playwright:** Playwright coi phần tử trong vùng `inert` là không bấm được và sẽ chờ. Các test cũ chỉ bấm nút HUD khi đã online (đã đọc). Nếu một test cũ của `multiplayer.spec.ts` hỏng vì lý do này, tester báo lại. Không sửa spec đó; xem lại thời điểm gỡ `inert`.
-2. **Dừng ticker:** nếu sau này có thứ gì cần chạy theo khung khi đã mất hẳn (ví dụ hoạt ảnh trên canvas của màn che), phải chạy bằng CSS hoặc `requestAnimationFrame` riêng.
-3. **`page.route("**/assets/**")` trong E1:** nếu lời hứa `assets` không phụ thuộc mọi file dưới `/assets` (ví dụ chỉ mục ảnh `assetIndex` nuốt lỗi và trả rỗng), `startGame` có thể chạy sớm và E1 qua cả trên HEAD. Khi đó coder chặn đúng file mà `loadPalSprites`/`loadPictures` chờ (treo, không `abort`), và kiểm trên HEAD rằng E1 hỏng.
+- `Scenery` không có unit test, vì phụ thuộc PixiJS. Phần nối (gọi đúng lúc, gán đúng vào sprite) vẫn chỉ e2e kiểm. Mục 4 và 6 trong T29b là nơi làm chặt phần đó.
 
 ## Đề xuất cho `TASKS.md`
 
-Không có việc mới.
+- **T29b (mới), chờ Q1 (T63)**, vì đụng `tests/e2e/multiplayer.spec.ts` hoặc `labelLayout.ts`:
+  1. Test ngẫu nhiên nhiều khung có seed cho `layoutTags` (200 cảnh × 600 khung theo mô phỏng của reviewer T5: không chồng, nhãn ghim không ẩn, không hiện lại sớm hơn 250 ms). Viết **sau** khi T63 đã đổi `comesFirst`, theo bất biến mới.
+  2. Sửa chú thích chưa đúng trong `labelLayout.ts`.
+  3. Bộ đếm số lần bị đánh (`hits`) trong `Scenery.debugProp`; bước "đứng thẳng lại" của test chặt cây trong `multiplayer.spec.ts` kiểm `hits` tăng lên 1 sau nhát đầu.
+  4. (Tuỳ chọn) hook `debug:regrow` ở server, chỉ khi `PETGAME_DEBUG=1`: test chặt cây đi qua đường mọc lại thật (`onRemove("felled")` → `setFelled(false)`) thay cho đường tắt `setFelled(i, false)`; agent chính thêm `regrow` vào danh sách hook trong `CLAUDE.md`, `docs/architecture.md` thêm vào danh sách hook `debug:*`.
+- Bỏ khỏi T29 mục "lần thử lại cách 260 px / đổi tên `d`": đã xong (`AIM_RETRY` trong `scripts/shotsLib.mjs`).
