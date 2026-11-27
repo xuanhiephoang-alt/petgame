@@ -1,199 +1,178 @@
-# PLAN: T31 Hoàn thiện thông báo sau T6
+# PLAN: T35 Dọn nhỏ sau T7
 
-Code đọc ở `2030898` ("Mark T29 done, extend T29b, start T31"). Nguồn:
-- dòng T31 trong `TASKS.md`; `docs/design/hud.md` (mục "Thông báo (toast)" và "Thông báo và tên mình khi cầm dọc");
-- client: `packages/client/src/ui/toastQueue.ts` (`TOAST`, `toastRoom`, `ToastQueue.push`, `update`, `show`), `ui/hud.ts` (`showToast`, `measureSlots`, `toastFit`, `tickToasts`, `renderToasts`, `TOAST_FADE_MS`, `SIDEWAYS_QUERY`), CSS `.hud-toasts`, `.toast`, `.toast.out` trong `packages/client/index.html`;
-- shared và server: `packages/shared/src/rewards.ts` (`rewardText`), `notices.ts` (`bossDefeated`), `wardrobe.ts` (`rollWearable`, `WEARABLES`), `packages/server/src/systems/leaders.ts` (`defeatBoss`);
-- test: `GameRoom.test.ts` (describe `boss`), `wardrobe.test.ts` (`rewardText` có `\xa0`), `toastQueue.test.ts`; trong `tests/e2e/multiplayer.spec.ts` (chỉ đọc) các helper `shownToasts`, `toastLayout`, các test `toasts (...)` và test thanh trùm.
-
-**Phần T63 đang cất.** Đã xem danh sách file bằng lệnh chỉ đọc `git diff --stat 'stash@{0}^1' 'stash@{0}'` (cũng vậy với `stash@{1}`); không pop, không apply. Stash chỉ đổi `labelLayout.ts`, `labelLayout.test.ts`, `tests/e2e/multiplayer.spec.ts` (cùng `PROGRESS.md`, `REVIEW.md`). Nó **không đụng mã thông báo** (`toastQueue.ts`, `hud.ts`, CSS `.toast`). Phần e2e của nó có helper thông báo mới (`pushBossToasts`, `onlyTestToasts`) nhưng chỉ đọc `.toast:not(.out)` và đếm `.toast.out` đang mờ, không đổi cỡ màn hình khi thông báo đang hiện. Kế hoạch này không đổi tên lớp hay số đếm mà các helper đó dựa vào (Thiết kế 1, 2).
+Code đọc ở `585a151` ("Mark T31 done, add T95, start T35"). Nguồn:
+- dòng T35 trong `TASKS.md`; `REVIEW.md` của commit T7 `95f77e3` (mục "Góp ý"); `BALANCE.md` của commit `680d685` (bảng "tình trạng hiện tại" trước T7);
+- `docs/design/pals.md`: các mục "Vùng", "Sức mạnh thú hoang theo cấp";
+- shared: `progression.ts` (`wildMaxLevel`, `rollWildLevel`), `worldgen.ts` (`dangerAt`), `combat.ts` (`wildDamage`, `WILD_DAMAGE_PER_LEVEL`), `skills.ts` (`WILD_SKILL_MAX_LEVEL`, `wildSkillLevel`, `knownSkills`, `skillPower`), `alphas.ts` (`ALPHA.skillLevel` 8, `ALPHA.skillChance` 0,08), `boss.ts` (`BOSS.skillLevel` 4);
+- server: `systems/movement.ts` (dòng gọi `startCast("wild", …)`), `systems/skills.ts` (`wildSkill`, `orderSkill`, `obey`), `systems/wild.ts` (`spawnPal`);
+- test: `GameRoom.test.ts` (test thú đi theo cấp 14 ở `knows more skills and hits harder…`), `combat.test.ts` (luật 1/3, duyệt tới `wildMaxLevel(1)`).
 
 Số dòng có thể trôi: tìm theo tên.
 
-**Người làm: coder.**
+**Người làm: coder.** Không có việc hình ảnh hay cân bằng mới: số cân bằng không đổi.
 
-**Không được sửa** `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts`. E2E mới nằm trong spec mới `tests/e2e/toasts.spec.ts`. Không chạy lệnh nào đổi stash.
+**Không được sửa** `tests/e2e/multiplayer.spec.ts`, `packages/client/src/game/labelLayout.ts`, `labelLayout.test.ts`. Không chạy `git stash`.
 
-## Kiểm lại từng mục với code sau T61, T62
+## Kiểm lại từng mục
 
-| # | Mục | Còn đúng? | Làm |
+| # | Mục | Hiện trạng | Làm |
 |---|---|---|---|
-| 1 | Thông báo mới hiện lệch xuống một ô khoảng 200 ms rồi nhảy lên, khi thay một cái cũ | **Còn.** `renderToasts` thêm `.out` cho phần tử cũ và chỉ xoá nó sau `TOAST_FADE_MS` (200 ms). `.toast.out` chỉ có `opacity: 0`, nên trong lúc mờ nó vẫn chiếm chỗ trong cột. Cái mới được `append` sau nó, nên nằm thấp hơn một ô, rồi nhảy lên khi cái cũ bị xoá. Cùng hiện tượng khi thông báo trên cùng hết giờ: cái dưới đứng yên 200 ms rồi nhảy. | Có (Thiết kế 1) |
-| 2 | Xoay dọc sang ngang khi đang hiện 2 thông báo: cả hai ở lại tới hết giờ | **Còn.** `ToastQueue.update` chỉ thêm khi có chỗ, không bao giờ bớt khi `maxVisible()` giảm. Số chỗ chỉ được đo khi có thông báo mới (`showToast`) hoặc khi có cái đang chờ (`tickToasts`). Xoay máy lúc không có gì chờ thì không ai đo lại. | Có (Thiết kế 2) |
-| 3 | Tính lại `toastRoom` theo `resize` *thay vì* mỗi lần hiện | **Một nửa đã lỗi thời.** Từ T62, số chỗ trên màn dọc ≥ 790 px phụ thuộc bố cục, không chỉ cỡ màn: ô nhiệm vụ 1-3 dòng, thanh máu trùm thế chỗ ô nhiệm vụ, tóc, mũ, độ phóng camera. Những thứ đó đổi mà không có `resize`, nên **bỏ phần "thay vì"**: vẫn đo khi có thông báo mới (rẻ: chỉ đọc bố cục trên màn dọc cao, 2 lần `getBoundingClientRect`). Phần còn đúng: **thêm** lần đo khi `resize`, vì đó là thứ mục 2 cần. | Một phần (Thiết kế 2) |
-| 4 | Test server cho chữ phần thưởng trùm (`rewardText`, khoảng trắng không ngắt giữa biểu tượng và số) | **Còn.** `rewardText` có unit test trong shared (`wardrobe.test.ts`: `"🪵\xa02  👘\xa0Áo dài"`). Nhưng chưa test nào kiểm chữ server thật sự gửi khi hạ trùm. Test `the pal of everyone who helped learns BOSS.xp…` chỉ kiểm `startsWith("Hạ được trùm")` và phần XP. | Có (Thiết kế 3) |
+| 1 | `pals.md`: "ngắn hơn 20-65%" lệch bảng ngay trên | **Còn** (dòng "Trước T7 …" dưới bảng thời gian trụ). Tính lại ra 1,5-39% (xem "Số liệu"). | Sửa |
+| 2 | `pals.md`: cấp tối đa trên đất liền là 13, không phải 14 | **Còn**, ở 3 câu: "cấp tối đa từ 6 … đến 14 (góc bản đồ)"; "cấp 14 cắn gấp khoảng 2 lần cấp 1"; "cú cắn mạnh nhất 20 (Boulderhorn, Coralcrab cấp 14)". Câu "12-13 ở đảo" đã đúng. Bảng XP (`finishXp`, "cấp … 14 cho … 28") là ví dụ của công thức, không nói thú hoang cấp 14 có thật; giữ nguyên. | Sửa 3 câu |
+| 3 | Gom ba nhánh chọn cấp chiêu (thường, đầu đàn, trùm) vào một hàm thuần | **Còn.** Sau T10, nhánh này nằm trong `systems/movement.ts`, ở lời gọi `this.room.skills.startCast("wild", id, pal, pal.boss ? BOSS.skillLevel : pal.alpha ? Math.min(pal.level, ALPHA.skillLevel) : wildSkillLevel(pal.level), skill, target)`. Không nằm trong `GameRoom.ts`, cũng không trong `wildSkill`. Ngay cạnh đó, `Skills.wildSkill` có một nhánh chọn **xác suất** tung chiêu theo cùng loại thú, với số cứng: `pal.alpha ? ALPHA.skillChance : 0.06`. | Làm, gồm cả nhánh xác suất (Thiết kế 2) |
+| 4 | Test lệnh chiêu 1-3 khi thú đi theo trên cấp 8 (không bị giới hạn) | **Còn.** Đường tự động đã có test (thú đi theo cấp 14, `knows more skills and hits harder…`). Hai đường ra lệnh trong `Skills.obey` (chiêu đánh, và chiêu hồi máu hay khiên) truyền `owned.level` nhưng chưa test nào kiểm chúng ở trên cấp 8. | Thêm test (Thiết kế 3) |
 
-Không mục nào cần sửa test e2e có sẵn trong `multiplayer.spec.ts`, nên không có T31b.
+## Số liệu (cách lấy)
+
+Hai script chỉ đọc trong scratchpad (không commit), chạy bằng `npx tsx`, import thẳng `packages/shared/src/index.ts`. Coder hoặc tester chạy lại được theo mô tả dưới.
+
+**Cấp tối đa:**
+- Quét lưới 8 px toàn bản đồ (6400 × 4800), bỏ ô biển (`isSea`), lấy `dangerAt` lớn nhất.
+- Kết quả: **0,9085** tại (256, 240), trên đảo góc tây bắc. `wildMaxLevel(0,9085)` = 6 + round(7,27) = **13**.
+- Cấp 14 cần round(danger × 8) = 8, tức danger ≥ 0,9375; không ô đất nào đạt.
+- `rollWildLevel` cho tối đa đúng `maxLevel`, và `spawnPal` không có đường nào khác đặt cấp thú hoang thường. Vậy cấp cao nhất gặp được là 13.
+
+Theo vùng (`biomeAt`, độ nguy hiểm cao nhất trên đất → cấp tối đa):
+
+| Vùng | Độ nguy hiểm cao nhất | Cấp tối đa |
+|---|---|---|
+| đồng cỏ | 0,222 | 8 |
+| hồ | 0,219 | 8 |
+| sa mạc | 0,525 | 10 |
+| đầm lầy | 0,591 | 11 |
+| núi tuyết | 0,587 | 11 |
+| núi lửa | 0,630 | 11 |
+| đảo hoang | 0,908 | 13 |
+
+**Đòn mạnh nhất** ở cấp tối đa của vùng mỗi loài sống (`wildDamage`; `skillPower` với `wildSkillLevel`):
+- cú cắn mạnh nhất là **20** (Coralcrab cấp 13, đảo hoang); Boulderhorn tối đa cấp 11, cắn **18**;
+- chiêu mạnh nhất vẫn **33** (Động đất của Boulderhorn từ cấp 8; Boulderhorn tới cấp 11);
+- tỉ số cắn: cấp 13 là 1 + 0,08 × 12 = **1,96** lần cấp 1 (cấp 14 là 2,04).
+
+**"Ngắn hơn" trước T7:**
+- So 5 hàng × 3 cột của bảng thời gian trụ trong `pals.md` (số sau T7) với cùng hàng, cùng cột trong bảng "tình trạng hiện tại" của `BALANCE.md` T7 (số trước T7, mô phỏng trên code trước T7; không chạy lại được trên code hiện nay). Tỉ lệ = (sau − trước) / sau.
+- Kết quả: đồng cỏ 8,3 / 8,6 / **1,5**%, núi lửa 26,7 / 30,2 / 32,3%, sa mạc 27,6 / 24,7 / 9,4%, núi tuyết 18,9 / 32,1 / 26,5%, đảo hoang **39,2** / 26,1 / 27,3%.
+- Khoảng: **1,5% đến 39%**. Reviewer T7 ghi "2-39%", tức làm tròn 1,5. Chỗ "20-65%" cũ là mức "sau T7 dài hơn" trong `BALANCE.md`, đo theo chiều khác.
 
 ## Mục tiêu
 
-- Thông báo mới xuất hiện **ngay đúng chỗ của nó**. Cái cũ mờ đi tại chỗ, không đẩy cái mới xuống.
-- Xoay máy hoặc đổi cỡ cửa sổ làm số chỗ giảm (dọc 2 → ngang 1): thông báo thừa rời màn hình ngay và **quay về hàng chờ**, không mất. Ngón cái trái được góc trống của nó (luật T18).
-- Chữ phần thưởng trùm server gửi được test đúng từng ký tự, kể cả dấu cách không ngắt.
+Tài liệu nói đúng số của dữ liệu. Ba nhánh cấp chiêu và hai nhánh xác suất của thú hoang nằm trong hai hàm thuần có unit test, không còn số cứng 0,06 trong logic. Đường ra lệnh chiêu của thú đi theo có test khẳng định nó không bị giới hạn cấp. **Không đổi hành vi.**
 
 ## Phạm vi
 
-**Làm:**
-- CSS `.toast.out` và `renderToasts` (Thiết kế 1);
-- `ToastQueue.shrink`, lắng nghe `resize` trong `Hud` (Thiết kế 2);
-- test server cho `bossDefeated` (Thiết kế 3);
-- unit test, e2e mới `tests/e2e/toasts.spec.ts`, tài liệu.
+**Làm:** sửa `pals.md`; `wildCastLevel` và `wildTriesSkill` trong shared, cùng hằng số `WILD_SKILL_CHANCE`; hai chỗ gọi ở server; unit test; hai test tích hợp; một dòng `docs/architecture.md`.
 
 **KHÔNG làm:**
-- Không đổi luật mức, thời gian, thay thế, chờ trong `hud.md`.
-- Không đổi `toastRoom` và các số `TOAST`.
-- Không bỏ lần đo khi hiện, và không bỏ lần đo mỗi 250 ms lúc có cái chờ (T62 cần cả hai).
-- **Không bớt thông báo đang hiện khi bố cục đổi mà màn hình không đổi cỡ** (ô nhiệm vụ dài ra, thanh trùm hiện hay ẩn). Luật T62 "Thông báo đang hiện không bị cắt" giữ nguyên. Chỉ `resize` mới bớt (Thiết kế 2).
-- Không đổi chữ người chơi thấy, server logic, schema, message.
+- không đổi con số nào (`WILD_SKILL_MAX_LEVEL`, `ALPHA.*`, `BOSS.*`, 0,06), không đổi thứ tự rút `Math.random` trong `wildSkill`;
+- không đổi cách chọn danh sách chiêu (`BOSS.skills` hay `knownSkills`) hay `chooseSkill`;
+- không đổi `wildMaxLevel` (vẫn cho tới 14 khi danger = 1). Test luật 1/3 vẫn duyệt tới 14, chặt hơn mức gặp được.
 
 ## Thiết kế
 
-### 1. Thông báo đang mờ không còn giữ chỗ
+### 1. `docs/design/pals.md`
 
-**CSS** (`index.html`, ngay sau `.toast.out { opacity: 0; }`):
-```css
-/* A fading toast keeps its place and size but no longer takes room: the new one is at once where it stays (T31). */
-.toast.out { position: absolute; left: 0; max-width: none; pointer-events: none; }
-```
-`.hud-toasts` đã có `position: relative`, nên toạ độ tính theo hộp thông báo.
-
-**`Hud.renderToasts`:**
-- Với mỗi phần tử sắp mờ: **đọc hết trước** `el.offsetTop` và `el.getBoundingClientRect().width` của chúng, **rồi mới ghi** cho từng cái: `el.style.top = `${top}px``, `el.style.width = `${width}px``, `classList.add("out")`.
-- Đọc trước, ghi sau để chỉ ép bố cục một lần.
-
-**Vì sao phải ghi `top` và `width`:**
-- Con của flex container mà `position: absolute` có chỗ "tĩnh" ở đầu hộp, không phải ở ô cũ của nó.
-- Hộp thông báo co theo con rộng nhất. Cái mờ đi mà là cái rộng nhất thì hộp hẹp lại, và chữ của nó sẽ xuống dòng lại.
-
-`offsetTop` không tính `transform` của hoạt ảnh trượt vào, nên là đúng ô. `box-sizing: border-box` đã có trên `.toast`, nên `width` đo được là đúng cỡ. Chỉ đọc bố cục lúc có thông báo rời đi (hiếm), không mỗi khung.
-
-**Kết quả:**
-- **Thay cái cũ** (2 chỗ `[A, B]`, C thay A): A mờ đi tại ô 1, B lên ô 1 ngay, C ở ô 2 ngay. Trong 200 ms, A đang mờ nằm chồng lên B.
-- **1 chỗ** (cầm ngang): C hiện ngay ở ô 1, A mờ đi chồng lên nó (chuyển cảnh mờ dần).
-- **Hết giờ:** cái dưới lên ngay, cái hết giờ mờ đi chồng lên.
-
-Chồng 200 ms như vậy chấp nhận được: cái cũ đang về 0 độ mờ, và cái mới có hoạt ảnh trượt vào 150 ms. Đọc được ngay chữ mới quan trọng hơn. `prefers-reduced-motion`: không có chuyển cảnh, nên `.out` biến mất ngay; không chồng.
-
-**Giữ nguyên cho test và T63:**
-- `.toast.out` vẫn là lớp của cái đang mờ; `:not(.out)` vẫn là cái đang hiện;
-- `toastFit()` đọc `this.toasts.getBoundingClientRect().top`. Đỉnh hộp không đổi khi con nằm ngoài dòng chảy;
-- `.hud-toasts:empty` vẫn chỉ đúng khi không còn con nào.
-
-### 2. Đổi cỡ màn hình: đo lại, bớt cái thừa về hàng chờ
-
-**`ToastQueue.shrink(now): boolean`** (thuần, mới):
-- Trong khi `visible.length > maxVisible()`: lấy cái **yếu nhất** đang hiện, theo đúng luật thay thế (mức thấp nhất, cùng mức thì cũ nhất), bỏ khỏi `visible` và đưa vào `waiting` với `at = now`.
-- Hàng chờ dùng cùng luật tràn như `push`: quá `maxWaiting` thì bỏ cái yếu nhất. Tách phần tràn của `push` ra một phương thức riêng `enqueue(text, level, at)` để dùng chung.
-- Trả `true` khi `visible` đổi. Không cấp phát gì khi không có gì để bớt.
-
-**Không đổi `update`:** `update` vẫn chỉ thêm, không bao giờ bớt. Vì vậy các lần đo khi có thông báo mới hoặc mỗi 250 ms (bố cục đổi) không bao giờ cắt thông báo đang hiện, đúng luật T62.
-
-**`Hud`:**
-- Trong constructor: `window.addEventListener("resize", () => this.resized())`. Một listener cho cả vòng đời trang, như HUD.
-- `resized()`: `const now = performance.now(); this.measureSlots(now); const changed = this.toastQueue.shrink(now); if (this.toastQueue.update(now) || changed) this.renderToasts();`.
-- `update` lấp chỗ khi số chỗ tăng (xoay ngang sang dọc). `resize` bắn nhiều lần khi xoay; mỗi lần rẻ.
-
-**Cái nào ở lại, cái nào về chờ:** theo luật thay thế đã có trong `hud.md` (yếu nhất đi trước). Cái về hàng chờ:
-- mức cao chờ đến lượt, như mọi cái mức cao, rồi hiện **đủ thời gian của nó**;
-- mức thường chờ tối đa 4 giây, mức thấp 1 giây, tính từ lúc về hàng chờ; quá thì bỏ, đúng như luật chờ.
-
-**Ngoại lệ ghi vào `hud.md`:** "mức cao không bao giờ bị cắt ngắn" có một ngoại lệ là khi màn hình đổi cỡ làm mất chỗ. Khi đó nó tạm rời màn hình rồi hiện lại đủ thời gian.
-
-**Các khổ màn hình:**
-
-| Đổi | Trước | Sau |
+| Chỗ | Hiện | Thành |
 |---|---|---|
-| điện thoại dọc (2 chỗ) → ngang 844×390 hoặc 915×412 (1 chỗ) | 2 cái ở lại tới hết giờ, cái dưới lấn vào góc ngón cái | cái yếu hơn về chờ ngay; cái còn lại kết thúc trên mốc cao − 140 px (T18) |
-| ngang → dọc (1 → 2) | cái chờ chỉ hiện ở lần đo 250 ms kế tiếp (thường đã có) | như trước, cộng thêm ngay khi `resize` |
-| desktop đổi cỡ cửa sổ, vẫn cao > 520 | không đổi (2 chỗ) | không đổi |
-| desktop thu thấp ≤ 520 px | như xoay ngang | như xoay ngang |
-| dọc 844 → 760 (Safari hiện thanh địa chỉ) | 2 cái ở lại | 1 cái, cái kia về chờ (đúng luật "màn dọc < 790 px chỉ 1") |
+| mục "Vùng", sau bảng vùng | "cấp tối đa từ 6 (gần lửa trại) đến 14 (góc bản đồ), xem `dangerAt` và `wildMaxLevel`." | "cấp tối đa từ 6 (gần lửa trại) đến 13 (đảo hoang ở các góc biển), xem `dangerAt` và `wildMaxLevel`. Theo vùng: đồng cỏ và hồ 8, sa mạc 10, đầm lầy, núi tuyết, núi lửa 11, đảo hoang 13. `wildMaxLevel` cho tới 14, nhưng cấp 14 cần độ nguy hiểm ≥ 0,9375, mà đất xa nhất chỉ 0,908 (đảo tây bắc, quanh (256, 240))." Câu sau ("Cấp thấp gặp nhiều hơn …") giữ nguyên. |
+| "Sức mạnh thú hoang theo cấp", gạch 8% | "8% sức cắn (cấp 14 cắn gấp khoảng 2 lần cấp 1);" | "8% sức cắn (cấp 13, cao nhất gặp được, cắn gấp 1,96 lần cấp 1);" |
+| "Luật 1/3", gạch "Hiện tại" | "… cú cắn mạnh nhất 20 (Boulderhorn, Coralcrab cấp 14)." | "… cú cắn mạnh nhất 20 (Coralcrab cấp 13 ở đảo hoang; Boulderhorn tối đa cấp 11, cắn 18)." |
+| "Luật 1/3", gạch "Unit test" | "Unit test giữ luật này cho mọi loài ở mọi cấp thú hoang có thể có." | "Unit test giữ luật này cho mọi loài ở mọi cấp tới 14 (`wildMaxLevel(1)`), chặt hơn cấp 13 gặp được." |
+| dưới bảng thời gian trụ | "Trước T7 (cắn +15% mỗi cấp, chiêu theo đúng cấp) các số này ngắn hơn 20-65%, ví dụ đảo hoang 3,1 / 5,1 / 2,4 giây." | "Trước T7 (cắn +15% mỗi cấp, chiêu theo đúng cấp) các số này ngắn hơn từ 1,5% (đồng cỏ, 2 thú: 6,5 so với 6,6 giây) đến 39% (đảo hoang, 1 thú không giáp: 3,1 so với 5,1 giây); số trước T7 lấy từ `BALANCE.md` của T7. Ví dụ đảo hoang 3,1 / 5,1 / 2,4 giây." |
 
-Không có chỗ chạm mới: thông báo không nhận chạm (`pointer-events: none` trên `.hud-toasts`). Bàn phím không liên quan.
+Câu "Số liệu:" ở đầu mục "Sức mạnh thú hoang theo cấp" thêm `wildCastLevel`, `wildTriesSkill` (`skills.ts`).
 
-### 3. Test server cho chữ phần thưởng trùm
+### 2. Hai hàm thuần cho chiêu của thú hoang
 
-Trong `describe("boss")` của `GameRoom.test.ts`, test mới `the boss reward notice says the reward item by item, each icon held to its number by a no-break space`:
-- Người chơi không có thú đi theo (không có phần XP), đứng cạnh trùm; trùm còn 5 máu (như test có sẵn ngay trên).
-- **Không có đồ thưởng:** đặt sẵn vào `player.wardrobe` mọi id của `WEARABLES` có `from === "boss"` (`rollWearable` trả `undefined` khi không còn món nào). Đánh, chờ `BossDefeated`, rồi tìm `Notice` bắt đầu bằng "Hạ được trùm". Mong đợi đúng từng ký tự (viết thẳng trong test, không ráp từ `BOSS.reward`): `"Hạ được trùm! 🏆 🪵\xa015  🪨\xa025  🫐\xa010  🔵\xa02"`.
-- **Có đồ thưởng:** phòng mới, wardrobe đủ mọi món của trùm trừ đúng một (món đầu tiên có `from === "boss"`). Mong đợi chữ là chuỗi trên cộng `"  " + wear.icon + "\xa0" + wear.name`, với `wear = getWearable(id)`. Phần icon và tên đọc từ dữ liệu vì thứ test giữ là cách ghép.
-- **Cả hai trường hợp:** chữ không khớp `/(🪵|🪨|🫐|🔵) \d/u` (không có dấu cách thường giữa biểu tượng và số), và `kind === "reward"`.
+Đặt trong `packages/shared/src/skills.ts`, cạnh `wildSkillLevel`. Nếu import `ALPHA` (`alphas.ts`) và `BOSS` (`boss.ts`) vào `skills.ts` tạo vòng import, thì đặt trong `combat.ts` (đã import `skills.ts` và `boss.ts`). Coder kiểm bằng `npm run typecheck` và chạy test.
 
-Nếu trước đó có test khác đã gắn đồ vào người chơi đầu phòng, coder dùng `setup()` mới cho mỗi trường hợp.
+```ts
+/** A wild pal's chance (each tick it fights) to start a skill: common pals and the boss; pack leaders use ALPHA.skillChance. */
+export const WILD_SKILL_CHANCE = 0.06;
+
+/** Who casts, as far as how strong and how often its skills are. */
+export interface WildCaster { level: number; boss: boolean; alpha: boolean }
+
+/**
+ * The level a wild pal's skill is as strong as: the boss always BOSS.skillLevel; a pack leader its own level up to
+ * ALPHA.skillLevel; any other its own up to WILD_SKILL_MAX_LEVEL (wildSkillLevel). `caps` is only for tests: the real
+ * caps are equal today (8 and 8), so a test passes different ones to tell the branches apart.
+ */
+export function wildCastLevel(pal: WildCaster, caps = { wild: WILD_SKILL_MAX_LEVEL, alpha: ALPHA.skillLevel, boss: BOSS.skillLevel }): number
+
+/** Whether a fighting wild pal tries a skill this tick: `random()` (in [0, 1)) at most its chance. */
+export function wildTriesSkill(pal: Pick<WildCaster, "alpha">, random: () => number): boolean
+```
+
+**Thân hàm**, đúng như các nhánh hiện nay:
+- `wildCastLevel`: `pal.boss ? caps.boss : pal.alpha ? Math.min(pal.level, caps.alpha) : Math.min(pal.level, caps.wild)`. Trùm thắng nếu cả hai cờ cùng bật, như biểu thức cũ.
+- `wildTriesSkill`: `random() <= (pal.alpha ? ALPHA.skillChance : WILD_SKILL_CHANCE)`. Code cũ là `Math.random() > c` thì bỏ, nên `<=` là đúng phủ định, kể cả ở biên `r === c`.
+
+**`random` từ ngoài:** cấp chiêu không có gì ngẫu nhiên, nên `wildCastLevel` không nhận `random`. `wildTriesSkill` thì có, và nhận `random` theo luật của CLAUDE.md.
+
+**Chỗ gọi ở server:**
+- `systems/movement.ts`: `this.room.skills.startCast("wild", id, pal, wildCastLevel(pal), skill, target)`. Bỏ import `BOSS`, `ALPHA`, `wildSkillLevel` nếu không còn dùng (`noUnusedLocals`).
+- `systems/skills.ts`, `wildSkill`: `if (!wildTriesSkill(pal, Math.random) || (this.room.skillGapUntil.get(`w:${id}`) ?? 0) > now) return undefined;`. Vẫn rút ngẫu nhiên **trước** khi xét khoảng nghỉ, nên dãy `Math.random` của server không đổi.
+
+`WildPal` (schema) có `level`, `boss`, `alpha`, nên truyền thẳng được.
+
+Số liệu vẫn nằm trong bảng: `ALPHA.skillLevel`, `ALPHA.skillChance`, `BOSS.skillLevel`, `WILD_SKILL_MAX_LEVEL`, và `WILD_SKILL_CHANCE` mới (thay số cứng 0,06). Sửa chú thích `ChooseSkill`/`messages.ts` (trường `level` của `SkillCastMessage`) nếu nó nhắc tên cũ: thêm "(`wildCastLevel`)".
+
+### 3. Test lệnh chiêu của thú đi theo trên cấp 8
+
+Trong `GameRoom.test.ts`, cạnh test `knows more skills and hits harder at higher levels, with no cap (unlike wild pals)`, thêm hai test. Cả hai dùng `player.palAuto = false`, để chỉ lệnh mới làm thú tung chiêu.
+
+- **Chiêu đánh theo lệnh:**
+  - `giveCompanion(..., "emberpup", 14)`; một `pebblet` cách 60 px, `maxHp = hp = 999`;
+  - `client.send(ClientMessage.PalSkill, { skill: "fire_breath" })` (Emberpup có Phun lửa từ trước cấp 14; coder kiểm `knownSkills`).
+
+  Mong đợi:
+  - `SkillCast` có `caster: "companion"`, `skill: "fire_breath"`, `level: 14`;
+  - `Hit` với `skill: "fire_breath"` có `damage === skillPower(getSkill("fire_breath"), 14)`, và lớn hơn `skillPower(…, WILD_SKILL_MAX_LEVEL)`;
+  - `control.skillOrder` đã được xoá.
+- **Chiêu hồi máu hoặc khiên theo lệnh** (nhánh `isSupport` của `obey`):
+  - chọn một loài trong `PAL_SPECIES` biết một chiêu `heal` ở cấp ≤ 14 (coder tìm bằng `knownSkills(species, 14).find(isSupport)`, ghi tên loài trong test);
+  - cho thú cấp 14; người chơi bị thương (`hp = 30`) nếu là chiêu hồi máu;
+  - gửi `PalSkill` với chiêu đó.
+
+  Mong đợi: `SkillCast` có `level: 14`. Nếu là chiêu hồi máu: `Healed` của người chơi bằng `skillPower(skill, 14)`, kẹp theo máu tối đa nếu cần (đặt `hp` đủ thấp để không bị kẹp), và lớn hơn `skillPower(skill, WILD_SKILL_MAX_LEVEL)`. Nếu dữ liệu chỉ có chiêu khiên ở cấp ≤ 14, chỉ kiểm `level: 14`.
 
 ## Kế hoạch triển khai
 
-1. **`packages/client/src/ui/toastQueue.ts`:**
-   - phương thức riêng `enqueue(text, level, at)`, gồm phần tràn hàng chờ, dùng ở `push`;
-   - phương thức công khai `shrink(now)` theo Thiết kế 2;
-   - JSDoc tiếng Anh cho cả hai; sửa JSDoc lớp: "`update` only ever adds; `shrink` (screen resized) is the only thing that takes a shown toast off, back to the waiting line".
-2. **`toastQueue.test.ts`:** test ở mục Test.
-3. **`packages/client/index.html`:** quy tắc `.toast.out` mới, kèm chú thích (Thiết kế 1).
-4. **`packages/client/src/ui/hud.ts`:**
-   - `renderToasts` ghi `top`, `width` cho cái sắp mờ (đọc trước, ghi sau);
-   - `resized()` và listener `resize` trong constructor;
-   - sửa JSDoc của `measureSlots` (đo khi hiện, mỗi 250 ms lúc chờ, và khi đổi cỡ).
-5. **`packages/server/src/rooms/GameRoom.test.ts`:** test ở Thiết kế 3. Import `WEARABLES`, `getWearable` từ `@petgame/shared` nếu chưa có.
-6. **`tests/e2e/toasts.spec.ts` (mới):** mục Test. Helper chép, kèm chú thích "Copied because T63 holds multiplayer.spec.ts; to be gathered in T16":
-   - `enterLobby`, `waitForWorld` (bản trong `pwa.spec.ts`/`rejoin.spec.ts`);
-   - `contexts` + `afterEach`;
-   - `shownToasts`;
-   - hằng `LONGEST_TOASTS` (2 chữ dài nhất mà `multiplayer.spec.ts` dùng: phần thưởng trùm và lên cấp kèm 2 chiêu).
-7. **Tài liệu** (mục Tài liệu).
-8. `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`. Các test `toasts (...)`, thanh trùm và các test có `setViewportSize` trong `multiplayer.spec.ts` (không sửa) phải qua.
+1. **`docs/design/pals.md`:** sửa như bảng Thiết kế 1.
+2. **`packages/shared/src/skills.ts`** (hoặc `combat.ts`, Thiết kế 2): `WILD_SKILL_CHANCE`, `WildCaster`, `wildCastLevel`, `wildTriesSkill`, JSDoc tiếng Anh; xuất qua `index.ts` nếu shared dùng barrel.
+3. **`packages/shared/src/skills.test.ts`:** `describe("wildCastLevel")`, `describe("wildTriesSkill")` (mục Test).
+4. **`packages/server/src/systems/movement.ts`** và **`systems/skills.ts`:** thay hai chỗ (Thiết kế 2).
+5. **`packages/server/src/rooms/GameRoom.test.ts`:** hai test của Thiết kế 3.
+6. **`docs/architecture.md`:** ở chỗ nói về chiêu thú hoang (hoặc dòng `skills.ts` của shared): `wildCastLevel` (cấp chiêu: thường, đầu đàn, trùm) và `wildTriesSkill` (xác suất mỗi tick), dùng ở `movement.ts` và `Skills.wildSkill`.
+7. `npm run typecheck`, `npm test`.
 
 ## Giao thức
 
-Không đổi schema, message, `Profile`. Không đổi chữ server gửi (chỉ test nó). Client: chỉ HUD.
+Không đổi schema, message, `Profile`. `SkillCastMessage.level` vẫn mang cùng giá trị.
 
 ## Test
 
-### Unit: `toastQueue.test.ts`, `describe("shrink")`
+### Unit (`skills.test.ts`)
 
-`maxVisible` là một biến test tự đổi (`let room = 2; new ToastQueue(() => room)`).
+**`wildCastLevel`:**
+- **Tương đương với nhánh cũ:** trong test viết lại biểu thức cũ thành hàm tham chiếu `legacyCastLevel = (p) => p.boss ? BOSS.skillLevel : p.alpha ? Math.min(p.level, ALPHA.skillLevel) : wildSkillLevel(p.level)`, có chú thích "the inline expression of movement.ts before T35". Duyệt **hết** `level` 1..60 × `boss` {false, true} × `alpha` {false, true} (240 trường hợp, tất định, nên không cần seed). Mọi trường hợp `wildCastLevel(p) === legacyCastLevel(p)`.
+- **Tách được ba nhánh** bằng `caps` khác nhau, ví dụ `{ wild: 5, alpha: 7, boss: 3 }`:
+  - thường cấp 9 → 5; thường cấp 4 → 4;
+  - đầu đàn cấp 9 → 7; đầu đàn cấp 6 → 6;
+  - trùm cấp 2 → 3 (cố định, không lấy `min`); trùm cấp 20 → 3;
+  - trùm kiêm đầu đàn → 3.
+- Với bảng thật: thường cấp 13 → `WILD_SKILL_MAX_LEVEL` (8); trùm → `BOSS.skillLevel` (4).
 
-| Test | Mong đợi |
-|---|---|
-| 2 đang hiện (thường cũ, cao mới), chỗ 2 → 1 | trả `true`; còn cái cao; cái thường ở `waiting` với `at = now` |
-| 2 cái cao, chỗ 2 → 1 | cái cũ hơn về chờ (luật yếu nhất), cái mới hơn ở lại |
-| chỗ không giảm | trả `false`; `visible` và `waiting` không đổi (cùng mảng, cùng phần tử) |
-| cái cao về chờ hiện lại khi cái kia hết giờ | `update(until của cái còn lại)` đưa nó lên với `until = now + toastDuration(...)` (đủ thời gian) |
-| cái thấp về chờ bị bỏ sau `TOAST.maxWaitMs.low` | `update(now + maxWaitMs.low + 1)` khi vẫn hết chỗ thì nó không còn trong `waiting` |
-| hàng chờ đã đầy (`maxWaiting`) | bớt thêm thì cái yếu nhất trong hàng chờ bị bỏ, như `push` |
-| chỗ 2 → 0 (phòng hờ) | cả hai về chờ, không lỗi |
-| `update` không bao giờ bớt | 2 đang hiện, chỗ → 1, gọi `update(now)`: vẫn 2 hiện (luật T62 giữ) |
-| chỗ tăng lại sau `shrink` | `update` lấp lại từ hàng chờ |
+**`wildTriesSkill`:**
+- **Tương đương có seed:** với `mulberry32(seed)` (shared) cho seed 1, 2, 3, rút 10 000 số cho mỗi `alpha` {false, true}. Mỗi số `r`: `wildTriesSkill({ alpha }, () => r) === !(r > (alpha ? ALPHA.skillChance : 0.06))`. Hàm tham chiếu ghi đúng số 0,06 của code cũ.
+- **Biên:** `r = WILD_SKILL_CHANCE` → `true`; `r = WILD_SKILL_CHANCE + 1e-9` → `false`. Tương tự với `ALPHA.skillChance` cho đầu đàn.
+- **Phân biệt hai mức:** `r = 0,07` → thường `false`, đầu đàn `true`.
+- **Rút đúng một lần:** đếm số lần `random` được gọi, phải là 1.
+- `WILD_SKILL_CHANCE === 0.06`, ghim số để lỡ tay đổi thì test bắt.
 
-Các test `push`, `update`, `toastRoom`, `toastDuration` cũ qua không đổi (`enqueue` chỉ là tách hàm).
+### Tích hợp
 
-### Tích hợp server
-
-Thiết kế 3.
-
-### E2E: `tests/e2e/toasts.spec.ts` (mới)
-
-Mỗi test vào một thế giới riêng, đợi `frames > 0`, rồi đợi `.hud-toasts > .toast` về 0 (thông báo "đến vùng mới" lúc vào), hạn 20 s. Thông báo do test đẩy qua `window.__petgame.game.hud.showToast(text, level)`.
-
-- **E1** `a toast that takes an old one's place is at once where it stays; the old one fades where it was` (desktop 1280×720, rồi điện thoại ngang 844×390):
-  - Desktop: `showToast("Một", "normal")`, `showToast("Hai", "normal")`, chờ 2 cái không mờ và hết hoạt ảnh. Ngay trong **cùng một** `evaluate`: ghi `offsetTop`, `offsetWidth`, `offsetHeight` của "Một"; gọi `showToast("Ba", "normal")` ("Ba" thay "Một", cái cũ nhất cùng mức); ngay sau đó đọc `offsetTop` của "Hai" và "Ba", và hộp của "Một" (giờ `.out`).
-  - Mong đợi:
-    - "Hai" có `offsetTop` 0, "Ba" có `offsetTop` bằng chiều cao "Hai" + 4 (khoảng cách);
-    - đọc lại sau khi "Một" đã bị xoá (`toHaveCount` của `.toast.out` về 0): hai số đó không đổi (±1 px);
-    - "Một" lúc mờ giữ đúng `top` và `width` cũ (±1), chiều cao không đổi (không xuống dòng lại).
-  - Điện thoại ngang (1 chỗ): `showToast("Một", "low")`, rồi `showToast("Hai", "low")`. "Hai" có `offsetTop` 0 ngay và vẫn 0 sau khi "Một" bị xoá.
-  - **Trên HEAD hỏng:** "Ba" lúc đầu thấp hơn một ô. Ghi vào `PROGRESS.md`.
-- **E2** `turning the phone so only one toast fits sends the other back to wait, and it comes back in full` (412×915 dọc, chạm; theo bảng T62 màn này luôn có 2 chỗ):
-  - đẩy `LONGEST_TOASTS` (2 cái cao), chờ 2 cái không mờ;
-  - `setViewportSize({ width: 915, height: 412 })`.
-
-  Mong đợi:
-  - trong 1 s chỉ còn 1 cái không mờ, và đáy của nó ≤ `412 − 140`;
-  - thu mọi chữ từng hiện (poll `shownToasts`): sau khi cái còn lại hết giờ, cái kia hiện, nên cả 2 chữ đều đã hiện. Hạn 20 s: thời gian tối đa 7 s mỗi cái.
-
-  Phần quay lại: lại đẩy 2 cái, xoay sang ngang (1 hiện, 1 chờ), rồi xoay về 412×915: trong 1 s có 2 cái không mờ.
-
-  **Trên HEAD hỏng:** sau khi xoay vẫn 2 cái.
-- Desktop không đổi luật: phần desktop của E1 có 2 chỗ.
+Thiết kế 3. Các test thú hoang tung chiêu có sẵn (`wild pals cast too…` dùng `CAST_WITHIN_TICKS`, `a common wild pal's skill is no stronger than at WILD_SKILL_MAX_LEVEL…`, thú đầu đàn, trùm) qua không đổi, vì cùng `Math.random` mock về 0.
 
 ### Đột biến cho tester
 
@@ -201,46 +180,37 @@ Tất cả tạm thời: hoàn tác, kiểm bằng `sha256sum` hoặc `git diff 
 
 | # | Đột biến | Phải hỏng |
 |---|---|---|
-| M1 | bỏ `position: absolute` của `.toast.out` | E1 (ô của "Ba") |
-| M2 | không ghi `width` cho cái sắp mờ | E1 (cỡ của "Một" lúc mờ). Nếu chữ thử quá ngắn để xuống dòng, coder chọn chữ dài hơn cho "Một" |
-| M3 | không ghi `top` | E1 ("Một" nhảy lên đầu hộp) |
-| M4 | bỏ listener `resize` | E2 |
-| M5 | `shrink` bỏ hẳn cái thừa thay vì đưa về chờ | unit "hiện lại khi cái kia hết giờ"; E2 (chữ thứ hai không bao giờ hiện) |
-| M6 | `shrink` bớt cái mới nhất thay vì cái yếu nhất | unit "2 đang hiện" và "2 cái cao" |
-| M7 | `update` cũng gọi phần bớt | unit "`update` không bao giờ bớt" |
-| M8 | `resized` không gọi `update` | E2 phần quay lại (cái chờ chỉ hiện ở lần đo 250 ms; với hạn 1 s có thể vẫn qua). Tester ghi kết quả; nếu sống sót thì hạ hạn kiểm còn 200 ms và ghi lý do |
-| M9 | `rewardText` dùng dấu cách thường | test server mới và `wardrobe.test.ts` |
-| M10 | `bossDefeated` bỏ một dấu cách giữa các món | test server mới (cả hai trường hợp) |
+| M1 | `wildCastLevel`: nhánh đầu đàn dùng `caps.wild` | unit "tách được ba nhánh" (với số thật thì không thấy: 8 = 8, đúng lý do có `caps`) |
+| M2 | nhánh trùm dùng `Math.min(pal.level, caps.boss)` | unit (trùm cấp 2 → 2 thay vì 3) |
+| M3 | xét `alpha` trước `boss` | unit "trùm kiêm đầu đàn", và test tương đương (boss + alpha, cấp > 4) |
+| M4 | `wildTriesSkill` dùng `<` thay `<=` | unit "biên" |
+| M5 | đầu đàn dùng `WILD_SKILL_CHANCE` | unit `r = 0,07`; test tương đương có seed |
+| M6 | `wildSkill` rút ngẫu nhiên sau khi xét khoảng nghỉ | unit không bắt được (thứ tự là việc của server). Tester ghi kết quả chạy test tích hợp chiêu thú hoang; nếu không test nào hỏng thì ghi rõ: khi `Math.random` mock về 0 thì không thấy được |
+| M7 | `obey`, nhánh đánh: truyền `wildSkillLevel(owned.level)` | test tích hợp "chiêu đánh theo lệnh" (`level` 8, sát thương nhỏ hơn) |
+| M8 | `obey`, nhánh hồi máu/khiên: truyền `wildSkillLevel(owned.level)` | test tích hợp "hồi máu hoặc khiên theo lệnh" |
+| M9 | `movement.ts` truyền `pal.level` (bỏ giới hạn) | test có sẵn `a common wild pal's skill is no stronger…` |
 
-## Tài liệu
+### Kiểm số tài liệu
 
-`docs/design/hud.md`, mục **Thông báo (toast)**:
-- **Bao nhiêu cái cùng lúc:** thêm "Màn hình đổi cỡ (xoay máy, thanh địa chỉ hiện hay ẩn, đổi cỡ cửa sổ) thì số chỗ được tính lại ngay. Số chỗ giảm thì cái yếu nhất đang hiện (mức thấp nhất, cùng mức thì cũ nhất) tạm rời màn hình, về hàng chờ, rồi hiện lại đủ thời gian khi có chỗ (mức thường, thấp chờ như thường, quá thì bỏ). Bố cục đổi mà màn hình không đổi cỡ (ô nhiệm vụ dài ra, thanh trùm hiện) thì thông báo đang hiện không bị cắt."
-- **Mục "Thông báo và tên mình khi cầm dọc":** câu "Số chỗ được tính lại mỗi khi có thông báo mới, và trong lúc có thông báo đang chờ thì tính lại mỗi 250 ms" thêm "và khi màn hình đổi cỡ (T31)".
-- **Khi đã hết chỗ:** sau "Thông báo mức cao không bao giờ bị thay hay cắt ngắn" thêm "(trừ khi màn hình đổi cỡ làm mất chỗ: xem trên)".
-- **Đoạn mới, cạnh "Chỗ hiện":** "Thông báo hết giờ hay bị thay thì mờ đi tại chỗ trong 0,2 giây nhưng không giữ chỗ: cái mới hiện ngay ở ô của nó, cái còn lại lên ngay (T31)."
-
-`docs/architecture.md`, dòng `ui/toastQueue.ts`: thêm `shrink` (chỉ khi màn hình đổi cỡ), `update` chỉ thêm; `hud.ts` nghe `resize`. Thêm `tests/e2e/toasts.spec.ts` vào danh sách spec ở mục `npm run test:e2e`.
+Tester chạy lại hai phép tính ở mục "Số liệu" (script chỉ đọc trong scratchpad, import `packages/shared/src/index.ts`). Rồi so từng số trong các câu đã sửa của `pals.md`: 13, 0,908, 0,9375, 1,96, 20, 18, 33, 1,5%, 39%, và cấp tối đa theo vùng. Ghi kết quả vào `PROGRESS.md`.
 
 ## Tiêu chí hoàn thành
 
-- [ ] `.toast.out` nằm ngoài dòng chảy, giữ `top` và `width` cũ; thông báo mới ở đúng ô ngay từ khung đầu (E1). Cùng lớp `.out`, cùng `:not(.out)` như trước.
-- [ ] `ToastQueue.shrink` có JSDoc và unit test; `update` không bao giờ bớt. `Hud` đo lại và gọi `shrink` rồi `update` khi `resize`. Vẫn đo khi hiện và mỗi 250 ms lúc chờ.
-- [ ] E2 qua: xoay dọc sang ngang còn 1 cái, cái kia hiện lại sau; xoay về thì 2.
-- [ ] Test server cho chữ `bossDefeated` qua cả khi không có và có đồ thưởng, đúng từng ký tự, có `\xa0`.
-- [ ] E1, E2 hỏng trên HEAD `2030898` (ghi trong `PROGRESS.md`).
-- [ ] Bảng đột biến M1-M10 cho đúng kết quả (M8 ghi rõ).
-- [ ] `git diff --stat` không có `tests/e2e/multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts`. Không đổi chữ người chơi thấy, schema, message.
-- [ ] `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` qua (cả các test thông báo và thanh trùm cũ, không sửa). Tài liệu cập nhật như mục Tài liệu.
+- [ ] `pals.md` sửa đúng 5 chỗ của bảng Thiết kế 1; mọi số khớp lần tính lại của tester.
+- [ ] `wildCastLevel`, `wildTriesSkill`, `WILD_SKILL_CHANCE` có JSDoc. Server dùng chúng ở `movement.ts` và `Skills.wildSkill`; không còn số cứng 0,06 và biểu thức ba nhánh ở server. Thứ tự rút ngẫu nhiên không đổi.
+- [ ] Unit test tương đương (duyệt hết cấp chiêu; có seed cho xác suất), test biên và test tách nhánh qua.
+- [ ] Hai test tích hợp lệnh chiêu cấp 14 qua; các test thú hoang, thú đầu đàn, trùm cũ qua.
+- [ ] Bảng đột biến M1-M9 cho đúng kết quả (M6 ghi rõ).
+- [ ] Không đổi số cân bằng, schema, message. `git diff --stat` không có `tests/e2e/multiplayer.spec.ts`, `labelLayout.ts`, `labelLayout.test.ts`.
+- [ ] `npm run typecheck`, `npm test` qua.
 
 ## Rủi ro, câu hỏi mở
 
 Không có mục CHẶN.
 
-1. **Chồng 200 ms khi mờ:** người chơi thấy chữ cũ mờ dần chồng lên chữ mới trong 0,2 s. Nếu reviewer thấy khó đọc, có thể làm cái mờ đi nhạt nhanh hơn (`transition` riêng 0,12 s cho `.out`), không cần đổi cách làm.
-2. **Test cũ có `setViewportSize` khi đang hiện thông báo** (`multiplayer.spec.ts`, không sửa được): đã đọc các chỗ đổi cỡ. Hai chỗ (thanh trùm 1248×720 và 1024×768; nút 🔗 375×812 rồi về ngang) không làm giảm số chỗ đang dùng, hoặc chạy lúc chưa đẩy thông báo của test. Nếu một test cũ hỏng vì cái thứ hai về hàng chờ, tester báo lại; không sửa spec đó, và cân nhắc chuyển mục 2 sang T31b chờ Q1.
-3. **T63 khi được trả lại:** các helper của nó (`pushBossToasts`) đẩy thông báo lúc thanh trùm hiện và không đổi cỡ màn hình, nên không chạm `shrink`. Chúng đếm `.toast.out` khi chờ thông báo "yên". Lớp đó vẫn có mặt trong 200 ms mờ như trước.
+- **Quét lưới 8 px** có thể sót một điểm đất nguy hiểm hơn một chút giữa hai mắt lưới. Khoảng cách tới mốc cấp 14 (0,9375 so với 0,908) lớn hơn nhiều so với độ đổi của `dangerAt` trên một mắt lưới (đường chéo 11 px, khoảng 0,003), nên kết luận "13" chắc chắn. Mốc của vùng núi lửa (0,630 so với 0,6875 cho cấp 12) cũng vậy.
+- **Số "trước T7"** không chạy lại được trên code hiện nay. Tài liệu ghi rõ nguồn là `BALANCE.md` T7, và tỉ lệ được tính trên đúng các số trong bảng.
 
 ## Đề xuất cho `TASKS.md`
 
-Không có việc mới. Ghi chú cho T16: `tests/e2e/toasts.spec.ts` có bản chép `enterLobby`, `waitForWorld`, `shownToasts`, `LONGEST_TOASTS`.
+Không có việc mới.
