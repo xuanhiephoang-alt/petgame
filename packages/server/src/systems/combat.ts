@@ -312,9 +312,16 @@ export class Combat {
     if (client && owned) this.room.notify(client, NOTICES.palExhausted(getSpecies(owned.speciesId).name, FAINT_REST_MS / 1000));
   }
 
+  /**
+   * Every wild pal after this target lets go, and a bite or stomp it was winding up is called off (its pose too); a
+   * skill already being cast flies on (it is not in the aggro, and lands as before).
+   */
   calmPalsTargeting(kind: CombatTarget["kind"], id: string) {
     this.room.wildAggro.forEach((aggro, palId) => {
-      if (aggro.target.kind === kind && aggro.target.id === id) this.room.wildAggro.delete(palId);
+      if (aggro.target.kind !== kind || aggro.target.id !== id) return;
+      const pal = this.room.state.pals.get(palId);
+      if (aggro.windupUntil !== undefined && pal) this.cancelWindup(palId, pal);
+      this.room.wildAggro.delete(palId);
     });
   }
 

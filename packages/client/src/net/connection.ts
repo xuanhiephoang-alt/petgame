@@ -74,10 +74,9 @@ export function joinFailure(err: unknown): JoinFailure {
   return "failed";
 }
 
+/** The link given to friends: the address of this world, the same one a reload comes back to. */
 export function inviteLink(roomId: string): string {
-  const url = new URL(location.href);
-  url.searchParams.set("room", roomId);
-  return url.toString();
+  return lobbyUrl(roomId, true);
 }
 
 /**

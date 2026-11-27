@@ -165,6 +165,7 @@ Bảng đóng (bằng bất kỳ cách nào) thì focus rời bảng, phím th�
 **Ngoài phạm vi, giữ như cũ:**
 - Nút HUD ngoài bảng (🔊, 🫐 Ăn, nút cột phải, thanh chiêu) không làm tạm dừng.
 - Đang ở thế giới mà bấm Shift+Tab thì vẫn lướt một lần: Shift xuống trước Tab, lúc đó chưa biết Tab sẽ theo sau.
+- Khi không online, HUD đặt `inert` (`Hud.setInert`, T26): Tab và chạm không vào được nút nào phía sau màn che; nút Về sảnh của màn che nằm ngoài HUD nên vẫn dùng được.
 - Màn mất kết nối cũng không làm tạm dừng: hành động đã bị chặn khi mất mạng, và phím đang giữ được giữ qua lúc kết nối lại.
 - Mở bảng bằng phím (Q, C, T) không đưa focus vào bảng, để phím đi không dừng giữa chừng.
 

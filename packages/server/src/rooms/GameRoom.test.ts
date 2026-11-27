@@ -3656,6 +3656,106 @@ describe("reconnecting after a dropped connection", () => {
     expect((room as any).emptyHold).toBeDefined();
   });
 
+  it("calming the pals after a player clears a bite's or a stomp's wind-up pose, and leaves a skill being cast alone", async () => {
+    const { room, client, player } = await setup();
+    steadyClock(room);
+    const keep = bossOf(room)![0];
+    const clearPals = () => room.state.pals.forEach((_p, id) => id !== keep && room.state.pals.delete(id));
+    clearPals();
+    const a = client.sessionId;
+    const other = await colyseus.connectTo(room, { name: "Other" });
+    await room.waitForNextTimestep();
+    const b = other.sessionId;
+    const inner = room as any;
+
+    // A bite: the pal lets go of A, pose and all, and goes for B (nearer); a pal after B keeps its pose.
+    const foe = foeBeside(room, player, a);
+    const pal = room.state.pals.get(foe)!;
+    inner.combat.windUp(pal, inner.wildAggro.get(foe), "bite", 900);
+    const bPlayer = room.state.players.get(b)!;
+    bPlayer.x = pal.x;
+    bPlayer.y = pal.y + 10;
+    const third = foeBeside(room, bPlayer, b, 15);
+    inner.combat.windUp(room.state.pals.get(third)!, inner.wildAggro.get(third), "bite", 900);
+    const hpBefore = player.hp;
+    expect(pal.windup).toBe("bite");
+    inner.combat.calmPalsTargeting("player", a);
+    expect(pal.windup).toBe("");
+    expect(inner.wildAggro.get(foe)).toBeUndefined();
+    expect(room.state.pals.get(third)!.windup).toBe("bite"); // not after A: untouched
+    await ticks(room, 25);
+    expect(player.hp).toBeGreaterThanOrEqual(hpBefore);
+
+    // A stomp.
+    clearPals();
+    const [bossId, boss] = bossOf(room)!;
+    player.x = boss.x + 60;
+    player.y = boss.y;
+    inner.provoke(bossId, { kind: "player", id: a });
+    inner.combat.windUp(boss, inner.wildAggro.get(bossId), "stomp", BOSS.stompWindupMs);
+    inner.combat.calmPalsTargeting("player", a);
+    expect(boss.windup).toBe("");
+    expect(inner.wildAggro.get(bossId)).toBeUndefined();
+
+    // A skill being cast flies on: the pose stays, the cast stays.
+    const caster = foeBeside(room, player, a, 100);
+    const caskPal = room.state.pals.get(caster)!;
+    inner.skills.startCast("wild", caster, caskPal, 1, getSkill("ember"), { kind: "player", id: a, pos: { x: player.x, y: player.y } });
+    expect(caskPal.windup).toBe("skill");
+    inner.combat.calmPalsTargeting("player", a);
+    expect(caskPal.windup).toBe("skill");
+    expect(inner.casts.some((c: { casterId: string }) => c.casterId === caster)).toBe(true);
+  });
+
+  it("a pal that starts winding up during the 1.5 s after a drop is called off by the shelter, pose and all, while the bite under way at the drop still lands", async () => {
+    const { room, client, player } = await setup();
+    steadyClock(room);
+    room.state.pals.clear();
+    const sid = client.sessionId;
+    const inner = room as any;
+    const foe1 = foeBeside(room, player, sid);
+    inner.combat.windUp(room.state.pals.get(foe1)!, inner.wildAggro.get(foe1), "bite", 900);
+    const foe2 = foeBeside(room, player, sid, -30);
+    const pal2 = room.state.pals.get(foe2)!;
+    const hp0 = player.hp;
+    client.reconnection.enabled = false;
+    const dropAt = await dropForReal(room, sid);
+    await untilClock(room, dropAt + 1200);
+    expect(player.hp).toBeLessThan(hp0); // the bite under way at the drop landed (900 ms)
+    expect(player.offline).toBe(false);
+    inner.combat.windUp(pal2, inner.wildAggro.get(foe2), "bite", 900);
+    expect(pal2.windup).toBe("bite");
+    await untilClock(room, dropAt + DROP_SHELTER_DELAY_MS + 100);
+    expect(player.offline).toBe(true);
+    expect(pal2.windup).toBe("");
+    expect(inner.wildAggro.get(foe2)).toBeUndefined();
+    const hp = player.hp;
+    await ticks(room, 25);
+    expect(player.hp).toBe(hp);
+  });
+
+  it("a reconnection that finds no player is sent away as replaced, and leaves no client behind", async () => {
+    const { room, client } = await setup();
+    const sid = client.sessionId;
+    const open = holdReconnect(client);
+    const left = new Promise<number>((resolve) => client.onLeave.once(resolve));
+    cutConnection(room, sid);
+    await vi.waitFor(() => expect(room.state.players.get(sid)?.offline).toBe(true));
+    const original = room.onReconnect.bind(room);
+    // The character is ended while the reconnection is resolving.
+    vi.spyOn(room, "onReconnect").mockImplementation((c) => {
+      (room as any).removePlayer(c.sessionId);
+      return original(c);
+    });
+    open();
+    expect(await left).toBe(CLOSE_REPLACED);
+    await vi.waitFor(() => {
+      expect(room.clients.some((c) => c.sessionId === sid)).toBe(false);
+      expect(room.state.players.size).toBe(0);
+      expect(holdsOf(room).size).toBe(0);
+    });
+  });
+
   it("the test hook that ends the wait lets a dropped player go at once", async () => {
     process.env.PETGAME_DEBUG = "1"; // the hooks are registered when the room is created
     try {

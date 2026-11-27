@@ -170,6 +170,8 @@ export class Game {
   camera = { x: 0, y: 0, ready: false };
   /** Frames drawn so far (tests and the screenshot tool wait on it). */
   frames = 0;
+  /** The connection is lost for good: the ticker stops after one more frame (T26). */
+  private halting = false;
   /** Same obstacles the server uses, so prediction matches its collisions. */
   obstacles = defaultWorld().grid;
   terrain = defaultWorld().layout.terrain;
@@ -232,6 +234,9 @@ export class Game {
     this.bindRoom();
     this.watchConnection();
     this.stage.app.ticker.add(() => this.frame());
+    // It may have been lost for good while the pictures loaded: the listener was not there for that change.
+    this.hud.setInert(this.watch.status.state !== "online");
+    if (this.watch.status.state === "lost") this.halting = true;
   }
 
   /**
@@ -240,6 +245,8 @@ export class Game {
    */
   private watchConnection() {
     this.watch.onChange((status, previous) => {
+      this.hud.setInert(status.state !== "online");
+      if (status.state === "lost") this.halting = true;
       if (previous.state === "online") this.dashing.leftMs = 0; // a dash does not carry on across the gap
       if (status.state !== "online" || previous.state !== "reconnecting") return;
       // The server cleared the walk when the connection dropped: the next frame says which way is held now.
@@ -403,6 +410,9 @@ export class Game {
     this.hudBridge.updateHud();
     this.labels.update(now, aimed?.tag);
     this.frames++;
+    // One more frame was drawn (the renderer is a listener of this same ticker), so the world behind the connection
+    // screen is never empty; from here nothing more comes from the server and the screen is DOM and CSS.
+    if (this.halting) this.stage.app.ticker.stop();
   }
 
   /** Every light source near the camera, for the night overlay. */

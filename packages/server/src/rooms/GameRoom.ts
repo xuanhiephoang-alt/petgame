@@ -468,7 +468,10 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.holds.delete(client.sessionId);
     this.exposures.close(client.sessionId);
     const player = this.state.players.get(client.sessionId);
-    if (player) player.offline = false;
+    // Back to a player who is no longer there (ended while the reconnection was resolving): never keep a client without
+    // a character; it is told it plays elsewhere, the one way a held player is removed (endSession).
+    if (!player) return client.leave(CLOSE_REPLACED);
+    player.offline = false;
   }
 
   /**

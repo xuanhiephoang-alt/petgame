@@ -177,6 +177,23 @@ function failToStart(room: GameRoom, watch: ConnectionWatch, err: unknown) {
   showJoinCard(startCard(startFailure(err)));
 }
 
+/** A room just joined with its connection watch, and what must run first as the page closes (startGame's last-seen note). */
+type Joined = { room: GameRoom; watch: ConnectionWatch; beforeLeave: () => void };
+
+/**
+ * Watches a room just joined and frees its place if the page closes from now on (pictures may still be loading). What
+ * must run first as the page closes (startGame's last-seen note) goes in `beforeLeave`: SeenNotes only writes while
+ * the watch is online, so the note has to come before the leave.
+ */
+function watchJoined(room: GameRoom): Joined {
+  const joined: Joined = { room, watch: new ConnectionWatch(room), beforeLeave: () => {} };
+  window.addEventListener("pagehide", () => {
+    joined.beforeLeave();
+    joined.watch.leave();
+  });
+  return joined;
+}
+
 /**
  * Joins a world (the one in the address, or a new one) while the pictures load. Does nothing while a join is under
  * way or the game is broken. Failures show a card; a quiet retry (coming back alone to a closed world) opens a new world instead.
@@ -196,7 +213,7 @@ async function enter() {
   try {
     // The connection is watched from the moment the room is joined, so a drop while the pictures still load is not missed.
     // Both are awaited even when one fails first: a room that was joined must never be left behind unheld.
-    const attempt = () => Promise.allSettled([connect({ name, look }).then((room) => ({ room, watch: new ConnectionWatch(room) })), assets]);
+    const attempt = () => Promise.allSettled([connect({ name, look }).then(watchJoined), assets]);
     let [joined, art] = await attempt();
     if (
       joined.status === "rejected" &&
@@ -222,7 +239,7 @@ async function enter() {
     const { room, watch } = joined.value;
     try {
       if (art.status === "rejected") throw art.reason;
-      await startGame(room, watch, art.value);
+      await startGame(joined.value, art.value);
     } catch (err) {
       console.error(err);
       failToStart(room, watch, err);
@@ -274,7 +291,8 @@ if (autoEnter && autoEnter === invited) void enter();
 // After the lobby is ready: the production build registers its service worker (never delays the lobby).
 registerServiceWorker();
 
-async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets) {
+async function startGame(joined: Joined, art: GameAssets) {
+  const { room, watch } = joined;
   // Expose for debugging and end-to-end tests (the room first: tests poll it).
   (window as any).__petgame = { room };
   // The address is where the next page load takes the player: this world, alone or not (it stays open a while
@@ -300,11 +318,8 @@ async function startGame(room: GameRoom, watch: ConnectionWatch, art: GameAssets
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") seen.note();
   });
-  // Closing the page is leaving on purpose: the server frees the place at once instead of holding it for a reconnection.
-  window.addEventListener("pagehide", () => {
-    seen.note();
-    watch.leave();
-  });
+  // Closing the page is leaving on purpose (watchJoined does the leaving): the last-seen note goes first.
+  joined.beforeLeave = () => seen.note();
 
   // Whether "Về sảnh" and the address name this world: it is kept for a while even when empty.
   let keepWorld = true;

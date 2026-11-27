@@ -173,6 +173,16 @@ test("connection: a place lost while coming back is taken back by the device tok
   // Nothing is to happen here: the page must not reload. A short wait is the only way to see "nothing".
   await page.waitForTimeout(5000);
   expect(loads).toBe(1);
+
+  // The world is lost for good: the HUD behind the screen is inert, drawing has stopped, and "Về sảnh" still works.
+  await expect(page.locator(".hud")).toHaveAttribute("inert", "");
+  const framesAt = () => page.evaluate(() => (window as any).__petgame.game.frames as number);
+  const first = await framesAt();
+  await page.waitForTimeout(1000); // measuring "no more frames": waiting is the way
+  expect((await framesAt()) - first).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => (window as any).__petgame.game.stage.app.ticker.started)).toBe(false);
+  await page.keyboard.press("Enter");
+  await expect.poll(() => loads, { timeout: 30_000 }).toBe(2);
 });
 
 test("connection: a try that opens and never answers is dropped and tried again, so the player is back long before 30 s", async ({ browser }) => {
@@ -201,6 +211,14 @@ test("connection: a try that opens and never answers is dropped and tried again,
   await cut();
   await expect(page.locator(".net-title")).toContainText("Đang kết nối lại");
   await expect.poll(() => friend.state.players.get(sessionId)?.offline).toBe(true);
+  // While it is trying again the HUD is inert: Tab never reaches it, and the world is still drawn.
+  await expect(page.locator(".hud")).toHaveAttribute("inert", "");
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => !!document.activeElement?.closest(".hud"))).toBe(false);
+  }
+  const framesBefore = await page.evaluate(() => (window as any).__petgame.game.frames as number);
+  await expect.poll(() => page.evaluate(() => (window as any).__petgame.game.frames as number)).toBeGreaterThan(framesBefore);
   hangNext();
   restore();
   const restoredAt = Date.now();
@@ -211,5 +229,50 @@ test("connection: a try that opens and never answers is dropped and tried again,
   expect(await page.evaluate(() => (window as any).__sawLost)).toBe(false);
   expect(loads).toBe(0);
   expect(await page.evaluate(() => (window as any).__petgame.room.sessionId as string)).toBe(sessionId);
+  // Back online: the HUD works again.
+  await expect(page.locator(".hud")).not.toHaveAttribute("inert", /.*/);
+  await page.locator(".party-btn").tap();
+  await expect(page.locator(".party-panel:has(.party-release-toggle)")).toBeVisible();
   await expect.poll(() => friend.state.players.get(sessionId)?.offline).toBe(false);
+});
+
+test("connection: closing the page while the pictures still load frees the place at once", async ({ browser }) => {
+  // A world made through the SDK, and a friend in it to watch the count.
+  const host = await new Client(SERVER).create("world", { name: "Host" });
+  observers.push(host);
+  const friend = await observer(host.roomId, "Friend");
+  const context = await browser.newContext();
+  contexts.push(context);
+  // Every picture hangs: the lobby script runs and the room is joined, but the game never starts (startGame waits for them).
+  await context.route("**/assets/**", () => {});
+  const page = await context.newPage();
+  await page.goto(`/?room=${host.roomId}&quality=low`);
+  await enterLobby(page, "Closer");
+  await expect.poll(() => friend.state.players.size, { timeout: 30_000 }).toBe(3);
+  const closer = [...friend.state.players.keys()].find((id) => id !== host.sessionId && id !== friend.sessionId)!;
+  await page.close();
+  // The page said goodbye on its way out: the place is free in seconds, not held for 20 s.
+  await expect.poll(() => friend.state.players.has(closer), { timeout: 3000 }).toBe(false);
+});
+
+test("connection: the page notes when it last saw the world before it says goodbye on its way out", async ({ browser }) => {
+  const host = await new Client(SERVER).create("world", { name: "Host" });
+  observers.push(host);
+  const context = await browser.newContext();
+  contexts.push(context);
+  const page = await context.newPage();
+  await page.goto(`/?room=${host.roomId}&quality=low`);
+  await enterLobby(page, "Leaver");
+  await waitForWorld(page);
+  await page.waitForFunction(() => (window as any).__petgame?.game?.frames > 0);
+  // Let the time since the join be well over the margin below (the timer writes only once a minute).
+  await page.waitForTimeout(2000);
+  // The page's own pagehide handlers run in order: the last-seen note, then leaving (after which the watch is no longer online and notes nothing).
+  const age = await page.evaluate((roomId) => {
+    window.dispatchEvent(new Event("pagehide"));
+    const worlds = JSON.parse(localStorage.getItem("petgame:worlds") ?? "[]") as { room: string; seen: number }[];
+    const mine = worlds.find((w) => w.room === roomId);
+    return mine ? Date.now() - mine.seen : Infinity;
+  }, host.roomId);
+  expect(age, "the last-seen time was not written on the way out").toBeLessThan(1000);
 });

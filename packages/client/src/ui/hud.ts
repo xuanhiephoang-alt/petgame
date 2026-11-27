@@ -132,6 +132,14 @@ export class Hud {
     parent.append(this.root);
   }
 
+  /**
+   * While the connection is not online the whole HUD is inert (T26): Tab and touch reach no button behind the connection
+   * screen, which is a sibling of the HUD and keeps working.
+   */
+  setInert(on: boolean) {
+    this.root.inert = on;
+  }
+
   /** The server let the player eat a berry: the Ăn button recharges for `ms`, counted from now. */
   eatStarted(ms: number) {
     this.eatUntil = performance.now() + ms;

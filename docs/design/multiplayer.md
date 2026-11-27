@@ -1,6 +1,6 @@
 # Chơi nhiều người: vào, rời và mất mạng
 
-Luật của một phiên chơi (từ T3; phần mở game từ T1, T15, T44; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13; nút quay lại thế giới cùng bạn bè khi mở ở `/` từ T79; vào lại chỗ vừa mất vì mạng giật và bỏ lần thử kết nối lại bị treo từ T24; chỉ được bảo vệ khi rớt quá 1,5 giây từ T25; mất chỗ cũng đứng phơi 1,5 giây từ T25b). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
+Luật của một phiên chơi (từ T3; phần mở game từ T1, T15, T44; dọn nhỏ sau T3 từ T26; tải lại trang và lỗi khi vào thế giới từ T23; game không mở được sau khi vào từ T42; thế giới trống được giữ thêm một phút từ T49; giới hạn số thế giới từ T64, trần theo khối IPv6 /48 từ T67; nhận ra thế giới của chính mình ở tab mới từ T65; mở game khi mất mạng và app ở Màn hình chính từ T13; nút quay lại thế giới cùng bạn bè khi mở ở `/` từ T79; vào lại chỗ vừa mất vì mạng giật và bỏ lần thử kết nối lại bị treo từ T24; chỉ được bảo vệ khi rớt quá 1,5 giây từ T25; mất chỗ cũng đứng phơi 1,5 giây từ T25b). Phần kỹ thuật (hook nào, file nào) ở `docs/architecture.md`; kế hoạch và bằng chứng API ở `PLAN.md` của T3 và T15.
 
 ## Mở game: sảnh tải chậm hoặc hỏng
 
@@ -202,16 +202,19 @@ Vào phòng được, nhưng phần vẽ thế giới không dựng nổi: thi�
 
 | | Rời chủ động | Rớt mạng |
 |---|---|---|
-| Ví dụ | đóng tab, tải lại trang, bấm "Về sảnh" | 4G chập chờn, đổi Wi-Fi, khoá màn hình hoặc chuyển app lâu |
-| Server biết bằng | tin rời phòng trang gửi lúc đóng | socket đóng bất thường, hoặc hết ping (sau 6-9 giây) |
-| Nhân vật | lưu rồi xoá ngay, chỗ trong phòng trống ngay | ở lại **20 giây** (`RECONNECT_GRACE_MS`) chờ quay lại, vẫn giữ chỗ (kể cả khi phòng đủ 5 người). Được bảo vệ (mục dưới) chỉ khi rớt quá **1,5 giây** (`DROP_SHELTER_DELAY_MS`) |
+| Ví dụ | đóng tab, tải lại trang, chuyển trang | 4G chập chờn, đổi Wi-Fi, khoá màn hình hoặc chuyển app lâu |
+| Server biết bằng | tin rời phòng trang gửi lúc đóng | socket đóng bất thường (biết ngay), hoặc đường truyền chết im lặng: biết khi hết ping, sau 6-9 giây (trang cũng tự đóng kết nối sau 6 giây không nghe gì). Trong lúc server chưa biết, nhân vật vẫn ở trong thế giới như người đứng yên, chưa được bảo vệ |
+| Nhân vật | lưu rồi xoá ngay, chỗ trong phòng trống ngay | ở lại **20 giây** (`RECONNECT_GRACE_MS`) chờ quay lại, vẫn giữ chỗ (kể cả khi phòng đủ 5 người). Được bảo vệ (mục dưới) chỉ khi rớt quá **1,5 giây** kể từ lúc server biết (`DROP_SHELTER_DELAY_MS`) |
 
-Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server coi như rớt mạng: chờ 20 giây rồi mới xoá.
+Nút **Về sảnh** chỉ hiện khi đã mất kết nối, nên bấm nó không gửi gì: server đã coi đó là rớt mạng từ trước.
+
+Nếu tin rời phòng không kịp đi (trang bị tắt đột ngột), server coi như rớt mạng: chờ 20 giây rồi mới xoá (từ T26 trang gửi tin rời ngay từ khi vào được thế giới, cả lúc hình còn đang tải).
 
 ## Trong 20 giây chờ
 
 Từ 1,5 giây sau khi rớt. Trong 1,5 giây đầu, nhân vật đứng yên trong thế giới như người bỏ tay khỏi máy: đòn đang gồng vẫn trúng, thú hoang vẫn đánh, máu về 0 thì ngất như thường; nối lại trong khoảng đó thì như chưa có gì.
 
+- Thú đang gồng cắn hay dậm thì thôi luôn tư thế gồng (T26).
 - Nhân vật và mọi thú của họ ở ngoài (đi theo, làm việc ở trại) **đứng yên** tại chỗ. Người khác thấy hình mờ đi và tên kèm "(mất kết nối)".
 - **Không gì nhắm tới hoặc gây sát thương**: thú hoang bỏ qua họ (đang đánh thì thôi), cắn, chiêu, dậm của trùm, lạnh và nóng đều không có tác dụng.
 - **Thời gian như dừng**: không tự hồi máu, không mở rương, không tiến nhiệm vụ đi thăm vùng, thú làm việc không sản xuất, thú đi theo không đánh và không tung chiêu (chiêu đang gồng bị huỷ).
@@ -220,6 +223,7 @@ Từ 1,5 giây sau khi rớt. Trong 1,5 giây đầu, nhân vật đứng yên t
 
 ## Quay lại
 
+- Mất hẳn kết nối thì game ngừng vẽ để đỡ tốn pin; màn hình và nút Về sảnh vẫn dùng được (T26).
 - Trong khoảng chờ: game **tự kết nối lại**, đúng nhân vật, đúng chỗ, cùng thú đi theo. Màn hình hiện "Đang kết nối lại…" (không bấm, không đi được trong lúc này) rồi báo "Đã kết nối lại".
 - Game thử tối đa 30 giây (`RECONNECT_TRY_MS`: 20 giây chờ cộng thời gian server có thể cần để phát hiện mất mạng). Quá hạn, hoặc server đã thôi giữ chỗ: "Không kết nối lại được" kèm nút **Về sảnh**. Nút này đưa về sảnh của đúng thế giới cũ (từ T49, cả khi chơi một mình): thế giới còn mở ít nhất 60 giây sau khi server thôi giữ chỗ (mục "Thế giới không còn ai"). Đã đóng thì như mục "Tải lại trang": một mình là vào thế giới mới ngay, có bạn bè thì thẻ "Thế giới này đã đóng". Thú, đồ và trại luôn còn.
 - Mạng giật đúng lúc đang kết nối lại (server đã nhận lại nhưng kết nối đứt trước khi game biết) làm mất chỗ đang giữ. Game tự hỏi server rồi tải lại vào thẳng thế giới đó bằng token của thiết bị: người chơi đứng đúng chỗ cũ với đúng lượng máu cũ, thú và đồ còn nguyên. Màn hình hiện "Đang vào lại thế giới…". Tự vào lại tối đa một lần mỗi phút; lần thứ hai trong một phút thì "Không kết nối lại được" như thường. Lúc mất chỗ, nhân vật vẫn đứng trong thế giới 1,5 giây như mọi lần rớt (T25b): đòn đang gồng vẫn trúng, ngất thì về trại hoặc đống lửa. Chỗ và máu được nhớ là chỗ và máu sau khoảng đó. Vào lại sớm hơn thì chờ hết 1,5 giây đó. Chỗ cũ được nhớ 20 giây kể từ lúc nhân vật rời thế giới; thế giới đủ 5 người mà có người vào trước thì sảnh báo đủ người.

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MatchMakeError } from "@colyseus/sdk";
 import { WORLD_LIMIT_ERROR } from "@petgame/shared";
-import { joinFailure, lobbyUrl } from "./connection.ts";
+import { inviteLink, joinFailure, lobbyUrl } from "./connection.ts";
 
 /** Pretends the page is open at `href`: lobbyUrl reads the global `location`, which Node does not have (a URL has the same parts). */
 function pageAt(href: string) {
@@ -74,5 +74,23 @@ describe("joinFailure", () => {
     expect(joinFailure({ code: 4002 })).toBe("failed");
     expect(joinFailure("boom")).toBe("failed");
     expect(joinFailure(null)).toBe("failed");
+  });
+});
+
+describe("inviteLink", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is the address of the world, the same as lobbyUrl with the world kept", () => {
+    pageAt("http://h/?quality=low&room=old");
+    expect(inviteLink("abc")).toBe(lobbyUrl("abc", true));
+  });
+
+  it("sets the room and keeps the other parameters", () => {
+    pageAt("http://h/?quality=low&room=old");
+    const url = new URL(inviteLink("abc"));
+    expect(url.searchParams.get("room")).toBe("abc");
+    expect(url.searchParams.get("quality")).toBe("low");
   });
 });

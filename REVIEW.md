@@ -1,47 +1,71 @@
 PASS
-# REVIEW: T25b Người mất chỗ vẫn đứng phơi 1,5 s, vòng 2
+# REVIEW: T26 Dọn nhỏ sau T3, vòng 1
 
 ## Kết luận
-Lỗi chặn của vòng 1 đã được sửa bằng ba lớp chồng nhau: `finally` trong `removePlayer`, `finally` trong `letGo` (cùng khối `catch` của `onLeave`), và hạn chờ trong `onJoin`. Không đường nào còn để lần vào cùng thiết bị chờ vô hạn. Các thay đổi không làm hỏng đường chạy bình thường. Tôi đã chạy lại: typecheck sạch; `exposure.test.ts` qua 7/7; hai describe `reconnecting after a dropped connection` và `keeping an empty world open` qua 44/44.
+Đủ 7 mục của PLAN.md, đúng thiết kế. Không mở lại đường né của T25/T25b, không đổi giao thức, và không tạo object mới mỗi khung hình. Các test mới không qua suông: E1 hỏng trên HEAD; M7 nay có e2e bắt. Tôi đã chạy lại: typecheck sạch; `connection.test.ts` và `reconnect.test.ts` qua 29/29; S1-S3 qua.
 
 ## Lỗi phải sửa
 Không có.
 
-## Đã kiểm ở vòng 2
+## Đã kiểm
 
-### 1. Lỗi chặn đã sửa
-- **Phần dọn dẹp trong `finally` của `removePlayer`:** `liveSessions`, `holds`, `lostPlaces` và `exposures.close` chạy trước các thao tác schema (`players.delete`…) và trước `calmPalsTargeting`. Vì vậy dù lỗi ném ở `saveNow`/`despawnCompanion`, hay ngay trong `finally` ở bước schema, khoảng phơi đã đóng và `liveSessions` đã được dọn.
-- **Lớp thứ hai:** `letGo` (`finally`) và `onLeave` (sau `catch`) cũng đóng khoảng phơi và xoá `lostPlaces`.
-- **Lớp cuối:** hạn chờ `2 * shelterDelayMs + TICK_MS` trên `this.clock` chặn mọi đường còn sót. Hạn này lớn hơn hẳn khoảng phơi dài nhất (1,5 s), nên đường bình thường không bao giờ chạm tới.
-- Hẹn giờ hạn chờ còn sót lại sau khi `settled` xong trước chỉ resolve một promise không ai đọc. Vô hại, mỗi lần vào một cái.
+### Server
+- **`calmPalsTargeting`:**
+  - Chỉ gọi `cancelWindup` khi `aggro.windupUntil !== undefined`, tức đang gồng cắn hoặc dậm. Thú đang gồng chiêu không có trường đó trong aggro, nên tư thế `"skill"` và cast giữ nguyên (S1, M2).
+  - Xoá mục đang duyệt trong `Map.forEach` là an toàn.
+  - Đòn đã bị huỷ ngay từ khi aggro bị xoá (`strike` cần `windupUntil`), nên T26 chỉ làm hình ảnh khớp với điều đó.
+  - Không thêm chỗ gọi nào. Các chỗ gọi vẫn là `shelter` (sau 1,5 s), `removePlayer` (`letGo`, `endSession` sau `exposures`, rời chủ động, hết giờ chờ), `faintPlayer`, `faintCompanion`, `despawnCompanion`.
+  - S2 chứng minh đòn đang gồng lúc rớt vẫn trúng. Như tester ghi, chỉ S1 quan sát được M1, vì AI tự đặt lại tư thế ở cùng nhịp. Chấp nhận.
+- **`onReconnect` gọi `client.leave(CLOSE_REPLACED)`:**
+  - Tôi đã đối chiếu `_onJoin`: sau `onReconnect`, Colyseus kiểm `readyState !== OPEN` ngay ở microtask kế tiếp, khi client vẫn đang `RECONNECTING`. Vì vậy `_onLeave` chọn `onLeave`, không chọn `onDrop`: không có hold mới, không vào nhánh mất chỗ.
+  - Kể cả nếu đi vào `onDrop`, nó cũng thoát ngay ở `!player`.
+  - `liveSessions` đã được dọn trong `removePlayer` trước đó. S3 kiểm client nhận 4201, rồi không còn client, người chơi hay hold nào.
 
-### 2. Đường chạy bình thường không đổi
-- Vẫn lưu và cất thú trước khi xoá. Điểm quay lại T24 vẫn được ghi trong `letGo` trước `removePlayer`. `holdEmptyWorld` vẫn do nơi gọi lo. `calmPalsTargeting` vẫn chạy.
-- Đóng khoảng phơi trước `players.delete` không ảnh hưởng gì: người chờ chỉ tỉnh ở microtask sau khi đoạn mã đồng bộ hiện tại chạy xong.
+### Client
+- **`watchJoined`:**
+  - Chỉ có một listener `pagehide` cho mỗi lần vào được phòng. `ConnectionWatch` không tự đăng ký, nên không có hai lần.
+  - Thứ tự `beforeLeave` → `watch.leave()` đúng (e2e mới của tester bắt M7).
+  - Lần vào hỏng (`failToStart`) để lại một closure nhỏ; `leave()` bỏ qua khi đã `lost`. Vô hại.
+  - Với đường `refused` tự tải lại của T24: `pagehide` lúc `location.assign` gặp watch đã `lost`, nên không gửi gì và `SeenNotes` không ghi. Server không nhận tin rời chủ động, đúng như cần.
+- **Ticker:**
+  - `halting` được đặt trong `onChange` và ở cuối `init` (trường hợp đã `lost` lúc hình còn tải).
+  - `ticker.stop()` chạy cuối `frame()`. Render là listener ưu tiên thấp hơn trên cùng ticker, nên vẫn vẽ nốt khung đó.
+  - Không chỗ nào khởi động lại ticker; `Game` không có `destroy` (đã biết từ T24). `reconnecting` vẫn vẽ (M9).
+- **`setInert`:** chỉ chạy khi đổi trạng thái và một lần ở cuối `init`, không chạy mỗi khung.
+  - Mọi bảng đều nằm trong `hud.root` (coder đã kiểm `hudBridge.build`). Màn che là anh em của HUD, nên nút Về sảnh vẫn dùng được (UX ở 390×844 và 1280×720 đã chụp ảnh kiểm).
+  - Focus đang ở trong HUD lúc rớt thì rơi về `body`; Tab chỉ còn tới Về sảnh. Trình đọc màn hình không thấy HUD trong lúc đó, đúng ý.
+- **`inviteLink`:** chỉ gọi `lobbyUrl(roomId, true)`. Không đổi chỗ gọi nào.
+- **Hiệu năng:** `frame()` chỉ thêm một phép kiểm boolean, không tạo object.
 
-### 3. Hạn chờ và `disposed`
-- **Không có hai bản cùng thiết bị:** sau hạn chờ, `liveSessions` được đọc lại. Từ lần đọc đó tới `liveSessions.set` không có `await` nào, nên hai lần vào không thể xen nhau.
-- Nếu phiên cũ còn đó, `endSession` xoá nó đồng bộ. Nếu nó ném lỗi, `finally` vẫn dọn rồi `onJoin` ném, nên join báo lỗi chứ không tạo bản thứ hai. Test của tester (`settled` không bao giờ xong) khẳng định chỉ còn một người chơi mang token đó.
-- `disposed` đặt đầu `onDispose`. Lần vào tỉnh dậy trong phòng đã đóng thì ném lỗi, không ghi `liveSessions` trỏ vào phòng chết. Góp ý 2 của vòng 1 vì vậy đã xong. B7 kiểm kết quả `refused` và 0 người chơi.
+### Test
+- **S1:** có thú thứ ba nhắm B (M3). S3 có spy `onReconnect`.
+- **`inviteLink`:** có 2 test (M12).
+- **E1:** không qua suông. Nó chờ observer thấy 3 người trước khi đóng trang, và đã hỏng trên HEAD.
+- **E2e mốc "lần cuối thấy":** chờ 2 s sau khi vào, nên mốc ghi lúc vào (cũ hơn 1 s) không làm test qua nhầm. Với M7 thì test hỏng.
+- **Phép kiểm thêm trong `reconnect.spec.ts`:**
+  - `inert` và Tab (M11).
+  - `frames` tăng khi đang thử lại (M9).
+  - HUD bấm được khi online lại (M10).
+  - `ticker.started === false` và `frames` chênh ≤ 1 (M8).
+  - Enter ở Về sảnh đưa về sảnh.
+  - Có một `waitForTimeout(1000)` có chú thích, để đo "không còn khung nào"; kế hoạch cho phép.
 
-### 4. Test
-- **B9:** `despawnCompanion` ném một lần, có `console.error` làm bằng chứng. Join phải xong trước `t + 2100`, tức trước hạn chờ (≥ `t + 3050`), nên chứng minh được là `finally` đóng khoảng phơi chứ không phải hạn chờ.
-- **Test hạn chờ:** bỏ hạn chờ thì treo (bị bắt).
-- **B7 và test "rớt thường":** nay chỉ đóng phòng sau khi spy `exposures.settled` đã được gọi, kèm câu báo "inconclusive", nên không còn qua suông. Góp ý 1 của vòng 1 đã xong.
-- **Đột biến sống sót:** M9 và việc bỏ riêng từng lớp không bị bắt. Đó là hệ quả đúng ý của các lớp chồng nhau, và B9 bắt khi bỏ đủ cả ba.
-- **`closeAll`** không với tới được hôm nay: Colyseus từ chối hold khi đóng phòng, rồi `onLeave` → `removePlayer` đóng khoảng phơi. Giữ làm lưới an toàn là hợp lý.
-
-### 5. Không hồi quy
-- Tester chạy `npm test` (760), e2e 70/70, vòng lặp 10/10 và 5/5 dưới tải CPU.
-- Ràng buộc: không đổi `packages/client`, `packages/shared`, `tests/e2e`, `.claude/`, `package-lock.json`. `git stash list` còn 2 mục.
+### Tài liệu và ràng buộc
+- **Tài liệu:**
+  - `multiplayer.md`: bảng rời phòng, dòng về nút Về sảnh, 6-9 s, 1,5 s tính từ lúc server biết, các mục "Trong 20 giây chờ" và "Quay lại".
+  - `hud.md` và `architecture.md` đều đúng với code.
+- **Ràng buộc:**
+  - Không đổi `packages/shared`, `multiplayer.spec.ts`, `labelLayout*`, `.claude/`, `package-lock.json`.
+  - Không đổi schema, message, `Profile` hay chữ người chơi thấy.
+  - `git stash list` còn 2 mục.
 
 ## Góp ý không bắt buộc (có thể đưa vào TASKS.md)
-1. **`endSession`:** nếu `removePlayer` ném lỗi, `hold.reject` hoặc `client.leave(CLOSE_REPLACED)` không chạy. Phiên cũ vẫn giữ socket mà không còn `Player`, và lần vào mới báo lỗi. Nên đưa hai lệnh đó vào `finally`.
-2. **Lỗi giữa chừng trong `removePlayer`:** nếu `despawnCompanion` ném, các thú đi theo còn lại của người đó nằm lại trong state mà chủ đã đi. Có thể cất nốt trong `finally` theo từng con, có `try` riêng. Chỉ xảy ra khi có lỗi thật.
-3. **Hạn chờ dùng `this.clock` của phòng đang vào:** nếu chính phòng này đóng giữa lúc chờ, đồng hồ bị xoá và hạn chờ không bao giờ chạy. Nếu đồng thời phiên ở phòng *khác* cũng không bao giờ xong (hai lỗi cùng lúc), `onJoin` treo dù socket đã đóng: chỉ rò bộ nhớ, người chơi không thấy gì. Có thể bỏ qua, hoặc dùng `setTimeout` thật cho hạn chờ.
-4. **Sau hạn chờ (khoảng 3 s), lần vào kết thúc phiên cũ cùng thiết bị** dù nó còn đang phơi, ví dụ khi script giữ phiên cũ rớt rồi nối lại liên tục. Lúc đó đòn đang gồng vào phiên cũ bị huỷ. Muốn vậy phải chịu phơi khoảng 3 s, và đây chính là trường hợp "tab thứ hai" của T93. Nên ghi chú vào T93.
-5. **Còn lại từ vòng 1 và PLAN.md:**
-   - Thứ tự trong `removePlayer`: đã làm qua `finally`.
-   - T93: rời chủ động, tab thứ hai, và đường hồi máu sau B5 (vào lại bằng token sau một lần rớt giữ chỗ thì ở giữa bản đồ, máu đầy). Cần game-designer.
-   - Phòng đủ 5 người có thể có 6 nhân vật trong tối đa 1,5 s (đã chấp nhận). Nếu muốn chặn: khi phòng đầy, lần vào của người lạ cũng chờ `exposures`.
-   - Các góp ý 2, 4, 5 còn lại của review T25 nên gộp thành một việc dọn nhỏ.
+1. **Trả focus khi online lại:** nếu focus đang ở một nút hay bảng trong HUD lúc rớt, nó rơi về `body` và không quay lại khi online. Có thể nhớ `document.activeElement` (nếu nằm trong HUD) lúc đặt `inert`, rồi `focus()` lại khi gỡ, nếu phần tử đó còn trong DOM và còn hiện.
+2. **Phím tắt khi HUD `inert`:** `keyboard.ts` nghe trên `window`. Phím tắt mở bảng (nếu có) vẫn mở bảng phía sau màn che dù không bấm được gì trong đó. Vô hại, nhưng có thể bỏ qua phím tắt UI khi không online.
+3. **Trang khôi phục từ bfcache:** `pagehide` cũng chạy khi trang vào bfcache, nên watch rời phòng chủ động. Khi trang được khôi phục (`pageshow` với `persisted`), game ở trạng thái `lost: left` và ticker đã dừng. Có từ trước T26. Có thể tải lại trang khi `pageshow.persisted`.
+4. **M1 chỉ unit (S1) quan sát được.** Nếu muốn có bằng chứng tích hợp: trong S2, kiểm ngay sau lúc bảo vệ bật bằng một hẹn giờ `room.clock` chạy cùng nhịp, trước khi AI chạy. Không bắt buộc.
+5. **Còn lại từ các review trước** (chưa có trong TASKS):
+   - T93 (rời chủ động, tab thứ hai, hồi máu khi vào lại);
+   - việc dọn sau T25 (góp ý 2, 4, 5);
+   - trong `endSession`, đưa `hold.reject`/`client.leave` vào `finally`;
+   - phòng đủ 5 người có thể có 6 nhân vật trong tối đa 1,5 s.
