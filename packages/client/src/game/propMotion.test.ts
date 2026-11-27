@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROP_MOTION, countDown, growSize, shakeJolt, shakeLean } from "./propMotion.ts";
+import { PROP_MOTION, countDown, growSize, shakeJolt, shakeLean, stepPropMotion, type PropPose } from "./propMotion.ts";
 
 describe("countDown", () => {
   it("moves down by dt and never below 0", () => {
@@ -75,5 +75,83 @@ describe("a whole shake and regrow", () => {
     }
     expect(frames).toBeLessThanOrEqual(Math.ceil(PROP_MOTION.growSec / dt) + 1);
     expect(growSize(grow)).toBe(1);
+  });
+});
+
+describe("stepPropMotion", () => {
+  const blank = (): PropPose => ({ lean: undefined, dx: 0, size: undefined, busy: false });
+
+  it("gives exactly the full size on the last frame of growing back", () => {
+    const motion = { shake: 0, grow: 0.05 };
+    const out = stepPropMotion(motion, 0.1, true, false, blank());
+    expect(motion.grow).toBe(0);
+    expect(out.size).toBe(1);
+    expect(out.busy).toBe(false);
+  });
+
+  it("swells while growing", () => {
+    const motion = { shake: 0, grow: PROP_MOTION.growSec };
+    const out = stepPropMotion(motion, 0.1, true, false, blank());
+    expect(out.size).toBe(growSize(PROP_MOTION.growSec - 0.1));
+    expect(out.size).toBeGreaterThan(PROP_MOTION.growFrom);
+    expect(out.size).toBeLessThan(1);
+  });
+
+  it("leaves the size alone when not growing (a stump or rubble that is hit)", () => {
+    const out = stepPropMotion({ shake: 0.35, grow: 0 }, 0.016, false, true, blank());
+    expect(out.size).toBeUndefined();
+  });
+
+  it("leans a standing tree that shakes, without a jolt", () => {
+    const out = stepPropMotion({ shake: 0.35, grow: 0 }, 0.016, true, false, blank());
+    expect(out.lean).toBeCloseTo(shakeLean(0.334));
+    expect(out.dx).toBe(0);
+    expect(out.busy).toBe(true);
+  });
+
+  it("is exactly upright and still on the last frame of shaking", () => {
+    const motion = { shake: 0.01, grow: 0 };
+    const out = stepPropMotion(motion, 0.1, true, false, blank());
+    expect(out.lean).toBe(0);
+    expect(out.dx).toBe(0);
+    expect(out.busy).toBe(false);
+    expect(motion.shake).toBe(0);
+  });
+
+  it("jolts a rock sideways and does not lean it", () => {
+    const out = stepPropMotion({ shake: 0.35, grow: 0 }, 0.016, false, true, blank());
+    expect(out.lean).toBeUndefined();
+    expect(out.dx).toBeCloseTo(shakeJolt(0.334));
+    expect(out.dx).not.toBe(0);
+  });
+
+  it("jolts a felled tree's stump and does not lean it", () => {
+    const out = stepPropMotion({ shake: 0.2, grow: 0 }, 0.016, false, true, blank());
+    expect(out.lean).toBeUndefined();
+    expect(out.dx).not.toBe(0);
+  });
+
+  it("does not move on with dt <= 0", () => {
+    for (const dt of [-1, 0]) {
+      const motion = { shake: 0.2, grow: 0.2 };
+      const out = stepPropMotion(motion, dt, true, false, blank());
+      expect(motion).toEqual({ shake: 0.2, grow: 0.2 });
+      expect(out.busy).toBe(true);
+      expect(out.size).toBe(growSize(0.2));
+    }
+  });
+
+  it("writes into the object it is given and returns it", () => {
+    const out = blank();
+    const motion = { shake: 0.3, grow: 0 };
+    expect(stepPropMotion(motion, 0.016, true, false, out)).toBe(out);
+    expect(stepPropMotion(motion, 0.016, true, false, out)).toBe(out);
+  });
+
+  it("shakes and grows at once (a tree that regrew and was chopped again)", () => {
+    const out = stepPropMotion({ shake: 0.35, grow: 0.45 }, 0.1, true, false, blank());
+    expect(out.lean).not.toBeUndefined();
+    expect(out.size).not.toBeUndefined();
+    expect(out.busy).toBe(true);
   });
 });

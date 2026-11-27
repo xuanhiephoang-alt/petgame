@@ -14,7 +14,7 @@ import {
 } from "@petgame/shared";
 import { berriesArt, decorArt, propArt, type PropArt, type Tint } from "./art/nature.ts";
 import { canopyHides, boxHides } from "./canopy.ts";
-import { PROP_MOTION, countDown, growSize, shakeJolt, shakeLean } from "./propMotion.ts";
+import { PROP_MOTION, stepPropMotion, type PropPose } from "./propMotion.ts";
 import { campfireArt, flameArt, volcanoArt } from "./art/props.ts";
 
 const TINTS: Partial<Record<TerrainKind, Tint>> = { snow: "frost", swamp: "swamp", volcano: "ash", desert: "sand", island: "beach" };
@@ -153,6 +153,8 @@ const STUMPS: Partial<Record<TerrainKind, string>> = { swamp: "SwampStump", volc
  */
 export class Scenery {
   private props: PropSprite[] = [];
+  /** The pose of the prop being moved this frame, reused so no object is made per frame. */
+  private pose: PropPose = { lean: undefined, dx: 0, size: undefined, busy: false };
   /** Props by their index in the layout (the server names trees and rocks by it). */
   private byIndex = new Map<number, PropSprite>();
   private terrain: WorldLayout["terrain"];
@@ -358,18 +360,16 @@ export class Scenery {
       sprite.visible = visible;
       // Count down even off screen, so a far prop is not still shaking or swelling when the camera comes back.
       if (p.shake > 0 || p.grow > 0) {
-        const growing = p.grow > 0;
-        p.shake = countDown(p.shake, dt);
-        p.grow = countDown(p.grow, dt);
         // A hit tree whips back and forth, a rock jolts; one growing back swells up from small.
-        if (prop.kind === "tree" && !p.felled) sprite.skew.x = shakeLean(p.shake);
-        sprite.x = prop.x + (prop.kind === "rock" || p.felled ? shakeJolt(p.shake) : 0);
-        if (growing) {
+        const pose = stepPropMotion(p, dt, prop.kind === "tree" && !p.felled, prop.kind === "rock" || p.felled, this.pose);
+        if (pose.lean !== undefined) sprite.skew.x = pose.lean;
+        sprite.x = prop.x + pose.dx;
+        if (pose.size !== undefined) {
           // The last frame (grow = 0) sets exactly the full size.
-          const size = prop.scale * (art.fit ?? 1) * growSize(p.grow);
+          const size = prop.scale * (art.fit ?? 1) * pose.size;
           sprite.scale.set(Math.sign(sprite.scale.x) * size, size);
         }
-        if (p.shake > 0) continue;
+        if (pose.busy) continue;
       }
       if (!visible) continue;
       if (p.felled) {

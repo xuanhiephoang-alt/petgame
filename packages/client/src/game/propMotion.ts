@@ -40,3 +40,31 @@ export function growSize(left: number): number {
   const from = PROP_MOTION.growFrom;
   return from + (1 - from) * (1 - (1 - g) * (1 - g));
 }
+
+/** The pose one frame gives a prop that shakes or grows back (written into a reused object: no allocation per frame). */
+export interface PropPose {
+  /** Lean (rad) to set, or undefined to leave it (only a standing tree leans). */
+  lean: number | undefined;
+  /** Sideways offset (px) from the prop's own x: a rock, stump or rubble jolts; a standing tree does not. */
+  dx: number;
+  /** Size relative to the full size, or undefined to leave it (only while growing back; exactly 1 on the last frame). */
+  size: number | undefined;
+  /** Still shaking after this frame: the caller skips the wind sway and canopy fade. */
+  busy: boolean;
+}
+
+/**
+ * Moves a hit or regrowing prop on by `dt` seconds: counts `motion.shake` and `motion.grow` down in place and writes the
+ * pose into `out`. Whether it was growing is read before the countdown, so the frame that ends the growth still sets the
+ * full size. `standingTree`: a tree that is not felled (it leans); `jolts`: a rock, or anything felled (it jolts).
+ */
+export function stepPropMotion(motion: { shake: number; grow: number }, dt: number, standingTree: boolean, jolts: boolean, out: PropPose): PropPose {
+  const growing = motion.grow > 0;
+  motion.shake = countDown(motion.shake, dt);
+  motion.grow = countDown(motion.grow, dt);
+  out.lean = standingTree ? shakeLean(motion.shake) : undefined;
+  out.dx = jolts ? shakeJolt(motion.shake) : 0;
+  out.size = growing ? growSize(motion.grow) : undefined;
+  out.busy = motion.shake > 0;
+  return out;
+}
