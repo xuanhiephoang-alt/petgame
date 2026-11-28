@@ -8,7 +8,7 @@ import {
   isSea,
   BOSS,
   knownSkills,
-  wildSkillLevel,
+  wildCastLevel,
   ALPHA,
   alphaChaseSpeed,
   effectiveness,
@@ -129,7 +129,7 @@ export class Movement {
         const skill = this.room.skills.wildSkill(id, pal, species, target, now);
         if (skill) {
           pal.angry = true;
-          this.room.skills.startCast("wild", id, pal, pal.boss ? BOSS.skillLevel : pal.alpha ? Math.min(pal.level, ALPHA.skillLevel) : wildSkillLevel(pal.level), skill, target);
+          this.room.skills.startCast("wild", id, pal, wildCastLevel(pal), skill, target);
           return;
         }
         const range = pal.boss ? BOSS.radius + 24 : WILD_ATTACK_RANGE;

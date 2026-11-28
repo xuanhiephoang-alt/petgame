@@ -21,6 +21,7 @@ import {
   SKILL_ORDER_MS,
   SKILL_ORDER_RANGE,
   ALPHA,
+  wildTriesSkill,
   type HealedMessage,
   type SkillCastMessage,
   type SkillDef,
@@ -334,7 +335,7 @@ export class Skills {
 
   /** The skill a fighting wild pal starts now, if any (support first, then the strongest that reaches); none most ticks. */
   wildSkill(id: string, pal: WildPal, species: PalSpecies, target: CombatTarget, now: number): SkillDef | undefined {
-    if (Math.random() > (pal.alpha ? ALPHA.skillChance : 0.06) || (this.room.skillGapUntil.get(`w:${id}`) ?? 0) > now) return undefined;
+    if (!wildTriesSkill(pal, Math.random) || (this.room.skillGapUntil.get(`w:${id}`) ?? 0) > now) return undefined;
     const known = pal.boss ? BOSS.skills.map(getSkill) : knownSkills(species, pal.level);
     return chooseSkill({
       known,

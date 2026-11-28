@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { PAL_SPECIES, getSpecies } from "./pals.ts";
 import { DROP_SHELTER_DELAY_MS, TICK_MS } from "./constants.ts";
-import { attackLandsWithinMs } from "./combat.ts";
+import { WILD_SKILL_CHANCE, attackLandsWithinMs, wildCastLevel, wildTriesSkill } from "./combat.ts";
+import { ALPHA } from "./alphas.ts";
+import { BOSS } from "./boss.ts";
+import { mulberry32 } from "./noise.ts";
 import {
   SKILL_DEFS,
   SKILL_LEVELS,
@@ -131,5 +134,77 @@ describe("how long an attack takes to land (T25)", () => {
   it("is shorter than DROP_SHELTER_DELAY_MS by at least two ticks, so a dropped connection never calls off a blow", () => {
     // If this fails: a skill or a wind-up got longer. Raise DROP_SHELTER_DELAY_MS or shorten the attack, and say why.
     expect(DROP_SHELTER_DELAY_MS).toBeGreaterThanOrEqual(attackLandsWithinMs(SKILL_DEFS) + 2 * TICK_MS);
+  });
+});
+
+describe("wildCastLevel", () => {
+  // The inline expression of movement.ts before T35.
+  const legacyCastLevel = (p: { level: number; boss: boolean; alpha: boolean }) =>
+    p.boss ? BOSS.skillLevel : p.alpha ? Math.min(p.level, ALPHA.skillLevel) : wildSkillLevel(p.level);
+
+  it("equals the old branches for every level, boss and pack leader flag (240 cases)", () => {
+    let cases = 0;
+    for (let level = 1; level <= 60; level++) {
+      for (const boss of [false, true]) {
+        for (const alpha of [false, true]) {
+          expect(wildCastLevel({ level, boss, alpha }), `level ${level} boss ${boss} alpha ${alpha}`).toBe(legacyCastLevel({ level, boss, alpha }));
+          cases++;
+        }
+      }
+    }
+    expect(cases).toBe(240);
+  });
+
+  it("tells the three branches apart with different caps", () => {
+    const caps = { wild: 5, alpha: 7, boss: 3 };
+    expect(wildCastLevel({ level: 9, boss: false, alpha: false }, caps)).toBe(5);
+    expect(wildCastLevel({ level: 4, boss: false, alpha: false }, caps)).toBe(4);
+    expect(wildCastLevel({ level: 9, boss: false, alpha: true }, caps)).toBe(7);
+    expect(wildCastLevel({ level: 6, boss: false, alpha: true }, caps)).toBe(6);
+    expect(wildCastLevel({ level: 2, boss: true, alpha: false }, caps)).toBe(3);
+    expect(wildCastLevel({ level: 20, boss: true, alpha: false }, caps)).toBe(3);
+    expect(wildCastLevel({ level: 20, boss: true, alpha: true }, caps)).toBe(3);
+  });
+
+  it("uses the real caps by default", () => {
+    expect(wildCastLevel({ level: 13, boss: false, alpha: false })).toBe(WILD_SKILL_MAX_LEVEL);
+    expect(wildCastLevel({ level: 13, boss: true, alpha: false })).toBe(BOSS.skillLevel);
+  });
+});
+
+describe("wildTriesSkill", () => {
+  it("pins the common chance at 6%", () => {
+    expect(WILD_SKILL_CHANCE).toBe(0.06);
+  });
+
+  it("equals the old test (Math.random() > chance gives up) on seeded draws", () => {
+    for (const seed of [1, 2, 3]) {
+      const random = mulberry32(seed);
+      for (let i = 0; i < 10_000; i++) {
+        const r = random();
+        for (const alpha of [false, true]) {
+          // The old code: `Math.random() > (pal.alpha ? ALPHA.skillChance : 0.06)` returned without a skill.
+          expect(wildTriesSkill({ alpha }, () => r)).toBe(!(r > (alpha ? ALPHA.skillChance : 0.06)));
+        }
+      }
+    }
+  });
+
+  it("includes the chance itself and nothing above it", () => {
+    expect(wildTriesSkill({ alpha: false }, () => WILD_SKILL_CHANCE)).toBe(true);
+    expect(wildTriesSkill({ alpha: false }, () => WILD_SKILL_CHANCE + 1e-9)).toBe(false);
+    expect(wildTriesSkill({ alpha: true }, () => ALPHA.skillChance)).toBe(true);
+    expect(wildTriesSkill({ alpha: true }, () => ALPHA.skillChance + 1e-9)).toBe(false);
+  });
+
+  it("gives pack leaders a higher chance", () => {
+    expect(wildTriesSkill({ alpha: false }, () => 0.07)).toBe(false);
+    expect(wildTriesSkill({ alpha: true }, () => 0.07)).toBe(true);
+  });
+
+  it("draws exactly once", () => {
+    let draws = 0;
+    wildTriesSkill({ alpha: false }, () => (draws++, 0.5));
+    expect(draws).toBe(1);
   });
 });

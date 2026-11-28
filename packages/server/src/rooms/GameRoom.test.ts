@@ -1121,6 +1121,39 @@ describe("elements and skills", () => {
     expect(hits.some((h) => h.skill === "flame_ring")).toBe(false); // learned at level 15
   });
 
+  it("an ordered attack skill of a level 14 follower is not capped like a wild pal's", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "emberpup", 14);
+    player.palAuto = false; // only the order makes it cast
+    room.state.pals.clear();
+    const target = placeWild(room, "pebblet", player, 60);
+    room.state.pals.get(target)!.maxHp = room.state.pals.get(target)!.hp = 999;
+    const hits = collect<HitMessage>(client, ServerMessage.Hit);
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    client.send(ClientMessage.PalSkill, { skill: "fire_breath" });
+    await vi.waitFor(() => expect(hits.some((h) => h.skill === "fire_breath")).toBe(true), { timeout: 4000 });
+    const cast = casts.find((c) => c.skill === "fire_breath")!;
+    expect(cast).toMatchObject({ caster: "companion", skill: "fire_breath", level: 14 });
+    const breath = hits.find((h) => h.skill === "fire_breath")!;
+    expect(breath.damage).toBe(skillPower(getSkill("fire_breath"), 14));
+    expect(breath.damage).toBeGreaterThan(skillPower(getSkill("fire_breath"), WILD_SKILL_MAX_LEVEL));
+    expect((room as any).controls.get(client.sessionId).skillOrder).toBeUndefined();
+  });
+
+  it("an ordered heal of a level 14 follower (bubbloon's healing_rain) heals at level 14, not at the wild cap", async () => {
+    const { room, client, player } = await setup();
+    await giveCompanion(room, client, player, "bubbloon", 14);
+    player.palAuto = false;
+    room.state.pals.clear();
+    player.hp = 30;
+    const casts = collect<SkillCastMessage>(client, ServerMessage.SkillCast);
+    client.send(ClientMessage.PalSkill, { skill: "healing_rain" });
+    const healed: HealedMessage = await client.waitForMessage(ServerMessage.Healed, 4000);
+    expect(casts.find((c) => c.skill === "healing_rain")?.level).toBe(14);
+    expect(healed).toMatchObject({ targetType: "player", targetId: client.sessionId, amount: skillPower(getSkill("healing_rain"), 14) });
+    expect(healed.amount).toBeGreaterThan(skillPower(getSkill("healing_rain"), WILD_SKILL_MAX_LEVEL));
+  });
+
   it("water companions heal a hurt owner (once they learn it)", async () => {
     const { room, client, player } = await setup();
     await giveCompanion(room, client, player, "bubbloon", 7);
@@ -1204,6 +1237,22 @@ describe("elements and skills", () => {
     player.x -= 200;
     await ticks(room, Math.ceil((cast.castMs + cast.travelMs) / 50) + 3);
     expect(damage.filter((d) => d.skill === cast.skill)).toHaveLength(0);
+  });
+
+  it("a fighting wild pal draws its skill chance every time it is asked, even inside its skill gap (the order of Math.random draws)", async () => {
+    const { room, client, player } = await setup();
+    room.state.pals.clear();
+    const id = placeWild(room, "emberpup", player, 120);
+    const pal = room.state.pals.get(id)!;
+    const species = getSpecies(pal.speciesId);
+    const target = { kind: "player" as const, id: client.sessionId, pos: { x: player.x, y: player.y } };
+    const now = room.clock.currentTime;
+    (room as any).skillGapUntil.set(`w:${id}`, now + 60_000); // in its gap: it cannot start a skill
+    const draws = vi.spyOn(Math, "random").mockReturnValue(0);
+    expect((room as any).skills.wildSkill(id, pal, species, target, now)).toBeUndefined();
+    vi.restoreAllMocks();
+    // The draw still happens before the gap is looked at, so the server's sequence of draws is what it was before T35.
+    expect(draws).toHaveBeenCalledTimes(1);
   });
 
   it("a common wild pal's skill is no stronger than at WILD_SKILL_MAX_LEVEL, however high its level", async () => {

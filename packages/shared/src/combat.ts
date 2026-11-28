@@ -4,7 +4,8 @@ import { clamp, type Vec2 } from "./movement.ts";
 import { NAV_MAX_CLEARANCE, type NavGrid } from "./pathfind.ts";
 import type { Element, PalSpecies } from "./pals.ts";
 import { BOSS } from "./boss.ts";
-import { skillLandsWithinMs, type SkillDef } from "./skills.ts";
+import { ALPHA } from "./alphas.ts";
+import { WILD_SKILL_MAX_LEVEL, skillLandsWithinMs, type SkillDef } from "./skills.ts";
 import { scaledMaxHp } from "./progression.ts";
 import type { Reward } from "./rewards.ts";
 import type { Resource } from "./work.ts";
@@ -55,6 +56,30 @@ export const FAINT_REST_MS = 30_000;
 
 /** A wild pal crouches this long before it bites (ms): step back or dash to dodge. */
 export const WILD_WINDUP_MS = 450;
+
+/** A wild pal's chance (each tick it fights) to start a skill: common pals and the boss; pack leaders use ALPHA.skillChance. */
+export const WILD_SKILL_CHANCE = 0.06;
+
+/** Who casts, as far as how strong and how often its skills are. */
+export interface WildCaster {
+  level: number;
+  boss: boolean;
+  alpha: boolean;
+}
+
+/**
+ * The level a wild pal's skill is as strong as: the boss always BOSS.skillLevel; a pack leader its own level up to
+ * ALPHA.skillLevel; any other its own up to WILD_SKILL_MAX_LEVEL (wildSkillLevel). `caps` is only for tests: the real
+ * caps are equal today (8 and 8), so a test passes different ones to tell the branches apart.
+ */
+export function wildCastLevel(pal: WildCaster, caps: { wild: number; alpha: number; boss: number } = { wild: WILD_SKILL_MAX_LEVEL, alpha: ALPHA.skillLevel, boss: BOSS.skillLevel }): number {
+  return pal.boss ? caps.boss : pal.alpha ? Math.min(pal.level, caps.alpha) : Math.min(pal.level, caps.wild);
+}
+
+/** Whether a fighting wild pal tries a skill this tick: `random()` (in [0, 1)) at most its chance. Draws exactly once. */
+export function wildTriesSkill(pal: Pick<WildCaster, "alpha">, random: () => number): boolean {
+  return random() <= (pal.alpha ? ALPHA.skillChance : WILD_SKILL_CHANCE);
+}
 
 /**
  * The longest time (ms) any attack takes from the moment it starts (a bite or a stomp crouching, a skill casting) to

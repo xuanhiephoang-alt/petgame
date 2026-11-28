@@ -347,17 +347,17 @@ Thế giới rộng 6400×4800 px (200×150 m): một lục địa giữa biển
 | 🌋 Núi lửa | đông | nóng rực; trùm Vua Đá ở chân núi | Boulderhorn, Scorchtail |
 | 🏝️ Đảo hoang | 4 góc biển | cần 🛶 Bè gỗ để ra; nhiều rương, thú mạnh | Coralcrab |
 
-Thú càng xa điểm xuất phát càng mạnh: cấp tối đa từ 6 (gần lửa trại) đến 14 (góc bản đồ), xem `dangerAt` và `wildMaxLevel`. Cấp thấp gặp nhiều hơn cấp cao; cấp cao nhất thường gặp là 6-8 ở đồng cỏ, 9-11 ở các vùng giữa, 12-13 ở đảo (mục "Sức mạnh thú hoang theo cấp").
+Thú càng xa điểm xuất phát càng mạnh: cấp tối đa từ 6 (gần lửa trại) đến 13 (đảo hoang ở các góc biển), xem `dangerAt` và `wildMaxLevel`. Theo vùng: đồng cỏ và hồ 8, sa mạc 10, đầm lầy, núi tuyết, núi lửa 11, đảo hoang 13. `wildMaxLevel` cho tới 14, nhưng cấp 14 cần độ nguy hiểm ≥ 0,9375, mà đất xa nhất chỉ 0,908 (đảo tây bắc, quanh (256, 240)). Cấp thấp gặp nhiều hơn cấp cao; cấp cao nhất thường gặp là 6-8 ở đồng cỏ, 9-11 ở các vùng giữa, 12-13 ở đảo (mục "Sức mạnh thú hoang theo cấp").
 40 rương báu đặt cố định theo seed (`layout.chests`), tự mở khi đi tới gần, mở lại sau 3 phút; rương ở xa có nhiều đồ hơn.
 Chuỗi 17 nhiệm vụ dẫn người chơi đi qua mọi vùng (cuối cùng là hạ trùm rồi một thú đầu đàn): `packages/shared/src/quests.ts`.
 
 ## Sức mạnh thú hoang theo cấp
 
-Đặt ra ở nhiệm vụ T7. Số liệu: `combat.ts` (`wildDamage`, `WILD_DAMAGE_PER_LEVEL`), `skills.ts` (`WILD_SKILL_MAX_LEVEL`, `wildSkillLevel`), `progression.ts` (`scaledMaxHp`). "Thú hoang thường" là thú hoang không phải thú đầu đàn hay trùm.
+Đặt ra ở nhiệm vụ T7. Số liệu: `combat.ts` (`wildDamage`, `WILD_DAMAGE_PER_LEVEL`), `skills.ts` (`WILD_SKILL_MAX_LEVEL`, `wildSkillLevel`), `combat.ts` (`wildCastLevel`, `wildTriesSkill`, `WILD_SKILL_CHANCE`), `progression.ts` (`scaledMaxHp`). "Thú hoang thường" là thú hoang không phải thú đầu đàn hay trùm.
 
 Mỗi cấp trên 1, thú hoang thường được thêm:
 - 20% máu;
-- 8% sức cắn (cấp 14 cắn gấp khoảng 2 lần cấp 1);
+- 8% sức cắn (cấp 13, cao nhất gặp được, cắn gấp 1,96 lần cấp 1);
 - 12% sức chiêu, nhưng chỉ tới cấp 8 (×1,84), kể cả chiêu hồi máu.
 
 **Vì sao:**
@@ -366,8 +366,8 @@ Mỗi cấp trên 1, thú hoang thường được thêm:
 - Cú cắn chiếm khoảng 80% sát thương thú hoang gây ra (1 lần mỗi 1,2 giây; chiêu khoảng 1 lần mỗi 6-7 giây), nên đường cắn là nút chỉnh chính. Giới hạn chiêu chặn những cú nổ lớn một lần.
 
 **Luật 1/3:** đòn mạnh nhất của một thú hoang thường (cú cắn hoặc chiêu, chưa tính giáp) nhỏ hơn 1/3 máu người chơi. Nghĩa là người chơi đầy máu phải trúng ít nhất 4 đòn mới bị hạ.
-- Hiện tại: chiêu mạnh nhất 33 (Động đất của Boulderhorn từ cấp 8), cú cắn mạnh nhất 20 (Boulderhorn, Coralcrab cấp 14).
-- Unit test giữ luật này cho mọi loài ở mọi cấp thú hoang có thể có.
+- Hiện tại: chiêu mạnh nhất 33 (Động đất của Boulderhorn từ cấp 8), cú cắn mạnh nhất 20 (Coralcrab cấp 13 ở đảo hoang; Boulderhorn tối đa cấp 11, cắn 18).
+- Unit test giữ luật này cho mọi loài ở mọi cấp tới 14 (`wildMaxLevel(1)`), chặt hơn cấp 13 gặp được.
 - Thú đầu đàn và trùm không theo luật này.
 
 **Thời gian trụ** của người đứng yên, không đánh lại, trước thú ở cấp cao nhất thường gặp của vùng (giây, mô phỏng):
@@ -380,7 +380,7 @@ Mỗi cấp trên 1, thú hoang thường được thêm:
 | ❄️ Núi tuyết, Frostfang 11 | 5,3 | 8,1 | 3,4 |
 | 🏝️ Đảo hoang, Coralcrab 13 | 5,1 | 6,9 | 3,3 |
 
-- Trước T7 (cắn +15% mỗi cấp, chiêu theo đúng cấp) các số này ngắn hơn 20-65%, ví dụ đảo hoang 3,1 / 5,1 / 2,4 giây.
+- Trước T7 (cắn +15% mỗi cấp, chiêu theo đúng cấp) các số này ngắn hơn từ 1,5% (đồng cỏ, 2 thú: 6,5 so với 6,6 giây) đến 39% (đảo hoang, 1 thú không giáp: 3,1 so với 5,1 giây); số trước T7 lấy từ `BALANCE.md` của T7. Ví dụ đảo hoang 3,1 / 5,1 / 2,4 giây.
 - Một thú hoang không còn đe doạ người có vũ khí và thú đi theo.
 - Hai thú cấp cao vẫn hạ người đứng yên trong khoảng 3 giây: phải lướt né.
 - Ba thú cùng lúc vẫn hạ người không giáp trong chưa tới 2 giây. Chuyện này hiếm, vì chỉ Boulderhorn và Scorchtail chủ động tấn công.
